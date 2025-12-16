@@ -19,20 +19,12 @@ const COMPONENT_DISPLAY_NAMES = {
  * @returns Object with title and subtitle strings
  */
 export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
-  const miningStatus = useMinerStore((state) => state.minerStatus.miningStatus);
   const errors = useMinerStore((state) => state.minerStatus.errors.errors);
   const groupedErrors = useGroupedErrors();
-  const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
 
   return useMemo(() => {
-    if (isSleeping) {
-      return {
-        title: "Miner is asleep",
-        subtitle: "Wake your miner to start hashing again",
-      };
-    }
-
     // Check for any errors (treat all equally)
+    // Note: MinerStatusModalContent will handle showing "Miner is asleep" title when isSleeping is true
     if (errors.length === 0) {
       return {
         title: "All systems are operational",
@@ -91,5 +83,5 @@ export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
       title: "Your miner is not functioning properly",
       subtitle: "Check diagnostics for details",
     };
-  }, [errors, groupedErrors, isSleeping]);
+  }, [errors, groupedErrors]);
 };

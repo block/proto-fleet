@@ -1,3 +1,4 @@
+import { timestampMs } from "@bufbuild/protobuf/wkt";
 import type { SegmentConfig, SegmentedBarChartData, StatusCount } from "./types";
 
 /**
@@ -107,7 +108,7 @@ export const findDataPointBefore = (data: StatusCount[], timestamp: number): Sta
   let bestPoint: StatusCount | null = null;
 
   for (const point of data) {
-    const pointTime = point.timestamp ? Number(point.timestamp.seconds) * 1000 + point.timestamp.nanos / 1000000 : 0;
+    const pointTime = point.timestamp ? timestampMs(point.timestamp) : 0;
 
     if (pointTime <= timestamp) {
       bestPoint = point;
@@ -144,8 +145,8 @@ export const processChartData = (
 
   // Sort data by timestamp
   const sortedData = [...data].sort((a, b) => {
-    const timeA = a.timestamp ? Number(a.timestamp.seconds) : 0;
-    const timeB = b.timestamp ? Number(b.timestamp.seconds) : 0;
+    const timeA = a.timestamp ? timestampMs(a.timestamp) : 0;
+    const timeB = b.timestamp ? timestampMs(b.timestamp) : 0;
     return timeA - timeB;
   });
 
@@ -263,11 +264,13 @@ export const processMultiDayChartData = (
   }
 
   // Sort data by timestamp
-  const sortedData = [...data].sort((a, b) => {
-    const timeA = a.timestamp ? Number(a.timestamp.seconds) : 0;
-    const timeB = b.timestamp ? Number(b.timestamp.seconds) : 0;
-    return timeA - timeB;
-  });
+  const sortedData = data
+    ? [...data].sort((a, b) => {
+        const timeA = a.timestamp ? timestampMs(a.timestamp) : 0;
+        const timeB = b.timestamp ? timestampMs(b.timestamp) : 0;
+        return timeA - timeB;
+      })
+    : [];
 
   // Process each day's intervals
   for (let dayIndex = 0; dayIndex < dayIntervals.length; dayIndex++) {

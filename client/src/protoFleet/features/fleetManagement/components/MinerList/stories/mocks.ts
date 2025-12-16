@@ -1,6 +1,5 @@
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
-  ComponentStatus,
   DeviceStatus,
   type MinerStateSnapshot,
   PairingStatus,
@@ -56,12 +55,6 @@ export const miners: MinerStateSnapshot[] = [
         value: 65.5,
       } as Measurement,
     ],
-    status: {
-      hashBoards: ComponentStatus.OK,
-      psu: ComponentStatus.OK,
-      fans: ComponentStatus.OK,
-      controlBoard: ComponentStatus.OK,
-    } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
   },
@@ -113,12 +106,6 @@ export const miners: MinerStateSnapshot[] = [
         value: 65.5,
       } as Measurement,
     ],
-    status: {
-      hashBoards: ComponentStatus.WARNING,
-      psu: ComponentStatus.OK,
-      fans: ComponentStatus.OK,
-      controlBoard: ComponentStatus.OK,
-    } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
   },
@@ -170,12 +157,6 @@ export const miners: MinerStateSnapshot[] = [
         value: 65.5,
       } as Measurement,
     ],
-    status: {
-      hashBoards: ComponentStatus.OK,
-      psu: ComponentStatus.OK,
-      fans: ComponentStatus.OK,
-      controlBoard: ComponentStatus.OK,
-    } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
   },
@@ -227,12 +208,6 @@ export const miners: MinerStateSnapshot[] = [
         value: 65.5,
       } as Measurement,
     ],
-    status: {
-      hashBoards: ComponentStatus.OK,
-      psu: ComponentStatus.OK,
-      fans: ComponentStatus.OK,
-      controlBoard: ComponentStatus.OK,
-    } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
   },

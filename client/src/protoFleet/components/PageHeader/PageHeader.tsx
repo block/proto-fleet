@@ -1,6 +1,5 @@
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
-import AlertStatus from "./AlertStatus";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -20,7 +19,6 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
 
   return (
     <div className={clsx("flex space-x-3", className)}>
-      <AlertStatus />
       {dismissedSetup && (
         <Button variant={variants.secondary} size={sizes.compact} text="Continue setup" onClick={handleCompleteSetup} />
       )}

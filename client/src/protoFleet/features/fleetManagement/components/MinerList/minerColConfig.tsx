@@ -5,7 +5,7 @@ import MinerIpAddress from "./MinerIpAddress";
 import MinerMacAddress from "./MinerMacAddress";
 import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
-import MinerStatus from "./MinerStatus";
+import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
 import { type DeviceListItem } from "./types";
 import { type ColConfig } from "@/shared/components/List/types";
@@ -25,7 +25,7 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
   },
   [minerCols.status]: {
     component: (device: DeviceListItem, selectedItems: string[]) => (
-      <MinerStatus deviceIdentifier={device.deviceIdentifier} selectedItems={selectedItems} />
+      <MinerStatusCell deviceIdentifier={device.deviceIdentifier} selectedItems={selectedItems} />
     ),
     width: "min-w-74",
   },

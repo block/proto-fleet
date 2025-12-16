@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "common/v1/measurement.proto";
 import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
+import "errors/v1/errors.proto";
 import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
@@ -72,77 +73,39 @@ message MinerStateSnapshot {
   // Contains either a single current value or a time series based on request parameters
   repeated common.v1.Measurement efficiency = 8;
 
-  // Health status of various miner components
-  // Represents the current status regardless of whether time series data is requested
-  MinerComponentStatus status = 9;
-
   // Timestamp when this snapshot was captured
   // For time series data, this represents when the most recent data was collected
-  google.protobuf.Timestamp  timestamp = 10;
+  google.protobuf.Timestamp  timestamp = 9;
 
-  string ip_address = 11;
+  string ip_address = 10;
 
   // The full url of the miner including protocol and port (if running on a port other than 80/443)
-  string url = 12;
+  string url = 11;
 
   // Current operational status of the device
-  DeviceStatus device_status = 13;
+  DeviceStatus device_status = 12;
 
   // Pairing status of the device
-  PairingStatus pairing_status = 14;
+  PairingStatus pairing_status = 13;
 
   // Device model name (populated for unpaired devices)
-  string model = 15;
+  string model = 14;
 
   // Manufacturer name (populated for unpaired devices)
-  string manufacturer = 16;
+  string manufacturer = 15;
 
   // Device type (e.g., antminer, proto)
-  string type = 17;
+  string type = 16;
 
   // Device capabilities indicating supported features (populated for unpaired devices)
-  capabilities.v1.MinerCapabilities capabilities = 18;
+  capabilities.v1.MinerCapabilities capabilities = 17;
 
   // Temperature status based on current temperature value
-  telemetry.v1.TemperatureStatus temperature_status = 19;
+  telemetry.v1.TemperatureStatus temperature_status = 18;
 
 }
 
-// Status information for all major components in a miner
-message MinerComponentStatus {
-  // Status of the control board/controller
-  ComponentStatus control_board = 1;
-
-  // Status of the cooling fans (aggregate status)
-  ComponentStatus fans = 2;
-
-  // Status of the hash boards (aggregate status)
-  ComponentStatus hash_boards = 3;
-
-  // Status of the power supply unit
-  ComponentStatus psu = 4;
-}
-
-// Operational status of a miner component
-enum ComponentStatus {
-  // Status is unknown or not specified
-  COMPONENT_STATUS_UNSPECIFIED = 0;
-
-  // Component is functioning normally
-  COMPONENT_STATUS_OK = 1;
-
-  // Component is functioning but with issues that require attention
-  COMPONENT_STATUS_WARNING = 2;
-
-  // Component has critical issues affecting operation
-  COMPONENT_STATUS_ERROR = 3;
-
-  // Component is not responding or powered off
-  COMPONENT_STATUS_OFFLINE = 4;
-
-  // Component is in a transitional state (firmware updating, pairing, etc.)
-  COMPONENT_STATUS_PENDING = 5;
-}
+// Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
 
 // Status of a miner
 enum DeviceStatus {
@@ -216,11 +179,7 @@ message ListMinerStateSnapshotsRequest {
   string cursor = 2;
 
   // Filter criteria for the miners to return
-  MinerListFilter filter = 6;
-
-  // Reserved field numbers for removed fields (data_mode, time_series_config, measurement_configs)
-  reserved 3, 4, 5;
-  reserved "data_mode", "time_series_config", "measurement_configs";
+  MinerListFilter filter = 3;
 }
 
 // Determines whether to return current snapshot or historical time series data
@@ -271,24 +230,7 @@ enum PairingStatus {
   PAIRING_STATUS_FAILED = 5;
 }
 
-// Component type for filtering
-enum ComponentType {
-  COMPONENT_TYPE_UNSPECIFIED = 0;
-  COMPONENT_TYPE_CONTROL_BOARD = 1;
-  COMPONENT_TYPE_FANS = 2;
-  COMPONENT_TYPE_HASH_BOARDS = 3;
-  COMPONENT_TYPE_PSU = 4;
-}
-
-// Filter for a specific component with one or more statuses
-message ComponentStatusFilter {
-  // The component to filter by
-  ComponentType component = 1;
-
-  // One or more statuses to filter by (acts as OR condition)
-  // Returns miners where the specified component has any of these statuses
-  repeated ComponentStatus statuses = 2;
-}
+// Removed ComponentType enum and ComponentStatusFilter - now using errors.v1.ComponentType directly
 
 // Filter criteria for miners
 // Multiple filters act as AND condition (all must match)
@@ -297,12 +239,10 @@ message MinerListFilter {
   // Returns miners that match any of the specified device statuses
   repeated DeviceStatus device_status = 3;
 
-  // Filter by specific component statuses
-  // Multiple component filters act as AND condition (all must match)
-  // Within each component filter, statuses act as OR condition
-  // Example: To find miners with fans in WARNING or ERROR status AND hash_boards in ERROR status,
-  // provide two ComponentStatusFilter entries
-  repeated ComponentStatusFilter component_filters = 4;
+  // Filter by component types that have errors (acts as OR condition)
+  // Returns miners that have errors for any of the specified component types
+  // Uses ComponentType from errors.v1 package
+  repeated errors.v1.ComponentType error_component_types = 4;
 
   // Filter by miner types (acts as OR condition)
   // Returns miners that match any of the specified types
@@ -387,14 +327,11 @@ message StreamMinerUpdatesResponse {
     // New measurement value
     MeasurementUpdate measurement = 3;
 
-    // Component status change
-    ComponentStatusUpdate status = 4;
-
     // Heartbeat to keep connection alive (no data)
-    Heartbeat heartbeat = 5;
+    Heartbeat heartbeat = 4;
 
     // Device status update
-    DeviceStatusUpdate device_status = 6;
+    DeviceStatusUpdate device_status = 5;
   }
 }
 
@@ -406,22 +343,6 @@ message MeasurementUpdate {
   common.v1.Measurement measurement = 2;
 }
 
-message ComponentStatusUpdate {
-  // The component that changed status
-  enum Component {
-    COMPONENT_UNSPECIFIED = 0;
-    COMPONENT_CONTROL_BOARD = 1;
-    COMPONENT_FANS = 2;
-    COMPONENT_HASH_BOARDS = 3;
-    COMPONENT_PSU = 4;
-  }
-
-  // Which component changed
-  Component component = 1;
-
-  // New status of the component
-  ComponentStatus status = 2;
-}
 
 message Heartbeat {
   // Empty message for heartbeat
@@ -534,12 +455,9 @@ message MinerTelemetry {
   // Energy efficiency measurements in joules per terahash (j/TH)
   repeated common.v1.Measurement efficiency = 5;
 
-  // Health status of various miner components
-  MinerComponentStatus status = 6;
-
   // Timestamp when this telemetry was captured
-  google.protobuf.Timestamp timestamp = 7;
+  google.protobuf.Timestamp timestamp = 6;
 
   // Current operational status of the device
-  DeviceStatus device_status = 8;
+  DeviceStatus device_status = 7;
 }

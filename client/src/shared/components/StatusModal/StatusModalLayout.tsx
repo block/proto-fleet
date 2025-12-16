@@ -1,5 +1,8 @@
 import { ReactNode } from "react";
 import ErrorRow from "./ErrorRow";
+import { Alert } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import Divider from "@/shared/components/Divider";
 
 export interface StatusModalLayoutError {
   key: string;
@@ -15,6 +18,10 @@ export interface StatusModalLayoutProps {
   title: string | ReactNode;
   subtitle?: string | ReactNode;
 
+  // Secondary title - shown above errors list (e.g. when miner is asleep with errors)
+  secondaryTitle?: string | ReactNode;
+  secondarySubtitle?: string | ReactNode;
+
   // Errors section (optional)
   errors?: StatusModalLayoutError[];
 
@@ -26,7 +33,15 @@ export interface StatusModalLayoutProps {
  * Shared layout component for status modals
  * Provides consistent structure for both MinerStatusModal and ComponentStatusModal
  */
-const StatusModalLayout = ({ icon, title, subtitle, errors, children }: StatusModalLayoutProps) => {
+const StatusModalLayout = ({
+  icon,
+  title,
+  subtitle,
+  secondaryTitle,
+  secondarySubtitle,
+  errors,
+  children,
+}: StatusModalLayoutProps) => {
   return (
     <div className="space-y-6">
       {/* Header section - always rendered consistently */}
@@ -36,9 +51,23 @@ const StatusModalLayout = ({ icon, title, subtitle, errors, children }: StatusMo
         {subtitle && <div className="text-300 text-text-primary-50">{subtitle}</div>}
       </div>
 
+      {/* Divider and secondary title when miner is asleep with errors */}
+      {secondaryTitle && (
+        <>
+          <Divider />
+          {/* Secondary section - identical structure to header section */}
+          <div className="flex flex-col gap-2">
+            <Alert className="text-text-critical" width={iconSizes.xLarge} />
+            <div className="text-heading-300 text-text-primary">{secondaryTitle}</div>
+            {secondarySubtitle && <div className="text-300 text-text-primary-50">{secondarySubtitle}</div>}
+          </div>
+        </>
+      )}
+
       {/* Error list section */}
       {errors && errors.length > 0 && (
         <div>
+          {/* Error rows */}
           <div className="flex flex-col">
             {errors.map((error, index) => (
               <ErrorRow

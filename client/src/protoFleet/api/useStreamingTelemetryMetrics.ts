@@ -10,6 +10,7 @@ import {
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors } from "@/protoFleet/store";
+import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 interface StreamingOptions {
   deviceIds: string[];
@@ -41,6 +42,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
   const stopStreaming = useCallback(() => {
     if (abortController.current) {
       abortController.current.abort();
+      streamCleanupManager.unregister(abortController.current);
       abortController.current = null;
     }
     setIsStreaming(false);
@@ -50,6 +52,8 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
     if (!stableOptions.enabled) return;
 
     abortController.current = new AbortController();
+    // Register with cleanup manager for page unload handling
+    streamCleanupManager.register(abortController.current);
     setIsStreaming(true);
 
     let deviceSelector = create(DeviceSelectorSchema);

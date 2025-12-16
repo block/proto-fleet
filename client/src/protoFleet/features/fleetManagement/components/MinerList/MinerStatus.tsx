@@ -1,91 +1,59 @@
 import { ReactNode, useMemo } from "react";
-import { create } from "@bufbuild/protobuf";
-import {
-  ComponentStatus,
-  type MinerComponentStatus,
-  MinerComponentStatusSchema,
-  PairingStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useMiner, useMinerComponentStatus, useMinerDeviceStatus } from "@/protoFleet/store";
+import { SUPPORTED_COMPONENT_TYPES } from "@/protoFleet/components/StatusModal/constants";
+import { useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 type MinerStatusProps = {
   deviceIdentifier: string;
   selectedItems?: string[];
+  onClick?: () => void;
 };
 
-type ComponentStatusKeys = keyof Omit<MinerComponentStatus, "$typeName" | "$unknown">;
-
-function getComponentStatus(component: ComponentStatusKeys, statusType: "error" | "warning"): ReactNode {
-  const componentStatusMap = {
-    controlBoard: (
-      <>
-        <ControlBoard width="w-4" />
-        Control Board {statusType === "error" ? "Failure" : "Warning"}
-      </>
-    ),
-    hashBoards: (
-      <>
-        <Hashboard width="w-4" />
-        Hashboard {statusType === "error" ? "Failure" : "Warning"}
-      </>
-    ),
-    fans: (
-      <>
-        <Fan width="w-4" />
-        Fan {statusType === "error" ? "Failure" : "Warning"}
-      </>
-    ),
-    psu: (
-      <>
-        <LightningAlt width="w-4" />
-        Power {statusType === "error" ? "Failure" : "Warning"}
-      </>
-    ),
-  };
-
-  return componentStatusMap[component];
+// Get icon for a specific error component type
+function getComponentIcon(componentType: ErrorComponentType): ReactNode {
+  switch (componentType) {
+    case ErrorComponentType.CONTROL_BOARD:
+      return <ControlBoard width="w-4" />;
+    case ErrorComponentType.HASH_BOARD:
+      return <Hashboard width="w-4" />;
+    case ErrorComponentType.FAN:
+      return <Fan width="w-4" />;
+    case ErrorComponentType.PSU:
+      return <LightningAlt width="w-4" />;
+    default:
+      return <Alert width="w-4" />;
+  }
 }
 
-const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
+// Get display text for a component type
+function getComponentDisplayText(componentType: ErrorComponentType, statusType: "error" | "warning"): string {
+  const suffix = statusType === "error" ? "Failure" : "Warning";
+  switch (componentType) {
+    case ErrorComponentType.CONTROL_BOARD:
+      return `Control Board ${suffix}`;
+    case ErrorComponentType.HASH_BOARD:
+      return `Hashboard ${suffix}`;
+    case ErrorComponentType.FAN:
+      return `Fan ${suffix}`;
+    case ErrorComponentType.PSU:
+      return `Power ${suffix}`;
+    default:
+      return statusType === "error" ? "Device Error" : "Device Warning";
+  }
+}
+
+const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
   const authenticationNeeded = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const componentStatusFromStore = useMinerComponentStatus(deviceIdentifier || "");
-  const componentStatus = useMemo(
-    () =>
-      componentStatusFromStore ||
-      create(MinerComponentStatusSchema, {
-        hashBoards: ComponentStatus.UNSPECIFIED,
-        controlBoard: ComponentStatus.UNSPECIFIED,
-        fans: ComponentStatus.UNSPECIFIED,
-        psu: ComponentStatus.UNSPECIFIED,
-      }),
-    [componentStatusFromStore],
-  );
-
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
+  const errorStatus = miner?.errorStatus;
 
   const status = useMemo(() => {
-    if (authenticationNeeded) {
-      return (
-        <>
-          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
-          Needs Authentication
-        </>
-      );
-    }
-
-    if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
-      return (
-        <>
-          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
-          Offline
-        </>
-      );
-    }
-
+    // Priority 1: Device inactive (Sleeping)
     if (deviceStatusFromStore === DeviceStatus.INACTIVE) {
       return (
         <>
@@ -95,64 +63,76 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
       );
     }
 
-    // prioritize showing errors over warnings
-    // TODO: determine status with comingled errors and warnings
-    const componentErrors = Object.entries(componentStatus).reduce((acc, [key, value]) => {
-      if (value === ComponentStatus.ERROR) {
-        acc.push(key as ComponentStatusKeys);
+    // Priority 2: Device offline
+    if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
+      return (
+        <>
+          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
+          Offline
+        </>
+      );
+    }
+
+    // Priority 3: Authentication needed
+    if (authenticationNeeded) {
+      return (
+        <>
+          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
+          Needs Authentication
+        </>
+      );
+    }
+
+    // Priority 4: Error status from errors API (only for supported component types)
+    if (errorStatus && errorStatus.errors && errorStatus.errors.length > 0) {
+      // Analyze component types from errors, filtering for supported types only
+      const componentTypes = new Set<ErrorComponentType>();
+      let hasSupportedErrors = false;
+
+      errorStatus.errors.forEach((error) => {
+        // Use componentType directly from error
+        if (error.componentType && SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
+          componentTypes.add(error.componentType);
+          hasSupportedErrors = true;
+        }
+      });
+
+      // Only show error status if we have supported component errors
+      if (hasSupportedErrors) {
+        // Determine icon based on component types
+        let icon: ReactNode;
+        let displayText: string;
+
+        if (componentTypes.size === 1) {
+          // All errors are from the same component type - show specific icon
+          const componentType = Array.from(componentTypes)[0];
+          icon = getComponentIcon(componentType);
+
+          // Use condensed summary if available, otherwise use component-specific text
+          displayText = errorStatus.summary?.condensed || getComponentDisplayText(componentType, "error");
+        } else if (componentTypes.size > 1) {
+          // Multiple component types - show generic alert icon
+          icon = <Alert width="w-4" />;
+          displayText = errorStatus.summary?.condensed || "Device Error";
+        } else {
+          // No supported component types specified in errors
+          icon = <Alert width="w-4" />;
+          displayText = errorStatus.summary?.condensed || "Device Error";
+        }
+
+        return (
+          <>
+            <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
+            {icon}
+            {displayText}
+          </>
+        );
       }
-      return acc;
-    }, [] as ComponentStatusKeys[]);
-
-    // if theres exactly one error, display component name and icon
-    if (componentErrors.length === 1) {
-      return (
-        <>
-          <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
-          {getComponentStatus(componentErrors[0], "error")}
-        </>
-      );
+      // If we only have unsupported errors (EEPROM, IO_MODULE), fall through to show "Hashing"
     }
 
-    // if there are multiple errors, display a generic error message
-    if (componentErrors.length > 1) {
-      return (
-        <>
-          <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
-          <Alert width="w-4" />
-          Multiple Failures
-        </>
-      );
-    }
-
-    // if there are no errors, check for warnings
-    const componentWarnings = Object.entries(componentStatus).reduce((acc, [key, value]) => {
-      if (value === ComponentStatus.WARNING) {
-        acc.push(key as ComponentStatusKeys);
-      }
-      return acc;
-    }, [] as ComponentStatusKeys[]);
-
-    // if theres exactly one warning, display component name and icon
-    if (componentWarnings.length === 1) {
-      return (
-        <>
-          <StatusCircle status={statuses.warning} variant="simple" width="w-[6px]" />
-          {getComponentStatus(componentWarnings[0], "warning")}
-        </>
-      );
-    }
-
-    // if there are multiple warnings, display a generic error message
-    if (componentWarnings.length > 1) {
-      return (
-        <>
-          <StatusCircle status={statuses.warning} variant="simple" width="w-[6px]" />
-          <Alert width="w-4" />
-          Multiple Warnings
-        </>
-      );
-    }
+    // Note: Component status is now exclusively tracked via the errors API above.
+    // The old ComponentStatus/MinerComponentStatus types have been removed from the proto definitions.
 
     return (
       <>
@@ -160,9 +140,23 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
         Hashing
       </>
     );
-  }, [authenticationNeeded, deviceStatusFromStore, componentStatus]);
+  }, [authenticationNeeded, deviceStatusFromStore, errorStatus]);
 
-  return <div className="flex items-center gap-1">{status}</div>;
+  // Determine if the status should be clickable
+  // Clickable: All states except "Needs Authentication" (which has a different flow)
+  // This includes: Hashing, Error states, Warning states, Sleeping, Offline
+  // Special case: Sleeping status is always clickable even if authentication is needed
+  const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
+  const isClickable = onClick && (!authenticationNeeded || isSleeping);
+
+  return (
+    <div
+      className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
+      onClick={isClickable ? onClick : undefined}
+    >
+      {status}
+    </div>
+  );
 };
 
 export default MinerStatus;

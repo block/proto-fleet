@@ -9,6 +9,7 @@ import {
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
+import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 type UseStreamMinerListUpdatesOptions = {
   filter?: MinerListFilter;
@@ -61,6 +62,9 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    // Register with cleanup manager for page unload handling
+    streamCleanupManager.register(controller);
 
     setIsLoading(true);
     setError(null);
@@ -169,6 +173,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+        streamCleanupManager.unregister(abortControllerRef.current);
         abortControllerRef.current = null;
       }
     };

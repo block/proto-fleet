@@ -242,9 +242,9 @@ ORDER BY ds.status_timestamp DESC
 LIMIT ?;
 
 -- name: ListMinerStateSnapshots :many
--- Uses a subquery to calculate pairing_status once, then filters on it
--- This keeps all pairing status logic in one place (the CASE statement)
-SELECT
+-- Unified query that supports all filters including component error filtering
+-- Uses LEFT JOIN with errors table to support filtering by component types when needed
+SELECT DISTINCT
     device_identifier,
     mac_address,
     serial_number,
@@ -282,13 +282,21 @@ FROM (
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
             ELSE 'UNPAIRED'
-        END as pairing_status
+        END as pairing_status,
+        e.id as error_id
     FROM discovered_device dd
     LEFT JOIN device d ON dd.id = d.discovered_device_id
         AND d.deleted_at IS NULL
         AND d.org_id = sqlc.arg('org_id')
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Always include errors join to support component type filtering
+    LEFT JOIN errors e ON d.id = e.device_id
+        AND e.closed_at IS NULL
+        AND (
+            sqlc.narg('error_component_types_filter') IS NULL
+            OR e.component_type IN (sqlc.slice('error_component_type_values'))
+        )
     WHERE dd.org_id = sqlc.arg('org_id')
         AND dd.is_active = TRUE
         AND dd.deleted_at IS NULL
@@ -307,6 +315,11 @@ FROM (
             sqlc.narg('type_filter') IS NULL
             OR dd.type IN (sqlc.slice('type_values'))
         )
+        -- Component error filter - only include devices with matching errors when filter is provided
+        AND (
+            sqlc.narg('error_component_types_filter') IS NULL
+            OR e.id IS NOT NULL
+        )
 ) AS devices_with_status
 WHERE
     -- Pairing status filter - if no filter provided (NULL), return all
@@ -317,11 +330,14 @@ WHERE
 ORDER BY cursor_id
 LIMIT ?;
 
+
 -- name: GetTotalMinerStateSnapshots :one
--- Uses same subquery pattern as ListMinerStateSnapshots for consistency
-SELECT COUNT(*) as total
+-- Unified query that supports all filters including component error filtering
+-- Uses same structure as ListMinerStateSnapshots for consistency
+SELECT COUNT(DISTINCT device_id) as total
 FROM (
     SELECT
+        dd.id as device_id,
         CASE
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
@@ -335,6 +351,13 @@ FROM (
         AND d.org_id = sqlc.arg('org_id')
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Always include errors join to support component type filtering
+    LEFT JOIN errors e ON d.id = e.device_id
+        AND e.closed_at IS NULL
+        AND (
+            sqlc.narg('error_component_types_filter') IS NULL
+            OR e.component_type IN (sqlc.slice('error_component_type_values'))
+        )
     WHERE dd.org_id = sqlc.arg('org_id')
         AND dd.is_active = TRUE
         AND dd.deleted_at IS NULL
@@ -347,6 +370,11 @@ FROM (
         AND (
             sqlc.narg('type_filter') IS NULL
             OR dd.type IN (sqlc.slice('type_values'))
+        )
+        -- Component error filter - only include devices with matching errors when filter is provided
+        AND (
+            sqlc.narg('error_component_types_filter') IS NULL
+            OR e.id IS NOT NULL
         )
 ) AS devices_with_status
 WHERE

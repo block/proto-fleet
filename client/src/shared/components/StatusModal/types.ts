@@ -52,7 +52,7 @@ export interface ComponentMetadata {
 
 // Props for the ComponentStatusModal
 export interface ComponentStatusModalProps {
-  summary: string; // e.g., "Hashboard 3 has multiple errors"
+  summary?: string; // e.g., "Hashboard 3 has multiple errors"
   componentType: ComponentType;
   errors: ErrorData[];
   metrics?: ComponentMetric[];

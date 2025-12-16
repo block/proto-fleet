@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import type { MinerStateSnapshot } from "../slices/fleetSlice";
 import { useFleetStore } from "../useFleetStore";
 
 // =============================================================================
@@ -30,9 +31,6 @@ export const useMinerMacAddress = (deviceId: string) =>
 
 export const useMinerIpAddress = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.ipAddress);
-
-export const useMinerComponentStatus = (deviceId: string) =>
-  useFleetStore((state) => state.fleet.miners[deviceId]?.status);
 
 export const useMinerDeviceStatus = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.deviceStatus);
@@ -99,6 +97,27 @@ export const useMinerTemperature = (deviceId: string) =>
 
 export const useMinerUrl = (deviceId: string) => useFleetStore((state) => state.fleet.miners[deviceId]?.url);
 
+/**
+ * Hook to get device errors from the store
+ * @param deviceId The device identifier to get errors for
+ * @returns The error status for the device
+ */
+export const useDeviceErrors = (deviceId: string) => {
+  return useFleetStore((state) => {
+    const miner = state.fleet.miners[deviceId];
+    return miner?.errorStatus;
+  });
+};
+
+/**
+ * Hook to get miner data from the store
+ * @param deviceId The device identifier
+ * @returns The miner state snapshot
+ */
+export const useMinerData = (deviceId: string): MinerStateSnapshot | undefined => {
+  return useFleetStore((state) => state.fleet.miners[deviceId]);
+};
+
 // =============================================================================
 // Fleet Action Selectors
 // =============================================================================
@@ -116,8 +135,6 @@ export const useSetRefetchCallback = () => useFleetStore((state) => state.fleet.
 export const useUpdateMinerMeasurement = () => useFleetStore((state) => state.fleet.updateMinerMeasurement);
 
 export const useUpdateMinerTelemetry = () => useFleetStore((state) => state.fleet.updateMinerTelemetry);
-
-export const useUpdateMinerComponentStatus = () => useFleetStore((state) => state.fleet.updateMinerComponentStatus);
 
 export const useUpdateMinerDeviceStatus = () => useFleetStore((state) => state.fleet.updateMinerDeviceStatus);
 

@@ -5,7 +5,39 @@ import (
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// ============================================================================
+// Enum Mapping Functions
+// ============================================================================
+
+// convertComponentTypeProtoToDomain converts a proto ComponentType to domain ComponentType.
+// ComponentType needs mapping because the domain only supports a subset of proto values.
+func convertComponentTypeProtoToDomain(proto errorsv1.ComponentType) models.ComponentType {
+	// Map only supported component types; unsupported types map to unspecified
+	switch proto {
+	case errorsv1.ComponentType_COMPONENT_TYPE_PSU:
+		return models.ComponentTypePSU
+	case errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD:
+		return models.ComponentTypeHashBoards
+	case errorsv1.ComponentType_COMPONENT_TYPE_FAN:
+		return models.ComponentTypeFans
+	case errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
+		return models.ComponentTypeControlBoard
+	case errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED,
+		errorsv1.ComponentType_COMPONENT_TYPE_EEPROM,
+		errorsv1.ComponentType_COMPONENT_TYPE_IO_MODULE:
+		return models.ComponentTypeUnspecified
+	}
+	return models.ComponentTypeUnspecified
+}
+
+// convertComponentTypeDomainToProto converts a domain ComponentType to proto ComponentType.
+func convertComponentTypeDomainToProto(domain models.ComponentType) errorsv1.ComponentType {
+	// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
+	return errorsv1.ComponentType(domain)
+}
 
 // ============================================================================
 // Proto → Domain Conversions
@@ -52,17 +84,16 @@ func convertFilterToDomain(filter *errorsv1.Filter) *models.QueryFilter {
 		domainFilter.ComponentIDs = simple.GetComponentIds()
 
 		for _, ct := range simple.GetComponentTypes() {
-			// #nosec G115 -- ComponentType enum bounded (max 6), safe for uint
-			domainFilter.ComponentTypes = append(domainFilter.ComponentTypes, models.ComponentType(ct))
+			domainFilter.ComponentTypes = append(domainFilter.ComponentTypes, convertComponentTypeProtoToDomain(ct))
 		}
 
 		for _, me := range simple.GetCanonicalErrors() {
-			// #nosec G115 -- MinerError enum bounded by protobuf (max ~9000), safe for uint
+			// #nosec G115 -- MinerError enum bounded (max ~9000), safe for uint
 			domainFilter.MinerErrors = append(domainFilter.MinerErrors, models.MinerError(me))
 		}
 
 		for _, sev := range simple.GetSeverities() {
-			// #nosec G115 -- Severity enum bounded (max 4), safe for uint
+			// #nosec G115 -- Severity enum bounded (0-4), safe for uint
 			domainFilter.Severities = append(domainFilter.Severities, models.Severity(sev))
 		}
 	}
@@ -115,6 +146,34 @@ func convertErrorMessagesToProto(errors []models.ErrorMessage) []*errorsv1.Error
 	return result
 }
 
+// convertDomainErrorToProto converts a domain ErrorMessage to protobuf ErrorMessage.
+func convertDomainErrorToProto(domainErr *models.ErrorMessage) *errorsv1.ErrorMessage {
+	msg := &errorsv1.ErrorMessage{
+		ErrorId:           domainErr.ErrorID,
+		CanonicalError:    errorsv1.MinerError(domainErr.MinerError), // #nosec G115 -- MinerError enum bounded (max ~9000), safe for int32
+		Summary:           domainErr.Summary,
+		CauseSummary:      domainErr.CauseSummary,
+		RecommendedAction: domainErr.RecommendedAction,
+		Severity:          errorsv1.Severity(domainErr.Severity), // #nosec G115 -- Severity enum bounded (0-4), safe for int32
+		FirstSeenAt:       timestamppb.New(domainErr.FirstSeenAt),
+		LastSeenAt:        timestamppb.New(domainErr.LastSeenAt),
+		VendorAttributes:  domainErr.VendorAttributes,
+		DeviceIdentifier:  domainErr.DeviceID,
+		Impact:            domainErr.Impact,
+		ComponentType:     convertComponentTypeDomainToProto(domainErr.ComponentType),
+	}
+
+	if domainErr.ClosedAt != nil {
+		msg.ClosedAt = timestamppb.New(*domainErr.ClosedAt)
+	}
+
+	if domainErr.ComponentID != nil {
+		msg.ComponentId = domainErr.ComponentID
+	}
+
+	return msg
+}
+
 // convertDeviceErrorGroupsToProto converts domain DeviceErrorGroups to proto DeviceErrors.
 func convertDeviceErrorGroupsToProto(groups []models.DeviceErrorGroup) []*errorsv1.DeviceError {
 	result := make([]*errorsv1.DeviceError, len(groups))
@@ -147,7 +206,7 @@ func convertComponentErrorsToProto(components []models.ComponentErrors) []*error
 		}
 		result[i] = &errorsv1.ComponentError{
 			ComponentId:      comp.ComponentID,
-			ComponentType:    domainComponentTypeToProto(comp.ComponentType),
+			ComponentType:    convertComponentTypeDomainToProto(comp.ComponentType),
 			DeviceIdentifier: deviceIdentifier,
 			Status:           errorsv1.Status(comp.Status), // #nosec G115 -- Status enum bounded (max 3), safe for int32
 			Summary:          convertSummaryToProto(comp.Summary),
@@ -239,22 +298,5 @@ func convertWatchKindToProto(kind diagnostics.WatchKind) errorsv1.WatchResponse_
 		return errorsv1.WatchResponse_KIND_CLOSED
 	default:
 		return errorsv1.WatchResponse_KIND_UNSPECIFIED
-	}
-}
-
-// domainComponentTypeToProto converts domain ComponentType to proto ComponentType.
-// Domain and proto enums have different numeric values, so explicit mapping is required.
-func domainComponentTypeToProto(ct models.ComponentType) errorsv1.ComponentType {
-	switch ct {
-	case models.ComponentTypePSU:
-		return errorsv1.ComponentType_COMPONENT_TYPE_PSU
-	case models.ComponentTypeFans:
-		return errorsv1.ComponentType_COMPONENT_TYPE_FAN
-	case models.ComponentTypeHashBoards:
-		return errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD
-	case models.ComponentTypeControlBoard:
-		return errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD
-	default:
-		return errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED
 	}
 }

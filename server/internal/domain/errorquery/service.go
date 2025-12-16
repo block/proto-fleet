@@ -8,8 +8,8 @@ import (
 
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -30,11 +30,11 @@ func NewService(fakeManager *FakeErrorManager, deviceStore interfaces.DeviceStor
 // Query retrieves errors with filtering and pagination.
 func (s *Service) Query(ctx context.Context, req *errorsv1.QueryRequest) (*errorsv1.QueryResponse, error) {
 	// Get org ID from context.
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get claims: %w", err)
+		return nil, fmt.Errorf("failed to get session info: %w", err)
 	}
-	orgID := claims.OrgID
+	orgID := info.OrganizationID
 
 	// Decode page token.
 	pageSize := NormalizePageSize(req.GetPageSize())
@@ -48,6 +48,10 @@ func (s *Service) Query(ctx context.Context, req *errorsv1.QueryRequest) (*error
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve devices: %w", err)
 	}
+
+	// Clear generated errors to allow fresh generation (for testing)
+	// This ensures we get a good distribution of errors across devices
+	s.fakeManager.ClearGeneratedErrors()
 
 	// Ensure errors exist for all devices.
 	for i, deviceID := range deviceIDs {
@@ -88,11 +92,11 @@ func (s *Service) Query(ctx context.Context, req *errorsv1.QueryRequest) (*error
 // GetError retrieves a single error by ID.
 func (s *Service) GetError(ctx context.Context, errorID string) (*errorsv1.ErrorMessage, error) {
 	// Get org ID from context.
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get claims: %w", err)
+		return nil, fmt.Errorf("failed to get session info: %w", err)
 	}
-	orgID := claims.OrgID
+	orgID := info.OrganizationID
 
 	// Look up the error.
 	errorRecord, ok := s.fakeManager.GetErrorByID(errorID)
@@ -138,11 +142,11 @@ func (s *Service) ListMinerErrors(_ context.Context) (*errorsv1.ListMinerErrorsR
 // Watch streams error updates (simulated for fake manager).
 func (s *Service) Watch(ctx context.Context, filter *errorsv1.Filter) (<-chan *errorsv1.WatchResponse, error) {
 	// Get org ID from context.
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get claims: %w", err)
+		return nil, fmt.Errorf("failed to get session info: %w", err)
 	}
-	orgID := claims.OrgID
+	orgID := info.OrganizationID
 
 	// Get initial device list.
 	deviceIDs, deviceTypes, err := s.resolveDevices(ctx, orgID, filter)
@@ -414,7 +418,20 @@ func (s *Service) buildComponentPageResponse(errors []ErrorRecord, deviceTypes [
 		// Parse component ID to get type.
 		_, compType, _, ok := ParseComponentID(componentID)
 		if !ok {
-			compType = errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED
+			// If parsing fails, fall back to getting component type from the first error's metadata
+			if len(compErrors) > 0 {
+				compType = GetComponentTypeForError(compErrors[0].MinerError)
+			}
+			// If still unspecified, try to determine from all errors in this component
+			if compType == errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED {
+				for _, err := range compErrors {
+					ct := GetComponentTypeForError(err.MinerError)
+					if ct != errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED {
+						compType = ct
+						break
+					}
+				}
+			}
 		}
 
 		deviceID := compErrors[0].DeviceID

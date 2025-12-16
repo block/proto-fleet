@@ -314,28 +314,31 @@ func toErrorMessageFromRow(row *sqlc.GetErrorByErrorIDRow) *models.ErrorMessage 
 	})
 }
 
-// safeInt32ToEnum converts int32 from DB to any enum type, returning the specified default for negative values.
-// The generic type constraint ~uint allows this to work with any uint-based enum types.
-func safeInt32ToEnum[T ~uint](val int32, defaultValue T) T {
-	if val < minValidEnumValue {
-		return defaultValue
-	}
-	return T(val) // #nosec G115 -- Validated non-negative; DB values come from our controlled inserts
-}
-
 // safeInt32ToMinerError converts int32 from DB to MinerError, returning Unspecified for negative values.
+// MinerError is a proto type (int32) so we can cast directly.
 func safeInt32ToMinerError(val int32) models.MinerError {
-	return safeInt32ToEnum(val, models.MinerErrorUnspecified)
+	if val < minValidEnumValue {
+		return models.MinerErrorUnspecified
+	}
+	return models.MinerError(val)
 }
 
 // safeInt32ToSeverity converts int32 from DB to Severity, returning Unspecified for negative values.
+// Severity is a proto type (int32) so we can cast directly.
 func safeInt32ToSeverity(val int32) models.Severity {
-	return safeInt32ToEnum(val, models.SeverityUnspecified)
+	if val < minValidEnumValue {
+		return models.SeverityUnspecified
+	}
+	return models.Severity(val)
 }
 
 // safeInt32ToComponentType converts int32 from DB to ComponentType, returning Unspecified for negative values.
+// ComponentType is a domain type (uint) so we need to convert through uint.
 func safeInt32ToComponentType(val int32) models.ComponentType {
-	return safeInt32ToEnum(val, models.ComponentTypeUnspecified)
+	if val < minValidEnumValue {
+		return models.ComponentTypeUnspecified
+	}
+	return models.ComponentType(uint(val))
 }
 
 // toNullTime converts a *time.Time to sql.NullTime for database operations.
@@ -768,7 +771,7 @@ func (s *SQLErrorStore) QueryDeviceKeys(ctx context.Context, opts *models.QueryO
 		// WorstSeverity from MIN() aggregate returns interface{}, extract as int32
 		var worstSeverity models.Severity
 		if severity, ok := row.WorstSeverity.(int64); ok {
-			worstSeverity = safeInt32ToEnum(int32(severity), models.SeverityUnspecified) // #nosec G115 -- Severity bounded 0-4
+			worstSeverity = safeInt32ToSeverity(int32(severity)) // #nosec G115 -- Severity bounded 0-4
 		}
 		keys[i] = models.DeviceKey{
 			DeviceID:         row.DeviceID,
@@ -807,7 +810,7 @@ func (s *SQLErrorStore) QueryComponentKeys(ctx context.Context, opts *models.Que
 		// WorstSeverity from MIN() aggregate returns interface{}, extract as int32
 		var worstSeverity models.Severity
 		if severity, ok := row.WorstSeverity.(int64); ok {
-			worstSeverity = safeInt32ToEnum(int32(severity), models.SeverityUnspecified) // #nosec G115 -- Severity bounded 0-4
+			worstSeverity = safeInt32ToSeverity(int32(severity)) // #nosec G115 -- Severity bounded 0-4
 		}
 		keys[i] = models.ComponentKey{
 			DeviceID:         row.DeviceID,

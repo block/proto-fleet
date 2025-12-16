@@ -12,13 +12,8 @@ import {
 } from "./constants";
 import minerColConfig from "./minerColConfig";
 import { type DeviceListItem } from "./types";
-import {
-  ComponentStatus,
-  ComponentStatusFilterSchema,
-  ComponentType,
-  MinerListFilterSchema,
-  MinerType,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { MinerListFilterSchema, MinerType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -149,7 +144,7 @@ const MinerList = ({
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
       const minerFilter = create(MinerListFilterSchema, {
-        componentFilters: [],
+        errorComponentTypes: [],
       });
 
       const statusFilters = filters.dropdownFilters.status;
@@ -187,26 +182,20 @@ const MinerList = ({
       });
       const issueFilters = filters.dropdownFilters.issues;
       issueFilters?.forEach((issue) => {
-        const componentFilter = create(ComponentStatusFilterSchema, {
-          statuses: [ComponentStatus.WARNING, ComponentStatus.ERROR],
-        });
-
         switch (issue) {
           case componentIssues.controlBoard:
-            componentFilter.component = ComponentType.CONTROL_BOARD;
+            minerFilter.errorComponentTypes.push(ComponentType.CONTROL_BOARD);
             break;
           case componentIssues.fans:
-            componentFilter.component = ComponentType.FANS;
+            minerFilter.errorComponentTypes.push(ComponentType.FAN);
             break;
           case componentIssues.hashBoards:
-            componentFilter.component = ComponentType.HASH_BOARDS;
+            minerFilter.errorComponentTypes.push(ComponentType.HASH_BOARD);
             break;
           case componentIssues.psu:
-            componentFilter.component = ComponentType.PSU;
+            minerFilter.errorComponentTypes.push(ComponentType.PSU);
             break;
         }
-
-        minerFilter.componentFilters.push(componentFilter);
       });
 
       // Navigate with URL params instead of calling parent callback

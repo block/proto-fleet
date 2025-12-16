@@ -565,17 +565,31 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	}
 	// If no pairing statuses provided at all, filter remains nil (return all)
 
-	// Call unified query with new simplified parameters
+	// Build component type filter parameters
+	var errorComponentTypesFilter interface{}
+	var errorComponentTypeValues []sql.NullInt32
+	if filter != nil && len(filter.ErrorComponentTypes) > 0 {
+		errorComponentTypesFilter = true // Non-null indicates filter is active
+		errorComponentTypeValues = make([]sql.NullInt32, len(filter.ErrorComponentTypes))
+		for i, ct := range filter.ErrorComponentTypes {
+			// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
+			errorComponentTypeValues[i] = sql.NullInt32{Int32: int32(ct), Valid: true}
+		}
+	}
+
+	// Use unified query with all filter parameters
 	rows, err := s.getQueries(ctx).ListMinerStateSnapshots(ctx, sqlc.ListMinerStateSnapshotsParams{
-		OrgID:               orgID,
-		CursorID:            sql.NullInt64{Int64: cursorID, Valid: cursorID > 0},
-		StatusFilter:        statusFilter,
-		StatusValues:        statusValues,
-		TypeFilter:          typeFilter,
-		TypeValues:          typeValues,
-		PairingStatusFilter: pairingStatusFilter,
-		PairingStatusValues: pairingStatusValues,
-		Limit:               pageSize + 1,
+		OrgID:                     orgID,
+		CursorID:                  sql.NullInt64{Int64: cursorID, Valid: cursorID > 0},
+		StatusFilter:              statusFilter,
+		StatusValues:              statusValues,
+		TypeFilter:                typeFilter,
+		TypeValues:                typeValues,
+		PairingStatusFilter:       pairingStatusFilter,
+		PairingStatusValues:       pairingStatusValues,
+		ErrorComponentTypesFilter: errorComponentTypesFilter,
+		ErrorComponentTypeValues:  errorComponentTypeValues,
+		Limit:                     pageSize + 1,
 	})
 	if err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
@@ -596,13 +610,15 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 
 	// Get total count with same filter parameters
 	total, err := s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
-		OrgID:               orgID,
-		StatusFilter:        statusFilter,
-		StatusValues:        statusValues,
-		TypeFilter:          typeFilter,
-		TypeValues:          typeValues,
-		PairingStatusFilter: pairingStatusFilter,
-		PairingStatusValues: pairingStatusValues,
+		OrgID:                     orgID,
+		StatusFilter:              statusFilter,
+		StatusValues:              statusValues,
+		TypeFilter:                typeFilter,
+		TypeValues:                typeValues,
+		PairingStatusFilter:       pairingStatusFilter,
+		PairingStatusValues:       pairingStatusValues,
+		ErrorComponentTypesFilter: errorComponentTypesFilter,
+		ErrorComponentTypeValues:  errorComponentTypeValues,
 	})
 	if err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)

@@ -1,3 +1,4 @@
+import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
@@ -17,6 +18,7 @@ import { buildVersionInfo } from "@/shared/utils/version";
 const Dashboard = () => {
   const devicePaired = useDevicePaired();
   const { totalMiners, stateCounts } = useFleetCounts();
+  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors();
   const duration = useDuration();
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
@@ -32,8 +34,12 @@ const Dashboard = () => {
           <section className="p-10 phone:p-6 tablet:p-6">
             <SectionHeading heading="Overview" />
             <div className="mt-6 flex flex-col gap-1">
-              {/* TODO: Get error counts from API */}
-              <FleetErrors controlBoardErrors={0} fanErrors={0} hashboardErrors={0} psuErrors={0} />
+              <FleetErrors
+                controlBoardErrors={controlBoardErrors}
+                fanErrors={fanErrors}
+                hashboardErrors={hashboardErrors}
+                psuErrors={psuErrors}
+              />
               <FleetHealth
                 fleetSize={totalMiners || 1} // prevent division by zero
                 healthyMiners={stateCounts?.hashingCount ?? 0}

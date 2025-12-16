@@ -12,6 +12,8 @@ import type { MinerStateCounts, TemperatureStatus } from "../../telemetry/v1/tel
 import { file_telemetry_v1_telemetry } from "../../telemetry/v1/telemetry_pb";
 import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
 import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
+import type { ComponentType } from "../../errors/v1/errors_pb";
+import { file_errors_v1_errors } from "../../errors/v1/errors_pb";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -21,12 +23,13 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiwQUKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYCSABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgppcF9hZGRyZXNzGAsgASgJEgsKA3VybBgMIAEoCRI3Cg1kZXZpY2Vfc3RhdHVzGA0gASgOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cxI5Cg5wYWlyaW5nX3N0YXR1cxgOIAEoDjIhLmZsZWV0bWFuYWdlbWVudC52MS5QYWlyaW5nU3RhdHVzEg0KBW1vZGVsGA8gASgJEhQKDG1hbnVmYWN0dXJlchgQIAEoCRIMCgR0eXBlGBEgASgJEjgKDGNhcGFiaWxpdGllcxgSIAEoCzIiLmNhcGFiaWxpdGllcy52MS5NaW5lckNhcGFiaWxpdGllcxI7ChJ0ZW1wZXJhdHVyZV9zdGF0dXMYEyABKA4yHy50ZWxlbWV0cnkudjEuVGVtcGVyYXR1cmVTdGF0dXMi8QEKFE1pbmVyQ29tcG9uZW50U3RhdHVzEjoKDWNvbnRyb2xfYm9hcmQYASABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjEKBGZhbnMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjgKC2hhc2hfYm9hcmRzGAMgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxIwCgNwc3UYBCABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIogDChFNZWFzdXJlbWVudENvbmZpZxJPChBtZWFzdXJlbWVudF90eXBlGAEgASgOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIvCglkYXRhX21vZGUYAiABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAMgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcitwEKD01lYXN1cmVtZW50VHlwZRIgChxNRUFTVVJFTUVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocTUVBU1VSRU1FTlRfVFlQRV9QT1dFUl9VU0FHRRABEiAKHE1FQVNVUkVNRU5UX1RZUEVfVEVNUEVSQVRVUkUQAhIdChlNRUFTVVJFTUVOVF9UWVBFX0hBU0hSQVRFEAMSHwobTUVBU1VSRU1FTlRfVFlQRV9FRkZJQ0lFTkNZEAQiygEKHkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBIdCglwYWdlX3NpemUYASABKAVCCrpIBxoFGOgHKAASDgoGY3Vyc29yGAIgASgJEjMKBmZpbHRlchgGIAEoCzIjLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3RGaWx0ZXJKBAgDEARKBAgEEAVKBAgFEAZSCWRhdGFfbW9kZVISdGltZV9zZXJpZXNfY29uZmlnUhNtZWFzdXJlbWVudF9jb25maWdzIoQBChVDb21wb25lbnRTdGF0dXNGaWx0ZXISNAoJY29tcG9uZW50GAEgASgOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFR5cGUSNQoIc3RhdHVzZXMYAiADKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIvsBCg9NaW5lckxpc3RGaWx0ZXISNwoNZGV2aWNlX3N0YXR1cxgDIAMoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMSRAoRY29tcG9uZW50X2ZpbHRlcnMYBCADKAsyKS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzRmlsdGVyEiwKBXR5cGVzGAUgAygOMh0uZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyVHlwZRI7ChBwYWlyaW5nX3N0YXR1c2VzGAYgAygOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJpbmdTdGF0dXMi7wEKH0xpc3RNaW5lclN0YXRlU25hcHNob3RzUmVzcG9uc2USNgoGbWluZXJzGAEgAygLMiYuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyU3RhdGVTbmFwc2hvdBIOCgZjdXJzb3IYAiABKAkSFAoMdG90YWxfbWluZXJzGAMgASgFEjoKEnRvdGFsX3N0YXRlX2NvdW50cxgEIAEoCzIeLnRlbGVtZXRyeS52MS5NaW5lclN0YXRlQ291bnRzEjIKC21pbmVyX3R5cGVzGAUgAygOMh0uZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyVHlwZSIcChpHZXRNaW5lclN0YXRlQ291bnRzUmVxdWVzdCJpChtHZXRNaW5lclN0YXRlQ291bnRzUmVzcG9uc2USFAoMdG90YWxfbWluZXJzGAEgASgFEjQKDHN0YXRlX2NvdW50cxgCIAEoCzIeLnRlbGVtZXRyeS52MS5NaW5lclN0YXRlQ291bnRzIs0BChlTdHJlYW1NaW5lclVwZGF0ZXNSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCRJQChFtZWFzdXJlbWVudF90eXBlcxgCIAMoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSHgoWaW5jbHVkZV9zdGF0dXNfdXBkYXRlcxgDIAEoCBIiChpoZWFydGJlYXRfaW50ZXJ2YWxfc2Vjb25kcxgEIAEoBSLgAgoaU3RyZWFtTWluZXJVcGRhdGVzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFkZXZpY2VfaWRlbnRpZmllchgCIAEoCRI8CgttZWFzdXJlbWVudBgDIAEoCzIlLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudFVwZGF0ZUgAEjsKBnN0YXR1cxgEIAEoCzIpLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXNVcGRhdGVIABIyCgloZWFydGJlYXQYBSABKAsyHS5mbGVldG1hbmFnZW1lbnQudjEuSGVhcnRiZWF0SAASPwoNZGV2aWNlX3N0YXR1cxgGIAEoCzImLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXNVcGRhdGVIAEIICgZ1cGRhdGUikQEKEU1lYXN1cmVtZW50VXBkYXRlEk8KEG1lYXN1cmVtZW50X3R5cGUYASABKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEisKC21lYXN1cmVtZW50GAIgASgLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50IpwCChVDb21wb25lbnRTdGF0dXNVcGRhdGUSRgoJY29tcG9uZW50GAEgASgOMjMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1c1VwZGF0ZS5Db21wb25lbnQSMwoGc3RhdHVzGAIgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyKFAQoJQ29tcG9uZW50EhkKFUNPTVBPTkVOVF9VTlNQRUNJRklFRBAAEhsKF0NPTVBPTkVOVF9DT05UUk9MX0JPQVJEEAESEgoOQ09NUE9ORU5UX0ZBTlMQAhIZChVDT01QT05FTlRfSEFTSF9CT0FSRFMQAxIRCg1DT01QT05FTlRfUFNVEAQiCwoJSGVhcnRiZWF0IkYKEkRldmljZVN0YXR1c1VwZGF0ZRIwCgZzdGF0dXMYASABKA4yIC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzIqYCCh1TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVxdWVzdBIzCgZmaWx0ZXIYASABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyEi8KCWRhdGFfbW9kZRgCIAEoDjIcLmZsZWV0bWFuYWdlbWVudC52MS5EYXRhTW9kZRI3ChJ0aW1lX3Nlcmllc19jb25maWcYAyABKAsyGy5jb21tb24udjEuVGltZVNlcmllc0NvbmZpZxJCChNtZWFzdXJlbWVudF9jb25maWdzGAQgAygLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnEiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAUgASgFIsIBCh5TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzCgVkZWx0YRgCIAEoCzIiLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3REZWx0YUgAEjIKCWhlYXJ0YmVhdBgDIAEoCzIdLmZsZWV0bWFuYWdlbWVudC52MS5IZWFydGJlYXRIAEIICgZ1cGRhdGUibgoOTWluZXJMaXN0RGVsdGESNAoJYWRkaXRpb25zGAEgAygLMiEuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyQWRkaXRpb24SEAoIcmVtb3ZhbHMYAiADKAkSFAoMdG90YWxfbWluZXJzGAMgASgFIlgKDU1pbmVyQWRkaXRpb24SNQoFbWluZXIYASABKAsyJi5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJTdGF0ZVNuYXBzaG90EhAKCHBvc2l0aW9uGAIgASgFIvUBCh1HZXRCYXRjaE1pbmVyVGVsZW1ldHJ5UmVxdWVzdBImChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAlCCrpIB5IBBAgBEGQSLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnEkIKE21lYXN1cmVtZW50X2NvbmZpZ3MYBCADKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWciVAoeR2V0QmF0Y2hNaW5lclRlbGVtZXRyeVJlc3BvbnNlEjIKBm1pbmVycxgBIAMoCzIiLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclRlbGVtZXRyeSL9AgoOTWluZXJUZWxlbWV0cnkSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSKwoLcG93ZXJfdXNhZ2UYAiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYAyADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYBCADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgFIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYBiABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI3Cg1kZXZpY2Vfc3RhdHVzGAggASgOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cyqZAQofRmxlZXRNYW5hZ2VtZW50U2VydmljZUVycm9yQ29kZRIzCi9GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEkEKPUZMRUVUX01BTkFHRU1FTlRfU0VSVklDRV9FUlJPUl9DT0RFX0lOVkFMSURfUEFHSU5BVElPTl9DVVJTT1IQASrCAQoPQ29tcG9uZW50U3RhdHVzEiAKHENPTVBPTkVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIXChNDT01QT05FTlRfU1RBVFVTX09LEAESHAoYQ09NUE9ORU5UX1NUQVRVU19XQVJOSU5HEAISGgoWQ09NUE9ORU5UX1NUQVRVU19FUlJPUhADEhwKGENPTVBPTkVOVF9TVEFUVVNfT0ZGTElORRAEEhwKGENPTVBPTkVOVF9TVEFUVVNfUEVORElORxAFKrYBCgxEZXZpY2VTdGF0dXMSHQoZREVWSUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhgKFERFVklDRV9TVEFUVVNfT05MSU5FEAESGQoVREVWSUNFX1NUQVRVU19PRkZMSU5FEAISHQoZREVWSUNFX1NUQVRVU19NQUlOVEVOQU5DRRADEhcKE0RFVklDRV9TVEFUVVNfRVJST1IQBBIaChZERVZJQ0VfU1RBVFVTX0lOQUNUSVZFEAUqcAoIRGF0YU1vZGUSGQoVREFUQV9NT0RFX1VOU1BFQ0lGSUVEEAASFgoSREFUQV9NT0RFX01FVEFEQVRBEAESFgoSREFUQV9NT0RFX1NOQVBTSE9UEAISGQoVREFUQV9NT0RFX1RJTUVfU0VSSUVTEAMqWQoJTWluZXJUeXBlEhoKFk1JTkVSX1RZUEVfVU5TUEVDSUZJRUQQABIYChRNSU5FUl9UWVBFX1BST1RPX1JJRxABEhYKEk1JTkVSX1RZUEVfQklUTUFJThACKsgBCg1QYWlyaW5nU3RhdHVzEh4KGlBBSVJJTkdfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGQoVUEFJUklOR19TVEFUVVNfUEFJUkVEEAESGwoXUEFJUklOR19TVEFUVVNfVU5QQUlSRUQQAhIoCiRQQUlSSU5HX1NUQVRVU19BVVRIRU5USUNBVElPTl9ORUVERUQQAxIaChZQQUlSSU5HX1NUQVRVU19QRU5ESU5HEAQSGQoVUEFJUklOR19TVEFUVVNfRkFJTEVEEAUqogEKDUNvbXBvbmVudFR5cGUSHgoaQ09NUE9ORU5UX1RZUEVfVU5TUEVDSUZJRUQQABIgChxDT01QT05FTlRfVFlQRV9DT05UUk9MX0JPQVJEEAESFwoTQ09NUE9ORU5UX1RZUEVfRkFOUxACEh4KGkNPTVBPTkVOVF9UWVBFX0hBU0hfQk9BUkRTEAMSFgoSQ09NUE9ORU5UX1RZUEVfUFNVEAQykQUKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USggEKF0xpc3RNaW5lclN0YXRlU25hcHNob3RzEjIuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBozLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEnUKElN0cmVhbU1pbmVyVXBkYXRlcxItLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXF1ZXN0Gi4uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlMAESgQEKFlN0cmVhbU1pbmVyTGlzdFVwZGF0ZXMSMS5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJMaXN0VXBkYXRlc1JlcXVlc3QaMi5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJMaXN0VXBkYXRlc1Jlc3BvbnNlMAESdgoTR2V0TWluZXJTdGF0ZUNvdW50cxIuLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lclN0YXRlQ291bnRzUmVxdWVzdBovLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lclN0YXRlQ291bnRzUmVzcG9uc2USfwoWR2V0QmF0Y2hNaW5lclRlbGVtZXRyeRIxLmZsZWV0bWFuYWdlbWVudC52MS5HZXRCYXRjaE1pbmVyVGVsZW1ldHJ5UmVxdWVzdBoyLmZsZWV0bWFuYWdlbWVudC52MS5HZXRCYXRjaE1pbmVyVGVsZW1ldHJ5UmVzcG9uc2VC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEihwUKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmlwX2FkZHJlc3MYCiABKAkSCwoDdXJsGAsgASgJEjcKDWRldmljZV9zdGF0dXMYDCABKA4yIC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzEjkKDnBhaXJpbmdfc3RhdHVzGA0gASgOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJpbmdTdGF0dXMSDQoFbW9kZWwYDiABKAkSFAoMbWFudWZhY3R1cmVyGA8gASgJEgwKBHR5cGUYECABKAkSOAoMY2FwYWJpbGl0aWVzGBEgASgLMiIuY2FwYWJpbGl0aWVzLnYxLk1pbmVyQ2FwYWJpbGl0aWVzEjsKEnRlbXBlcmF0dXJlX3N0YXR1cxgSIAEoDjIfLnRlbGVtZXRyeS52MS5UZW1wZXJhdHVyZVN0YXR1cyKIAwoRTWVhc3VyZW1lbnRDb25maWcSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnIrcBCg9NZWFzdXJlbWVudFR5cGUSIAocTUVBU1VSRU1FTlRfVFlQRV9VTlNQRUNJRklFRBAAEiAKHE1FQVNVUkVNRU5UX1RZUEVfUE9XRVJfVVNBR0UQARIgChxNRUFTVVJFTUVOVF9UWVBFX1RFTVBFUkFUVVJFEAISHQoZTUVBU1VSRU1FTlRfVFlQRV9IQVNIUkFURRADEh8KG01FQVNVUkVNRU5UX1RZUEVfRUZGSUNJRU5DWRAEIoQBCh5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QSHQoJcGFnZV9zaXplGAEgASgFQgq6SAcaBRjoBygAEg4KBmN1cnNvchgCIAEoCRIzCgZmaWx0ZXIYAyABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyIu4BCg9NaW5lckxpc3RGaWx0ZXISNwoNZGV2aWNlX3N0YXR1cxgDIAMoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMSNwoVZXJyb3JfY29tcG9uZW50X3R5cGVzGAQgAygOMhguZXJyb3JzLnYxLkNvbXBvbmVudFR5cGUSLAoFdHlwZXMYBSADKA4yHS5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJUeXBlEjsKEHBhaXJpbmdfc3RhdHVzZXMYBiADKA4yIS5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmluZ1N0YXR1cyLvAQofTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXNwb25zZRI2CgZtaW5lcnMYASADKAsyJi5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJTdGF0ZVNuYXBzaG90Eg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUSOgoSdG90YWxfc3RhdGVfY291bnRzGAQgASgLMh4udGVsZW1ldHJ5LnYxLk1pbmVyU3RhdGVDb3VudHMSMgoLbWluZXJfdHlwZXMYBSADKA4yHS5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJUeXBlIhwKGkdldE1pbmVyU3RhdGVDb3VudHNSZXF1ZXN0ImkKG0dldE1pbmVyU3RhdGVDb3VudHNSZXNwb25zZRIUCgx0b3RhbF9taW5lcnMYASABKAUSNAoMc3RhdGVfY291bnRzGAIgASgLMh4udGVsZW1ldHJ5LnYxLk1pbmVyU3RhdGVDb3VudHMizQEKGVN0cmVhbU1pbmVyVXBkYXRlc1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJElAKEW1lYXN1cmVtZW50X3R5cGVzGAIgAygOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIeChZpbmNsdWRlX3N0YXR1c191cGRhdGVzGAMgASgIEiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAQgASgFIqMCChpTdHJlYW1NaW5lclVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEjwKC21lYXN1cmVtZW50GAMgASgLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50VXBkYXRlSAASMgoJaGVhcnRiZWF0GAQgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAEj8KDWRldmljZV9zdGF0dXMYBSABKAsyJi5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzVXBkYXRlSABCCAoGdXBkYXRlIpEBChFNZWFzdXJlbWVudFVwZGF0ZRJPChBtZWFzdXJlbWVudF90eXBlGAEgASgOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIrCgttZWFzdXJlbWVudBgCIAEoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudCILCglIZWFydGJlYXQiRgoSRGV2aWNlU3RhdHVzVXBkYXRlEjAKBnN0YXR1cxgBIAEoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMipgIKHVN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXF1ZXN0EjMKBmZpbHRlchgBIAEoCzIjLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3RGaWx0ZXISLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnEkIKE21lYXN1cmVtZW50X2NvbmZpZ3MYBCADKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBSABKAUiwgEKHlN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjMKBWRlbHRhGAIgASgLMiIuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyTGlzdERlbHRhSAASMgoJaGVhcnRiZWF0GAMgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAQggKBnVwZGF0ZSJuCg5NaW5lckxpc3REZWx0YRI0CglhZGRpdGlvbnMYASADKAsyIS5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJBZGRpdGlvbhIQCghyZW1vdmFscxgCIAMoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiWAoNTWluZXJBZGRpdGlvbhI1CgVtaW5lchgBIAEoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSEAoIcG9zaXRpb24YAiABKAUi9QEKHUdldEJhdGNoTWluZXJUZWxlbWV0cnlSZXF1ZXN0EiYKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCUIKukgHkgEECAEQZBIvCglkYXRhX21vZGUYAiABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAMgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcSQgoTbWVhc3VyZW1lbnRfY29uZmlncxgEIAMoCzIlLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZyJUCh5HZXRCYXRjaE1pbmVyVGVsZW1ldHJ5UmVzcG9uc2USMgoGbWluZXJzGAEgAygLMiIuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyVGVsZW1ldHJ5IsMCCg5NaW5lclRlbGVtZXRyeRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIrCgtwb3dlcl91c2FnZRgCIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBIrCgt0ZW1wZXJhdHVyZRgDIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBIoCghoYXNocmF0ZRgEIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBIqCgplZmZpY2llbmN5GAUgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50Ei0KCXRpbWVzdGFtcBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoNZGV2aWNlX3N0YXR1cxgHIAEoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMqmQEKH0ZsZWV0TWFuYWdlbWVudFNlcnZpY2VFcnJvckNvZGUSMwovRkxFRVRfTUFOQUdFTUVOVF9TRVJWSUNFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABJBCj1GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9JTlZBTElEX1BBR0lOQVRJT05fQ1VSU09SEAEqtgEKDERldmljZVN0YXR1cxIdChlERVZJQ0VfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGAoUREVWSUNFX1NUQVRVU19PTkxJTkUQARIZChVERVZJQ0VfU1RBVFVTX09GRkxJTkUQAhIdChlERVZJQ0VfU1RBVFVTX01BSU5URU5BTkNFEAMSFwoTREVWSUNFX1NUQVRVU19FUlJPUhAEEhoKFkRFVklDRV9TVEFUVVNfSU5BQ1RJVkUQBSpwCghEYXRhTW9kZRIZChVEQVRBX01PREVfVU5TUEVDSUZJRUQQABIWChJEQVRBX01PREVfTUVUQURBVEEQARIWChJEQVRBX01PREVfU05BUFNIT1QQAhIZChVEQVRBX01PREVfVElNRV9TRVJJRVMQAypZCglNaW5lclR5cGUSGgoWTUlORVJfVFlQRV9VTlNQRUNJRklFRBAAEhgKFE1JTkVSX1RZUEVfUFJPVE9fUklHEAESFgoSTUlORVJfVFlQRV9CSVRNQUlOEAIqyAEKDVBhaXJpbmdTdGF0dXMSHgoaUEFJUklOR19TVEFUVVNfVU5TUEVDSUZJRUQQABIZChVQQUlSSU5HX1NUQVRVU19QQUlSRUQQARIbChdQQUlSSU5HX1NUQVRVU19VTlBBSVJFRBACEigKJFBBSVJJTkdfU1RBVFVTX0FVVEhFTlRJQ0FUSU9OX05FRURFRBADEhoKFlBBSVJJTkdfU1RBVFVTX1BFTkRJTkcQBBIZChVQQUlSSU5HX1NUQVRVU19GQUlMRUQQBTKRBQoWRmxlZXRNYW5hZ2VtZW50U2VydmljZRKCAQoXTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHMSMi5mbGVldG1hbmFnZW1lbnQudjEuTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXF1ZXN0GjMuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVzcG9uc2USdQoSU3RyZWFtTWluZXJVcGRhdGVzEi0uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1JlcXVlc3QaLi5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJVcGRhdGVzUmVzcG9uc2UwARKBAQoWU3RyZWFtTWluZXJMaXN0VXBkYXRlcxIxLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVxdWVzdBoyLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVzcG9uc2UwARJ2ChNHZXRNaW5lclN0YXRlQ291bnRzEi4uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyU3RhdGVDb3VudHNSZXF1ZXN0Gi8uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyU3RhdGVDb3VudHNSZXNwb25zZRJ/ChZHZXRCYXRjaE1pbmVyVGVsZW1ldHJ5EjEuZmxlZXRtYW5hZ2VtZW50LnYxLkdldEJhdGNoTWluZXJUZWxlbWV0cnlSZXF1ZXN0GjIuZmxlZXRtYW5hZ2VtZW50LnYxLkdldEJhdGNoTWluZXJUZWxlbWV0cnlSZXNwb25zZUL1AQoWY29tLmZsZWV0bWFuYWdlbWVudC52MUIURmxlZXRtYW5hZ2VtZW50UHJvdG9QAVpcZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG1hbmFnZW1lbnQvdjE7ZmxlZXRtYW5hZ2VtZW50djGiAgNGWFiqAhJGbGVldG1hbmFnZW1lbnQuVjHKAhJGbGVldG1hbmFnZW1lbnRcVjHiAh5GbGVldG1hbmFnZW1lbnRcVjFcR1BCTWV0YWRhdGHqAhNGbGVldG1hbmFnZW1lbnQ6OlYxYgZwcm90bzM",
     [
       file_google_protobuf_timestamp,
       file_common_v1_measurement,
       file_telemetry_v1_telemetry,
       file_capabilities_v1_capabilities,
+      file_errors_v1_errors,
       file_buf_validate_validate,
     ],
   );
@@ -102,79 +105,71 @@ export type MinerStateSnapshot = Message<"fleetmanagement.v1.MinerStateSnapshot"
   efficiency: Measurement[];
 
   /**
-   * Health status of various miner components
-   * Represents the current status regardless of whether time series data is requested
-   *
-   * @generated from field: fleetmanagement.v1.MinerComponentStatus status = 9;
-   */
-  status?: MinerComponentStatus;
-
-  /**
    * Timestamp when this snapshot was captured
    * For time series data, this represents when the most recent data was collected
    *
-   * @generated from field: google.protobuf.Timestamp timestamp = 10;
+   * @generated from field: google.protobuf.Timestamp timestamp = 9;
    */
   timestamp?: Timestamp;
 
   /**
-   * @generated from field: string ip_address = 11;
+   * @generated from field: string ip_address = 10;
    */
   ipAddress: string;
 
   /**
    * The full url of the miner including protocol and port (if running on a port other than 80/443)
    *
-   * @generated from field: string url = 12;
+   * @generated from field: string url = 11;
    */
   url: string;
 
   /**
    * Current operational status of the device
    *
-   * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 13;
+   * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 12;
    */
   deviceStatus: DeviceStatus;
 
   /**
    * Pairing status of the device
    *
-   * @generated from field: fleetmanagement.v1.PairingStatus pairing_status = 14;
+   * @generated from field: fleetmanagement.v1.PairingStatus pairing_status = 13;
    */
   pairingStatus: PairingStatus;
 
   /**
    * Device model name (populated for unpaired devices)
    *
-   * @generated from field: string model = 15;
+   * @generated from field: string model = 14;
    */
   model: string;
 
   /**
    * Manufacturer name (populated for unpaired devices)
    *
-   * @generated from field: string manufacturer = 16;
+   * @generated from field: string manufacturer = 15;
    */
   manufacturer: string;
 
   /**
    * Device type (e.g., antminer, proto)
    *
-   * @generated from field: string type = 17;
+   * @generated from field: string type = 16;
    */
   type: string;
 
   /**
    * Device capabilities indicating supported features (populated for unpaired devices)
    *
-   * @generated from field: capabilities.v1.MinerCapabilities capabilities = 18;
+   * @generated from field: capabilities.v1.MinerCapabilities capabilities = 17;
    */
   capabilities?: MinerCapabilities;
 
   /**
    * Temperature status based on current temperature value
    *
-   * @generated from field: telemetry.v1.TemperatureStatus temperature_status = 19;
+   * @generated from field: telemetry.v1.TemperatureStatus temperature_status = 18;
    */
   temperatureStatus: TemperatureStatus;
 };
@@ -186,49 +181,6 @@ export type MinerStateSnapshot = Message<"fleetmanagement.v1.MinerStateSnapshot"
 export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> =
   /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 0);
-
-/**
- * Status information for all major components in a miner
- *
- * @generated from message fleetmanagement.v1.MinerComponentStatus
- */
-export type MinerComponentStatus = Message<"fleetmanagement.v1.MinerComponentStatus"> & {
-  /**
-   * Status of the control board/controller
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatus control_board = 1;
-   */
-  controlBoard: ComponentStatus;
-
-  /**
-   * Status of the cooling fans (aggregate status)
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatus fans = 2;
-   */
-  fans: ComponentStatus;
-
-  /**
-   * Status of the hash boards (aggregate status)
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatus hash_boards = 3;
-   */
-  hashBoards: ComponentStatus;
-
-  /**
-   * Status of the power supply unit
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatus psu = 4;
-   */
-  psu: ComponentStatus;
-};
-
-/**
- * Describes the message fleetmanagement.v1.MinerComponentStatus.
- * Use `create(MinerComponentStatusSchema)` to create a new message.
- */
-export const MinerComponentStatusSchema: GenMessage<MinerComponentStatus> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Configuration for a specific measurement type
@@ -265,7 +217,7 @@ export type MeasurementConfig = Message<"fleetmanagement.v1.MeasurementConfig"> 
  */
 export const MeasurementConfigSchema: GenMessage<MeasurementConfig> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Type of measurement this configuration applies to
@@ -314,7 +266,7 @@ export enum MeasurementConfig_MeasurementType {
  */
 export const MeasurementConfig_MeasurementTypeSchema: GenEnum<MeasurementConfig_MeasurementType> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 1, 0);
 
 /**
  * Request to list miners with their metadata (no telemetry data)
@@ -346,7 +298,7 @@ export type ListMinerStateSnapshotsRequest = Message<"fleetmanagement.v1.ListMin
   /**
    * Filter criteria for the miners to return
    *
-   * @generated from field: fleetmanagement.v1.MinerListFilter filter = 6;
+   * @generated from field: fleetmanagement.v1.MinerListFilter filter = 3;
    */
   filter?: MinerListFilter;
 };
@@ -357,37 +309,7 @@ export type ListMinerStateSnapshotsRequest = Message<"fleetmanagement.v1.ListMin
  */
 export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
-
-/**
- * Filter for a specific component with one or more statuses
- *
- * @generated from message fleetmanagement.v1.ComponentStatusFilter
- */
-export type ComponentStatusFilter = Message<"fleetmanagement.v1.ComponentStatusFilter"> & {
-  /**
-   * The component to filter by
-   *
-   * @generated from field: fleetmanagement.v1.ComponentType component = 1;
-   */
-  component: ComponentType;
-
-  /**
-   * One or more statuses to filter by (acts as OR condition)
-   * Returns miners where the specified component has any of these statuses
-   *
-   * @generated from field: repeated fleetmanagement.v1.ComponentStatus statuses = 2;
-   */
-  statuses: ComponentStatus[];
-};
-
-/**
- * Describes the message fleetmanagement.v1.ComponentStatusFilter.
- * Use `create(ComponentStatusFilterSchema)` to create a new message.
- */
-export const ComponentStatusFilterSchema: GenMessage<ComponentStatusFilter> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * Filter criteria for miners
@@ -405,15 +327,13 @@ export type MinerListFilter = Message<"fleetmanagement.v1.MinerListFilter"> & {
   deviceStatus: DeviceStatus[];
 
   /**
-   * Filter by specific component statuses
-   * Multiple component filters act as AND condition (all must match)
-   * Within each component filter, statuses act as OR condition
-   * Example: To find miners with fans in WARNING or ERROR status AND hash_boards in ERROR status,
-   * provide two ComponentStatusFilter entries
+   * Filter by component types that have errors (acts as OR condition)
+   * Returns miners that have errors for any of the specified component types
+   * Uses ComponentType from errors.v1 package
    *
-   * @generated from field: repeated fleetmanagement.v1.ComponentStatusFilter component_filters = 4;
+   * @generated from field: repeated errors.v1.ComponentType error_component_types = 4;
    */
-  componentFilters: ComponentStatusFilter[];
+  errorComponentTypes: ComponentType[];
 
   /**
    * Filter by miner types (acts as OR condition)
@@ -445,7 +365,7 @@ export type MinerListFilter = Message<"fleetmanagement.v1.MinerListFilter"> & {
  */
 export const MinerListFilterSchema: GenMessage<MinerListFilter> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
  * Response containing a list of miners with their telemetry
@@ -503,7 +423,7 @@ export type ListMinerStateSnapshotsResponse = Message<"fleetmanagement.v1.ListMi
  */
 export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
  * Request for getting miner state counts without fetching miner data
@@ -520,7 +440,7 @@ export type GetMinerStateCountsRequest = Message<"fleetmanagement.v1.GetMinerSta
  */
 export const GetMinerStateCountsRequestSchema: GenMessage<GetMinerStateCountsRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
 
 /**
  * Response containing miner state counts
@@ -549,7 +469,7 @@ export type GetMinerStateCountsResponse = Message<"fleetmanagement.v1.GetMinerSt
  */
 export const GetMinerStateCountsResponseSchema: GenMessage<GetMinerStateCountsResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesRequest
@@ -590,7 +510,7 @@ export type StreamMinerUpdatesRequest = Message<"fleetmanagement.v1.StreamMinerU
  */
 export const StreamMinerUpdatesRequestSchema: GenMessage<StreamMinerUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesResponse
@@ -627,18 +547,9 @@ export type StreamMinerUpdatesResponse = Message<"fleetmanagement.v1.StreamMiner
       }
     | {
         /**
-         * Component status change
-         *
-         * @generated from field: fleetmanagement.v1.ComponentStatusUpdate status = 4;
-         */
-        value: ComponentStatusUpdate;
-        case: "status";
-      }
-    | {
-        /**
          * Heartbeat to keep connection alive (no data)
          *
-         * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 5;
+         * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 4;
          */
         value: Heartbeat;
         case: "heartbeat";
@@ -647,7 +558,7 @@ export type StreamMinerUpdatesResponse = Message<"fleetmanagement.v1.StreamMiner
         /**
          * Device status update
          *
-         * @generated from field: fleetmanagement.v1.DeviceStatusUpdate device_status = 6;
+         * @generated from field: fleetmanagement.v1.DeviceStatusUpdate device_status = 5;
          */
         value: DeviceStatusUpdate;
         case: "deviceStatus";
@@ -661,7 +572,7 @@ export type StreamMinerUpdatesResponse = Message<"fleetmanagement.v1.StreamMiner
  */
 export const StreamMinerUpdatesResponseSchema: GenMessage<StreamMinerUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
 
 /**
  * @generated from message fleetmanagement.v1.MeasurementUpdate
@@ -688,73 +599,7 @@ export type MeasurementUpdate = Message<"fleetmanagement.v1.MeasurementUpdate"> 
  */
 export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
-
-/**
- * @generated from message fleetmanagement.v1.ComponentStatusUpdate
- */
-export type ComponentStatusUpdate = Message<"fleetmanagement.v1.ComponentStatusUpdate"> & {
-  /**
-   * Which component changed
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatusUpdate.Component component = 1;
-   */
-  component: ComponentStatusUpdate_Component;
-
-  /**
-   * New status of the component
-   *
-   * @generated from field: fleetmanagement.v1.ComponentStatus status = 2;
-   */
-  status: ComponentStatus;
-};
-
-/**
- * Describes the message fleetmanagement.v1.ComponentStatusUpdate.
- * Use `create(ComponentStatusUpdateSchema)` to create a new message.
- */
-export const ComponentStatusUpdateSchema: GenMessage<ComponentStatusUpdate> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
-
-/**
- * The component that changed status
- *
- * @generated from enum fleetmanagement.v1.ComponentStatusUpdate.Component
- */
-export enum ComponentStatusUpdate_Component {
-  /**
-   * @generated from enum value: COMPONENT_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: COMPONENT_CONTROL_BOARD = 1;
-   */
-  CONTROL_BOARD = 1,
-
-  /**
-   * @generated from enum value: COMPONENT_FANS = 2;
-   */
-  FANS = 2,
-
-  /**
-   * @generated from enum value: COMPONENT_HASH_BOARDS = 3;
-   */
-  HASH_BOARDS = 3,
-
-  /**
-   * @generated from enum value: COMPONENT_PSU = 4;
-   */
-  PSU = 4,
-}
-
-/**
- * Describes the enum fleetmanagement.v1.ComponentStatusUpdate.Component.
- */
-export const ComponentStatusUpdate_ComponentSchema: GenEnum<ComponentStatusUpdate_Component> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 12, 0);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
 
 /**
  * Empty message for heartbeat
@@ -769,7 +614,7 @@ export type Heartbeat = Message<"fleetmanagement.v1.Heartbeat"> & {};
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
 
 /**
  * @generated from message fleetmanagement.v1.DeviceStatusUpdate
@@ -789,7 +634,7 @@ export type DeviceStatusUpdate = Message<"fleetmanagement.v1.DeviceStatusUpdate"
  */
 export const DeviceStatusUpdateSchema: GenMessage<DeviceStatusUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
 
 /**
  * Request to stream incremental updates for a filtered miner list
@@ -841,7 +686,7 @@ export type StreamMinerListUpdatesRequest = Message<"fleetmanagement.v1.StreamMi
  */
 export const StreamMinerListUpdatesRequestSchema: GenMessage<StreamMinerListUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
 
 /**
  * Response containing incremental updates to the filtered miner list
@@ -889,7 +734,7 @@ export type StreamMinerListUpdatesResponse = Message<"fleetmanagement.v1.StreamM
  */
 export const StreamMinerListUpdatesResponseSchema: GenMessage<StreamMinerListUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
 
 /**
  * Delta update containing additions and removals
@@ -925,7 +770,7 @@ export type MinerListDelta = Message<"fleetmanagement.v1.MinerListDelta"> & {
  */
 export const MinerListDeltaSchema: GenMessage<MinerListDelta> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
 
 /**
  * Represents a miner being added to the filtered list
@@ -954,7 +799,7 @@ export type MinerAddition = Message<"fleetmanagement.v1.MinerAddition"> & {
  */
 export const MinerAdditionSchema: GenMessage<MinerAddition> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
 
 /**
  * Request to get telemetry data for a batch of miners
@@ -1001,7 +846,7 @@ export type GetBatchMinerTelemetryRequest = Message<"fleetmanagement.v1.GetBatch
  */
 export const GetBatchMinerTelemetryRequestSchema: GenMessage<GetBatchMinerTelemetryRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 19);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
 
 /**
  * Response containing telemetry data for a batch of miners
@@ -1024,7 +869,7 @@ export type GetBatchMinerTelemetryResponse = Message<"fleetmanagement.v1.GetBatc
  */
 export const GetBatchMinerTelemetryResponseSchema: GenMessage<GetBatchMinerTelemetryResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 20);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
 
 /**
  * Telemetry data for a single miner
@@ -1068,23 +913,16 @@ export type MinerTelemetry = Message<"fleetmanagement.v1.MinerTelemetry"> & {
   efficiency: Measurement[];
 
   /**
-   * Health status of various miner components
-   *
-   * @generated from field: fleetmanagement.v1.MinerComponentStatus status = 6;
-   */
-  status?: MinerComponentStatus;
-
-  /**
    * Timestamp when this telemetry was captured
    *
-   * @generated from field: google.protobuf.Timestamp timestamp = 7;
+   * @generated from field: google.protobuf.Timestamp timestamp = 6;
    */
   timestamp?: Timestamp;
 
   /**
    * Current operational status of the device
    *
-   * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 8;
+   * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 7;
    */
   deviceStatus: DeviceStatus;
 };
@@ -1095,7 +933,7 @@ export type MinerTelemetry = Message<"fleetmanagement.v1.MinerTelemetry"> & {
  */
 export const MinerTelemetrySchema: GenMessage<MinerTelemetry> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 21);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
 
 /**
  * @generated from enum fleetmanagement.v1.FleetManagementServiceErrorCode
@@ -1118,62 +956,6 @@ export enum FleetManagementServiceErrorCode {
 export const FleetManagementServiceErrorCodeSchema: GenEnum<FleetManagementServiceErrorCode> =
   /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 0);
-
-/**
- * Operational status of a miner component
- *
- * @generated from enum fleetmanagement.v1.ComponentStatus
- */
-export enum ComponentStatus {
-  /**
-   * Status is unknown or not specified
-   *
-   * @generated from enum value: COMPONENT_STATUS_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * Component is functioning normally
-   *
-   * @generated from enum value: COMPONENT_STATUS_OK = 1;
-   */
-  OK = 1,
-
-  /**
-   * Component is functioning but with issues that require attention
-   *
-   * @generated from enum value: COMPONENT_STATUS_WARNING = 2;
-   */
-  WARNING = 2,
-
-  /**
-   * Component has critical issues affecting operation
-   *
-   * @generated from enum value: COMPONENT_STATUS_ERROR = 3;
-   */
-  ERROR = 3,
-
-  /**
-   * Component is not responding or powered off
-   *
-   * @generated from enum value: COMPONENT_STATUS_OFFLINE = 4;
-   */
-  OFFLINE = 4,
-
-  /**
-   * Component is in a transitional state (firmware updating, pairing, etc.)
-   *
-   * @generated from enum value: COMPONENT_STATUS_PENDING = 5;
-   */
-  PENDING = 5,
-}
-
-/**
- * Describes the enum fleetmanagement.v1.ComponentStatus.
- */
-export const ComponentStatusSchema: GenEnum<ComponentStatus> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Status of a miner
@@ -1229,7 +1011,7 @@ export enum DeviceStatus {
  */
 export const DeviceStatusSchema: GenEnum<DeviceStatus> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Determines whether to return current snapshot or historical time series data
@@ -1269,7 +1051,7 @@ export enum DataMode {
 /**
  * Describes the enum fleetmanagement.v1.DataMode.
  */
-export const DataModeSchema: GenEnum<DataMode> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+export const DataModeSchema: GenEnum<DataMode> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * Type of miner
@@ -1302,7 +1084,7 @@ export enum MinerType {
 /**
  * Describes the enum fleetmanagement.v1.MinerType.
  */
-export const MinerTypeSchema: GenEnum<MinerType> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+export const MinerTypeSchema: GenEnum<MinerType> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
  * Pairing status of a device
@@ -1358,46 +1140,7 @@ export enum PairingStatus {
  */
 export const PairingStatusSchema: GenEnum<PairingStatus> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 5);
-
-/**
- * Component type for filtering
- *
- * @generated from enum fleetmanagement.v1.ComponentType
- */
-export enum ComponentType {
-  /**
-   * @generated from enum value: COMPONENT_TYPE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: COMPONENT_TYPE_CONTROL_BOARD = 1;
-   */
-  CONTROL_BOARD = 1,
-
-  /**
-   * @generated from enum value: COMPONENT_TYPE_FANS = 2;
-   */
-  FANS = 2,
-
-  /**
-   * @generated from enum value: COMPONENT_TYPE_HASH_BOARDS = 3;
-   */
-  HASH_BOARDS = 3,
-
-  /**
-   * @generated from enum value: COMPONENT_TYPE_PSU = 4;
-   */
-  PSU = 4,
-}
-
-/**
- * Describes the enum fleetmanagement.v1.ComponentType.
- */
-export const ComponentTypeSchema: GenEnum<ComponentType> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 6);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
  * Service for managing fleet-wide settings and configurations

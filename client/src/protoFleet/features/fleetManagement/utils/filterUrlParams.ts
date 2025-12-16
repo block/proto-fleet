@@ -1,9 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { componentIssues, deviceStatusFilterStates, minerTypes } from "../components/MinerList/constants";
+import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
-  ComponentStatus,
-  ComponentStatusFilterSchema,
-  ComponentType,
   DeviceStatus,
   type MinerListFilter,
   MinerListFilterSchema,
@@ -70,18 +68,18 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     }
   }
 
-  // Encode component filters (issues)
-  if (filter.componentFilters.length > 0) {
+  // Encode error component types (issues)
+  if (filter.errorComponentTypes.length > 0) {
     const issueValues: string[] = [];
-    filter.componentFilters.forEach((compFilter) => {
-      switch (compFilter.component) {
+    filter.errorComponentTypes.forEach((componentType) => {
+      switch (componentType) {
         case ComponentType.CONTROL_BOARD:
           issueValues.push(componentIssues.controlBoard);
           break;
-        case ComponentType.FANS:
+        case ComponentType.FAN:
           issueValues.push(componentIssues.fans);
           break;
-        case ComponentType.HASH_BOARDS:
+        case ComponentType.HASH_BOARD:
           issueValues.push(componentIssues.hashBoards);
           break;
         case ComponentType.PSU:
@@ -129,7 +127,7 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
   }
 
   const filter = create(MinerListFilterSchema, {
-    componentFilters: [],
+    errorComponentTypes: [],
   });
 
   // Parse device statuses
@@ -157,28 +155,22 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
   if (issuesParam) {
     const issueValues = issuesParam.split(",");
     issueValues.forEach((issue) => {
-      const componentFilter = create(ComponentStatusFilterSchema, {
-        statuses: [ComponentStatus.WARNING, ComponentStatus.ERROR],
-      });
-
       switch (issue) {
         case componentIssues.controlBoard:
-          componentFilter.component = ComponentType.CONTROL_BOARD;
+          filter.errorComponentTypes.push(ComponentType.CONTROL_BOARD);
           break;
         case componentIssues.fans:
-          componentFilter.component = ComponentType.FANS;
+          filter.errorComponentTypes.push(ComponentType.FAN);
           break;
         case componentIssues.hashBoards:
-          componentFilter.component = ComponentType.HASH_BOARDS;
+          filter.errorComponentTypes.push(ComponentType.HASH_BOARD);
           break;
         case componentIssues.psu:
-          componentFilter.component = ComponentType.PSU;
+          filter.errorComponentTypes.push(ComponentType.PSU);
           break;
         default:
           return; // Skip unknown issues
       }
-
-      filter.componentFilters.push(componentFilter);
     });
   }
 

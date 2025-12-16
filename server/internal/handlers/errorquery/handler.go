@@ -15,7 +15,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Ensure Handler implements the service interface.
@@ -94,34 +93,6 @@ func (h *Handler) GetError(
 	return connect.NewResponse(&errorsv1.GetErrorResponse{
 		Error: protoError,
 	}), nil
-}
-
-// convertDomainErrorToProto converts a domain ErrorMessage to protobuf ErrorMessage.
-func convertDomainErrorToProto(domainErr *models.ErrorMessage) *errorsv1.ErrorMessage {
-	msg := &errorsv1.ErrorMessage{
-		ErrorId:           domainErr.ErrorID,
-		CanonicalError:    errorsv1.MinerError(domainErr.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf (max ~9000), safe for int32
-		Summary:           domainErr.Summary,
-		CauseSummary:      domainErr.CauseSummary,
-		RecommendedAction: domainErr.RecommendedAction,
-		Severity:          errorsv1.Severity(domainErr.Severity), // #nosec G115 -- Severity enum bounded (max 4), safe for int32
-		FirstSeenAt:       timestamppb.New(domainErr.FirstSeenAt),
-		LastSeenAt:        timestamppb.New(domainErr.LastSeenAt),
-		VendorAttributes:  domainErr.VendorAttributes,
-		DeviceIdentifier:  domainErr.DeviceID,
-		Impact:            domainErr.Impact,
-		ComponentType:     domainComponentTypeToProto(domainErr.ComponentType),
-	}
-
-	if domainErr.ClosedAt != nil {
-		msg.ClosedAt = timestamppb.New(*domainErr.ClosedAt)
-	}
-
-	if domainErr.ComponentID != nil {
-		msg.ComponentId = domainErr.ComponentID
-	}
-
-	return msg
 }
 
 // ListMinerErrors handles the ListMinerErrors RPC call.

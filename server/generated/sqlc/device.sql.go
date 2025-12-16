@@ -533,9 +533,10 @@ func (q *Queries) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (
 }
 
 const getTotalMinerStateSnapshots = `-- name: GetTotalMinerStateSnapshots :one
-SELECT COUNT(*) as total
+SELECT COUNT(DISTINCT device_id) as total
 FROM (
     SELECT
+        dd.id as device_id,
         CASE
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
@@ -549,6 +550,13 @@ FROM (
         AND d.org_id = ?
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Always include errors join to support component type filtering
+    LEFT JOIN errors e ON d.id = e.device_id
+        AND e.closed_at IS NULL
+        AND (
+            ? IS NULL
+            OR e.component_type IN (/*SLICE:error_component_type_values*/?)
+        )
     WHERE dd.org_id = ?
         AND dd.is_active = TRUE
         AND dd.deleted_at IS NULL
@@ -562,6 +570,11 @@ FROM (
             ? IS NULL
             OR dd.type IN (/*SLICE:type_values*/?)
         )
+        -- Component error filter - only include devices with matching errors when filter is provided
+        AND (
+            ? IS NULL
+            OR e.id IS NOT NULL
+        )
 ) AS devices_with_status
 WHERE
     -- Pairing status filter - if no filter provided (NULL), return all
@@ -572,20 +585,32 @@ WHERE
 `
 
 type GetTotalMinerStateSnapshotsParams struct {
-	OrgID               int64
-	StatusFilter        interface{}
-	StatusValues        []DeviceStatusStatus
-	TypeFilter          interface{}
-	TypeValues          []string
-	PairingStatusFilter interface{}
-	PairingStatusValues []DevicePairingPairingStatus
+	OrgID                     int64
+	ErrorComponentTypesFilter interface{}
+	ErrorComponentTypeValues  []sql.NullInt32
+	StatusFilter              interface{}
+	StatusValues              []DeviceStatusStatus
+	TypeFilter                interface{}
+	TypeValues                []string
+	PairingStatusFilter       interface{}
+	PairingStatusValues       []DevicePairingPairingStatus
 }
 
-// Uses same subquery pattern as ListMinerStateSnapshots for consistency
+// Unified query that supports all filters including component error filtering
+// Uses same structure as ListMinerStateSnapshots for consistency
 func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalMinerStateSnapshotsParams) (int64, error) {
 	query := getTotalMinerStateSnapshots
 	var queryParams []interface{}
 	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
+	if len(arg.ErrorComponentTypeValues) > 0 {
+		for _, v := range arg.ErrorComponentTypeValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", strings.Repeat(",?", len(arg.ErrorComponentTypeValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", "NULL", 1)
+	}
 	queryParams = append(queryParams, arg.OrgID)
 	queryParams = append(queryParams, arg.StatusFilter)
 	if len(arg.StatusValues) > 0 {
@@ -605,6 +630,7 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 	} else {
 		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
 	}
+	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
 	queryParams = append(queryParams, arg.PairingStatusFilter)
 	if len(arg.PairingStatusValues) > 0 {
 		for _, v := range arg.PairingStatusValues {
@@ -687,7 +713,7 @@ func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (sql
 }
 
 const listMinerStateSnapshots = `-- name: ListMinerStateSnapshots :many
-SELECT
+SELECT DISTINCT
     device_identifier,
     mac_address,
     serial_number,
@@ -725,13 +751,21 @@ FROM (
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
             WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
             ELSE 'UNPAIRED'
-        END as pairing_status
+        END as pairing_status,
+        e.id as error_id
     FROM discovered_device dd
     LEFT JOIN device d ON dd.id = d.discovered_device_id
         AND d.deleted_at IS NULL
         AND d.org_id = ?
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Always include errors join to support component type filtering
+    LEFT JOIN errors e ON d.id = e.device_id
+        AND e.closed_at IS NULL
+        AND (
+            ? IS NULL
+            OR e.component_type IN (/*SLICE:error_component_type_values*/?)
+        )
     WHERE dd.org_id = ?
         AND dd.is_active = TRUE
         AND dd.deleted_at IS NULL
@@ -750,6 +784,11 @@ FROM (
             ? IS NULL
             OR dd.type IN (/*SLICE:type_values*/?)
         )
+        -- Component error filter - only include devices with matching errors when filter is provided
+        AND (
+            ? IS NULL
+            OR e.id IS NOT NULL
+        )
 ) AS devices_with_status
 WHERE
     -- Pairing status filter - if no filter provided (NULL), return all
@@ -762,15 +801,17 @@ LIMIT ?
 `
 
 type ListMinerStateSnapshotsParams struct {
-	OrgID               int64
-	CursorID            sql.NullInt64
-	StatusFilter        interface{}
-	StatusValues        []DeviceStatusStatus
-	TypeFilter          interface{}
-	TypeValues          []string
-	PairingStatusFilter interface{}
-	PairingStatusValues []DevicePairingPairingStatus
-	Limit               int32
+	OrgID                     int64
+	ErrorComponentTypesFilter interface{}
+	ErrorComponentTypeValues  []sql.NullInt32
+	CursorID                  sql.NullInt64
+	StatusFilter              interface{}
+	StatusValues              []DeviceStatusStatus
+	TypeFilter                interface{}
+	TypeValues                []string
+	PairingStatusFilter       interface{}
+	PairingStatusValues       []DevicePairingPairingStatus
+	Limit                     int32
 }
 
 type ListMinerStateSnapshotsRow struct {
@@ -791,12 +832,21 @@ type ListMinerStateSnapshotsRow struct {
 	DeviceID         int64
 }
 
-// Uses a subquery to calculate pairing_status once, then filters on it
-// This keeps all pairing status logic in one place (the CASE statement)
+// Unified query that supports all filters including component error filtering
+// Uses LEFT JOIN with errors table to support filtering by component types when needed
 func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStateSnapshotsParams) ([]ListMinerStateSnapshotsRow, error) {
 	query := listMinerStateSnapshots
 	var queryParams []interface{}
 	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
+	if len(arg.ErrorComponentTypeValues) > 0 {
+		for _, v := range arg.ErrorComponentTypeValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", strings.Repeat(",?", len(arg.ErrorComponentTypeValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", "NULL", 1)
+	}
 	queryParams = append(queryParams, arg.OrgID)
 	queryParams = append(queryParams, arg.CursorID)
 	queryParams = append(queryParams, arg.CursorID)
@@ -818,6 +868,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStat
 	} else {
 		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
 	}
+	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
 	queryParams = append(queryParams, arg.PairingStatusFilter)
 	if len(arg.PairingStatusValues) > 0 {
 		for _, v := range arg.PairingStatusValues {

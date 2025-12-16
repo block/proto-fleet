@@ -4,13 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -400,6 +403,157 @@ func TestService_ListMinerStateSnapshots_ShouldCombineMultipleFilters(t *testing
 	assert.Len(t, resp.Miners, 1, "Should return only PAIRED devices with ONLINE status")
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Miners[0].PairingStatus)
 	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_ONLINE, resp.Miners[0].DeviceStatus)
+}
+
+func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testCases := []struct {
+		name                string
+		errorComponentTypes []errorsv1.ComponentType
+		expectedCount       int
+		expectedDescription string
+	}{
+		{
+			name:                "Filter for PSU errors only",
+			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU},
+			expectedCount:       1,
+			expectedDescription: "Should return only devices with PSU errors",
+		},
+		{
+			name:                "Filter for FAN errors only",
+			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_FAN},
+			expectedCount:       1,
+			expectedDescription: "Should return only devices with FAN errors",
+		},
+		{
+			name:                "Filter for HASH_BOARD errors only",
+			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD},
+			expectedCount:       1,
+			expectedDescription: "Should return only devices with HASH_BOARD errors",
+		},
+		{
+			name:                "Filter for multiple component types (PSU and FAN)",
+			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU, errorsv1.ComponentType_COMPONENT_TYPE_FAN},
+			expectedCount:       2,
+			expectedDescription: "Should return devices with PSU or FAN errors",
+		},
+		{
+			name:                "Filter for CONTROL_BOARD errors (no matching devices)",
+			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD},
+			expectedCount:       0,
+			expectedDescription: "Should return no devices when no errors match",
+		},
+		{
+			name:                "Empty filter",
+			errorComponentTypes: []errorsv1.ComponentType{},
+			expectedCount:       4,
+			expectedDescription: "Should return all devices when no filter specified",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			testContext := testutil.InitializeDBServiceInfrastructure(t)
+			testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+			// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
+			deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:2121")
+
+			// Create error store
+			transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+			errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor)
+			ctx := t.Context()
+
+			// Helper function to create component ID
+			makeComponentID := func(deviceIdx int, componentType string, componentIdx int) string {
+				return fmt.Sprintf("%d_%s_%d", deviceIdx, componentType, componentIdx)
+			}
+
+			// Create PSU error for device 0
+			psuComponentID := makeComponentID(0, "psu", 0)
+			_, err := errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[0], &diagnosticsmodels.ErrorMessage{
+				MinerError:        diagnosticsmodels.PSUFaultGeneric,
+				Severity:          diagnosticsmodels.SeverityMajor,
+				Summary:           "PSU fault detected",
+				Impact:            "Reduced power efficiency",
+				CauseSummary:      "Power supply unit malfunction",
+				RecommendedAction: "Check PSU connections",
+				FirstSeenAt:       time.Now().Add(-time.Hour),
+				LastSeenAt:        time.Now(),
+				DeviceID:          deviceIDs[0],
+				ComponentID:       &psuComponentID,
+				ComponentType:     diagnosticsmodels.ComponentTypePSU,
+			})
+			require.NoError(t, err)
+
+			// Create FAN error for device 1
+			fanComponentID := makeComponentID(1, "fan", 0)
+			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[1], &diagnosticsmodels.ErrorMessage{
+				MinerError:        diagnosticsmodels.FanFailed,
+				Severity:          diagnosticsmodels.SeverityMajor,
+				Summary:           "Fan failure detected",
+				Impact:            "Increased temperature risk",
+				CauseSummary:      "Fan motor failure",
+				RecommendedAction: "Replace faulty fan",
+				FirstSeenAt:       time.Now().Add(-time.Hour),
+				LastSeenAt:        time.Now(),
+				DeviceID:          deviceIDs[1],
+				ComponentID:       &fanComponentID,
+				ComponentType:     diagnosticsmodels.ComponentTypeFans,
+			})
+			require.NoError(t, err)
+
+			// Create HASH_BOARD error for device 2
+			hashboardComponentID := makeComponentID(2, "hashboard", 0)
+			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[2], &diagnosticsmodels.ErrorMessage{
+				MinerError:        diagnosticsmodels.HashboardOverTemperature,
+				Severity:          diagnosticsmodels.SeverityCritical,
+				Summary:           "Hashboard over temperature",
+				Impact:            "Reduced hashrate",
+				CauseSummary:      "Cooling system inadequate",
+				RecommendedAction: "Improve cooling",
+				FirstSeenAt:       time.Now().Add(-time.Hour),
+				LastSeenAt:        time.Now(),
+				DeviceID:          deviceIDs[2],
+				ComponentID:       &hashboardComponentID,
+				ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
+			})
+			require.NoError(t, err)
+
+			// Device 3 has no errors
+
+			// Create auth context and service
+			authCtx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+			service := testContext.ServiceProvider.FleetManagementService
+
+			// Act
+			req := &pb.ListMinerStateSnapshotsRequest{
+				PageSize: 10,
+				Filter: &pb.MinerListFilter{
+					ErrorComponentTypes: tc.errorComponentTypes,
+				},
+			}
+			resp, err := service.ListMinerStateSnapshots(authCtx, req)
+
+			// Assert
+			require.NoError(t, err, tc.expectedDescription)
+			require.NotNil(t, resp)
+			assert.Len(t, resp.Miners, tc.expectedCount, tc.expectedDescription)
+
+			// Verify the returned miners have the expected errors if filtering was applied
+			if len(tc.errorComponentTypes) > 0 && tc.expectedCount > 0 {
+				for _, miner := range resp.Miners {
+					// The miner should have an error status since it has component errors
+					// Note: The actual error details would be in the error service, not directly in the miner snapshot
+					assert.NotNil(t, miner, "Returned miner should not be nil")
+				}
+			}
+		})
+	}
 }
 
 func TestService_GetBatchMinerTelemetry_ShouldReturnForbiddenForUnauthorizedDevices(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
+	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
@@ -17,16 +18,11 @@ import (
 
 //go:generate mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 
-type ComponentFilter struct {
-	ComponentType string
-	Statuses      []string
-}
-
 type MinerFilter struct {
-	PairingStatuses    []fm.PairingStatus // Changed from single value to slice
-	DeviceStatusFilter []mm.MinerStatus
-	MinerType          []mm.Type
-	ComponentFilters   []ComponentFilter
+	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
+	DeviceStatusFilter  []mm.MinerStatus
+	MinerType           []mm.Type
+	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 }
 
 // OfflineDeviceInfo contains information about an offline device needed for IP scanning

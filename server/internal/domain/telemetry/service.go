@@ -1061,7 +1061,9 @@ func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, d
 	return result, nil
 }
 
-// GetMinerComponentStatus returns the latest component status for a miner
+// GetMinerComponentStatus removed - component status tracking now done via errors API
+// This method has been removed as component status is now tracked via the errors API instead of telemetry.
+/*
 func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string) (*pb.MinerComponentStatus, error) {
 	return &pb.MinerComponentStatus{
 		ControlBoard: pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
@@ -1070,6 +1072,7 @@ func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string
 		Psu:          pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
 	}, nil
 }
+*/
 
 func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1139,6 +1142,10 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 	return responseChan, nil
 }
 
+// StreamComponentStatus removed - component status tracking now done via errors API
+// This method has been removed as component status is now tracked via the errors API instead of telemetry.
+// Use the errors service to stream component-level status information.
+/*
 func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, streamResponseChannelBuffer)
 
@@ -1246,6 +1253,7 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 
 	return responseChan, nil
 }
+*/
 
 // SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
 // This allows consumers to receive telemetry events without the conversion to protobuf responses
@@ -1313,7 +1321,9 @@ func internalMeasurementTypeToPb(internalType models.MeasurementType) pb.Measure
 	}
 }
 
-// internalComponentStatusToPb converts internal component status to protobuf
+// internalComponentStatusToPb removed - component status tracking now done via errors API
+// This conversion function has been removed as component status is now tracked via the errors API instead of telemetry.
+/*
 func internalComponentStatusToPb(internalStatus models.ComponentStatus) pb.ComponentStatus {
 	//nolint:exhaustive // there are only a few status to match at this time
 	switch internalStatus {
@@ -1331,6 +1341,7 @@ func internalComponentStatusToPb(internalStatus models.ComponentStatus) pb.Compo
 		return pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED
 	}
 }
+*/
 
 // getLatestMeasurements retrieves the latest measurements for a device and measurement type
 func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID string, measurementType models.MeasurementType) ([]*commonpb.Measurement, error) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
+	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	telemetrypb "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -255,10 +257,11 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			}
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
 
-			status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
-			if err == nil && status != nil {
-				snapshot.Status = status
-			}
+			// Component status removed - now tracked via errors API
+			// status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
+			// if err == nil && status != nil {
+			// 	snapshot.Status = status
+			// }
 
 			snapshot.IpAddress = row.IpAddress
 			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
@@ -298,13 +301,14 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 		return nil, fleeterror.NewInternalErrorf("failed to start measurement stream: %v", err)
 	}
 
-	var statusChan <-chan *pb.StreamMinerUpdatesResponse
-	if req.IncludeStatusUpdates {
-		statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to start status stream: %v", err)
-		}
-	}
+	// Component status streaming removed - now tracked via errors API
+	// var statusChan <-chan *pb.StreamMinerUpdatesResponse
+	// if req.IncludeStatusUpdates {
+	// 	statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
+	// 	if err != nil {
+	// 		return nil, fleeterror.NewInternalErrorf("failed to start status stream: %v", err)
+	// 	}
+	// }
 
 	go func() {
 		defer close(responseChan)
@@ -324,12 +328,6 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 				case <-ctx.Done():
 					return
 				case responseChan <- measurement:
-				}
-			case status := <-statusChan:
-				select {
-				case <-ctx.Done():
-					return
-				case responseChan <- status:
 				}
 			}
 			// Include heartbeatTicker case only if it is initialized
@@ -391,30 +389,13 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.PairingStatuses = pbFilter.PairingStatuses
 	}
 
-	if len(pbFilter.ComponentFilters) > 0 {
-		componentFilters := make([]interfaces.ComponentFilter, 0, len(pbFilter.ComponentFilters))
-		for _, cf := range pbFilter.ComponentFilters {
-			componentType, err := convertComponentType(cf.Component)
-			if err != nil {
-				return nil, err
-			}
-
-			statuses := make([]string, 0, len(cf.Statuses))
-			for _, status := range cf.Statuses {
-				dbStatus, exists := componentStatusMap[status]
-				if exists {
-					statuses = append(statuses, dbStatus)
-				} else {
-					return nil, fleeterror.NewInternalErrorf("unsupported component status: %v", status)
-				}
-			}
-
-			componentFilters = append(componentFilters, interfaces.ComponentFilter{
-				ComponentType: componentType,
-				Statuses:      statuses,
-			})
+	// Parse error component types - filter for devices that have errors for specific component types
+	if len(pbFilter.ErrorComponentTypes) > 0 {
+		componentTypes := make([]diagnosticsmodels.ComponentType, 0, len(pbFilter.ErrorComponentTypes))
+		for _, ct := range pbFilter.ErrorComponentTypes {
+			componentTypes = append(componentTypes, convertErrorComponentType(ct))
 		}
-		filter.ComponentFilters = componentFilters
+		filter.ErrorComponentTypes = componentTypes
 	}
 
 	if len(pbFilter.DeviceStatus) > 0 {
@@ -461,28 +442,23 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 	return filter, nil
 }
 
-func convertComponentType(ct pb.ComponentType) (string, error) {
+// convertErrorComponentType converts a proto ComponentType to domain ComponentType.
+func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {
 	switch ct {
-	case pb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
-		return "control_board", nil
-	case pb.ComponentType_COMPONENT_TYPE_FANS:
-		return "fans", nil
-	case pb.ComponentType_COMPONENT_TYPE_HASH_BOARDS:
-		return "hash_boards", nil
-	case pb.ComponentType_COMPONENT_TYPE_PSU:
-		return "psu", nil
-	case pb.ComponentType_COMPONENT_TYPE_UNSPECIFIED:
-		return "", fleeterror.NewInternalErrorf("component type must be specified")
-	default:
-		return "", fleeterror.NewInternalErrorf("unsupported component type: %v", ct)
+	case errorsv1.ComponentType_COMPONENT_TYPE_PSU:
+		return diagnosticsmodels.ComponentTypePSU
+	case errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD:
+		return diagnosticsmodels.ComponentTypeHashBoards
+	case errorsv1.ComponentType_COMPONENT_TYPE_FAN:
+		return diagnosticsmodels.ComponentTypeFans
+	case errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
+		return diagnosticsmodels.ComponentTypeControlBoard
+	case errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED,
+		errorsv1.ComponentType_COMPONENT_TYPE_EEPROM,
+		errorsv1.ComponentType_COMPONENT_TYPE_IO_MODULE:
+		return diagnosticsmodels.ComponentTypeUnspecified
 	}
-}
-
-var componentStatusMap = map[pb.ComponentStatus]string{
-	pb.ComponentStatus_COMPONENT_STATUS_OK:      "ONLINE",
-	pb.ComponentStatus_COMPONENT_STATUS_WARNING: "MAINTENANCE",
-	pb.ComponentStatus_COMPONENT_STATUS_ERROR:   "ERROR",
-	pb.ComponentStatus_COMPONENT_STATUS_OFFLINE: "OFFLINE",
+	return diagnosticsmodels.ComponentTypeUnspecified
 }
 
 // convertMinerTypesToProto converts domain miner types to protobuf enum values.
@@ -756,8 +732,8 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 		}
 	}
 
-	// TODO: Add component filter checks when component status is available
-	// This would require fetching component status from telemetry
+	// Component filtering is handled at the SQL level through JOIN with errors table
+	// No need for application-level filtering here
 
 	return true
 }
@@ -775,10 +751,11 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 		telemetry = nil
 	}
 
-	status, err := s.telemetry.GetMinerComponentStatus(ctx, device.DeviceIdentifier)
-	if err != nil {
-		status = nil
-	}
+	// Component status removed - now tracked via errors API
+	// status, err := s.telemetry.GetMinerComponentStatus(ctx, device.DeviceIdentifier)
+	// if err != nil {
+	// 	status = nil
+	// }
 
 	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []mm.DeviceIdentifier{mm.DeviceIdentifier(device.DeviceIdentifier)})
 	if err != nil {
@@ -809,9 +786,10 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 		snapshot.Timestamp = telemetry.Timestamp
 	}
 
-	if status != nil {
-		snapshot.Status = status
-	}
+	// Component status removed - now tracked via errors API
+	// if status != nil {
+	// 	snapshot.Status = status
+	// }
 
 	return snapshot
 }

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
+import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
+import { useStreamDeviceErrors } from "@/protoFleet/api/useStreamDeviceErrors";
 import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
@@ -45,6 +47,13 @@ const Fleet = () => {
     }
     prevHasInitialLoadCompletedRef.current = hasInitialLoadCompleted;
   }, [hasInitialLoadCompleted, resetFetchedIds]);
+
+  // Fetch and stream errors for all loaded miners
+  useDeviceErrors(minerIds);
+  useStreamDeviceErrors({
+    deviceIds: minerIds,
+    enabled: hasInitialLoadCompleted && minerIds.length > 0,
+  });
 
   useEffect(() => {
     if (hasInitialLoadCompleted && visibleMinerIds.size > 0) {

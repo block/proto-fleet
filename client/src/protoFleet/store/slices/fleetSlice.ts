@@ -2,15 +2,13 @@ import { create as createSchema } from "@bufbuild/protobuf";
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
+import { type ErrorMessage, type Status, type Summary } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
-  type ComponentStatusUpdate,
-  ComponentStatusUpdate_Component,
   type DeviceStatusUpdate,
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
-  MinerComponentStatus,
-  type MinerStateSnapshot,
   type MinerTelemetry,
+  type MinerStateSnapshot as ProtoMinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceStatus,
@@ -20,6 +18,20 @@ import {
   type TelemetryUpdate,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
+
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
+// Extended MinerStateSnapshot type with error status
+export interface MinerStateSnapshot extends ProtoMinerStateSnapshot {
+  errorStatus?: {
+    status: Status;
+    summary: Summary;
+    errors: ErrorMessage[];
+    countsBySeverity: Record<string, number>;
+  };
+}
 
 // =============================================================================
 // Helper Functions
@@ -84,29 +96,6 @@ function updateTelemetryMeasurement(telemetryUpdate: TelemetryUpdate, miner: Min
   }
 }
 
-function updateComponentStatus({ status, component }: ComponentStatusUpdate, miner: MinerStateSnapshot): void {
-  if (!miner.status) {
-    miner.status = {
-      controlBoard: 0,
-      fans: 0,
-      hashBoards: 0,
-      psu: 0,
-    } as MinerComponentStatus;
-  }
-
-  const componentToProperty = {
-    [ComponentStatusUpdate_Component.CONTROL_BOARD]: "controlBoard",
-    [ComponentStatusUpdate_Component.FANS]: "fans",
-    [ComponentStatusUpdate_Component.HASH_BOARDS]: "hashBoards",
-    [ComponentStatusUpdate_Component.PSU]: "psu",
-  } as const;
-
-  const propertyName = componentToProperty[component as keyof typeof componentToProperty];
-  if (propertyName) {
-    miner.status[propertyName] = status;
-  }
-}
-
 function updateDeviceStatus(deviceStatus: DeviceStatusUpdate, miner: MinerStateSnapshot): void {
   if (!miner.deviceStatus) {
     miner.deviceStatus = DeviceStatus.UNSPECIFIED;
@@ -158,13 +147,18 @@ export interface FleetSlice {
   updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
   updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
   updateBatchTelemetry: (telemetryData: MinerTelemetry[]) => void;
-  updateMinerComponentStatus: (deviceId: string, status: ComponentStatusUpdate) => void;
   updateMinerDeviceStatus: (deviceId: string, deviceStatusUpdate: DeviceStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
   setCursor: (cursor: string) => void;
   notifyPairingCompleted: () => void;
+
+  // Error management actions
+  setMinerErrors: (deviceId: string, errorStatus: MinerStateSnapshot["errorStatus"]) => void;
+  updateMinerError: (deviceId: string, error: ErrorMessage) => void;
+  removeMinerError: (deviceId: string, errorId: string) => void;
+  updateMinersErrorStatuses: (errorStatuses: Record<string, any>) => void;
 
   // Selectors
   getMinersArray: () => MinerStateSnapshot[];
@@ -304,9 +298,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
           if (telemetry.efficiency.length > 0) {
             miner.efficiency = telemetry.efficiency;
           }
-          if (telemetry.status) {
-            miner.status = telemetry.status;
-          }
           if (telemetry.timestamp) {
             miner.timestamp = telemetry.timestamp;
           }
@@ -315,14 +306,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
           }
         }
       });
-    }),
-
-  updateMinerComponentStatus: (deviceId, statusUpdate) =>
-    set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        updateComponentStatus(statusUpdate, miner);
-      }
     }),
 
   updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
@@ -359,6 +342,79 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   notifyPairingCompleted: () =>
     set((state) => {
       state.fleet.lastPairingCompletedAt = Date.now();
+    }),
+
+  // Error management actions
+  setMinerErrors: (deviceId, errorStatus) =>
+    set((state) => {
+      const miner = state.fleet.miners[deviceId];
+      if (miner) {
+        miner.errorStatus = errorStatus;
+      }
+    }),
+
+  updateMinerError: (deviceId, error) =>
+    set((state) => {
+      const miner = state.fleet.miners[deviceId];
+      if (miner) {
+        if (!miner.errorStatus) {
+          miner.errorStatus = {
+            status: 0, // STATUS_UNSPECIFIED - will be updated based on severity
+            summary: {
+              $typeName: "errors.v1.Summary" as const,
+              title: "",
+              details: "",
+              condensed: "",
+            } as Summary,
+            errors: [],
+            countsBySeverity: {},
+          };
+        }
+
+        // Add or update error in the list
+        const existingIndex = miner.errorStatus.errors.findIndex((e) => e.errorId === error.errorId);
+        if (existingIndex >= 0) {
+          miner.errorStatus.errors[existingIndex] = error;
+        } else {
+          miner.errorStatus.errors.push(error);
+        }
+
+        // Update counts by severity
+        // Note: This is a simplified implementation - you may want to recalculate from all errors
+        const severityStr = error.severity.toString();
+        miner.errorStatus.countsBySeverity[severityStr] = (miner.errorStatus.countsBySeverity[severityStr] || 0) + 1;
+      }
+    }),
+
+  removeMinerError: (deviceId, errorId) =>
+    set((state) => {
+      const miner = state.fleet.miners[deviceId];
+      if (miner?.errorStatus) {
+        miner.errorStatus.errors = miner.errorStatus.errors.filter((e) => e.errorId !== errorId);
+
+        // Recalculate counts by severity
+        miner.errorStatus.countsBySeverity = {};
+        for (const error of miner.errorStatus.errors) {
+          const severityStr = error.severity.toString();
+          miner.errorStatus.countsBySeverity[severityStr] = (miner.errorStatus.countsBySeverity[severityStr] || 0) + 1;
+        }
+      }
+    }),
+
+  updateMinersErrorStatuses: (errorStatuses) =>
+    set((state) => {
+      // errorStatuses is a map of deviceId -> DeviceError
+      Object.entries(errorStatuses).forEach(([deviceId, deviceError]) => {
+        const miner = state.fleet.miners[deviceId];
+        if (miner && deviceError) {
+          miner.errorStatus = {
+            status: deviceError.status,
+            summary: deviceError.summary,
+            errors: deviceError.errors || [],
+            countsBySeverity: deviceError.countsBySeverity || {},
+          };
+        }
+      });
     }),
 
   // Selectors

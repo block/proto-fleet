@@ -103,15 +103,19 @@ const (
 	SeverityInfo        Severity = 4 // Informational / advisory
 )
 
-// ComponentType represents the type of hardware component associated with an error
-type ComponentType = uint
+// ComponentType represents the type of hardware component associated with an error.
+// This is kept as a domain type separate from proto to control which component types
+// we support in the domain logic.
+type ComponentType uint
 
+// Component type constants - matching proto enum values for supported types only
 const (
 	ComponentTypeUnspecified  ComponentType = 0
-	ComponentTypeControlBoard ComponentType = 1
-	ComponentTypeFans         ComponentType = 2
-	ComponentTypeHashBoards   ComponentType = 3
-	ComponentTypePSU          ComponentType = 4
+	ComponentTypePSU          ComponentType = 1
+	ComponentTypeHashBoards   ComponentType = 2
+	ComponentTypeFans         ComponentType = 3
+	ComponentTypeControlBoard ComponentType = 4
+	// Note: EEPROM (5) and IO_MODULE (6) are not yet supported in the domain
 )
 
 // ErrorMessage represents a fleet-tracked miner error.

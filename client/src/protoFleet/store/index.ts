@@ -58,13 +58,14 @@ export {
   useMinerName,
   useMinerMacAddress,
   useMinerIpAddress,
-  useMinerComponentStatus,
   useMinerDeviceStatus,
   useMinerHashrate,
   useMinerEfficiency,
   useMinerPowerUsage,
   useMinerTemperature,
   useMinerUrl,
+  useDeviceErrors,
+  useMinerData,
   useSetMiners,
   useAppendMiners,
   useSetTotalMiners,
@@ -72,7 +73,6 @@ export {
   useSetRefetchCallback,
   useUpdateMinerMeasurement,
   useUpdateMinerTelemetry,
-  useUpdateMinerComponentStatus,
   useUpdateMinerDeviceStatus,
   useUpdateMinerTimestamp,
   useSetLoading,
@@ -100,3 +100,4 @@ export {
 // =============================================================================
 
 export type { Theme, ThemeColor, TemperatureUnit } from "@/shared/features/preferences";
+export type { MinerStateSnapshot } from "./slices/fleetSlice";

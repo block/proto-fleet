@@ -22,14 +22,14 @@ type TelemetryCollector interface {
 	// in a single database query instead of per-device queries.
 	GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error)
 
-	// GetMinerComponentStatus returns the latest component status for a miner
-	GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
+	// GetMinerComponentStatus removed - component status tracking now done via errors API
+	// GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
 
 	// StreamMeasurements streams measurement updates for the specified miners and measurement types
 	StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error)
 
-	// StreamComponentStatus streams component status updates for the specified miners
-	StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error)
+	// StreamComponentStatus removed - component status tracking now done via errors API
+	// StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error)
 
 	// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
 	// This allows consumers to receive telemetry events without the conversion to protobuf responses
@@ -135,20 +135,6 @@ func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, 
 	return measurements
 }
 
-func (m *MockTelemetryCollector) GetMinerComponentStatus(ctx context.Context, _ string) (*pb.MinerComponentStatus, error) {
-	statuses := []pb.ComponentStatus{
-		pb.ComponentStatus_COMPONENT_STATUS_OK,
-		pb.ComponentStatus_COMPONENT_STATUS_WARNING,
-		pb.ComponentStatus_COMPONENT_STATUS_ERROR,
-	}
-	return &pb.MinerComponentStatus{
-		ControlBoard: statuses[rand.Intn(len(statuses))],
-		Fans:         statuses[rand.Intn(len(statuses))],
-		HashBoards:   statuses[rand.Intn(len(statuses))],
-		Psu:          statuses[rand.Intn(len(statuses))],
-	}, nil
-}
-
 const (
 	// Stream channel buffer sizes
 	streamMeasurementsChannelBuffer = 100
@@ -203,56 +189,6 @@ func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceI
 	return ch, nil
 }
 
-func (m *MockTelemetryCollector) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	ch := make(chan *pb.StreamMinerUpdatesResponse, streamStatusChannelBuffer)
-
-	go func() {
-		defer close(ch)
-
-		ticker := time.NewTicker(mockStatusInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				for _, deviceID := range deviceIDs {
-					components := []pb.ComponentStatusUpdate_Component{
-						pb.ComponentStatusUpdate_COMPONENT_CONTROL_BOARD,
-						pb.ComponentStatusUpdate_COMPONENT_FANS,
-						pb.ComponentStatusUpdate_COMPONENT_HASH_BOARDS,
-						pb.ComponentStatusUpdate_COMPONENT_PSU,
-					}
-
-					for _, component := range components {
-						update := &pb.ComponentStatusUpdate{
-							Component: component,
-							Status:    generateMockStatus(),
-						}
-
-						resp := &pb.StreamMinerUpdatesResponse{
-							Timestamp:        timestamppb.Now(),
-							DeviceIdentifier: deviceID,
-							Update: &pb.StreamMinerUpdatesResponse_Status{
-								Status: update,
-							},
-						}
-
-						select {
-						case <-ctx.Done():
-							return
-						case ch <- resp:
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	return ch, nil
-}
-
 const (
 	// Mock data generation ranges
 	maxPowerUsageWatts    = 3000.0
@@ -282,15 +218,6 @@ func generateMockValue(mType pb.MeasurementConfig_MeasurementType) float64 {
 	default:
 		return 0
 	}
-}
-
-func generateMockStatus() pb.ComponentStatus {
-	statuses := []pb.ComponentStatus{
-		pb.ComponentStatus_COMPONENT_STATUS_OK,
-		pb.ComponentStatus_COMPONENT_STATUS_WARNING,
-		pb.ComponentStatus_COMPONENT_STATUS_ERROR,
-	}
-	return statuses[rand.Intn(len(statuses))]
 }
 
 func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context, _ int64, _ []string, _ []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error) {
