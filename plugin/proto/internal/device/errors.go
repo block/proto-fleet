@@ -15,6 +15,8 @@ import (
 )
 
 const (
+	minValidBayIndex = 0
+
 	impactUnableToStartMining        = "Unable to start mining"
 	impactReducedHashrateBoardShut   = "Reduced hashrate, board shutdowns"
 	impactBayShutdown                = "Bay shutdown"
@@ -31,7 +33,6 @@ type errorMapping struct {
 	causeSummary      string
 	recommendedAction string
 	impact            string
-	// formatSummary generates a human-readable error message from the error details.
 	// Type assertions in formatSummary functions are safe because applyErrorMapping
 	// only calls formatSummary with the correct error type from the corresponding mapping.
 	formatSummary func(any) string
@@ -67,7 +68,7 @@ var rigErrorMappings = map[miner_error_code.RigErrorCode]errorMapping{
 		impact:            "Hashboards in affected bay are unable to start mining",
 		formatSummary: func(err any) string {
 			rigErr := err.(*miner_error_code.RigError)
-			if bayIndex := rigErr.GetBayIndex(); bayIndex != nil && bayIndex.BayIndex > 0 {
+			if bayIndex := rigErr.GetBayIndex(); bayIndex != nil && bayIndex.BayIndex > minValidBayIndex {
 				return fmt.Sprintf("Bay %d has insufficient cooling", bayIndex.BayIndex)
 			}
 			return "Bay has insufficient cooling"
@@ -115,7 +116,7 @@ var rigErrorMappings = map[miner_error_code.RigErrorCode]errorMapping{
 		impact:            "Hashboards in affected bay are unable to start mining",
 		formatSummary: func(err any) string {
 			rigErr := err.(*miner_error_code.RigError)
-			if bayIndex := rigErr.GetBayIndex(); bayIndex != nil && bayIndex.BayIndex > 0 {
+			if bayIndex := rigErr.GetBayIndex(); bayIndex != nil && bayIndex.BayIndex > minValidBayIndex {
 				return fmt.Sprintf("PSU recovery in progress for bay %d", bayIndex.BayIndex)
 			}
 			return "PSU recovery in progress"
@@ -577,10 +578,13 @@ func convertMinerError(errFromDb *miner_data_api.ErrorFromDb, deviceID string) s
 		timestamp = time.Unix(int64(errFromDb.Timestamp), 0)
 	}
 
+	// Proto miners only provide the initial error timestamp (when first detected),
+	// not when the error was last observed. Set LastSeenAt to current time
+	// to indicate when the plugin observed this error during polling.
 	baseError := sdk.DeviceError{
 		DeviceID:    deviceID,
 		FirstSeenAt: timestamp,
-		LastSeenAt:  timestamp,
+		LastSeenAt:  time.Now(), // Current observation time
 	}
 
 	switch err := errFromDb.Error.Err.(type) {

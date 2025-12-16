@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -87,12 +88,17 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 // upsertErrors upserts a list of errors for a single device.
 // Returns the count of successful upserts and failed upserts.
 // Applies default ComponentType based on MinerError if not already specified.
+// Sets LastSeenAt to current time if plugin didn't provide it (zero value).
 func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerModels.DeviceIdentifier, errors []models.ErrorMessage) (upserted, failed int) {
 	for i := range errors {
 		if errors[i].ComponentType == models.ComponentTypeUnspecified {
 			errors[i].ComponentType = models.DefaultComponentTypeForMinerError(errors[i].MinerError)
 		}
-
+		// If plugin didn't provide LastSeenAt (zero value), set it to current polling time.
+		// This supports plugins that don't track observation time (e.g., Proto plugin).
+		if errors[i].LastSeenAt.IsZero() {
+			errors[i].LastSeenAt = time.Now()
+		}
 		_, err := s.errorStore.UpsertError(ctx, orgID, string(deviceID), &errors[i])
 		if err != nil {
 			slog.Warn("failed to upsert error", "deviceID", deviceID, "orgID", orgID, "minerError", errors[i].MinerError, "error", err)

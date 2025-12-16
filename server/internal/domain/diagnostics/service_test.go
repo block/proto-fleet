@@ -16,6 +16,12 @@ import (
 	storeMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
+const (
+	// Test fixture timestamps for error timestamp validation tests
+	testErrorFirstSeenTimestamp = 1609459200 // 2021-01-01 00:00:00 UTC
+	testErrorLastSeenTimestamp  = 1609459300 // 2021-01-01 00:01:40 UTC
+)
+
 // newTestService creates a diagnostics service for testing with the given mock error store.
 // Uses context.Background() for the closer goroutine which will be cleaned up when tests complete.
 func newTestService(ctrl *gomock.Controller, mockErrorStore *storeMocks.MockErrorStore) *Service {
@@ -618,4 +624,111 @@ func TestQuery_WithInvalidPageToken_ShouldReturnError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "invalid page token")
+}
+
+func TestUpsertErrors_WithZeroLastSeenAt_ShouldSetToCurrentTime(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+
+	testDeviceID := "test-device-123"
+	orgID := int64(1)
+
+	// Create an error with zero LastSeenAt (for backwards compatibility if any plugin doesn't set it)
+	errorWithZeroLastSeen := models.ErrorMessage{
+		MinerError:  models.HashboardOverTemperature,
+		Severity:    models.SeverityMajor,
+		Summary:     "Error with zero LastSeenAt",
+		FirstSeenAt: time.Unix(testErrorFirstSeenTimestamp, 0),
+		LastSeenAt:  time.Time{}, // Zero value
+	}
+
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
+	mockMiner.EXPECT().GetOrgID().Return(orgID).AnyTimes()
+	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
+		DeviceID: testDeviceID,
+		Errors:   []models.ErrorMessage{errorWithZeroLastSeen},
+	}, nil)
+
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	capturedError := &models.ErrorMessage{}
+	mockErrorStore.EXPECT().UpsertError(
+		gomock.Any(),
+		orgID,
+		testDeviceID,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
+		// Capture the error that was passed to UpsertError
+		*capturedError = *errMsg
+		return errMsg, nil
+	})
+
+	beforeCall := time.Now()
+	svc := newTestService(ctrl, mockErrorStore)
+	result := svc.PollErrors(t.Context(), mockMiner)
+	afterCall := time.Now()
+
+	// Verify the poll succeeded
+	assert.Equal(t, 1, result.ErrorsUpserted)
+	assert.Equal(t, 0, result.UpsertsFailed)
+
+	// Verify FirstSeenAt was preserved
+	assert.Equal(t, time.Unix(testErrorFirstSeenTimestamp, 0), capturedError.FirstSeenAt)
+
+	// Verify LastSeenAt was set to current time (not zero)
+	assert.False(t, capturedError.LastSeenAt.IsZero(), "LastSeenAt should not be zero")
+	assert.True(t, capturedError.LastSeenAt.After(beforeCall) || capturedError.LastSeenAt.Equal(beforeCall),
+		"LastSeenAt should be at or after the call time")
+	assert.True(t, capturedError.LastSeenAt.Before(afterCall) || capturedError.LastSeenAt.Equal(afterCall),
+		"LastSeenAt should be at or before the call completion")
+}
+
+func TestUpsertErrors_WithNonZeroLastSeenAt_ShouldPreserveIt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	testDeviceID := "test-device-123"
+	orgID := int64(1)
+	providedLastSeenAt := time.Unix(testErrorLastSeenTimestamp, 0)
+
+	// Create an error with non-zero LastSeenAt (like Antminer plugin would provide)
+	errorWithLastSeen := models.ErrorMessage{
+		MinerError:  models.PSUNotPresent,
+		Severity:    models.SeverityCritical,
+		Summary:     "Antminer error with LastSeenAt",
+		FirstSeenAt: time.Unix(testErrorFirstSeenTimestamp, 0),
+		LastSeenAt:  providedLastSeenAt,
+	}
+
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
+	mockMiner.EXPECT().GetOrgID().Return(orgID).AnyTimes()
+	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
+		DeviceID: testDeviceID,
+		Errors:   []models.ErrorMessage{errorWithLastSeen},
+	}, nil)
+
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	capturedError := &models.ErrorMessage{}
+	mockErrorStore.EXPECT().UpsertError(
+		gomock.Any(),
+		orgID,
+		testDeviceID,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
+		// Capture the error that was passed to UpsertError
+		*capturedError = *errMsg
+		return errMsg, nil
+	})
+
+	svc := newTestService(ctrl, mockErrorStore)
+	result := svc.PollErrors(t.Context(), mockMiner)
+
+	// Verify the poll succeeded
+	assert.Equal(t, 1, result.ErrorsUpserted)
+	assert.Equal(t, 0, result.UpsertsFailed)
+
+	// Verify both timestamps were preserved as provided
+	assert.Equal(t, time.Unix(testErrorFirstSeenTimestamp, 0), capturedError.FirstSeenAt)
+	assert.Equal(t, providedLastSeenAt, capturedError.LastSeenAt,
+		"LastSeenAt should be preserved when provided by plugin")
 }

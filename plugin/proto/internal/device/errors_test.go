@@ -2,7 +2,9 @@ package device
 
 import (
 	"testing"
+	"time"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
@@ -20,6 +22,14 @@ const (
 	validateFullError
 )
 
+const (
+	testTimestamp1 = 1234567890 // 2009-02-13 23:31:30 UTC
+	testTimestamp2 = 1234567891
+	testTimestamp3 = 1234567892
+
+	historicalErrorTimestamp = 1609459200 // 2021-01-01 00:00:00 UTC
+)
+
 func TestDevice_ConvertErrorsResponse(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -34,7 +44,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
@@ -55,7 +65,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_FanError{
 								FanError: &miner_fan_api.FanError{
@@ -82,7 +92,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_FanError{
 								FanError: &miner_fan_api.FanError{
@@ -104,7 +114,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_RigError{
 								RigError: &miner_error_code.RigError{
@@ -129,7 +139,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_RigError{
 								RigError: &miner_error_code.RigError{
@@ -154,7 +164,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_RigError{
 								RigError: &miner_error_code.RigError{
@@ -175,7 +185,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -200,7 +210,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -224,7 +234,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -248,7 +258,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -259,7 +269,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 						},
 					},
 					{
-						Timestamp: 1234567891,
+						Timestamp: testTimestamp2,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -295,7 +305,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error:     nil,
 					},
 				},
@@ -307,7 +317,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
@@ -318,7 +328,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 						},
 					},
 					{
-						Timestamp: 1234567891,
+						Timestamp: testTimestamp2,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_FanError{
 								FanError: &miner_fan_api.FanError{
@@ -329,7 +339,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 						},
 					},
 					{
-						Timestamp: 1234567892,
+						Timestamp: testTimestamp3,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -354,7 +364,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
@@ -380,7 +390,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
@@ -401,7 +411,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
@@ -422,7 +432,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -446,7 +456,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -470,7 +480,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_HbError{
 								HbError: &miner_hb_api.HbError{
@@ -492,7 +502,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_RigError{
 								RigError: &miner_error_code.RigError{
@@ -512,7 +522,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
-						Timestamp: 1234567890,
+						Timestamp: testTimestamp1,
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_FanError{
 								FanError: &miner_fan_api.FanError{
@@ -561,4 +571,44 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConvertErrorsResponse_LastSeenAtIsCurrentTime(t *testing.T) {
+	rigErr := &miner_error_code.RigError{
+		Code: miner_error_code.RigErrorCode_RIG_ERROR_CODE_LOW_HASH_RATE,
+	}
+	errorFromDb := &miner_data_api.ErrorFromDb{
+		Timestamp: historicalErrorTimestamp, // 2021-01-01 00:00:00 UTC
+		Error: &miner_error_code.Error{
+			Err: &miner_error_code.Error_RigError{RigError: rigErr},
+		},
+	}
+	response := &miner_data_api.ErrorsResponse{
+		Result: miner_common_api.ApiResult_RESULT_SUCCESS,
+		Errors: []*miner_data_api.ErrorFromDb{errorFromDb},
+	}
+
+	device := &Device{
+		id: "test-device-123",
+	}
+
+	// Act
+	beforeCall := time.Now()
+	result := device.convertErrorsResponse(response)
+	afterCall := time.Now()
+
+	// Assert
+	require.Len(t, result.Errors, 1)
+	err := result.Errors[0]
+
+	// Verify FirstSeenAt is set to the miner's timestamp
+	expectedFirstSeenAt := time.Unix(historicalErrorTimestamp, 0)
+	assert.Equal(t, expectedFirstSeenAt, err.FirstSeenAt, "FirstSeenAt should be the miner's timestamp")
+
+	// Verify LastSeenAt is set to current time
+	assert.False(t, err.LastSeenAt.IsZero(), "LastSeenAt should not be zero")
+	assert.True(t, err.LastSeenAt.After(beforeCall) || err.LastSeenAt.Equal(beforeCall),
+		"LastSeenAt should be at or after the call time")
+	assert.True(t, err.LastSeenAt.Before(afterCall) || err.LastSeenAt.Equal(afterCall),
+		"LastSeenAt should be at or before the call completion")
 }
