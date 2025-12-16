@@ -24,9 +24,10 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
   const [isUpdatingCooling, setIsUpdatingCooling] = useState(false);
 
   const handleWake = () => {
-    // Check if fans are running and cooling mode is immersion
+    // Workaround: backend returns protobuf enum names instead of OpenAPI spec values
     const hasFansRunning = coolingStatus?.fans?.some((fan) => fan && (fan.rpm ?? 0) > 0);
-    const isImmersionMode = coolingStatus?.fan_mode === "Off";
+    const fanMode = coolingStatus?.fan_mode as string | undefined;
+    const isImmersionMode = fanMode === "Off" || fanMode === "COOLING_MODE_OFF";
 
     if (hasFansRunning && isImmersionMode) {
       setShowFansDetectedDialog(true);

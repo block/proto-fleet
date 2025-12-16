@@ -52,6 +52,13 @@ const FAN_MODES: {
   [COOLING_MODES.immersion]: "Off",
 } as const;
 
+// Workaround: backend returns protobuf enum names (e.g. "COOLING_MODE_AUTO") instead of OpenAPI spec values ("Auto")
+// Note: "Manual" is treated as air-cooled since fans run at fixed speed (vs "Off" for immersion where fans are disabled)
+const isAirCooledMode = (fanMode: string | undefined) =>
+  fanMode === "Auto" || fanMode === "Manual" || fanMode === "COOLING_MODE_AUTO" || fanMode === "COOLING_MODE_MANUAL";
+
+const isImmersionMode = (fanMode: string | undefined) => fanMode === "Off" || fanMode === "COOLING_MODE_OFF";
+
 const disabledClassName = "opacity-50 pointer-events-none";
 
 const isSelected = (
@@ -80,10 +87,10 @@ const Cooling = () => {
   useEffect(() => {
     if (coolingStatus) {
       /* eslint-disable react-hooks/set-state-in-effect */
-      if (coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.air]) {
+      if (isAirCooledMode(coolingStatus.fan_mode)) {
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
-      } else if (coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.immersion]) {
+      } else if (isImmersionMode(coolingStatus.fan_mode)) {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
@@ -100,8 +107,10 @@ const Cooling = () => {
 
   const handleChange = useCallback(
     (id: string, confirmed = false) => {
-      if (coolingStatus?.fan_mode === FAN_MODES[id as CoolingMode]) {
-        // ignore change if same as currently selected
+      const isCurrentMode =
+        (id === COOLING_MODES.air && isAirCooledMode(coolingStatus?.fan_mode)) ||
+        (id === COOLING_MODES.immersion && isImmersionMode(coolingStatus?.fan_mode));
+      if (isCurrentMode) {
         return;
       }
 
