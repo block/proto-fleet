@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/plugin/proto/internal/device/types"
 	"github.com/btc-mining/proto-fleet/plugin/proto/pkg/proto"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -224,7 +225,7 @@ func (d *Device) convertHashboards(hashboards []*proto.HashboardTelemetry, devic
 		hbMetrics := sdk.HashBoardMetrics{
 			ComponentInfo: sdk.ComponentInfo{
 				Index:  safeUint32ToInt32(hb.Index),
-				Name:   fmt.Sprintf("Hashboard %d", hb.Index),
+				Name:   fmt.Sprintf("Hashboard %d", types.HumanReadableIndex(hb.Index)),
 				Status: componentStatus,
 			},
 			HashRateHS:  convertHashrateToHS(hb.HashrateThS),
@@ -270,7 +271,7 @@ func (d *Device) convertASICs(asics *proto.ASICTelemetry, hashboardIndex int, ha
 		asicMetrics := sdk.ASICMetrics{
 			ComponentInfo: sdk.ComponentInfo{
 				Index:  int32(i), // #nosec G115 -- Loop index inherently safe: bounded by slice length (max ~200)
-				Name:   fmt.Sprintf("HB%d ASIC %d", hashboardIndex, i),
+				Name:   fmt.Sprintf("HB%d ASIC %d", types.HumanReadableIndex(hashboardIndex), types.HumanReadableIndex(i)),
 				Status: hashboardStatus,
 			},
 		}
@@ -298,7 +299,7 @@ func (d *Device) convertPSUs(psus []*proto.PSUTelemetry, deviceHealth sdk.Health
 		psuMetrics := sdk.PSUMetrics{
 			ComponentInfo: sdk.ComponentInfo{
 				Index:  safeUint32ToInt32(psu.Index),
-				Name:   fmt.Sprintf("PSU %d", psu.Index),
+				Name:   fmt.Sprintf("PSU %d", types.HumanReadableIndex(psu.Index)),
 				Status: componentStatus,
 			},
 			InputVoltageV:  toMetricValue(psu.InputVoltageV),

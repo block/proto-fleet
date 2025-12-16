@@ -58,7 +58,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Power supply 2 overvoltage detected"},
+			expectedSummaries: []string{"Power supply 3 overvoltage detected"},
 		},
 		{
 			name: "fan slow spin with RPM details",
@@ -85,7 +85,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Fan 5 has stalled. Target RPM: 5000, Actual RPM: 1200"},
+			expectedSummaries: []string{"Fan 6 has stalled. Target RPM: 5000, Actual RPM: 1200"},
 		},
 		{
 			name: "fan slow spin without details falls back gracefully",
@@ -107,7 +107,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Fan 3 has stalled"},
+			expectedSummaries: []string{"Fan 4 has stalled"},
 		},
 		{
 			name: "rig pool connection failure with URL",
@@ -203,7 +203,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 4 ASIC is overheating: 95.3 °C, first detected at ASIC 12"},
+			expectedSummaries: []string{"Hashboard 5 ASIC is overheating: 95.3 °C, first detected at ASIC 13"},
 		},
 		{
 			name: "hashboard board overheat with temperature",
@@ -227,7 +227,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 2 overheating: 88.5 °C"},
+			expectedSummaries: []string{"Hashboard 3 overheating: 88.5 °C"},
 		},
 		{
 			name: "hashboard overcurrent with amperage",
@@ -251,7 +251,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 1 overcurrent detected: 42.50 A"},
+			expectedSummaries: []string{"Hashboard 2 overcurrent detected: 42.50 A"},
 		},
 		{
 			name: "hashboard communication errors map to same message",
@@ -284,8 +284,8 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedCount:  2,
 			validationType: validateSummaries,
 			expectedSummaries: []string{
-				"Hashboard 2 communication error",
 				"Hashboard 3 communication error",
+				"Hashboard 4 communication error",
 			},
 		},
 		{
@@ -354,9 +354,9 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedCount:  3,
 			validationType: validateSummaries,
 			expectedSummaries: []string{
-				"Power supply 1 overvoltage detected",
-				"Fan 2 hardware error",
-				"Hashboard 3 has lost power",
+				"Power supply 2 overvoltage detected",
+				"Fan 3 hardware error",
+				"Hashboard 4 has lost power",
 			},
 		},
 		{
@@ -379,7 +379,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedCount:  1,
 			validationType: validateFullError,
 			expectedFullError: map[string]any{
-				"summary":      "Power supply 2 is not detecting input voltage",
+				"summary":      "Power supply 3 is not detecting input voltage",
 				"minerError":   sdkerrors.PSUInputVoltageLow,
 				"severity":     sdkerrors.SeverityCritical,
 				"causeSummary": "Loose power cables",
@@ -404,7 +404,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Power supply 1 communication error"},
+			expectedSummaries: []string{"Power supply 2 communication error"},
 		},
 		{
 			name: "PSU overtemperature",
@@ -425,7 +425,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Power supply 3 overheating"},
+			expectedSummaries: []string{"Power supply 4 overheating"},
 		},
 		{
 			name: "hashboard undervoltage with voltage",
@@ -449,7 +449,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 1 undervoltage detected: 10.50 V"},
+			expectedSummaries: []string{"Hashboard 2 undervoltage detected: 10.50 V"},
 		},
 		{
 			name: "hashboard overvoltage with voltage",
@@ -473,7 +473,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 2 overvoltage detected at 14.80 V"},
+			expectedSummaries: []string{"Hashboard 3 overvoltage detected at 14.80 V"},
 		},
 		{
 			name: "hashboard ASIC not hashing",
@@ -495,7 +495,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Hashboard 3 ASIC is not hashing, first detected at ASIC 8"},
+			expectedSummaries: []string{"Hashboard 4 ASIC is not hashing, first detected at ASIC 9"},
 		},
 		{
 			name: "rig network error",
@@ -536,7 +536,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Fan 4 hardware error"},
+			expectedSummaries: []string{"Fan 5 hardware error"},
 		},
 	}
 

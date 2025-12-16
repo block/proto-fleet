@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/plugin/proto/internal/device/types"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
@@ -154,7 +155,7 @@ var fanErrorMappings = map[miner_fan_api.FanErrorCode]errorMapping{
 		impact:            "Miner overheating",
 		formatSummary: func(err any) string {
 			fanErr := err.(*miner_fan_api.FanError)
-			return fmt.Sprintf("Fan %d hardware error", fanErr.Index)
+			return fmt.Sprintf("Fan %d hardware error", types.HumanReadableIndex(fanErr.Index))
 		},
 	},
 	miner_fan_api.FanErrorCode_FAN_ERROR_CODE_SLOW_SPIN: {
@@ -167,9 +168,9 @@ var fanErrorMappings = map[miner_fan_api.FanErrorCode]errorMapping{
 			fanErr := err.(*miner_fan_api.FanError)
 			if detail, ok := fanErr.Detail.(*miner_fan_api.FanError_FanSpeed_); ok && detail.FanSpeed != nil {
 				return fmt.Sprintf("Fan %d has stalled. Target RPM: %d, Actual RPM: %d",
-					fanErr.Index, detail.FanSpeed.FanPwmTargetPct, detail.FanSpeed.FanRpmTach)
+					types.HumanReadableIndex(fanErr.Index), detail.FanSpeed.FanPwmTargetPct, detail.FanSpeed.FanRpmTach)
 			}
-			return fmt.Sprintf("Fan %d has stalled", fanErr.Index)
+			return fmt.Sprintf("Fan %d has stalled", types.HumanReadableIndex(fanErr.Index))
 		},
 	},
 	miner_fan_api.FanErrorCode_FAN_ERROR_CODE_SET_FAN_SPEED_FAILED: {
@@ -180,7 +181,7 @@ var fanErrorMappings = map[miner_fan_api.FanErrorCode]errorMapping{
 		impact:            "Cannot adjust cooling dynamically",
 		formatSummary: func(err any) string {
 			fanErr := err.(*miner_fan_api.FanError)
-			return fmt.Sprintf("Fan %d failed to set fan speed", fanErr.Index)
+			return fmt.Sprintf("Fan %d failed to set fan speed", types.HumanReadableIndex(fanErr.Index))
 		},
 	},
 	miner_fan_api.FanErrorCode_FAN_ERROR_CODE_FAN_CONNECTED_IN_IMMERSION: {
@@ -191,7 +192,7 @@ var fanErrorMappings = map[miner_fan_api.FanErrorCode]errorMapping{
 		impact:            "Mining Disabled",
 		formatSummary: func(err any) string {
 			fanErr := err.(*miner_fan_api.FanError)
-			return fmt.Sprintf("Fan %d connected in immersion mode", fanErr.Index)
+			return fmt.Sprintf("Fan %d connected in immersion mode", types.HumanReadableIndex(fanErr.Index))
 		},
 	},
 }
@@ -207,9 +208,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
 			if temp, ok := hbErr.Detail.(*miner_hb_api.HbError_Temperature); ok {
-				return fmt.Sprintf("Hashboard %d overheating: %.1f °C", hbErr.Index, temp.Temperature)
+				return fmt.Sprintf("Hashboard %d overheating: %.1f °C", types.HumanReadableIndex(hbErr.Index), temp.Temperature)
 			}
-			return fmt.Sprintf("Hashboard %d overheating", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d overheating", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_ENUMERATION: {
@@ -220,7 +221,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactUnableToStartMining,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d unable to start mining", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d unable to start mining", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMMUNICATION: {
@@ -231,7 +232,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMM_TASKS_NOT_INITIALIZED: {
@@ -242,7 +243,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_INVALID_ADD_WORK_RESPONSE: {
@@ -253,7 +254,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_INVALID_METADATA_RESPONSE: {
@@ -264,7 +265,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_MISSING_COMM_CHANNEL: {
@@ -275,7 +276,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMMAND_TIMEOUT: {
@@ -286,7 +287,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_TASK_COMMUNICATION_ERROR: {
@@ -297,7 +298,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMMS_ALIVE: {
@@ -308,7 +309,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d communication error", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d communication error", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_ECC: {
@@ -319,7 +320,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            impactReducedHashrateBoardShut,
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d excessive ECC errors detected", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d excessive ECC errors detected", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_UNDER_VOLTAGE: {
@@ -331,9 +332,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
 			if volt, ok := hbErr.Detail.(*miner_hb_api.HbError_Voltage); ok {
-				return fmt.Sprintf("Hashboard %d undervoltage detected: %.2f V", hbErr.Index, volt.Voltage)
+				return fmt.Sprintf("Hashboard %d undervoltage detected: %.2f V", types.HumanReadableIndex(hbErr.Index), volt.Voltage)
 			}
-			return fmt.Sprintf("Hashboard %d undervoltage detected", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d undervoltage detected", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_OVER_VOLTAGE: {
@@ -345,9 +346,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
 			if volt, ok := hbErr.Detail.(*miner_hb_api.HbError_Voltage); ok {
-				return fmt.Sprintf("Hashboard %d overvoltage detected at %.2f V", hbErr.Index, volt.Voltage)
+				return fmt.Sprintf("Hashboard %d overvoltage detected at %.2f V", types.HumanReadableIndex(hbErr.Index), volt.Voltage)
 			}
-			return fmt.Sprintf("Hashboard %d overvoltage detected", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d overvoltage detected", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_OVER_CURRENT: {
@@ -359,9 +360,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
 			if curr, ok := hbErr.Detail.(*miner_hb_api.HbError_Current); ok {
-				return fmt.Sprintf("Hashboard %d overcurrent detected: %.2f A", hbErr.Index, curr.Current)
+				return fmt.Sprintf("Hashboard %d overcurrent detected: %.2f A", types.HumanReadableIndex(hbErr.Index), curr.Current)
 			}
-			return fmt.Sprintf("Hashboard %d overcurrent detected", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d overcurrent detected", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_OVER_HEAT: {
@@ -375,9 +376,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 			asicID := hbErr.GetAsicIndex()
 			if temp, ok := hbErr.Detail.(*miner_hb_api.HbError_Temperature); ok {
 				return fmt.Sprintf("Hashboard %d ASIC is overheating: %.1f °C, first detected at ASIC %d",
-					hbErr.Index, temp.Temperature, asicID)
+					types.HumanReadableIndex(hbErr.Index), temp.Temperature, types.HumanReadableIndex(asicID))
 			}
-			return fmt.Sprintf("Hashboard %d ASIC is overheating, first detected at ASIC %d", hbErr.Index, asicID)
+			return fmt.Sprintf("Hashboard %d ASIC is overheating, first detected at ASIC %d", types.HumanReadableIndex(hbErr.Index), types.HumanReadableIndex(asicID))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_UNDER_HEAT: {
@@ -391,9 +392,9 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 			asicID := hbErr.GetAsicIndex()
 			if temp, ok := hbErr.Detail.(*miner_hb_api.HbError_Temperature); ok {
 				return fmt.Sprintf("Hashboard %d ASIC temperature is too low: %.1f °C, first detected at ASIC %d",
-					hbErr.Index, temp.Temperature, asicID)
+					types.HumanReadableIndex(hbErr.Index), temp.Temperature, types.HumanReadableIndex(asicID))
 			}
-			return fmt.Sprintf("Hashboard %d ASIC temperature is too low, first detected at ASIC %d", hbErr.Index, asicID)
+			return fmt.Sprintf("Hashboard %d ASIC temperature is too low, first detected at ASIC %d", types.HumanReadableIndex(hbErr.Index), types.HumanReadableIndex(asicID))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_NOT_HASHING: {
@@ -405,7 +406,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
 			asicID := hbErr.GetAsicIndex()
-			return fmt.Sprintf("Hashboard %d ASIC is not hashing, first detected at ASIC %d", hbErr.Index, asicID)
+			return fmt.Sprintf("Hashboard %d ASIC is not hashing, first detected at ASIC %d", types.HumanReadableIndex(hbErr.Index), types.HumanReadableIndex(asicID))
 		},
 	},
 	miner_hb_api.HbErrorCode_HB_ERROR_CODE_POWER_LOST: {
@@ -416,7 +417,7 @@ var hashboardErrorMappings = map[miner_hb_api.HbErrorCode]errorMapping{
 		impact:            "board shutdowns, unable to start mining",
 		formatSummary: func(err any) string {
 			hbErr := err.(*miner_hb_api.HbError)
-			return fmt.Sprintf("Hashboard %d has lost power", hbErr.Index)
+			return fmt.Sprintf("Hashboard %d has lost power", types.HumanReadableIndex(hbErr.Index))
 		},
 	},
 }
@@ -431,7 +432,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            "Loss of control, status messages",
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d communication error", psuErr.Index)
+			return fmt.Sprintf("Power supply %d communication error", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_UNDER_VOLTAGE: {
@@ -442,7 +443,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Low input voltage detected on power supply %d", psuErr.Index)
+			return fmt.Sprintf("Low input voltage detected on power supply %d", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_VOLTAGE: {
@@ -453,7 +454,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d overvoltage detected", psuErr.Index)
+			return fmt.Sprintf("Power supply %d overvoltage detected", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_FAILURE: {
@@ -464,7 +465,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d output fault", psuErr.Index)
+			return fmt.Sprintf("Power supply %d output fault", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_CURRENT: {
@@ -475,7 +476,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d load is drawing too much current", psuErr.Index)
+			return fmt.Sprintf("Power supply %d load is drawing too much current", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_FANS: {
@@ -486,7 +487,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            "Over temperature",
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d fan failure", psuErr.Index)
+			return fmt.Sprintf("Power supply %d fan failure", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_TEMPERATURE: {
@@ -497,7 +498,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d overheating", psuErr.Index)
+			return fmt.Sprintf("Power supply %d overheating", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_UNDER_TEMPERATURE: {
@@ -508,7 +509,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d temperature is too low", psuErr.Index)
+			return fmt.Sprintf("Power supply %d temperature is too low", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT: {
@@ -519,7 +520,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d is detecting an input voltage fault", psuErr.Index)
+			return fmt.Sprintf("Power supply %d is detecting an input voltage fault", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_NO_INPUT_VOLTAGE: {
@@ -530,7 +531,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d is not detecting input voltage", psuErr.Index)
+			return fmt.Sprintf("Power supply %d is not detecting input voltage", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_POWER_NO_GOOD: {
@@ -541,7 +542,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		impact:            "PSU damaged",
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d detected a power fault", psuErr.Index)
+			return fmt.Sprintf("Power supply %d detected a power fault", types.HumanReadableIndex(psuErr.Index))
 		},
 	},
 }
@@ -650,11 +651,11 @@ func applyErrorMapping(base sdk.DeviceError, err any) sdk.DeviceError {
 func formatUnmappedError(err any, errorCodeString string) string {
 	switch e := err.(type) {
 	case *miner_psu_api.PsuError:
-		return fmt.Sprintf("Power supply %d detected an error: %s", e.Index, errorCodeString)
+		return fmt.Sprintf("Power supply %d detected an error: %s", types.HumanReadableIndex(e.Index), errorCodeString)
 	case *miner_fan_api.FanError:
-		return fmt.Sprintf("Fan %d detected an error: %s", e.Index, errorCodeString)
+		return fmt.Sprintf("Fan %d detected an error: %s", types.HumanReadableIndex(e.Index), errorCodeString)
 	case *miner_hb_api.HbError:
-		return fmt.Sprintf("Hashboard %d detected an error: %s", e.Index, errorCodeString)
+		return fmt.Sprintf("Hashboard %d detected an error: %s", types.HumanReadableIndex(e.Index), errorCodeString)
 	case *miner_error_code.RigError:
 		return fmt.Sprintf("Control board detected an error: %s", errorCodeString)
 	default:
@@ -679,7 +680,7 @@ func convertRigError(rigErr *miner_error_code.RigError, base sdk.DeviceError) sd
 }
 
 func convertFanError(fanErr *miner_fan_api.FanError, base sdk.DeviceError) sdk.DeviceError {
-	fanID := fmt.Sprintf("%d", fanErr.Index)
+	fanID := fmt.Sprintf("%d", types.HumanReadableIndex(fanErr.Index))
 	base.ComponentID = &fanID
 	base.ComponentType = sdkerrors.ComponentTypeFan
 
@@ -687,7 +688,7 @@ func convertFanError(fanErr *miner_fan_api.FanError, base sdk.DeviceError) sdk.D
 }
 
 func convertHashboardError(hbErr *miner_hb_api.HbError, base sdk.DeviceError) sdk.DeviceError {
-	hbID := fmt.Sprintf("%d", hbErr.Index)
+	hbID := fmt.Sprintf("%d", types.HumanReadableIndex(hbErr.Index))
 	base.ComponentID = &hbID
 	base.ComponentType = sdkerrors.ComponentTypeHashBoard
 
@@ -695,7 +696,7 @@ func convertHashboardError(hbErr *miner_hb_api.HbError, base sdk.DeviceError) sd
 }
 
 func convertPSUError(psuErr *miner_psu_api.PsuError, base sdk.DeviceError) sdk.DeviceError {
-	psuID := fmt.Sprintf("%d", psuErr.Index)
+	psuID := fmt.Sprintf("%d", types.HumanReadableIndex(psuErr.Index))
 	base.ComponentID = &psuID
 	base.ComponentType = sdkerrors.ComponentTypePSU
 

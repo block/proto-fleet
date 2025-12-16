@@ -440,7 +440,9 @@ func TestProtoPluginIntegration(t *testing.T) {
 									expectedIndex := int32(j) // #nosec G115 -- Loop index bounded by slice length, safe for ASIC count
 									assert.Equal(t, expectedIndex, asic.Index, "ASIC index should match position")
 									assert.NotEmpty(t, asic.Name, "ASIC should have a name")
-									assert.Contains(t, asic.Name, fmt.Sprintf("HB%d", hb.Index), "ASIC name should reference parent hashboard index")
+									// Human-readable indices are 1-based for display (stored 0-based Index becomes 1-based in Name)
+									humanReadableHBIndex := hb.Index + 1
+									assert.Contains(t, asic.Name, fmt.Sprintf("HB%d", humanReadableHBIndex), "ASIC name should reference parent hashboard index")
 									assert.Equal(t, hb.Status, asic.Status, "ASIC should inherit hashboard status")
 
 									// ASIC hashrate
