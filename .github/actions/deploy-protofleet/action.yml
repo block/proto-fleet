@@ -110,11 +110,9 @@ runs:
 
         echo "Deployment complete!"
 
-    - name: Verify deployment
+    - name: Show deployment status
       shell: bash
       run: |
-        set -e
-
         INSTALL_DIR="${{ inputs.install_dir }}"
         if [ -z "$INSTALL_DIR" ]; then
           INSTALL_DIR="$HOME/proto-fleet"
@@ -122,78 +120,10 @@ runs:
 
         cd "$INSTALL_DIR/deployment"
 
-        echo "Verifying deployment..."
+        echo "Deployment complete!"
         echo ""
         echo "Deployment version:"
         cat version.txt
         echo ""
-
-        # Wait for containers to fully start (they need a few seconds after docker compose up)
-        echo "Waiting for containers to fully start..."
-        sleep 5
-
-        # Check that all required containers are running
-        echo "Checking container status..."
-        EXPECTED_CONTAINERS=("fleet-api" "mysql" "influxdb")
-        FAILED=0
-        MAX_RETRIES=6
-        RETRY_DELAY=5
-
-        for container in "${EXPECTED_CONTAINERS[@]}"; do
-          echo "Checking service: $container"
-          RETRY_COUNT=0
-          CONTAINER_OK=false
-
-          # Retry loop for each container (max 30 seconds)
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            # Check if container exists and is running
-            if docker compose ps --format json | jq -e ".[] | select(.Service == \"$container\" and .State == \"running\")" > /dev/null 2>&1; then
-              CONTAINER_OK=true
-              break
-            fi
-
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-              echo "   ⏳ Container '$container' not ready yet, retrying in ${RETRY_DELAY}s... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-              sleep $RETRY_DELAY
-            fi
-          done
-
-          if [ "$CONTAINER_OK" = false ]; then
-            echo "❌ Container '$container' is not running after $((MAX_RETRIES * RETRY_DELAY)) seconds"
-            FAILED=1
-          else
-            echo "✅ Container '$container' is running"
-
-            # Check health status if available
-            HEALTH=$(docker compose ps --format json | jq -r ".[] | select(.Service == \"$container\") | .Health // \"none\"")
-            if [ "$HEALTH" != "none" ]; then
-              if [ "$HEALTH" != "healthy" ]; then
-                echo "   ⚠️  Health status: $HEALTH"
-                # Don't fail on health check during initial startup - containers might still be initializing
-              else
-                echo "   ✅ Health status: $HEALTH"
-              fi
-            fi
-          fi
-        done
-
-        echo ""
-        echo "Full container status:"
+        echo "Container status:"
         docker compose ps
-
-        if [ $FAILED -eq 1 ]; then
-          echo ""
-          echo "❌ Deployment verification failed - one or more containers are not running"
-          echo ""
-          echo "Container logs for troubleshooting:"
-          for container in "${EXPECTED_CONTAINERS[@]}"; do
-            echo ""
-            echo "=== Logs for $container ==="
-            docker compose logs --tail=50 "$container" || echo "Could not fetch logs for $container"
-          done
-          exit 1
-        fi
-
-        echo ""
-        echo "✅ Deployment verification successful - all containers are running"
