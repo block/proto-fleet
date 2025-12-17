@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { useMemo } from "react";
 import { LogoAlt } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 
@@ -11,7 +12,7 @@ type StatusOverlayProps = {
   icon?: ReactNode;
 };
 
-const StatusOverlay = ({ text = "Your miner is booting up", icon = <LogoAlt width="w-16" /> }: StatusOverlayProps) => {
+const StatusOverlay = ({ text, icon = <LogoAlt width="w-16" /> }: StatusOverlayProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   // Memoize the AnimatedDotsBackground to prevent resetting on re-renders
@@ -28,16 +29,23 @@ const StatusOverlay = ({ text = "Your miner is booting up", icon = <LogoAlt widt
         >
           {icon}
         </motion.div>
-        <div className="grid duration-500">
-          <motion.div
+        <motion.div
+          role="status"
+          aria-label="Loading"
+          animate={{ opacity: [0, 1] }}
+          transition={{ duration: 0.5, delay: 0.5, ease: easeGentle }}
+        >
+          <ProgressCircular indeterminate />
+        </motion.div>
+        {text && (
+          <motion.p
             animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
-            exit={{ y: ["0%", "50%"], opacity: [1, 0] }}
             transition={{ duration: 1, ease: easeGentle }}
-            className="col-start-1 row-start-1 flex flex-col items-center gap-6"
+            className="text-emphasis-300 text-text-primary-70"
           >
-            <p className="text-emphasis-300 text-text-primary-70">{text}</p>
-          </motion.div>
-        </div>
+            {text}
+          </motion.p>
+        )}
       </div>
     </>
   );
