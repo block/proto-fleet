@@ -70,7 +70,11 @@ export class AuthPage extends BasePage {
     await this.page.getByRole("button", { name: "Find miners" }).first().click();
   }
 
-  async clickContinueWithMiners(minerCount: number) {
+  async clickContinueWithXMiners(minerCount: number) {
     await this.page.getByRole("button", { name: `Continue with ${minerCount} miners` }).click();
+  }
+
+  async clickContinueWithSelectedMiners() {
+    await this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).click();
   }
 }

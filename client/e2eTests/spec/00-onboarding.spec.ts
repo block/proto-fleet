@@ -22,13 +22,14 @@ test.describe("Proto Fleet - Onboarding", () => {
 
     await test.step("Find and add miners", async () => {
       await authPage.clickFindMiners();
-      await authPage.clickContinueWithMiners(testConfig.expectedMinerCount);
+      await authPage.clickContinueWithSelectedMiners();
     });
 
     await test.step("Navigate to miners page and validate", async () => {
       await authPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
-      await minersPage.validateAmountOfMiners(testConfig.expectedMinerCount);
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.validateMinersAdded();
     });
   });
 

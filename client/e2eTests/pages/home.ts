@@ -27,7 +27,7 @@ export class HomePage extends BasePage {
   }
 
   async clickAuthenticateMinersConfirmButton() {
-    await this.page.locator(`//*[@data-testid='modal']`).getByRole("button", { name: "Authenticate" }).click();
+    await this.page.getByTestId("modal").getByRole("button", { name: "Authenticate" }).click();
   }
 
   async validateCompleteSetupTitleNotVisible() {

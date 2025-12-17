@@ -24,7 +24,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberAdded() {
-    await expect(this.page.locator(`//*[@data-testid="modal"]`).getByText("Member added")).toBeVisible();
+    await expect(this.page.getByTestId("modal").getByText("Member added")).toBeVisible();
   }
 
   async validateCopyPasswordButtonVisible() {
@@ -36,21 +36,27 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberRole(username: string, role: string) {
-    const memberRow = this.page.locator(`//*[@data-testid='list-body']/tr`).filter({
-      has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-    });
+    const memberRow = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({
+        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
+      });
     await expect(memberRow.locator(`//td[@data-testid='role']`)).toHaveText(role);
   }
 
   async validateMemberLastLogin(username: string, lastLogin: string) {
-    const memberRow = this.page.locator(`//*[@data-testid='list-body']/tr`).filter({
-      has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-    });
+    const memberRow = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({
+        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
+      });
     await expect(memberRow.locator(`//td[@data-testid='lastLoginAt']`)).toHaveText(lastLogin);
   }
 
   async getTemporaryPassword(): Promise<string> {
-    return await this.page.locator(`//*[@data-testid="temporary-password"]`).innerText();
+    return await this.page.getByTestId("temporary-password").innerText();
   }
 
   async validateMemberVisible(username: string) {
@@ -62,10 +68,13 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickMemberActionsMenu(username: string) {
-    const memberRow = this.page.locator(`//*[@data-testid='list-body']/tr`).filter({
-      has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-    });
-    await memberRow.locator(`//*[@data-testid="list-actions-trigger"]`).click();
+    const memberRow = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({
+        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
+      });
+    await memberRow.getByTestId("list-actions-trigger").click();
   }
 
   async clickResetPassword() {
@@ -77,7 +86,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validatePasswordReset() {
-    await expect(this.page.locator(`//*[@data-testid="modal"]`).getByText("Password reset")).toBeVisible();
+    await expect(this.page.getByTestId("modal").getByText("Password reset")).toBeVisible();
   }
 
   async clickDeactivate() {

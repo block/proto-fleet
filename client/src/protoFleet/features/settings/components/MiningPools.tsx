@@ -128,13 +128,15 @@ const PoolRowDesktop = ({ pool, onEdit, onTestConnection, connectionStatus }: Po
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="grid grid-cols-3 gap-1 text-300 text-text-primary">
-      <div className="flex items-center py-3">{pool.poolName || "—"}</div>
-      <div className="flex flex-col justify-center py-3">
+    <div className="grid grid-cols-3 gap-1 text-300 text-text-primary" data-testid="pool-row">
+      <div className="flex items-center py-3" data-testid="pool-name">
+        {pool.poolName || "—"}
+      </div>
+      <div className="flex flex-col justify-center py-3" data-testid="pool-url">
         <span className="break-all">{formattedUrl}</span>
         {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
       </div>
-      <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex items-center justify-between gap-4 py-3" data-testid="pool-username">
         <span className="break-all">{formattedUsername}</span>
         <PoolRowMenu
           pool={pool}
@@ -153,22 +155,24 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, connectionStatus }: Poo
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="grid grid-cols-2 items-start py-4">
+    <div className="grid grid-cols-2 items-start py-4" data-testid="pool-row">
       {/* Left column: Pool name and URL */}
-      <div className="flex flex-col">
+      <div className="flex flex-col" data-testid="pool-name">
         {pool.poolName ? (
           <>
             <div className="text-300 text-text-primary">{pool.poolName}</div>
             <div className="text-200 break-all text-text-primary-70">{formattedUrl}</div>
           </>
         ) : (
-          <div className="text-300 break-all text-text-primary">{formattedUrl}</div>
+          <div className="text-300 break-all text-text-primary" data-testid="pool-url">
+            {formattedUrl}
+          </div>
         )}
         {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
       </div>
 
       {/* Right column: Username and ellipsis */}
-      <div className="flex items-center justify-between gap-4 self-center">
+      <div className="flex items-center justify-between gap-4 self-center" data-testid="pool-username">
         <div className="text-300 break-all text-text-primary">{formattedUsername}</div>
         <PoolRowMenu
           pool={pool}

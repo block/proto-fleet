@@ -6,28 +6,24 @@ export class SettingsPoolsPage extends BasePage {
     await expect(this.page).toHaveURL(/.*\/mining-pools/);
   }
 
-  async validateMiningPoolsDescription() {
-    await this.validateTitle("Pools");
-  }
-
-  async getDefaultPoolIndex(): Promise<number> {
-    return 0;
-  }
-
-  async clickAddPool(poolIndex: number) {
-    await this.page.locator(`//*[@data-testid="pool-${poolIndex}-add-button"]`).click();
+  async clickAddPool() {
+    await this.click("Add pool");
   }
 
   async validatePoolModalOpened() {
-    await expect(this.page.locator(`//*[@data-testid="modal"]`).getByText(`Default mining pool`).first()).toBeVisible();
+    await expect(this.page.getByTestId("modal").getByText(`Default mining pool`).first()).toBeVisible();
   }
 
-  async inputPoolUrl(poolIndex: number, url: string) {
-    await this.page.locator(`//input[@id='url ${poolIndex}']`).fill(url);
+  async inputPoolName(name: string) {
+    await this.page.getByTestId(`name-0-input`).fill(name);
   }
 
-  async inputPoolUsername(poolIndex: number, username: string) {
-    await this.page.locator(`//input[@id='username ${poolIndex}']`).fill(username);
+  async inputPoolUrl(url: string) {
+    await this.page.getByTestId(`url-0-input`).fill(url);
+  }
+
+  async inputPoolUsername(username: string) {
+    await this.page.getByTestId(`username-0-input`).fill(username);
   }
 
   async clickTestConnection() {
@@ -38,22 +34,20 @@ export class SettingsPoolsPage extends BasePage {
     await expect(this.page.getByText(`We couldn't connect with your pool.`)).toBeVisible();
   }
 
-  async clickDismissModal() {
-    // TODO: Work around the fact that in popup there are 3 'dismiss' buttons, others invisible
-    // await this.page.locator(`//*[@data-testid="modal"]`).getByRole("button", { name: "Dismiss" }).click();
+  async validateConnectionSuccessful() {
+    await expect(this.page.getByText(`Pool connection successful`)).toBeVisible();
   }
 
   async clickSavePool() {
-    await this.page.locator(`//*[@data-testid="pool-save-button"]`).click();
+    await this.page.getByTestId("pool-save-button").click();
   }
 
-  async validatePoolUrlSaved(poolIndex: number, expectedUrl: string) {
-    await expect(this.page.locator(`//*[@data-testid="pool-${poolIndex}-saved-url"]`)).toHaveText(expectedUrl);
-  }
-
-  async validatePoolNotConfigured() {
-    await expect(
-      this.page.locator(`//*[text()='Not configured'][preceding-sibling::*[text()='Default pool']]`),
-    ).toBeVisible();
+  async validatePoolEntryByUniqueName(expectedName: string, expectedUrl: string, expectedUsername: string) {
+    await expect(this.page.getByTestId(`pool-row`).getByTestId("pool-name").getByText(expectedName)).toBeVisible();
+    const row = this.page
+      .getByTestId(`pool-row`)
+      .filter({ has: this.page.getByTestId("pool-name").getByText(expectedName) });
+    await expect(row.getByTestId("pool-url").getByText(expectedUrl)).toBeVisible();
+    await expect(row.getByTestId("pool-username").getByText(expectedUsername)).toBeVisible();
   }
 }

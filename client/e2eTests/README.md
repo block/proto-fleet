@@ -64,7 +64,6 @@ export const testConfig = {
     },
   },
   timeouts: 30000,
-  expectedMinerCount: 12, // Expected number of virtual miners
 };
 ```
 

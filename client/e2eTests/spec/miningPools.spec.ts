@@ -1,4 +1,5 @@
 /* eslint-disable playwright/expect-expect */
+import { generateRandomText, generateRandomUsername } from "e2eTests/helpers/testDataHelper";
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
@@ -8,7 +9,10 @@ test.describe("Mining Pools", () => {
   });
 
   test("Configure mining pool", async ({ authPage, settingsPage, settingsPoolsPage }) => {
-    const poolUrl = "stratum+tcp://eu1.examplepool.com:3333";
+    const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
+    const validPoolUrl = "stratum+tcp://stratum.slushpool.com:3333";
+    const name = generateRandomText("PoolName");
+    const username = generateRandomUsername();
 
     await test.step("Login as admin", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
@@ -21,26 +25,33 @@ test.describe("Mining Pools", () => {
       await authPage.navigateToSettingsPage();
       await settingsPage.clickNavigateToMiningPoolsSettings();
       await settingsPoolsPage.validateMiningPoolsPageOpened();
-      await settingsPoolsPage.validateMiningPoolsDescription();
     });
 
-    await test.step("Configure mining pool", async () => {
-      const defaultPoolIndex = await settingsPoolsPage.getDefaultPoolIndex();
-      await settingsPoolsPage.clickAddPool(defaultPoolIndex);
+    await test.step("Configure mining pool with invalid URL", async () => {
+      await settingsPoolsPage.clickAddPool();
       await settingsPoolsPage.validatePoolModalOpened();
-      await settingsPoolsPage.inputPoolUrl(defaultPoolIndex, poolUrl);
-      await settingsPoolsPage.inputPoolUsername(defaultPoolIndex, "myworker");
+      await settingsPoolsPage.inputPoolName(name);
+      await settingsPoolsPage.inputPoolUrl(invalidPoolUrl);
+      await settingsPoolsPage.inputPoolUsername(username);
     });
 
-    await test.step("Test connection", async () => {
+    await test.step("Test connection - expect failure", async () => {
       await settingsPoolsPage.clickTestConnection();
       await settingsPoolsPage.validateConnectionFailed();
-      await settingsPoolsPage.clickDismissModal();
+    });
+
+    await test.step("Change URL to a valid one", async () => {
+      await settingsPoolsPage.inputPoolUrl(validPoolUrl);
+    });
+
+    await test.step("Test connection - expect failure", async () => {
+      await settingsPoolsPage.clickTestConnection();
+      await settingsPoolsPage.validateConnectionSuccessful();
     });
 
     await test.step("Save and validate pool URL", async () => {
       await settingsPoolsPage.clickSavePool();
-      await settingsPoolsPage.validatePoolUrlSaved(0, poolUrl);
+      await settingsPoolsPage.validatePoolEntryByUniqueName(name, validPoolUrl, username);
     });
   });
 });

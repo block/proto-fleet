@@ -1,4 +1,8 @@
-export function generateRandomUsername(prefix: string = "member"): string {
+export function generateRandomText(prefix: string): string {
   const randomCode = Math.random().toString(36).substring(2, 9);
-  return `${prefix}${randomCode}`;
+  return `${prefix}_${randomCode}`;
+}
+
+export function generateRandomUsername(): string {
+  return generateRandomText("username");
 }

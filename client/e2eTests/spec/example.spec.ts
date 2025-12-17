@@ -21,10 +21,10 @@ test.describe("Playwright base tests", () => {
   //   await page.locator(`//input[@id='username']`).fill('admin');
   //   await page.locator(`//input[@id='password']`).fill('Pass123!');
   //   await page.locator(`//button[@data-testid="login-button"]`).click();
-  //   await page.locator(`//*[@data-testid="navigation-menu"]//*[@href='/miners']`).click();
+  //   await page.getByTestId('navigation-menu').locator('a[href="/miners"]').click();
   //   await expect(page).toHaveURL(/.*\/miners/);
   //   await page.locator(`//h2[text()='Miners']`).waitFor({ state: 'visible' });
-  //   const rows = page.locator(`//*[@data-testid='list-body']/tr`);
+  //   const rows = page.getByTestId('list-body').locator('tr');
   //   await expect(rows).toHaveCount(12);
 
   //   const request = await requestPromise;
@@ -70,11 +70,11 @@ test.describe("Playwright base tests", () => {
   //   await page.locator(`//input[@id='username']`).fill('admin');
   //   await page.locator(`//input[@id='password']`).fill('Pass123!');
   //   await page.locator(`//button[@data-testid="login-button"]`).click();
-  //   await page.locator(`//*[@data-testid="navigation-menu"]//*[@href='/miners']`).click();
+  //   await page.getByTestId('navigation-menu').locator('a[href="/miners"]').click();
   //   await expect(page).toHaveURL(/.*\/miners/);
   //   await page.locator(`//h2[text()='Miners']`).waitFor({ state: 'visible' });
   //   await page.waitForTimeout(5000);
-  //   const rows = page.locator(`//*[@data-testid='list-body']/tr`);
+  //   const rows = page.getByTestId('list-body').locator('tr');
   //   await expect(rows).toHaveCount(12);
   // });
 
