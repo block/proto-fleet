@@ -39,12 +39,8 @@ const usePassword = () => {
           .catch((err) => {
             handleAuthErrors({
               error: err,
-              onError: () => {
-                onError?.(err?.error?.message ?? err?.message ?? "An error occurred");
-              },
-              onSuccess: () => {
-                performSetPassword();
-              },
+              onError: () => onError?.(err?.error?.message ?? err?.error ?? "An error occurred"),
+              onSuccess: () => performSetPassword(),
             });
           })
           .finally(() => {
@@ -70,12 +66,8 @@ const usePassword = () => {
           .catch((err) => {
             handleAuthErrors({
               error: err,
-              onError: () => {
-                onError?.(err?.error?.message ?? err?.message ?? "An error occurred");
-              },
-              onSuccess: () => {
-                performChangePassword();
-              },
+              onError: () => onError?.(err?.error?.message ?? err?.error ?? "An error occurred"),
+              onSuccess: () => performChangePassword(),
             });
           })
           .finally(() => {

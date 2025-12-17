@@ -234,7 +234,7 @@ const Authentication = ({
           "max-h-96 duration-500": submitError,
         })}
       >
-        <div className="max-w-xs rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
+        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
           {submitError}
         </div>
       </div>
