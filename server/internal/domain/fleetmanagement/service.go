@@ -256,13 +256,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
-
-			// Component status removed - now tracked via errors API
-			// status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
-			// if err == nil && status != nil {
-			// 	snapshot.Status = status
-			// }
-
 			snapshot.IpAddress = row.IpAddress
 			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 
@@ -300,15 +293,6 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to start measurement stream: %v", err)
 	}
-
-	// Component status streaming removed - now tracked via errors API
-	// var statusChan <-chan *pb.StreamMinerUpdatesResponse
-	// if req.IncludeStatusUpdates {
-	// 	statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
-	// 	if err != nil {
-	// 		return nil, fleeterror.NewInternalErrorf("failed to start status stream: %v", err)
-	// 	}
-	// }
 
 	go func() {
 		defer close(responseChan)
@@ -732,9 +716,6 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 		}
 	}
 
-	// Component filtering is handled at the SQL level through JOIN with errors table
-	// No need for application-level filtering here
-
 	return true
 }
 
@@ -750,12 +731,6 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 	if err != nil {
 		telemetry = nil
 	}
-
-	// Component status removed - now tracked via errors API
-	// status, err := s.telemetry.GetMinerComponentStatus(ctx, device.DeviceIdentifier)
-	// if err != nil {
-	// 	status = nil
-	// }
 
 	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []mm.DeviceIdentifier{mm.DeviceIdentifier(device.DeviceIdentifier)})
 	if err != nil {
@@ -785,11 +760,6 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 		snapshot.Efficiency = telemetry.Efficiency
 		snapshot.Timestamp = telemetry.Timestamp
 	}
-
-	// Component status removed - now tracked via errors API
-	// if status != nil {
-	// 	snapshot.Status = status
-	// }
 
 	return snapshot
 }
