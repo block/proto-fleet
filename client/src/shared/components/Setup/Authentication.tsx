@@ -5,17 +5,23 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import { initErrors, initValues } from "@/shared/components/Setup/authentication.constants";
+import {
+  initErrors,
+  initValues,
+  isPasswordTooShort,
+  isWeakPassword,
+  passwordErrors,
+} from "@/shared/components/Setup/authentication.constants";
 import { Values } from "@/shared/components/Setup/authentication.types";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
 
-type WeakPasswordWarningProps = {
+export type WeakPasswordWarningProps = {
   onReturn: () => void;
   onContinue: () => void;
 };
 
-const WeakPasswordWarning = ({ onReturn, onContinue }: WeakPasswordWarningProps) => {
+export const WeakPasswordWarning = ({ onReturn, onContinue }: WeakPasswordWarningProps) => {
   return (
     <Modal
       title="Your password isn't secure"
@@ -79,15 +85,15 @@ export const PasswordStrengthMeter = ({
       <div
         className={clsx("h-1 w-[18px] rounded-full", {
           "bg-core-primary-10": score === 0,
-          "bg-intent-critical-fill": score > 0 && score < 50,
-          "bg-intent-warning-fill": score >= 50 && score < 90,
+          "bg-intent-critical-fill": score > 0 && isWeakPassword(score),
+          "bg-intent-warning-fill": !isWeakPassword(score) && score < 90,
           "bg-intent-success-fill": score >= 90,
         })}
       />
       <div
         className={clsx("h-1 w-[18px] rounded-full", {
-          "bg-core-primary-10": score < 50,
-          "bg-intent-warning-fill": score >= 50 && score < 90,
+          "bg-core-primary-10": isWeakPassword(score),
+          "bg-intent-warning-fill": !isWeakPassword(score) && score < 90,
           "bg-intent-success-fill": score >= 90,
         })}
       />
@@ -147,16 +153,18 @@ const Authentication = ({
     let newErrors: Values = deepClone(initErrors);
 
     if (values.username.length === 0) {
-      newErrors.username = "A username is required";
+      newErrors.username = passwordErrors.usernameRequired;
     }
     if (isUpdateMode && (!values.currentPassword || values.currentPassword.length === 0)) {
-      newErrors.currentPassword = "Current password is required";
+      newErrors.currentPassword = passwordErrors.currentPasswordRequired;
     }
     if (values.password.length === 0) {
-      newErrors.password = "A password is required";
+      newErrors.password = passwordErrors.required;
+    } else if (isPasswordTooShort(values.password)) {
+      newErrors.password = passwordErrors.tooShort;
     }
     if (requirePasswordConfirmation && values.confirmPassword !== values.password) {
-      newErrors.confirmPassword = "Passwords do not match";
+      newErrors.confirmPassword = passwordErrors.mismatch;
     }
 
     setErrors(newErrors);
@@ -175,7 +183,7 @@ const Authentication = ({
       const hasValidationErrors = validate();
 
       if (!hasValidationErrors) {
-        if (!forcedWeakPassword && score < 50) {
+        if (!forcedWeakPassword && isWeakPassword(score)) {
           setShowWeakPasswordWarning(true);
           return;
         }
@@ -204,8 +212,8 @@ const Authentication = ({
   const hasErrors = useMemo(() => Object.values(errors).some((err) => err.length > 0), [errors]);
 
   const disableContinue = useMemo(() => {
-    return hasErrors || isSubmitting;
-  }, [hasErrors, isSubmitting]);
+    return isPasswordTooShort(values.password) || hasErrors || isSubmitting;
+  }, [values.password, hasErrors, isSubmitting]);
 
   const handleEnter = useCallback(() => {
     if (disableContinue) {

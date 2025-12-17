@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import { ids, initValues, minPasswordLength } from "./constants";
+import { ids, initValues } from "./constants";
 import { Values } from "./types";
 import { useLogin, usePassword } from "@/protoOS/api";
 
@@ -9,6 +9,7 @@ import { Logo } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
+import { isPasswordTooShort, passwordErrors } from "@/shared/components/Setup/authentication.constants";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import { deepClone } from "@/shared/utils/utility";
@@ -34,11 +35,11 @@ const Auth = () => {
 
   const validate = useCallback(() => {
     let newErrors: Values = deepClone(initValues);
-    if (values.password.length < minPasswordLength) {
-      newErrors.password = "Min. 8 characters required";
+    if (isPasswordTooShort(values.password)) {
+      newErrors.password = passwordErrors.tooShort;
     }
     if (values.password !== values.confirmPassword) {
-      newErrors.confirmPassword = "Passwords don't match";
+      newErrors.confirmPassword = passwordErrors.mismatch;
     }
     setErrors(newErrors);
     return Object.values(newErrors).some((err) => err.length > 0);
@@ -85,8 +86,8 @@ const Auth = () => {
   const hasErrors = useMemo(() => Object.values(errors).some((err) => err.length > 0), [errors]);
 
   const disableContinue = useMemo(() => {
-    return !values.password.length || !values.confirmPassword.length || hasErrors || isSubmitting;
-  }, [hasErrors, values.confirmPassword.length, values.password.length, isSubmitting]);
+    return isPasswordTooShort(values.password) || !values.confirmPassword.length || hasErrors || isSubmitting;
+  }, [hasErrors, values.confirmPassword.length, values.password, isSubmitting]);
 
   const handleEnter = useCallback(() => {
     if (disableContinue) {

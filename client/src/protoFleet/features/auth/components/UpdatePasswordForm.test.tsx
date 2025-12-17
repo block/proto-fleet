@@ -124,12 +124,13 @@ describe("UpdatePasswordForm", () => {
     expect(errorElement.className).toContain("text-intent-critical-text");
   });
 
-  it("allows submission with empty passwords", () => {
+  it("shows validation error when submitting with empty passwords", () => {
     const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     fireEvent.click(getByText("Continue"));
 
-    expect(mockOnSubmit).toHaveBeenCalledWith("", "");
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+    expect(getByText("Minimum 8 characters required")).toBeInTheDocument();
   });
 
   it("updates password strength meter when password changes", () => {

@@ -8,5 +8,3 @@ export const initValues = {
   password: "",
   confirmPassword: "",
 };
-
-export const minPasswordLength = 8;

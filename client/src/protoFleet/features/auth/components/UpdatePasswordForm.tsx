@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Footer from "@/protoFleet/components/Footer";
 import { Logo } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import { PasswordStrengthMeter } from "@/shared/components/Setup";
+import { PasswordStrengthMeter, WeakPasswordWarning } from "@/shared/components/Setup";
+import { isPasswordTooShort, isWeakPassword, passwordErrors } from "@/shared/components/Setup/authentication.constants";
 
 interface UpdatePasswordFormProps {
   onSubmit: (newPassword: string, confirmPassword: string) => void;
@@ -22,20 +23,46 @@ export const UpdatePasswordForm = ({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [score, setScore] = useState(0);
+  const [validationError, setValidationError] = useState("");
+  const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   const handlePasswordChange = (value: string) => {
     setNewPassword(value);
+    setValidationError("");
     onErrorDismiss?.();
   };
 
   const handleConfirmPasswordChange = (value: string) => {
     setConfirmPassword(value);
+    setValidationError("");
     onErrorDismiss?.();
   };
 
-  const handleSubmit = () => {
-    onSubmit(newPassword, confirmPassword);
-  };
+  const handleSubmit = useCallback(
+    (forcedWeakPassword: boolean) => {
+      // Validate password length
+      if (isPasswordTooShort(newPassword)) {
+        setValidationError(passwordErrors.tooShort);
+        return;
+      }
+
+      // Validate passwords match
+      if (newPassword !== confirmPassword) {
+        setValidationError(passwordErrors.mismatch);
+        return;
+      }
+
+      // Check for weak password
+      if (!forcedWeakPassword && isWeakPassword(score)) {
+        setShowWeakPasswordWarning(true);
+        return;
+      }
+
+      setShowWeakPasswordWarning(false);
+      onSubmit(newPassword, confirmPassword);
+    },
+    [newPassword, confirmPassword, score, onSubmit],
+  );
 
   return (
     <div className="flex h-screen w-full flex-col bg-surface-base">
@@ -50,9 +77,9 @@ export const UpdatePasswordForm = ({
                 description="You logged in with a temporary password. Enter your new password to continue."
               />
 
-              {errorMsg ? (
+              {errorMsg || validationError ? (
                 <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                  {errorMsg}
+                  {errorMsg || validationError}
                 </div>
               ) : null}
 
@@ -75,7 +102,14 @@ export const UpdatePasswordForm = ({
                 />
               </div>
 
-              <Button onClick={handleSubmit} variant="primary" disabled={isSubmitting}>
+              {showWeakPasswordWarning && !isSubmitting && (
+                <WeakPasswordWarning
+                  onReturn={() => setShowWeakPasswordWarning(false)}
+                  onContinue={() => handleSubmit(true)}
+                />
+              )}
+
+              <Button onClick={() => handleSubmit(false)} variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? "Updating..." : "Continue"}
               </Button>
             </div>

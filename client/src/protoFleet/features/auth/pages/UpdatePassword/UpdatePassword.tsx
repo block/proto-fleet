@@ -36,19 +36,8 @@ const UpdatePassword = () => {
   }, [setTemporaryPassword]);
 
   const handleUpdatePassword = useCallback(
-    (newPassword: string, confirmPassword: string) => {
-      // Validate passwords match
-      if (newPassword !== confirmPassword) {
-        setErrorMsg("Passwords do not match");
-        return;
-      }
-
-      // Validate password is not empty
-      if (!newPassword) {
-        setErrorMsg("New password is required");
-        return;
-      }
-
+    (newPassword: string, _confirmPassword: string) => {
+      // Form handles validation (password length, match, weak password warning)
       setIsSubmitting(true);
       setErrorMsg("");
 

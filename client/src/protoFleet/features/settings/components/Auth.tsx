@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
@@ -10,7 +10,8 @@ import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import { PasswordStrengthMeter } from "@/shared/components/Setup";
+import { PasswordStrengthMeter, WeakPasswordWarning } from "@/shared/components/Setup";
+import { isPasswordTooShort, isWeakPassword, passwordErrors } from "@/shared/components/Setup/authentication.constants";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 const AuthenticateForm = ({ onChange, apiError }: { onChange: (value: string) => void; apiError: string | null }) => {
@@ -76,6 +77,7 @@ const AuthenticationSettings = () => {
   const [authApiError, setAuthApiError] = useState<string | null>(null);
   const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<string | null>(null);
   const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<string | null>(null);
+  const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   // Clear errors when user starts typing
   const handlePasswordChange = (value: string) => {
@@ -123,53 +125,63 @@ const AuthenticationSettings = () => {
     });
   }
 
-  function submitPasswordUpdate() {
-    // Validate passwords match
-    if (newPassword !== confirmPassword) {
-      setPasswordErrorMsg("Passwords do not match");
-      return;
-    }
+  const submitPasswordUpdate = useCallback(
+    (forcedWeakPassword: boolean) => {
+      // Validate password length
+      if (isPasswordTooShort(newPassword)) {
+        setPasswordErrorMsg(passwordErrors.tooShort);
+        return;
+      }
 
-    // Validate password is not empty
-    if (!newPassword) {
-      setPasswordErrorMsg("New password is required");
-      return;
-    }
+      // Validate passwords match
+      if (newPassword !== confirmPassword) {
+        setPasswordErrorMsg(passwordErrors.mismatch);
+        return;
+      }
 
-    setIsSubmitting(true);
-    setPasswordErrorMsg("");
-    setPasswordUpdateApiError(null);
+      // Check for weak password
+      if (!forcedWeakPassword && isWeakPassword(score)) {
+        setShowWeakPasswordWarning(true);
+        return;
+      }
 
-    updatePassword({
-      currentPassword: password,
-      newPassword: newPassword,
-      onSuccess: () => {
-        login({
-          loginRequest: create(AuthenticateRequestSchema, {
-            username,
-            password: newPassword,
-          }),
-          onSuccess: () => {
-            pushToast({
-              message: "Your password has been updated",
-              status: TOAST_STATUSES.success,
-            });
-            setShowModal(false);
-          },
-          onError: () => {
-            setPasswordUpdateApiError("Password updated but re-login failed. Please log in again.");
-          },
-          onFinally: () => {
-            setIsSubmitting(false);
-          },
-        });
-      },
-      onError: (error: string) => {
-        setPasswordUpdateApiError(error || "Failed to update password. Please try again.");
-        setIsSubmitting(false);
-      },
-    });
-  }
+      setShowWeakPasswordWarning(false);
+      setIsSubmitting(true);
+      setPasswordErrorMsg("");
+      setPasswordUpdateApiError(null);
+
+      updatePassword({
+        currentPassword: password,
+        newPassword: newPassword,
+        onSuccess: () => {
+          login({
+            loginRequest: create(AuthenticateRequestSchema, {
+              username,
+              password: newPassword,
+            }),
+            onSuccess: () => {
+              pushToast({
+                message: "Your password has been updated",
+                status: TOAST_STATUSES.success,
+              });
+              setShowModal(false);
+            },
+            onError: () => {
+              setPasswordUpdateApiError("Password updated but re-login failed. Please log in again.");
+            },
+            onFinally: () => {
+              setIsSubmitting(false);
+            },
+          });
+        },
+        onError: (error: string) => {
+          setPasswordUpdateApiError(error || "Failed to update password. Please try again.");
+          setIsSubmitting(false);
+        },
+      });
+    },
+    [newPassword, confirmPassword, score, password, username, updatePassword, login],
+  );
 
   function submitUsernameUpdate() {
     // Validate username is not empty
@@ -266,6 +278,7 @@ const AuthenticationSettings = () => {
                   variant: "primary",
                   dismissModalOnClick: false,
                   loading: isSubmitting,
+                  disabled: false,
                   onClick: () => {
                     if (step === "authenticate") {
                       authenticate();
@@ -273,7 +286,7 @@ const AuthenticationSettings = () => {
                     }
 
                     if (step === "updatePassword") {
-                      submitPasswordUpdate();
+                      submitPasswordUpdate(false);
                       return;
                     }
 
@@ -335,6 +348,12 @@ const AuthenticationSettings = () => {
                       />
                     </div>
                   </div>
+                  {showWeakPasswordWarning && !isSubmitting && (
+                    <WeakPasswordWarning
+                      onReturn={() => setShowWeakPasswordWarning(false)}
+                      onContinue={() => submitPasswordUpdate(true)}
+                    />
+                  )}
                 </div>
               )}
               {step === "updateUsername" && (
