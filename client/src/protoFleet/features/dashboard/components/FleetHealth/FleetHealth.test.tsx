@@ -10,7 +10,9 @@ describe("FleetHealth", () => {
   };
 
   it("renders correct stats when all miners are healthy", () => {
-    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={100} unhealthyMiners={0} offlineMiners={0} />);
+    renderWithRouter(
+      <FleetHealth fleetSize={100} healthyMiners={100} needsAttentionMiners={0} offlineMiners={0} sleepingMiners={0} />,
+    );
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
@@ -18,20 +20,22 @@ describe("FleetHealth", () => {
     // Check percentages
     expect(screen.getByText("100%")).toBeInTheDocument(); // Healthy
 
-    // Check counts - using getAllByText because "100 miners" appears twice (header and healthy column)
+    // Check counts - "100 miners" appears twice (header and healthy column)
     const healthyCount = screen.getAllByText("100 miners");
     expect(healthyCount).toHaveLength(2); // One in header, one in healthy column
 
     const zeroMiners = screen.getAllByText("0 miners");
-    expect(zeroMiners).toHaveLength(2); // Unhealthy and Offline columns
+    expect(zeroMiners).toHaveLength(3); // Needs Attention, Offline, and Sleeping columns
 
-    // Check that legend is present - using getAllByText since these appear in column headers and legend
+    // Check that legend is present
     const healthyTexts = screen.getAllByText("Healthy");
-    expect(healthyTexts.length).toBeGreaterThan(0); // At least one
-    const unhealthyTexts = screen.getAllByText("Unhealthy");
-    expect(unhealthyTexts.length).toBeGreaterThan(0); // At least one
+    expect(healthyTexts.length).toBeGreaterThan(0);
+    const needsAttentionTexts = screen.getAllByText("Needs Attention");
+    expect(needsAttentionTexts.length).toBeGreaterThan(0);
     const offlineTexts = screen.getAllByText("Offline");
-    expect(offlineTexts.length).toBeGreaterThan(0); // At least one
+    expect(offlineTexts.length).toBeGreaterThan(0);
+    const sleepingTexts = screen.getAllByText("Sleeping");
+    expect(sleepingTexts.length).toBeGreaterThan(0);
 
     // Check CompositionBar is rendered
     const progressBars = screen.getAllByRole("progressbar");
@@ -39,59 +43,89 @@ describe("FleetHealth", () => {
   });
 
   it("renders correct stats with mixed fleet health", () => {
-    renderWithRouter(<FleetHealth fleetSize={200} healthyMiners={178} unhealthyMiners={20} offlineMiners={2} />);
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={200}
+        healthyMiners={170}
+        needsAttentionMiners={18}
+        offlineMiners={8}
+        sleepingMiners={4}
+      />,
+    );
 
     // Check miner count
     expect(screen.getByText("200 miners")).toBeInTheDocument();
 
-    // Check percentages
-    expect(screen.getByText("89%")).toBeInTheDocument(); // Healthy
-    expect(screen.getByText("10%")).toBeInTheDocument(); // Unhealthy
-    expect(screen.getByText("1%")).toBeInTheDocument(); // Offline
+    // Check percentages (85% + 9% + 4% + 2% = 100%)
+    expect(screen.getByText("85%")).toBeInTheDocument(); // Healthy: 170/200 = 85%
+    expect(screen.getByText("9%")).toBeInTheDocument(); // Needs Attention: 18/200 = 9%
+    expect(screen.getByText("4%")).toBeInTheDocument(); // Offline: 8/200 = 4%
+    expect(screen.getByText("2%")).toBeInTheDocument(); // Sleeping: 4/200 = 2%
 
     // Check miner counts
-    expect(screen.getByText("178 miners")).toBeInTheDocument();
-    expect(screen.getByText("20 miners")).toBeInTheDocument();
-    expect(screen.getByText("2 miners")).toBeInTheDocument();
+    expect(screen.getByText("170 miners")).toBeInTheDocument();
+    expect(screen.getByText("18 miners")).toBeInTheDocument();
+    expect(screen.getByText("8 miners")).toBeInTheDocument();
+    expect(screen.getByText("4 miners")).toBeInTheDocument();
   });
 
   it("renders stats for fleet with moderate health distribution", () => {
-    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={70} unhealthyMiners={20} offlineMiners={10} />);
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={100}
+        healthyMiners={60}
+        needsAttentionMiners={20}
+        offlineMiners={12}
+        sleepingMiners={8}
+      />,
+    );
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
-    // Check percentages
-    expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy
-    expect(screen.getByText("20%")).toBeInTheDocument(); // Unhealthy
-    expect(screen.getByText("10%")).toBeInTheDocument(); // Offline
+    // Check percentages (all unique values)
+    expect(screen.getByText("60%")).toBeInTheDocument(); // Healthy: 60/100 = 60%
+    expect(screen.getByText("20%")).toBeInTheDocument(); // Needs Attention: 20/100 = 20%
+    expect(screen.getByText("12%")).toBeInTheDocument(); // Offline: 12/100 = 12%
+    expect(screen.getByText("8%")).toBeInTheDocument(); // Sleeping: 8/100 = 8%
   });
 
   it("renders stats for fleet with critical health distribution", () => {
-    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={30} unhealthyMiners={50} offlineMiners={20} />);
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={100}
+        healthyMiners={15}
+        needsAttentionMiners={50}
+        offlineMiners={25}
+        sleepingMiners={10}
+      />,
+    );
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
-    // Check percentages
-    expect(screen.getByText("30%")).toBeInTheDocument(); // Healthy
-    expect(screen.getByText("50%")).toBeInTheDocument(); // Unhealthy
-    expect(screen.getByText("20%")).toBeInTheDocument(); // Offline
+    // Check percentages (all unique values)
+    expect(screen.getByText("15%")).toBeInTheDocument(); // Healthy: 15/100 = 15%
+    expect(screen.getByText("50%")).toBeInTheDocument(); // Needs Attention: 50/100 = 50%
+    expect(screen.getByText("25%")).toBeInTheDocument(); // Offline: 25/100 = 25%
+    expect(screen.getByText("10%")).toBeInTheDocument(); // Sleeping: 10/100 = 10%
   });
 
   it("handles division by zero when fleet size is 0", () => {
-    renderWithRouter(<FleetHealth fleetSize={0} healthyMiners={0} unhealthyMiners={0} offlineMiners={0} />);
+    renderWithRouter(
+      <FleetHealth fleetSize={0} healthyMiners={0} needsAttentionMiners={0} offlineMiners={0} sleepingMiners={0} />,
+    );
 
     // Should render without errors
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // All percentages should be 0%
     const zeroPercents = screen.getAllByText("0%");
-    expect(zeroPercents).toHaveLength(3); // Healthy, Unhealthy, Offline
+    expect(zeroPercents).toHaveLength(4); // Healthy, Needs Attention, Offline, Sleeping
 
-    // All miner counts should be 0 miners (3 in columns, 1 in header = 4 total)
+    // All miner counts should be 0 miners (4 in columns, 1 in header = 5 total)
     const zeroMinerCounts = screen.getAllByText("0 miners");
-    expect(zeroMinerCounts).toHaveLength(4);
+    expect(zeroMinerCounts).toHaveLength(5);
   });
 
   it("renders loading state when miner counts are undefined", () => {
@@ -101,17 +135,18 @@ describe("FleetHealth", () => {
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Check that all stat labels are present but with skeleton bars
-    // Using getAllByText since these appear in both stat headers and legend
     const healthyTexts = screen.getAllByText("Healthy");
     expect(healthyTexts.length).toBeGreaterThan(0);
-    const unhealthyTexts = screen.getAllByText("Unhealthy");
-    expect(unhealthyTexts.length).toBeGreaterThan(0);
+    const needsAttentionTexts = screen.getAllByText("Needs Attention");
+    expect(needsAttentionTexts.length).toBeGreaterThan(0);
     const offlineTexts = screen.getAllByText("Offline");
     expect(offlineTexts.length).toBeGreaterThan(0);
+    const sleepingTexts = screen.getAllByText("Sleeping");
+    expect(sleepingTexts.length).toBeGreaterThan(0);
 
-    // Skeleton bars should be present (4 total - one for fleet health title, one for each segment stat)
+    // Skeleton bars should be present (5 total - one for fleet health title, one for each of 4 segments)
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
-    expect(skeletonBars.length).toBe(4);
+    expect(skeletonBars.length).toBe(5);
   });
 
   it("renders partial loading state when some props are undefined", () => {
@@ -119,46 +154,82 @@ describe("FleetHealth", () => {
       <FleetHealth
         fleetSize={100}
         healthyMiners={70}
-        // unhealthyMiners and offlineMiners are undefined
+        needsAttentionMiners={10}
+        // offlineMiners and sleepingMiners are undefined
       />,
     );
 
     // Check title label is present
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
-    // Should show defined values for healthy
+    // Should show defined values
     expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy percentage
     expect(screen.getByText("70 miners")).toBeInTheDocument(); // Healthy count
+    expect(screen.getByText("10%")).toBeInTheDocument(); // Needs Attention percentage
+    expect(screen.getByText("10 miners")).toBeInTheDocument(); // Needs Attention count
 
-    // Undefined values should show skeleton bars (unhealthy and offline)
+    // Undefined values should show skeleton bars (offline and sleeping)
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
-    expect(skeletonBars.length).toBe(2); // Two skeleton bars: unhealthy and offline
+    expect(skeletonBars.length).toBe(2); // Two skeleton bars: offline and sleeping
   });
 
   it("renders legend with correct color indicators", () => {
     const { container } = renderWithRouter(
-      <FleetHealth fleetSize={100} healthyMiners={85} unhealthyMiners={10} offlineMiners={5} />,
+      <FleetHealth
+        fleetSize={100}
+        healthyMiners={70}
+        needsAttentionMiners={15}
+        offlineMiners={10}
+        sleepingMiners={5}
+      />,
     );
 
-    // Check legend items - using getAllByText since these appear in both column headers and legend
+    // Check legend items
     const healthyTexts = screen.getAllByText("Healthy");
     expect(healthyTexts.length).toBeGreaterThan(0);
-    const unhealthyTexts = screen.getAllByText("Unhealthy");
-    expect(unhealthyTexts.length).toBeGreaterThan(0);
+    const needsAttentionTexts = screen.getAllByText("Needs Attention");
+    expect(needsAttentionTexts.length).toBeGreaterThan(0);
     const offlineTexts = screen.getAllByText("Offline");
     expect(offlineTexts.length).toBeGreaterThan(0);
+    const sleepingTexts = screen.getAllByText("Sleeping");
+    expect(sleepingTexts.length).toBeGreaterThan(0);
 
-    // Check that the triangle SVG exists for unhealthy
+    // Check that the triangle SVG exists for needs attention
     const svgTriangle = container.querySelector("svg");
     expect(svgTriangle).toBeInTheDocument();
 
-    // Check color indicators - there will be multiple instances (in bar and legend)
-    const greenIndicators = container.querySelectorAll(".bg-intent-success-fill, .bg-core-primary-fill");
-    const redIndicators = container.querySelectorAll(".bg-intent-critical-fill, .fill-intent-critical-fill");
-    const grayIndicators = container.querySelectorAll(".bg-grayscale-gray-50, .bg-core-primary-20");
+    // Check color indicators
+    const greenIndicators = container.querySelectorAll(".bg-core-primary-fill");
+    const redIndicators = container.querySelectorAll(".fill-intent-critical-fill, .text-intent-critical-fill");
+    const accentIndicators = container.querySelectorAll(".bg-core-accent-fill");
+    const primaryIndicators = container.querySelectorAll(".bg-core-primary-20");
 
-    expect(greenIndicators.length).toBeGreaterThan(0);
-    expect(redIndicators.length).toBeGreaterThan(0);
-    expect(grayIndicators.length).toBeGreaterThan(0);
+    expect(greenIndicators.length).toBeGreaterThan(0); // Healthy
+    expect(redIndicators.length).toBeGreaterThan(0); // Needs Attention
+    expect(accentIndicators.length).toBeGreaterThan(0); // Offline
+    expect(primaryIndicators.length).toBeGreaterThan(0); // Sleeping
+  });
+
+  it("handles pluralization correctly for singular miner", () => {
+    renderWithRouter(
+      <FleetHealth fleetSize={1} healthyMiners={0} needsAttentionMiners={1} offlineMiners={0} sleepingMiners={0} />,
+    );
+
+    // Check singular form - should appear in title and Needs Attention stat
+    const oneMinerText = screen.getAllByText(/1 miner/);
+    expect(oneMinerText.length).toBe(2); // Once in title, once in Needs Attention stat
+  });
+
+  it("handles pluralization correctly for multiple miners", () => {
+    renderWithRouter(
+      <FleetHealth fleetSize={50} healthyMiners={30} needsAttentionMiners={10} offlineMiners={7} sleepingMiners={3} />,
+    );
+
+    // Check plural form
+    expect(screen.getByText("50 miners")).toBeInTheDocument();
+    expect(screen.getByText("30 miners")).toBeInTheDocument();
+    expect(screen.getByText("10 miners")).toBeInTheDocument();
+    expect(screen.getByText("7 miners")).toBeInTheDocument();
+    expect(screen.getByText("3 miners")).toBeInTheDocument();
   });
 });

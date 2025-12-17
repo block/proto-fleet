@@ -48,15 +48,51 @@ func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelon
 
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
-    COUNT(CASE WHEN ds.status = 'ACTIVE' THEN 1 END) as hashing_count,
-    COUNT(CASE WHEN ds.status = 'INACTIVE' THEN 1 END) as idle_count,
-    COUNT(CASE WHEN ds.status = 'ERROR' THEN 1 END) as broken_count,
-    COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
-    COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
+    -- Offline: OFFLINE or NULL status - highest priority (regardless of errors or auth)
+    SUM(CASE
+        WHEN ds.status = 'OFFLINE' OR ds.status IS NULL
+        THEN 1
+        ELSE 0
+    END) as offline_count,
+
+    -- Sleeping: MAINTENANCE or INACTIVE - second priority (if not offline, regardless of errors or auth)
+    SUM(CASE
+        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+        THEN 1
+        ELSE 0
+    END) as sleeping_count,
+
+    -- Broken/Needs Attention: ERROR status OR auth needed OR actionable errors
+    -- Only if not offline or sleeping
+    SUM(CASE
+        WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+             AND ds.status IS NOT NULL
+             AND (ds.status = 'ERROR'
+                  OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR open_errors.device_id IS NOT NULL)
+        THEN 1
+        ELSE 0
+    END) as broken_count,
+
+    -- Hashing: ACTIVE + no auth needed + no actionable errors (if none of the above)
+    SUM(CASE
+        WHEN ds.status = 'ACTIVE'
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND open_errors.device_id IS NULL
+        THEN 1
+        ELSE 0
+    END) as hashing_count
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = ?
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
+) open_errors ON d.id = open_errors.device_id
 WHERE d.deleted_at IS NULL
   AND d.org_id = ?
   AND dd.is_active = TRUE
@@ -72,15 +108,39 @@ type CountMinersByStateParams struct {
 }
 
 type CountMinersByStateRow struct {
-	HashingCount  int64
-	IdleCount     int64
-	BrokenCount   int64
-	OfflineCount  int64
-	SleepingCount int64
+	OfflineCount  interface{}
+	SleepingCount interface{}
+	BrokenCount   interface{}
+	HashingCount  interface{}
 }
 
+// Counts miners by their operational state for fleet health dashboard.
+//
+// Bucket Assignment Priority (mutual exclusivity):
+// 1. Offline (offline_count):
+//   - OFFLINE/NULL status (highest priority, regardless of errors or auth status)
+//
+// 2. Sleeping (sleeping_count):
+//   - MAINTENANCE/INACTIVE status (only if not offline, regardless of errors or auth status)
+//
+// 3. Needs Attention (broken_count):
+//   - ERROR device status OR
+//   - AUTHENTICATION_NEEDED pairing status OR
+//   - Has open errors with severity CRITICAL/MAJOR/MINOR
+//   - (only if not offline or sleeping)
+//
+// 4. Hashing (hashing_count):
+//   - ACTIVE status + no auth needed + no actionable errors (only if none of the above)
+//
+// Error Handling:
+// - Only open errors (closed_at IS NULL) are considered
+// - INFO severity errors (severity=4) are excluded
+// - UNSPECIFIED severity errors (severity=0) are excluded
+// - Offline/sleeping status takes precedence over errors
+// Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
 func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
 	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
+		arg.OrgID,
 		arg.OrgID,
 		arg.StatusFilter,
 		arg.StatusFilter,
@@ -89,11 +149,10 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 	)
 	var i CountMinersByStateRow
 	err := row.Scan(
-		&i.HashingCount,
-		&i.IdleCount,
-		&i.BrokenCount,
 		&i.OfflineCount,
 		&i.SleepingCount,
+		&i.BrokenCount,
+		&i.HashingCount,
 	)
 	return i, err
 }
@@ -550,6 +609,14 @@ FROM (
         AND d.org_id = ?
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
+    LEFT JOIN (
+        SELECT DISTINCT device_id
+        FROM errors
+        WHERE errors.org_id = ?
+          AND errors.closed_at IS NULL
+          AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
+    ) open_errors ON d.id = open_errors.device_id
     -- Always include errors join to support component type filtering
     LEFT JOIN errors e ON d.id = e.device_id
         AND e.closed_at IS NULL
@@ -561,9 +628,33 @@ FROM (
         AND dd.is_active = TRUE
         AND dd.deleted_at IS NULL
         -- Status filter (only applies to paired devices with status)
+        -- Priority: offline/sleeping status takes precedence over errors
         AND (
             ? IS NULL
-            OR ds.status IN (/*SLICE:status_values*/?)
+            OR (
+                ds.status IN (/*SLICE:status_values*/?)
+                AND (
+                    -- For offline/sleeping filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For active status: exclude devices with errors (only show truly healthy)
+                    OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
+                    -- For error status: include devices with errors
+                    OR (? = TRUE)
+                )
+            )
+            -- For needs attention filter: only include auth needed devices that are not offline/sleeping
+            OR (? = TRUE
+                AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status IS NOT NULL)
+            -- For needs attention filter: only include devices with errors that are not offline/sleeping
+            -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
+            -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
+            -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
+            OR (? = TRUE
+                AND open_errors.device_id IS NOT NULL
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status IS NOT NULL)
         )
         -- Type filter
         AND (
@@ -590,6 +681,7 @@ type GetTotalMinerStateSnapshotsParams struct {
 	ErrorComponentTypeValues  []sql.NullInt32
 	StatusFilter              interface{}
 	StatusValues              []DeviceStatusStatus
+	NeedsAttentionFilter      interface{}
 	TypeFilter                interface{}
 	TypeValues                []string
 	PairingStatusFilter       interface{}
@@ -601,6 +693,7 @@ type GetTotalMinerStateSnapshotsParams struct {
 func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalMinerStateSnapshotsParams) (int64, error) {
 	query := getTotalMinerStateSnapshots
 	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
 	queryParams = append(queryParams, arg.OrgID)
 	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
 	if len(arg.ErrorComponentTypeValues) > 0 {
@@ -621,6 +714,9 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 	} else {
 		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
 	}
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
 	queryParams = append(queryParams, arg.TypeFilter)
 	if len(arg.TypeValues) > 0 {
 		for _, v := range arg.TypeValues {
@@ -652,9 +748,10 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dp.pairing_status = 'PAIRED'
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
     AND d.deleted_at IS NULL
     AND d.org_id = ?
+    AND dd.is_active = TRUE
     AND (? is null OR FIND_IN_SET(ds.status, ?))
     AND (? is null OR FIND_IN_SET(dd.type, ?))
 `
@@ -759,6 +856,14 @@ FROM (
         AND d.org_id = ?
     LEFT JOIN device_pairing dp ON d.id = dp.device_id
     LEFT JOIN device_status ds ON d.id = ds.device_id
+    -- Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
+    LEFT JOIN (
+        SELECT DISTINCT device_id
+        FROM errors
+        WHERE errors.org_id = ?
+          AND errors.closed_at IS NULL
+          AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
+    ) open_errors ON d.id = open_errors.device_id
     -- Always include errors join to support component type filtering
     LEFT JOIN errors e ON d.id = e.device_id
         AND e.closed_at IS NULL
@@ -775,9 +880,33 @@ FROM (
             OR dd.id > ?
         )
         -- Status filter (only applies to paired devices with status)
+        -- Priority: offline/sleeping status takes precedence over errors
         AND (
             ? IS NULL
-            OR ds.status IN (/*SLICE:status_values*/?)
+            OR (
+                ds.status IN (/*SLICE:status_values*/?)
+                AND (
+                    -- For offline/sleeping filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For active status: exclude devices with errors (only show truly healthy)
+                    OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
+                    -- For error status: include devices with errors
+                    OR (? = TRUE)
+                )
+            )
+            -- For needs attention filter: only include auth needed devices that are not offline/sleeping
+            OR (? = TRUE
+                AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status IS NOT NULL)
+            -- For needs attention filter: only include devices with errors that are not offline/sleeping
+            -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
+            -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
+            -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
+            OR (? = TRUE
+                AND open_errors.device_id IS NOT NULL
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status IS NOT NULL)
         )
         -- Type filter
         AND (
@@ -807,6 +936,7 @@ type ListMinerStateSnapshotsParams struct {
 	CursorID                  sql.NullInt64
 	StatusFilter              interface{}
 	StatusValues              []DeviceStatusStatus
+	NeedsAttentionFilter      interface{}
 	TypeFilter                interface{}
 	TypeValues                []string
 	PairingStatusFilter       interface{}
@@ -838,6 +968,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStat
 	query := listMinerStateSnapshots
 	var queryParams []interface{}
 	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.OrgID)
 	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
 	if len(arg.ErrorComponentTypeValues) > 0 {
 		for _, v := range arg.ErrorComponentTypeValues {
@@ -859,6 +990,9 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStat
 	} else {
 		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
 	}
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
+	queryParams = append(queryParams, arg.NeedsAttentionFilter)
 	queryParams = append(queryParams, arg.TypeFilter)
 	if len(arg.TypeValues) > 0 {
 		for _, v := range arg.TypeValues {

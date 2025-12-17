@@ -537,8 +537,8 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 	if update.MinerStateCounts != nil {
 		telemetryUpdate.MinerStateCounts = &telemetryv1.MinerStateCounts{
 			HashingCount:  update.MinerStateCounts.Hashing,
-			OfflineCount:  update.MinerStateCounts.Offline,
 			BrokenCount:   update.MinerStateCounts.Broken,
+			OfflineCount:  update.MinerStateCounts.Offline,
 			SleepingCount: update.MinerStateCounts.Sleeping,
 		}
 	}

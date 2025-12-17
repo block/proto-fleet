@@ -330,36 +330,43 @@ export const AggregatedTelemetrySchema: GenMessage<AggregatedTelemetry> =
   messageDesc(file_telemetry_v1_telemetry, 7);
 
 /**
- * Represents counts of miners in different states
- * TODO: We'll need to add more counts to represent the totals for each of our filter categories.
- * We should also align the name of the messages, to match the filters MinerStatus -> DeviceStatus
+ * Represents counts of miners in different states with status-first priority:
+ * 1. Offline (OFFLINE/NULL status) - highest priority
+ * 2. Sleeping (MAINTENANCE/INACTIVE status) - second priority
+ * 3. Needs Attention (ERROR/AUTHENTICATION_NEEDED/errors) - only if not offline or sleeping
+ * 4. Hashing (ACTIVE, no auth needed, no errors) - only if none of the above
+ * TODO: align the name of the messages, to match the filters MinerStatus -> DeviceStatus
  *
  * @generated from message telemetry.v1.MinerStateCounts
  */
 export type MinerStateCounts = Message<"telemetry.v1.MinerStateCounts"> & {
   /**
-   * Number of miners that are hashing
+   * Number of miners that are hashing (ACTIVE status, no AUTHENTICATION_NEEDED, no open errors)
+   * Only counted if not offline, sleeping, or needs attention
    *
    * @generated from field: int32 hashing_count = 1;
    */
   hashingCount: number;
 
   /**
-   * Number of miners that are broken
+   * Number of miners that need attention (ERROR status OR AUTHENTICATION_NEEDED OR open CRITICAL/MAJOR/MINOR errors)
+   * Only counted if not offline or sleeping - status takes priority over errors
    *
    * @generated from field: int32 broken_count = 2;
    */
   brokenCount: number;
 
   /**
-   * Number of miners that are offline
+   * Number of miners that are offline (OFFLINE or NULL status)
+   * Highest priority - includes devices with AUTHENTICATION_NEEDED and/or open errors
    *
    * @generated from field: int32 offline_count = 3;
    */
   offlineCount: number;
 
   /**
-   * Number of miners that are sleeping
+   * Number of miners that are sleeping (MAINTENANCE or INACTIVE status)
+   * Second priority - includes devices with AUTHENTICATION_NEEDED and/or open errors
    *
    * @generated from field: int32 sleeping_count = 4;
    */

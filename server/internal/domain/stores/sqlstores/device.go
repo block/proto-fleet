@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -307,6 +309,9 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
+// GetMinerStateCounts returns counts of miners by operational state.
+// The SQL query handles bucket assignment with status-first priority:
+// Offline > Sleeping > Needs Attention > Hashing
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	statusFilter, typeFilter := buildFilterParams(filter)
 
@@ -319,11 +324,35 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
 	}
 
+	// Helper to convert interface{} to int32, handling both int64 and []byte from MySQL
+	toInt32 := func(v interface{}) int32 {
+		switch val := v.(type) {
+		case int64:
+			return int32(val) //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		case []byte:
+			// MySQL SUM returns decimal as []byte, parse it with strconv for robustness
+			if len(val) == 0 {
+				return 0
+			}
+			parsed, err := strconv.ParseInt(string(val), 10, 64)
+			if err != nil {
+				// Log and return 0 as safe default. This should never happen with valid MySQL SUM results,
+				// but if it does, returning 0 prevents cascading errors in fleet health calculations.
+				// The error is logged so it can be monitored and investigated if it occurs in production.
+				slog.Error("failed to parse miner count from database", "error", err, "raw_value", string(val))
+				return 0
+			}
+			return int32(parsed) //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		default:
+			return 0
+		}
+	}
+
 	return &tm.MinerStateCounts{
-		HashingCount:  int32(counts.HashingCount),                            //nolint:gosec
-		BrokenCount:   int32(counts.BrokenCount),                             //nolint:gosec
-		OfflineCount:  int32(counts.OfflineCount),                            //nolint:gosec
-		SleepingCount: int32(counts.SleepingCount) + int32(counts.IdleCount), //nolint:gosec
+		HashingCount:  toInt32(counts.HashingCount),
+		BrokenCount:   toInt32(counts.BrokenCount),
+		OfflineCount:  toInt32(counts.OfflineCount),
+		SleepingCount: toInt32(counts.SleepingCount),
 	}, nil
 }
 
@@ -510,10 +539,16 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	// Build filter parameters
 	var statusFilter interface{}
 	var statusValues []sqlc.DeviceStatusStatus
+	needsAttentionFilter := false
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		statusFilter = true // Non-null indicates filter is active
 		for _, status := range filter.DeviceStatusFilter {
 			statusValues = append(statusValues, toDeviceStatus(status))
+			// Special case: if ERROR status is requested, also include AUTHENTICATION_NEEDED devices
+			// This implements "needs attention" = ERROR status OR AUTHENTICATION_NEEDED pairing
+			if status == minermodels.MinerStatusError {
+				needsAttentionFilter = true
+			}
 		}
 	}
 
@@ -563,6 +598,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 			pairingStatusFilter = nil
 		}
 	}
+
 	// If no pairing statuses provided at all, filter remains nil (return all)
 
 	// Build component type filter parameters
@@ -577,7 +613,9 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		}
 	}
 
-	// Use unified query with all filter parameters
+	// Call unified query with all filter parameters
+	// Pass needsAttentionFilter to SQL for special OR logic handling
+	// Pass errorComponentTypesFilter to SQL for component type filtering
 	rows, err := s.getQueries(ctx).ListMinerStateSnapshots(ctx, sqlc.ListMinerStateSnapshotsParams{
 		OrgID:                     orgID,
 		CursorID:                  sql.NullInt64{Int64: cursorID, Valid: cursorID > 0},
@@ -587,6 +625,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		TypeValues:                typeValues,
 		PairingStatusFilter:       pairingStatusFilter,
 		PairingStatusValues:       pairingStatusValues,
+		NeedsAttentionFilter:      sql.NullBool{Bool: needsAttentionFilter, Valid: needsAttentionFilter},
 		ErrorComponentTypesFilter: errorComponentTypesFilter,
 		ErrorComponentTypeValues:  errorComponentTypeValues,
 		Limit:                     pageSize + 1,
@@ -608,7 +647,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", lastRow.CursorID)))
 	}
 
-	// Get total count with same filter parameters
+	// Get total count with same filter parameters (including needs attention OR logic)
 	total, err := s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
 		OrgID:                     orgID,
 		StatusFilter:              statusFilter,
@@ -617,6 +656,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		TypeValues:                typeValues,
 		PairingStatusFilter:       pairingStatusFilter,
 		PairingStatusValues:       pairingStatusValues,
+		NeedsAttentionFilter:      sql.NullBool{Bool: needsAttentionFilter, Valid: needsAttentionFilter},
 		ErrorComponentTypesFilter: errorComponentTypesFilter,
 		ErrorComponentTypeValues:  errorComponentTypeValues,
 	})

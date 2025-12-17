@@ -42,7 +42,7 @@ type TelemetryUpdate struct {
 
 type MinerStateCounts struct {
 	Hashing  int32 `json:"hashing"`
-	Offline  int32 `json:"offline"`
 	Broken   int32 `json:"broken"`
+	Offline  int32 `json:"offline"`
 	Sleeping int32 `json:"sleeping"`
 }

@@ -107,12 +107,12 @@ const MinerList = ({
         value: "status",
         options: [
           { id: deviceStatusFilterStates.hashing, label: "Hashing" },
-          { id: deviceStatusFilterStates.offline, label: "Offline" },
-          { id: deviceStatusFilterStates.sleeping, label: "Sleeping" },
           {
             id: deviceStatusFilterStates.needsAttention,
             label: "Needs Attention",
           },
+          { id: deviceStatusFilterStates.offline, label: "Offline" },
+          { id: deviceStatusFilterStates.sleeping, label: "Sleeping" },
         ],
         defaultOptionIds: [],
       },

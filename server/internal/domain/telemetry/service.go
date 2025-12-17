@@ -1502,8 +1502,8 @@ func (s *TelemetryService) StreamMinerStateCounts(ctx context.Context, orgID int
 					Timestamp: time.Now(),
 					MinerStateCounts: &models.MinerStateCounts{
 						Hashing:  counts.HashingCount,
-						Offline:  counts.OfflineCount,
 						Broken:   counts.BrokenCount,
+						Offline:  counts.OfflineCount,
 						Sleeping: counts.SleepingCount,
 					},
 				}

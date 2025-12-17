@@ -43,8 +43,9 @@ const Dashboard = () => {
               <FleetHealth
                 fleetSize={totalMiners || 1} // prevent division by zero
                 healthyMiners={stateCounts?.hashingCount ?? 0}
+                needsAttentionMiners={stateCounts?.brokenCount ?? 0}
                 offlineMiners={stateCounts?.offlineCount ?? 0}
-                unhealthyMiners={(stateCounts?.sleepingCount ?? 0) + (stateCounts?.brokenCount ?? 0)}
+                sleepingMiners={stateCounts?.sleepingCount ?? 0}
               />
             </div>
           </section>

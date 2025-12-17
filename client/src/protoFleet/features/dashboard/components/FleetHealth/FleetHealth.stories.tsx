@@ -23,13 +23,17 @@ const meta: Meta<typeof FleetHealth> = {
       control: { type: "number", min: 0, max: 1000, step: 1 },
       description: "Number of healthy/active miners",
     },
-    unhealthyMiners: {
+    needsAttentionMiners: {
       control: { type: "number", min: 0, max: 1000, step: 1 },
-      description: "Number of unhealthy/inactive miners",
+      description: "Number of miners needing attention (ERROR or AUTHENTICATION_NEEDED)",
     },
     offlineMiners: {
       control: { type: "number", min: 0, max: 1000, step: 1 },
       description: "Number of offline miners",
+    },
+    sleepingMiners: {
+      control: { type: "number", min: 0, max: 1000, step: 1 },
+      description: "Number of sleeping/inactive miners",
     },
   },
   decorators: [
@@ -50,8 +54,9 @@ export const Default: Story = {
   args: {
     fleetSize: 200,
     healthyMiners: 178,
-    unhealthyMiners: 20,
-    offlineMiners: 2,
+    needsAttentionMiners: 15,
+    offlineMiners: 5,
+    sleepingMiners: 2,
   },
 };
 
@@ -59,8 +64,9 @@ export const AllHealthy: Story = {
   args: {
     fleetSize: 100,
     healthyMiners: 100,
-    unhealthyMiners: 0,
+    needsAttentionMiners: 0,
     offlineMiners: 0,
+    sleepingMiners: 0,
   },
 };
 
@@ -68,8 +74,9 @@ export const MostlyHealthy: Story = {
   args: {
     fleetSize: 100,
     healthyMiners: 85,
-    unhealthyMiners: 10,
+    needsAttentionMiners: 5,
     offlineMiners: 5,
+    sleepingMiners: 5,
   },
 };
 
@@ -77,8 +84,9 @@ export const Warning: Story = {
   args: {
     fleetSize: 100,
     healthyMiners: 70,
-    unhealthyMiners: 20,
+    needsAttentionMiners: 15,
     offlineMiners: 10,
+    sleepingMiners: 5,
   },
 };
 
@@ -86,8 +94,9 @@ export const Critical: Story = {
   args: {
     fleetSize: 100,
     healthyMiners: 30,
-    unhealthyMiners: 50,
+    needsAttentionMiners: 40,
     offlineMiners: 20,
+    sleepingMiners: 10,
   },
 };
 
@@ -95,8 +104,9 @@ export const SmallFleet: Story = {
   args: {
     fleetSize: 10,
     healthyMiners: 7,
-    unhealthyMiners: 2,
+    needsAttentionMiners: 1,
     offlineMiners: 1,
+    sleepingMiners: 1,
   },
 };
 
@@ -104,8 +114,9 @@ export const LargeFleet: Story = {
   args: {
     fleetSize: 1000,
     healthyMiners: 850,
-    unhealthyMiners: 120,
-    offlineMiners: 30,
+    needsAttentionMiners: 80,
+    offlineMiners: 50,
+    sleepingMiners: 20,
   },
 };
 
@@ -119,6 +130,6 @@ export const PartialLoading: Story = {
   args: {
     fleetSize: 100,
     healthyMiners: 70,
-    // unhealthyMiners and offlineMiners undefined
+    // needsAttentionMiners, offlineMiners, and sleepingMiners undefined
   },
 };
