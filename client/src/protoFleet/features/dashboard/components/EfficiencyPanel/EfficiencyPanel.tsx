@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 import { transformEfficiencyMetricsToChartData } from "./utils";
-import { AggregationType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
+import { usePanelMetrics } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -17,63 +15,31 @@ interface EfficiencyPanelProps {
 }
 
 export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.EFFICIENCY],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration],
-  );
-
-  // Fetch initial telemetry metrics
-  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.EFFICIENCY],
-      enabled: true,
-    }),
-    [],
-  );
-
-  // Enable streaming updates
-  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
+  // Read efficiency metrics from store - only subscribes to EFFICIENCY updates
+  // undefined = not loaded yet, array = loaded (empty or populated)
+  const metrics = usePanelMetrics(MeasurementType.EFFICIENCY);
 
   // Get total fleet size for "X of Y miners reporting"
   const { totalMiners } = useFleetCounts();
 
-  // Transform metrics data to chart format
+  // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
-    if (!data?.metrics) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
-    let metricsToTransform = data.metrics;
-
-    // Merge streaming data if available
-    if (latestData?.metrics && latestData.metrics.length > 0) {
-      // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
-
-      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
-
-      metricsToTransform = [...data.metrics, ...newMetrics];
-    }
-
-    const transformedData = transformEfficiencyMetricsToChartData(metricsToTransform);
+    const transformedData = transformEfficiencyMetricsToChartData(metrics);
 
     // Pad with null values for the full duration
     return padChartDataWithNulls(transformedData, duration);
-  }, [data, latestData, duration]);
+  }, [metrics, duration]);
 
   // Get the latest efficiency value for the stat display
   const currentEfficiency = useMemo(() => {
-    if (!data?.metrics || data.metrics.length === 0) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
     // Get the most recent metric
-    const latestMetric = data.metrics[data.metrics.length - 1];
+    const latestMetric = metrics[metrics.length - 1];
 
     // Find the AVERAGE aggregation value
     const avgValue = latestMetric.aggregatedValues.find(
@@ -81,16 +47,18 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     )?.value;
 
     return avgValue ?? null;
-  }, [data]);
+  }, [metrics]);
 
   // Get device count from latest metric
   const deviceCount = useMemo(() => {
-    if (!data?.metrics || data.metrics.length === 0) return null;
-    const latestMetric = data.metrics[data.metrics.length - 1];
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
+    const latestMetric = metrics[metrics.length - 1];
     return latestMetric.deviceCount ?? null;
-  }, [data]);
+  }, [metrics]);
 
-  if (isLoading) {
+  // Show loading skeleton while data hasn't loaded yet
+  if (metrics === undefined) {
     const stat = {
       label: "Efficiency",
       value: undefined,
@@ -115,13 +83,14 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     return <ChartWidget stats={stat}>{null}</ChartWidget>;
   }
 
-  const efficiencyDisplayValue = currentEfficiency !== null ? currentEfficiency.toFixed(1) : "N/A";
+  const efficiencyDisplayValue =
+    currentEfficiency !== null && currentEfficiency !== undefined ? currentEfficiency.toFixed(1) : "N/A";
 
   const stat = {
     label: "Efficiency",
     value: efficiencyDisplayValue,
     units: "J/TH",
-    subtitle: getMinerCountSubtitle(deviceCount, totalMiners),
+    subtitle: getMinerCountSubtitle(deviceCount ?? null, totalMiners),
   };
 
   return (

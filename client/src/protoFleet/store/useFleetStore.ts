@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { devtools, persist, PersistStorage, StorageValue, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
+import { createDashboardSlice, type DashboardSlice } from "./slices/dashboardSlice";
 import { createFleetSlice, type FleetSlice } from "./slices/fleetSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
@@ -15,6 +16,7 @@ export interface FleetStore {
   ui: UISlice;
   fleet: FleetSlice;
   onboarding: OnboardingSlice;
+  dashboard: DashboardSlice;
 }
 
 // =============================================================================
@@ -116,6 +118,7 @@ export const useFleetStore = create<FleetStore>()(
           ui: createUISlice(set as any, get as any, api as any),
           fleet: createFleetSlice(set as any, get as any, api as any),
           onboarding: createOnboardingSlice(set as any, get as any, api as any),
+          dashboard: createDashboardSlice(set as any, get as any, api as any),
         })),
         {
           name: "fleet-store",

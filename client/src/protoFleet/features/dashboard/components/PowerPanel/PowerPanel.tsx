@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 import { transformPowerMetricsToChartData } from "./utils";
-import { AggregationType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
+import { usePanelMetrics } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -17,63 +15,31 @@ interface PowerPanelProps {
 }
 
 export function PowerPanel({ duration }: PowerPanelProps) {
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.POWER],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration],
-  );
-
-  // Fetch initial telemetry metrics
-  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.POWER],
-      enabled: true,
-    }),
-    [],
-  );
-
-  // Enable streaming updates
-  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
+  // Read power metrics from store - only subscribes to POWER updates
+  // undefined = not loaded yet, array = loaded (empty or populated)
+  const metrics = usePanelMetrics(MeasurementType.POWER);
 
   // Get total fleet size for "X of Y miners reporting"
   const { totalMiners } = useFleetCounts();
 
-  // Transform metrics data to chart format
+  // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
-    if (!data?.metrics) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
-    let metricsToTransform = data.metrics;
-
-    // Merge streaming data if available
-    if (latestData?.metrics && latestData.metrics.length > 0) {
-      // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
-
-      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
-
-      metricsToTransform = [...data.metrics, ...newMetrics];
-    }
-
-    const transformedData = transformPowerMetricsToChartData(metricsToTransform);
+    const transformedData = transformPowerMetricsToChartData(metrics);
 
     // Pad with null values for the full duration
     return padChartDataWithNulls(transformedData, duration);
-  }, [data, latestData, duration]);
+  }, [metrics, duration]);
 
   // Get the latest power value for the stat display
   const currentPower = useMemo(() => {
-    if (!data?.metrics || data.metrics.length === 0) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
     // Get the most recent metric
-    const latestMetric = data.metrics[data.metrics.length - 1];
+    const latestMetric = metrics[metrics.length - 1];
 
     // Find the AVERAGE aggregation value
     const avgValue = latestMetric.aggregatedValues.find(
@@ -81,16 +47,18 @@ export function PowerPanel({ duration }: PowerPanelProps) {
     )?.value;
 
     return avgValue ?? null;
-  }, [data]);
+  }, [metrics]);
 
   // Get device count from latest metric
   const deviceCount = useMemo(() => {
-    if (!data?.metrics || data.metrics.length === 0) return null;
-    const latestMetric = data.metrics[data.metrics.length - 1];
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
+    const latestMetric = metrics[metrics.length - 1];
     return latestMetric.deviceCount ?? null;
-  }, [data]);
+  }, [metrics]);
 
-  if (isLoading) {
+  // Show loading skeleton while data hasn't loaded yet
+  if (metrics === undefined) {
     const stat = {
       label: "Power",
       value: undefined,
@@ -115,13 +83,13 @@ export function PowerPanel({ duration }: PowerPanelProps) {
     return <ChartWidget stats={stat}>{null}</ChartWidget>;
   }
 
-  const powerDisplayValue = currentPower !== null ? currentPower.toFixed(1) : "N/A";
+  const powerDisplayValue = currentPower !== null && currentPower !== undefined ? currentPower.toFixed(1) : "N/A";
 
   const stat = {
     label: "Power",
     value: powerDisplayValue,
     units: "kW",
-    subtitle: getMinerCountSubtitle(deviceCount, totalMiners),
+    subtitle: getMinerCountSubtitle(deviceCount ?? null, totalMiners),
   };
 
   return (

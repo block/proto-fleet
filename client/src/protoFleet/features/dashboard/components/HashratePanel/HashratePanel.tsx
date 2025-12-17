@@ -1,12 +1,10 @@
 import { useMemo } from "react";
 import { transformHashrateMetricsToChartData } from "./utils";
-import { AggregationType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
+import { usePanelMetrics } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { formatHashrateWithUnit } from "@/shared/utils/utility";
@@ -16,60 +14,28 @@ interface HashratePanelProps {
 }
 
 export function HashratePanel({ duration }: HashratePanelProps) {
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.HASHRATE],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration],
-  );
+  // Read hashrate metrics from store - only subscribes to HASHRATE updates
+  // undefined = not loaded yet, array = loaded (empty or populated)
+  const metrics = usePanelMetrics(MeasurementType.HASHRATE);
 
-  // Fetch initial telemetry metrics
-  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.HASHRATE],
-      enabled: true,
-    }),
-    [],
-  );
-
-  // Enable streaming updates
-  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Transform metrics data to chart format
+  // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
-    if (!data?.metrics) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
-    let metricsToTransform = data.metrics;
-
-    // Merge streaming data if available
-    if (latestData?.metrics && latestData.metrics.length > 0) {
-      // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
-
-      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
-
-      metricsToTransform = [...data.metrics, ...newMetrics];
-    }
-
-    const transformedData = transformHashrateMetricsToChartData(metricsToTransform);
+    const transformedData = transformHashrateMetricsToChartData(metrics);
 
     // Pad with null values for the full duration
     return padChartDataWithNulls(transformedData, duration);
-  }, [data, latestData, duration]);
+  }, [metrics, duration]);
 
   // Get the latest hashrate value for the stat display
   const currentHashrate = useMemo(() => {
-    if (!data?.metrics || data.metrics.length === 0) return null;
+    if (metrics === undefined) return undefined; // Not loaded yet
+    if (metrics.length === 0) return null; // Loaded but no data
 
     // Get the most recent metric
-    const latestMetric = data.metrics[data.metrics.length - 1];
+    const latestMetric = metrics[metrics.length - 1];
 
     // Find the AVERAGE aggregation value
     const avgValue = latestMetric.aggregatedValues.find(
@@ -77,9 +43,10 @@ export function HashratePanel({ duration }: HashratePanelProps) {
     )?.value;
 
     return avgValue ?? null;
-  }, [data]);
+  }, [metrics]);
 
-  if (isLoading) {
+  // Show loading skeleton while data hasn't loaded yet
+  if (metrics === undefined) {
     const stat = {
       label: "Hashrate",
       value: undefined,

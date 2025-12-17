@@ -1,5 +1,9 @@
+import { useEffect, useMemo, useRef } from "react";
+import { GetCombinedMetricsResponse, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
+import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
@@ -10,10 +14,30 @@ import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePa
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useDevicePaired, useDuration, useSetDuration } from "@/protoFleet/store";
+import {
+  useAppendStreamingMetrics,
+  useAppendStreamingTemperatureCounts,
+  useAppendStreamingUptimeCounts,
+  useClearMetrics,
+  useDevicePaired,
+  useDuration,
+  useSetAllHistoricalData,
+  useSetDashboardError,
+  useSetDuration,
+} from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 import { buildVersionInfo } from "@/shared/utils/version";
+
+// Constants for telemetry options - stable references to prevent unnecessary re-renders
+const ALL_DEVICES: string[] = [];
+const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
+  MeasurementType.HASHRATE,
+  MeasurementType.POWER,
+  MeasurementType.TEMPERATURE,
+  MeasurementType.EFFICIENCY,
+  MeasurementType.UPTIME,
+];
 
 const Dashboard = () => {
   const devicePaired = useDevicePaired();
@@ -23,6 +47,95 @@ const Dashboard = () => {
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
+
+  // Store action hooks
+  const setAllHistoricalData = useSetAllHistoricalData();
+  const appendStreamingMetrics = useAppendStreamingMetrics();
+  const appendStreamingTemperatureCounts = useAppendStreamingTemperatureCounts();
+  const appendStreamingUptimeCounts = useAppendStreamingUptimeCounts();
+  const clearMetrics = useClearMetrics();
+  const setError = useSetDashboardError();
+
+  // Combined telemetry fetching for all measurement types - reduces from 5 API calls to 1
+  const telemetryOptions = useMemo(
+    () => ({
+      deviceIds: ALL_DEVICES,
+      measurementTypes: ALL_MEASUREMENT_TYPES,
+      duration: duration,
+      enabled: true,
+    }),
+    [duration],
+  );
+
+  const { data: historicalData, error } = useTelemetryMetrics(telemetryOptions);
+
+  // Combined streaming for all measurement types - reduces from 5 streams to 1
+  const streamingOptions = useMemo(
+    () => ({
+      deviceIds: ALL_DEVICES,
+      measurementTypes: ALL_MEASUREMENT_TYPES,
+      enabled: true,
+    }),
+    [],
+  );
+
+  const { latestData: streamingData } = useStreamingTelemetryMetrics(streamingOptions);
+
+  // Track which data object we've loaded AND if we've loaded for current duration
+  // This prevents both: loading stale data on duration change, and refetch overwrites
+  const lastLoadedDataRef = useRef<GetCombinedMetricsResponse | null>(null);
+  const hasLoadedForCurrentDurationRef = useRef(false);
+
+  // Write historical data to store atomically to prevent race conditions
+  // Only load historical data once per duration to preserve streaming updates
+  useEffect(() => {
+    if (!historicalData) return;
+
+    // Skip if this is the same data object we already loaded (prevents loading stale data)
+    if (historicalData === lastLoadedDataRef.current) {
+      return;
+    }
+
+    // Skip if we've already loaded fresh data for current duration (preserves streaming)
+    if (hasLoadedForCurrentDurationRef.current) {
+      return;
+    }
+
+    lastLoadedDataRef.current = historicalData;
+    hasLoadedForCurrentDurationRef.current = true;
+    setAllHistoricalData(
+      historicalData.metrics ?? [],
+      historicalData.temperatureStatusCounts ?? [],
+      historicalData.uptimeStatusCounts ?? [],
+    );
+  }, [historicalData, setAllHistoricalData]);
+
+  // Write error state to store
+  useEffect(() => {
+    setError(error ?? null);
+  }, [error, setError]);
+
+  // Clear metrics immediately when duration changes to prevent stale streaming data accumulation
+  // This runs before the historical data effect, ensuring clean state for new duration
+  const prevDurationRef = useRef<typeof duration | undefined>(undefined);
+  useEffect(() => {
+    // Only clear if duration actually changed (not on initial mount)
+    if (prevDurationRef.current !== undefined && prevDurationRef.current !== duration) {
+      clearMetrics();
+      hasLoadedForCurrentDurationRef.current = false; // Need to load for new duration
+      // Note: lastLoadedDataRef stays the same to detect when NEW data arrives
+    }
+    prevDurationRef.current = duration;
+  }, [duration, clearMetrics]);
+
+  // Append streaming data - merge happens in store actions
+  useEffect(() => {
+    if (!streamingData) return;
+
+    appendStreamingMetrics(streamingData.metrics ?? []);
+    appendStreamingTemperatureCounts(streamingData.temperatureStatusCounts ?? []);
+    appendStreamingUptimeCounts(streamingData.uptimeStatusCounts ?? []);
+  }, [streamingData, appendStreamingMetrics, appendStreamingTemperatureCounts, appendStreamingUptimeCounts]);
 
   return (
     <div className="h-full">

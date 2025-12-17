@@ -44,7 +44,13 @@ export function padChartDataWithNulls<T extends ChartData>(data: T[], duration: 
   // Find the first bucket boundary at or before startTime
   const granularityMs = GRANULARITY_SECONDS * 1000;
   const firstBucket = Math.floor(startTime / granularityMs) * granularityMs;
-  const lastBucket = Math.floor(now / granularityMs) * granularityMs;
+
+  // Use the last actual data point as the end boundary, not current time
+  // Filter out invalid datetime values and provide fallback to current time
+  // Safe: data.length === 0 is handled by early return above (line 36), so Math.max never receives empty array
+  const validTimestamps = data.map((d) => d.datetime).filter((dt) => typeof dt === "number" && !isNaN(dt));
+  const lastDataTimestamp = validTimestamps.length > 0 ? Math.max(...validTimestamps) : now;
+  const lastBucket = Math.floor(lastDataTimestamp / granularityMs) * granularityMs;
 
   // Generate all expected timestamps at 90-second intervals
   const expectedTimestamps: number[] = [];

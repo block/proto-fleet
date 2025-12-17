@@ -1,12 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { generateUptimeHeadline } from "./utils";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import { useUptimeStatusCounts } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -16,6 +14,10 @@ interface UptimePanelProps {
 
 export function UptimePanel({ duration }: UptimePanelProps) {
   const navigate = useNavigate();
+
+  // Read uptime status counts from store - only subscribes to uptime updates
+  // undefined = not loaded yet, array = loaded (empty or populated)
+  const uptimeStatusCounts = useUptimeStatusCounts();
 
   // Uptime segment configuration with navigation handler
   const uptimeSegmentConfig: SegmentConfig = useMemo(
@@ -43,54 +45,7 @@ export function UptimePanel({ duration }: UptimePanelProps) {
     [navigate],
   );
 
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.UPTIME],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration],
-  );
-
-  // Fetch initial telemetry metrics
-  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.UPTIME],
-      enabled: true,
-    }),
-    [],
-  );
-
-  // Enable streaming updates
-  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Merge initial data with streaming updates
-  const uptimeStatusCounts = useMemo(() => {
-    if (!data?.uptimeStatusCounts) return [];
-
-    let counts = data.uptimeStatusCounts;
-
-    // Merge streaming data if available
-    if (latestData?.uptimeStatusCounts && latestData.uptimeStatusCounts.length > 0) {
-      // Append new counts from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(data.uptimeStatusCounts.map((c) => c.timestamp?.seconds?.toString()));
-
-      const newCounts = latestData.uptimeStatusCounts.filter(
-        (c) => !existingTimestamps.has(c.timestamp?.seconds?.toString()),
-      );
-
-      counts = [...data.uptimeStatusCounts, ...newCounts];
-    }
-
-    return counts;
-  }, [data, latestData]);
-
-  if (isLoading) {
+  if (uptimeStatusCounts === undefined) {
     const stat = {
       label: "Uptime",
       value: undefined,

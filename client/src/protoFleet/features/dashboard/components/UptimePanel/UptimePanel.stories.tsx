@@ -1,34 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
-import { action } from "storybook/actions";
-import { generateUptimeHeadline } from "./utils";
+import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
-import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
-import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import type { Duration } from "@/shared/components/DurationSelector";
-import SkeletonBar from "@/shared/components/SkeletonBar";
-
-// Uptime segment configuration (same as UptimePanel)
-const uptimeSegmentConfig: SegmentConfig = {
-  hashing: {
-    color: "var(--color-text-primary)",
-    label: "Hashing",
-    displayInBreakdown: true,
-    showButton: false,
-    index: 1,
-  },
-  notHashing: {
-    color: "var(--color-core-primary-10)",
-    label: "Not hashing",
-    displayInBreakdown: true,
-    showButton: true,
-    buttonVariant: "secondary",
-    index: 0,
-    onClick: action("navigate-to-miners"),
-  },
-};
 
 // Helper to create mock uptime status counts
 const createMockUptimeStatusCount = (
@@ -51,12 +29,13 @@ interface MockUptimePanelProps {
   duration: Duration;
   hashingCount: number;
   notHashingCount: number;
+  isLoading?: boolean; // Used to set uptimeStatusCounts to undefined
 }
 
-function MockUptimePanel({ duration, hashingCount, notHashingCount }: MockUptimePanelProps) {
+function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = false }: MockUptimePanelProps) {
   // Generate multiple data points across the time range to show a proper chart
   const uptimeStatusCounts = useMemo(() => {
-    const durationHours = duration === "5d" ? 120 : duration === "48h" ? 48 : parseInt(duration);
+    const durationHours = durationToHours(duration);
     const intervalCount = 12; // Match the number of bars in the chart
     const intervalHours = durationHours / intervalCount;
 
@@ -83,15 +62,29 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount }: MockUptime
     return counts;
   }, [duration, hashingCount, notHashingCount]);
 
-  return (
-    <SegmentedMetricPanel
-      title="Uptime"
-      headlineGenerator={generateUptimeHeadline}
-      chartData={uptimeStatusCounts}
-      segmentConfig={uptimeSegmentConfig}
-      duration={duration}
-    />
-  );
+  // Set mock data in the store
+  useEffect(() => {
+    useFleetStore.setState({
+      dashboard: {
+        metrics: undefined,
+        temperatureStatusCounts: undefined,
+        // Use undefined to indicate loading state (matches ProtoOS pattern)
+        uptimeStatusCounts: isLoading ? undefined : uptimeStatusCounts,
+        error: null,
+        setHistoricalMetrics: () => {},
+        appendStreamingMetrics: () => {},
+        setHistoricalTemperatureCounts: () => {},
+        appendStreamingTemperatureCounts: () => {},
+        setHistoricalUptimeCounts: () => {},
+        appendStreamingUptimeCounts: () => {},
+        setAllHistoricalData: () => {},
+        clearMetrics: () => {},
+        setError: () => {},
+      },
+    });
+  }, [uptimeStatusCounts, isLoading]);
+
+  return <UptimePanel duration={duration} />;
 }
 
 const meta = {
@@ -109,11 +102,13 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="flex h-full w-full items-center justify-center bg-surface-10">
-        <div className="w-full p-10">
-          <Story />
+      <MemoryRouter>
+        <div className="flex h-full w-full items-center justify-center bg-surface-10">
+          <div className="w-full p-10">
+            <Story />
+          </div>
         </div>
-      </div>
+      </MemoryRouter>
     ),
   ],
   argTypes: {
@@ -156,25 +151,7 @@ export const Loading: Story = {
     duration: "24h",
     hashingCount: 0,
     notHashingCount: 0,
-  },
-  render: () => {
-    const stat = {
-      label: "Uptime",
-      value: undefined,
-      units: "",
-    };
-
-    return (
-      <div className="flex w-full flex-row overflow-hidden rounded-xl bg-surface-base dark:bg-core-primary-5 phone:flex-col phone:gap-6">
-        <ChartWidget stats={stat} className="w-1/2 rounded-none! bg-transparent dark:bg-transparent phone:w-full">
-          <SkeletonBar className="h-60 w-full" />
-        </ChartWidget>
-        <div className="flex w-1/2 flex-col justify-center gap-16 space-y-3 rounded-xl bg-transparent p-10 dark:bg-transparent phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
-          <SkeletonBar className="h-20 w-full" />
-          <SkeletonBar className="h-20 w-full" />
-        </div>
-      </div>
-    );
+    isLoading: true,
   },
 };
 
@@ -188,15 +165,9 @@ export const NoData: Story = {
     hashingCount: 0,
     notHashingCount: 0,
   },
-  render: () => (
-    <SegmentedMetricPanel
-      title="Uptime"
-      headlineGenerator={generateUptimeHeadline}
-      chartData={[]}
-      segmentConfig={uptimeSegmentConfig}
-      duration="24h"
-    />
-  ),
+  render: (args) => {
+    return <MockUptimePanel {...args} />;
+  },
 };
 
 /**

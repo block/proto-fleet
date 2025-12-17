@@ -114,4 +114,36 @@ describe("padChartDataWithNulls", () => {
     expect(matchingPoint).toBeDefined();
     expect(matchingPoint?.hashrate).toBe(100);
   });
+
+  it("should not pad beyond the last actual data point timestamp", () => {
+    const now = Date.now();
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+    const tenMinutesAgo = now - 10 * 60 * 1000;
+
+    // Create data that stops 5 minutes ago (not at current time)
+    const data: ChartData[] = [
+      { datetime: tenMinutesAgo, hashrate: 100 },
+      { datetime: fiveMinutesAgo, hashrate: 150 },
+    ];
+
+    const result = padChartDataWithNulls(data, "1h");
+
+    // Get the last timestamp in the result
+    const lastTimestamp = result[result.length - 1].datetime;
+
+    // The last timestamp should be close to fiveMinutesAgo (within one bucket)
+    // and should NOT extend to current time
+    const granularity = 90 * 1000;
+    const expectedLastBucket = Math.floor(fiveMinutesAgo / granularity) * granularity;
+    expect(lastTimestamp).toBe(expectedLastBucket);
+
+    // Verify no timestamps are close to current time
+    const timeSinceLastPoint = now - lastTimestamp;
+    expect(timeSinceLastPoint).toBeGreaterThan(4 * 60 * 1000); // At least 4 minutes ago
+
+    // Verify we don't have null datapoints at the end (after the last actual data)
+    const lastActualDataBucket = Math.floor(fiveMinutesAgo / granularity) * granularity;
+    const pointsAfterLastData = result.filter((point) => point.datetime > lastActualDataBucket);
+    expect(pointsAfterLastData.length).toBe(0);
+  });
 });

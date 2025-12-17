@@ -1,11 +1,8 @@
-import { useMemo } from "react";
 import { generateTemperatureHeadline } from "./utils";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import { useTemperatureStatusCounts } from "@/protoFleet/store";
 import { Triangle } from "@/shared/assets/icons";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -50,54 +47,11 @@ interface TemperaturePanelProps {
 }
 
 export function TemperaturePanel({ duration }: TemperaturePanelProps) {
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.TEMPERATURE],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration],
-  );
+  // Read temperature status counts from store - only subscribes to temperature updates
+  // undefined = not loaded yet, array = loaded (empty or populated)
+  const temperatureStatusCounts = useTemperatureStatusCounts();
 
-  // Fetch initial telemetry metrics
-  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.TEMPERATURE],
-      enabled: true,
-    }),
-    [],
-  );
-
-  // Enable streaming updates
-  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Merge initial data with streaming updates
-  const temperatureStatusCounts = useMemo(() => {
-    if (!data?.temperatureStatusCounts) return [];
-
-    let counts = data.temperatureStatusCounts;
-
-    // Merge streaming data if available
-    if (latestData?.temperatureStatusCounts && latestData.temperatureStatusCounts.length > 0) {
-      // Append new counts from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(data.temperatureStatusCounts.map((c) => c.timestamp?.seconds?.toString()));
-
-      const newCounts = latestData.temperatureStatusCounts.filter(
-        (c) => !existingTimestamps.has(c.timestamp?.seconds?.toString()),
-      );
-
-      counts = [...data.temperatureStatusCounts, ...newCounts];
-    }
-
-    return counts;
-  }, [data, latestData]);
-
-  if (isLoading) {
+  if (temperatureStatusCounts === undefined) {
     const stat = {
       label: "Temperature",
       value: undefined,
