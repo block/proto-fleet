@@ -1,35 +1,47 @@
 import { useMemo } from "react";
-import { getComponentDisplayName } from "./useComponentDisplayName";
 import { useErrorsByComponent } from "@/protoOS/store";
 import type { ErrorSource } from "@/protoOS/store/types";
+import {
+  type ComponentStatusSummary,
+  type StatusComponentType,
+  useComponentStatusSummary as useSharedComponentStatusSummary,
+} from "@/shared/hooks/useStatusSummary";
 
 /**
- * Returns title and subtitle for a specific component
- * @param source - The error source
- * @param componentIndex - The component index
- * @returns Object with title and subtitle strings
+ * Map ProtoOS ErrorSource to shared StatusComponentType
+ */
+function mapErrorSourceToComponentType(source: ErrorSource): StatusComponentType {
+  const mapping: Record<ErrorSource, StatusComponentType> = {
+    RIG: "controlBoard",
+    HASHBOARD: "hashboard",
+    PSU: "psu",
+    FAN: "fan",
+  };
+  return mapping[source];
+}
+
+/**
+ * Returns title for a specific component's status view
+ * @param source - The error source type
+ * @param componentIndex - The component index (0-based)
+ * @returns Object with title (or null for single error) and optional subtitle
+ *
+ * Note: Returns null for title when there's 1 error - the UI should show the error message instead
  */
 export const useComponentStatusTitle = (
   source: ErrorSource,
   componentIndex: number,
-): { title: string; subtitle?: string } => {
+): { title: string | null; subtitle?: string } => {
   const errors = useErrorsByComponent(source, componentIndex);
+  const componentType = mapErrorSourceToComponentType(source);
 
-  return useMemo(() => {
-    if (errors.length === 0) {
-      const componentName = getComponentDisplayName(source, componentIndex);
-      return {
-        title: `${componentName} is operating normally`,
-      };
-    }
+  const summary: ComponentStatusSummary = useSharedComponentStatusSummary(componentType, componentIndex, errors.length);
 
-    // Treat all errors equally
-    return {
-      title: errors[0].message,
-      subtitle:
-        errors.length > 1
-          ? `Plus ${errors.length - 1} other ${errors.length - 1 === 1 ? "issue" : "issues"}`
-          : undefined,
-    };
-  }, [errors, source, componentIndex]);
+  return useMemo(
+    () => ({
+      title: summary.title,
+      subtitle: summary.subtitle,
+    }),
+    [summary.title, summary.subtitle],
+  );
 };

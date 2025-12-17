@@ -1,23 +1,9 @@
 import { useMemo } from "react";
 import { useGroupedErrors, useMinerStore } from "@/protoOS/store";
-
-// Display names for components
-const COMPONENT_DISPLAY_NAMES = {
-  singular: {
-    hashboard: "hashboard",
-    psu: "PSU",
-    fan: "fan",
-    pool: "pool",
-    system: "control board",
-  },
-  capitalized: {
-    hashboard: "Hashboard",
-    psu: "Power supply",
-    fan: "Fan",
-    pool: "Pool",
-    system: "Control board",
-  },
-};
+import {
+  type GroupedStatusErrors,
+  useMinerStatusSummary as useSharedMinerStatusSummary,
+} from "@/shared/hooks/useStatusSummary";
 
 /**
  * Generates a holistic status summary based on errors and mining status
@@ -26,56 +12,35 @@ const COMPONENT_DISPLAY_NAMES = {
 export const useMinerStatusSummary = (): string => {
   const miningStatus = useMinerStore((state) => state.minerStatus.miningStatus);
   const groupedErrors = useGroupedErrors();
+
+  // Transform ProtoOS errors to shared format
+  const sharedErrors = useMemo<GroupedStatusErrors>(
+    () => ({
+      hashboard: groupedErrors.hashboard.map((e) => ({
+        componentType: "hashboard",
+        componentIndex: e.componentIndex,
+      })),
+      psu: groupedErrors.psu.map((e) => ({
+        componentType: "psu",
+        componentIndex: e.componentIndex,
+      })),
+      fan: groupedErrors.fan.map((e) => ({
+        componentType: "fan",
+        componentIndex: e.componentIndex,
+      })),
+      // Map 'system' errors to 'controlBoard' for shared format
+      controlBoard: groupedErrors.system.map((e) => ({
+        componentType: "controlBoard",
+        componentIndex: e.componentIndex,
+      })),
+    }),
+    [groupedErrors],
+  );
+
+  // Determine isSleeping from mining status
+  // ProtoOS is always online (you can only see it if connected), so isOffline is always false
   const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
-  const isMining = /Mining/i.test(miningStatus || "");
 
-  return useMemo(() => {
-    if (isSleeping) {
-      return "Sleeping";
-    }
-
-    // Count how many different components have errors
-    const componentsWithErrors = Object.entries(groupedErrors).filter(([_, errs]) => errs.length > 0);
-
-    if (componentsWithErrors.length > 0) {
-      // Multiple components have issues
-      if (componentsWithErrors.length > 1) {
-        return "Multiple issues";
-      }
-
-      // Single component type has issues
-      if (componentsWithErrors.length === 1) {
-        const [componentType, componentErrors] = componentsWithErrors[0];
-
-        if (componentErrors.length > 1) {
-          const componentName =
-            COMPONENT_DISPLAY_NAMES.singular[componentType as keyof typeof COMPONENT_DISPLAY_NAMES.singular];
-          return `Multiple ${componentName} issues`;
-        }
-
-        // Single issue - return specific summary
-        const componentName =
-          COMPONENT_DISPLAY_NAMES.capitalized[componentType as keyof typeof COMPONENT_DISPLAY_NAMES.capitalized];
-
-        // For specific components, try to add more detail
-        if (componentType === "hashboard" && componentErrors[0].componentIndex !== undefined) {
-          return `Hashboard ${componentErrors[0].componentIndex + 1} issue`;
-        }
-        if (componentType === "fan" && componentErrors[0].componentIndex !== undefined) {
-          return `Fan ${componentErrors[0].componentIndex + 1} issue`;
-        }
-        if (componentType === "psu" && componentErrors[0].componentIndex !== undefined) {
-          return `PSU ${componentErrors[0].componentIndex + 1} issue`;
-        }
-
-        return `${componentName} issue`;
-      }
-    }
-
-    if (isMining) {
-      return "Hashing";
-    }
-
-    return "Idle";
-  }, [groupedErrors, isSleeping, isMining]);
+  const summary = useSharedMinerStatusSummary(sharedErrors, isSleeping);
+  return summary.condensed;
 };

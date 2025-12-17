@@ -1,25 +1,24 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { SUPPORTED_COMPONENT_TYPES } from "./constants";
-import { useDeviceErrors, useGroupedErrors, useMinerData } from "./hooks";
+import { useGroupedErrors, useMinerData } from "./hooks";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
 import {
   buildComponentStatusProps,
   getComponentTitle,
-  getSummaryText,
   mapErrorComponentTypeToShared,
   transformErrorsForModal,
+  transformFleetErrorsToShared,
 } from "./utils";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useComponentErrorDetail } from "@/protoFleet/api/useComponentErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
 import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
 import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { useMinerStatusSummary } from "@/shared/hooks/useStatusSummary";
 
 /**
  * ProtoFleet-specific StatusModal wrapper that integrates with the store
@@ -53,7 +52,6 @@ const ProtoFleetStatusModal = ({
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
-  const errorStatus = useDeviceErrors(deviceId);
   const groupedErrors = useGroupedErrors(deviceId);
 
   // Wake miner functionality
@@ -91,43 +89,15 @@ const ProtoFleetStatusModal = ({
     });
   }, [deviceId, startMining, onClose]);
 
-  // Check if there are any supported errors
-  const hasSupportedErrors = useMemo(() => {
-    return (
-      errorStatus?.errors?.some((error) => {
-        // Use componentType directly from error
-        return error.componentType && SUPPORTED_COMPONENT_TYPES.has(error.componentType);
-      }) || false
-    );
-  }, [errorStatus]);
+  // Transform ProtoFleet errors to shared format for status computation
+  const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
-  // TODO: Find a design solution for displaying unsupported error types (EEPROM, IO_MODULE)
-  // Currently we hide them and show "All systems operational" but we may want to
-  // indicate there are issues that aren't yet displayed in the UI
+  // Determine status flags from DeviceStatus
+  const isSleeping = miner?.deviceStatus === DeviceStatus.INACTIVE;
+  const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
 
-  // Get title and subtitle - use "All systems operational" if no supported errors
-  const { title, subtitle } = getSummaryText(hasSupportedErrors ? errorStatus?.summary : undefined);
-
-  // Stabilize component values to prevent unnecessary re-renders
-  const componentType = component?.componentType;
-  const componentId = component?.componentId;
-
-  // Check if the selected component has errors
-  const componentHasErrors = useMemo(() => {
-    if (!component || !miner?.errorStatus?.errors) return false;
-
-    // Check if any errors match this component by type and ID
-    return miner.errorStatus.errors.some((error) => {
-      return error.componentType === componentType && error.componentId === componentId;
-    });
-  }, [component, miner, componentType, componentId]);
-
-  // Fetch component error detail when component is selected and has errors
-  const { summary: componentSummary } = useComponentErrorDetail(
-    deviceId,
-    componentId, // Use component ID for API calls
-    Boolean(component && componentHasErrors), // Only fetch when component is selected and has errors
-  );
+  // Compute summary using shared hook (replaces API-provided summary)
+  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {
@@ -170,8 +140,8 @@ const ProtoFleetStatusModal = ({
 
     return {
       props: {
-        title,
-        subtitle,
+        title: summary.title,
+        subtitle: summary.subtitle,
         errors: errorsBySource,
         isSleeping: isMinersleeping,
       },
@@ -179,15 +149,15 @@ const ProtoFleetStatusModal = ({
       buttons,
       onDismiss: onClose,
     };
-  }, [groupedErrors, title, subtitle, miner, deviceId, onClose, handleWakeMiner]);
+  }, [groupedErrors, summary, miner, deviceId, onClose, handleWakeMiner]);
 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(
     (address: ComponentAddress): ComponentStatusData | undefined => {
       const { componentType: type, componentId: id } = address;
 
-      // Build component status props using the miner data and API summary
-      const props = buildComponentStatusProps(miner, type, id, componentSummary);
+      // Build component status props using the miner data
+      const props = buildComponentStatusProps(miner, type, id);
 
       if (!props) {
         // Return undefined if component not found
@@ -196,9 +166,6 @@ const ProtoFleetStatusModal = ({
 
       const sharedType = mapErrorComponentTypeToShared(type);
       if (!sharedType) return undefined;
-
-      // Don't override with loading state - let the props from buildComponentStatusProps stand
-      // If componentSummary is undefined, title/subtitle will be empty strings
 
       return {
         props,
@@ -214,7 +181,7 @@ const ProtoFleetStatusModal = ({
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [miner, onClose, componentSummary],
+    [miner, onClose],
   );
 
   // Don't render if no miner data

@@ -7,7 +7,7 @@ import {
   SUPPORTED_COMPONENT_TYPES,
 } from "./constants";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import type { ErrorMessage, Summary } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/store";
 import type {
   ComponentMetadata,
@@ -16,6 +16,11 @@ import type {
   ComponentType,
   ErrorData,
 } from "@/shared/components/StatusModal/types";
+import {
+  computeComponentStatusTitle,
+  type GroupedStatusErrors,
+  type StatusComponentType,
+} from "@/shared/hooks/useStatusSummary";
 
 /**
  * Get the display title for a component type
@@ -43,6 +48,37 @@ export function mapErrorComponentTypeToShared(type: ErrorComponentType): Compone
  */
 export function mapSharedToErrorComponentType(type: ComponentType): ErrorComponentType {
   return SHARED_TO_ERROR_COMPONENT[type];
+}
+
+/**
+ * Type for grouped fleet errors returned by useGroupedErrors hook
+ */
+export type GroupedFleetErrors = {
+  hashboard: ErrorMessage[];
+  psu: ErrorMessage[];
+  fan: ErrorMessage[];
+  controlBoard: ErrorMessage[];
+};
+
+/**
+ * Transform ProtoFleet grouped errors to shared format for status computation
+ */
+export function transformFleetErrorsToShared(groupedErrors: GroupedFleetErrors): GroupedStatusErrors {
+  const transformErrors = (errors: ErrorMessage[], componentType: StatusComponentType) =>
+    errors.map((e) => {
+      const parsed = e.componentId ? parseInt(e.componentId, 10) : NaN;
+      return {
+        componentType,
+        componentIndex: !isNaN(parsed) ? parsed : undefined,
+      };
+    });
+
+  return {
+    hashboard: transformErrors(groupedErrors.hashboard, "hashboard"),
+    psu: transformErrors(groupedErrors.psu, "psu"),
+    fan: transformErrors(groupedErrors.fan, "fan"),
+    controlBoard: transformErrors(groupedErrors.controlBoard, "controlBoard"),
+  };
 }
 
 /**
@@ -98,11 +134,10 @@ export function transformErrorsForModal(
       return;
     }
 
-    // Handle timestamp conversion
+    // Handle timestamp conversion - convert to seconds for shared formatters
     let timestamp: number | undefined;
     if (error.lastSeenAt) {
-      // Use built-in utility to convert protobuf Timestamp to milliseconds
-      timestamp = timestampMs(error.lastSeenAt);
+      timestamp = Math.floor(timestampMs(error.lastSeenAt) / 1000);
     }
 
     // Create ErrorData object with the expected structure
@@ -124,7 +159,6 @@ export function buildComponentStatusProps(
   miner: MinerStateSnapshot | undefined,
   componentType: ErrorComponentType,
   componentId: string,
-  apiSummary?: Summary,
 ): ComponentStatusModalProps | undefined {
   if (!miner) return undefined;
 
@@ -146,11 +180,10 @@ export function buildComponentStatusProps(
 
   // Transform errors to the shared format
   const errors: ErrorData[] = componentErrors.map((error) => {
-    // Handle timestamp conversion
+    // Handle timestamp conversion - convert to seconds for shared formatters
     let timestamp: number | undefined;
     if (error.lastSeenAt) {
-      // Use built-in utility to convert protobuf Timestamp to milliseconds
-      timestamp = timestampMs(error.lastSeenAt);
+      timestamp = Math.floor(timestampMs(error.lastSeenAt) / 1000);
     }
 
     return {
@@ -180,16 +213,8 @@ export function buildComponentStatusProps(
     metadata.model = { label: "Model", value: miner.model };
   }
 
-  // Build summary from API-provided data only
-  let summary: string | undefined;
-
-  if (apiSummary) {
-    // Combine title and details into a single summary string
-    const parts = [];
-    if (apiSummary.title) parts.push(apiSummary.title);
-    if (apiSummary.details) parts.push(apiSummary.details);
-    summary = parts.join(" - ");
-  }
+  // Compute summary using shared logic
+  const summary = computeComponentStatusTitle(sharedType, displayIndex, componentErrors.length) ?? undefined;
 
   return {
     componentType: sharedType,
@@ -197,22 +222,5 @@ export function buildComponentStatusProps(
     metrics: telemetry,
     errors,
     metadata,
-  };
-}
-
-/**
- * Get a summary title and subtitle from the error summary
- */
-export function getSummaryText(summary: Summary | undefined): { title: string; subtitle: string } {
-  if (!summary || !summary.title) {
-    return {
-      title: "All systems operational",
-      subtitle: "No issues detected",
-    };
-  }
-
-  return {
-    title: summary.title,
-    subtitle: summary.details || "",
   };
 }

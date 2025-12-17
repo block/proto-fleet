@@ -6,6 +6,8 @@ import { SUPPORTED_COMPONENT_TYPES } from "@/protoFleet/components/StatusModal/c
 import { useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
+import type { GroupedStatusErrors } from "@/shared/hooks/useStatusSummary";
+import { useMinerStatusSummary } from "@/shared/hooks/useStatusSummary";
 
 type MinerStatusProps = {
   deviceIdentifier: string;
@@ -13,7 +15,7 @@ type MinerStatusProps = {
   onClick?: () => void;
 };
 
-// Get icon for a specific error component type
+// Map error component type to icon
 function getComponentIcon(componentType: ErrorComponentType): ReactNode {
   switch (componentType) {
     case ErrorComponentType.CONTROL_BOARD:
@@ -29,132 +31,99 @@ function getComponentIcon(componentType: ErrorComponentType): ReactNode {
   }
 }
 
-// Get display text for a component type
-function getComponentDisplayText(componentType: ErrorComponentType, statusType: "error" | "warning"): string {
-  const suffix = statusType === "error" ? "Failure" : "Warning";
-  switch (componentType) {
-    case ErrorComponentType.CONTROL_BOARD:
-      return `Control Board ${suffix}`;
-    case ErrorComponentType.HASH_BOARD:
-      return `Hashboard ${suffix}`;
-    case ErrorComponentType.FAN:
-      return `Fan ${suffix}`;
-    case ErrorComponentType.PSU:
-      return `Power ${suffix}`;
-    default:
-      return statusType === "error" ? "Device Error" : "Device Warning";
-  }
-}
-
 const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
-  const authenticationNeeded = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
   const errorStatus = miner?.errorStatus;
 
-  const status = useMemo(() => {
-    // Priority 1: Device inactive (Sleeping)
-    if (deviceStatusFromStore === DeviceStatus.INACTIVE) {
-      return (
-        <>
-          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
-          Sleeping
-        </>
-      );
-    }
+  // Compute status flags
+  const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
+  const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
+  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
 
-    // Priority 2: Device offline
-    if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
-      return (
-        <>
-          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
-          Offline
-        </>
-      );
-    }
+  // Transform errors to shared format
+  const sharedErrors = useMemo((): GroupedStatusErrors => {
+    const result: GroupedStatusErrors = {
+      hashboard: [],
+      psu: [],
+      fan: [],
+      controlBoard: [],
+    };
 
-    // Priority 3: Authentication needed
-    if (authenticationNeeded) {
-      return (
-        <>
-          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
-          Needs Authentication
-        </>
-      );
-    }
+    if (!errorStatus?.errors) return result;
 
-    // Priority 4: Error status from errors API (only for supported component types)
-    if (errorStatus && errorStatus.errors && errorStatus.errors.length > 0) {
-      // Analyze component types from errors, filtering for supported types only
-      const componentTypes = new Set<ErrorComponentType>();
-      let hasSupportedErrors = false;
+    errorStatus.errors.forEach((error) => {
+      if (!SUPPORTED_COMPONENT_TYPES.has(error.componentType)) return;
 
-      errorStatus.errors.forEach((error) => {
-        // Use componentType directly from error
-        if (error.componentType && SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
-          componentTypes.add(error.componentType);
-          hasSupportedErrors = true;
-        }
-      });
+      const parsed = error.componentId ? parseInt(error.componentId, 10) : NaN;
+      const componentIndex = !isNaN(parsed) ? parsed : undefined;
 
-      // Only show error status if we have supported component errors
-      if (hasSupportedErrors) {
-        // Determine icon based on component types
-        let icon: ReactNode;
-        let displayText: string;
-
-        if (componentTypes.size === 1) {
-          // All errors are from the same component type - show specific icon
-          const componentType = Array.from(componentTypes)[0];
-          icon = getComponentIcon(componentType);
-
-          // Use condensed summary if available, otherwise use component-specific text
-          displayText = errorStatus.summary?.condensed || getComponentDisplayText(componentType, "error");
-        } else if (componentTypes.size > 1) {
-          // Multiple component types - show generic alert icon
-          icon = <Alert width="w-4" />;
-          displayText = errorStatus.summary?.condensed || "Device Error";
-        } else {
-          // No supported component types specified in errors
-          icon = <Alert width="w-4" />;
-          displayText = errorStatus.summary?.condensed || "Device Error";
-        }
-
-        return (
-          <>
-            <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
-            {icon}
-            {displayText}
-          </>
-        );
+      switch (error.componentType) {
+        case ErrorComponentType.HASH_BOARD:
+          result.hashboard.push({ componentType: "hashboard", componentIndex });
+          break;
+        case ErrorComponentType.PSU:
+          result.psu.push({ componentType: "psu", componentIndex });
+          break;
+        case ErrorComponentType.FAN:
+          result.fan.push({ componentType: "fan", componentIndex });
+          break;
+        case ErrorComponentType.CONTROL_BOARD:
+          result.controlBoard.push({ componentType: "controlBoard", componentIndex });
+          break;
       }
-      // If we only have unsupported errors (EEPROM, IO_MODULE), fall through to show "Hashing"
+    });
+
+    return result;
+  }, [errorStatus]);
+
+  // Use shared hook for condensed text
+  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication);
+
+  // Determine icon based on error component types (UI-specific)
+  // Don't show error icon when miner is in an inactive state (sleeping/offline/needs auth)
+  const errorIcon = useMemo((): ReactNode | null => {
+    if (isOffline || isSleeping || needsAuthentication) {
+      return null;
     }
+    if (!errorStatus?.errors || errorStatus.errors.length === 0) return null;
 
-    // Note: Component status is now exclusively tracked via the errors API above.
-    // The old ComponentStatus/MinerComponentStatus types have been removed from the proto definitions.
+    const componentTypes = new Set<ErrorComponentType>();
+    errorStatus.errors.forEach((error) => {
+      if (SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
+        componentTypes.add(error.componentType);
+      }
+    });
 
-    return (
-      <>
-        <StatusCircle status={statuses.normal} variant="simple" width="w-[6px]" />
-        Hashing
-      </>
-    );
-  }, [authenticationNeeded, deviceStatusFromStore, errorStatus]);
+    if (componentTypes.size === 0) return null;
+    if (componentTypes.size === 1) {
+      return getComponentIcon(Array.from(componentTypes)[0]);
+    }
+    return <Alert width="w-4" />;
+  }, [errorStatus, isOffline, isSleeping, needsAuthentication]);
+
+  // Determine StatusCircle status based on flags and errors
+  const circleStatus = useMemo(() => {
+    if (isOffline || isSleeping || needsAuthentication) {
+      return statuses.inactive;
+    }
+    if (errorIcon) {
+      return statuses.error;
+    }
+    return statuses.normal;
+  }, [isOffline, isSleeping, needsAuthentication, errorIcon]);
 
   // Determine if the status should be clickable
-  // Clickable: All states except "Needs Authentication" (which has a different flow)
-  // This includes: Hashing, Error states, Warning states, Sleeping, Offline
-  // Special case: Sleeping status is always clickable even if authentication is needed
-  const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
-  const isClickable = onClick && (!authenticationNeeded || isSleeping);
+  const isClickable = onClick && (!needsAuthentication || isSleeping);
 
   return (
     <div
       className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
       onClick={isClickable ? onClick : undefined}
     >
-      {status}
+      <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
+      {errorIcon}
+      {summary.condensed}
     </div>
   );
 };

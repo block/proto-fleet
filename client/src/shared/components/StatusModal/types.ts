@@ -15,7 +15,7 @@ export interface ComponentAddress {
 export type ErrorData = {
   componentName: string; // Component name (e.g., "Hashboard 1", "Fan 3")
   message: string; // Error message/description
-  timestamp?: number; // Unix timestamp (will be formatted if present)
+  timestamp?: number; // Unix timestamp in seconds (will be formatted if present)
   onClick?: () => void; // Optional click handler for navigation
 };
 
