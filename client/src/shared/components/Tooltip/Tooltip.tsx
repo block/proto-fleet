@@ -1,24 +1,27 @@
 import clsx from "clsx";
 
-import { Question } from "@/shared/assets/icons";
+import { Info, Question } from "@/shared/assets/icons";
 import { Position } from "@/shared/constants";
 
 interface TooltipProps {
-  header: string;
+  header?: string;
   body: string;
   position: Position;
+  icon?: "info" | "question";
 }
 
-const Tooltip = ({ header, body, position }: TooltipProps) => {
+const Tooltip = ({ header, body, position, icon = "question" }: TooltipProps) => {
   const isBottom = /^bottom/.test(position);
   const isLeft = /left$/.test(position);
   const yPosition = isBottom ? "top-[16px]" : "bottom-[16px]";
   const xPosition = isLeft ? "right-[16px]" : "left-[16px]";
   const peerHover = isBottom ? "peer-hover:translate-y-[11px]" : "peer-hover:translate-y-[-11px]";
 
+  const IconComponent = icon === "info" ? Info : Question;
+
   return (
     <div className="relative">
-      <Question className="peer cursor-help" />
+      <IconComponent className="peer cursor-help" />
       <div
         className={clsx(
           "invisible opacity-0 peer-hover:visible peer-hover:opacity-100",
@@ -29,7 +32,7 @@ const Tooltip = ({ header, body, position }: TooltipProps) => {
           peerHover,
         )}
       >
-        <div className="mb-1 text-heading-100 text-text-primary">{header}</div>
+        {header && <div className="mb-1 text-heading-100 text-text-primary">{header}</div>}
         <div className="text-300 text-text-primary-70">{body}</div>
       </div>
     </div>

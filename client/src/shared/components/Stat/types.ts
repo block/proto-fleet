@@ -6,6 +6,7 @@ export type StatProps = {
   value?: number | string;
   text?: ReactNode;
   subtitle?: string;
+  tooltipContent?: string;
   units?: string;
   icon?: ReactNode;
   headingLevel?: number;

@@ -85,11 +85,13 @@ export function PowerPanel({ duration }: PowerPanelProps) {
 
   const powerDisplayValue = currentPower !== null && currentPower !== undefined ? currentPower.toFixed(1) : "N/A";
 
+  const subtitle = getMinerCountSubtitle(deviceCount ?? null, totalMiners);
   const stat = {
     label: "Power",
     value: powerDisplayValue,
     units: "kW",
-    subtitle: getMinerCountSubtitle(deviceCount ?? null, totalMiners),
+    subtitle,
+    tooltipContent: subtitle ? "Some devices do not make this data available to Proto Fleet." : undefined,
   };
 
   return (

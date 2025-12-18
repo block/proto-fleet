@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import SkeletonBar from "../SkeletonBar";
+import Tooltip from "../Tooltip/Tooltip";
 import { ChartStatus, chartStatus as chartStatusConstants, statusColors } from "./constants";
 import { type StatProps } from "./types";
 import useCssVariable from "@/shared/hooks/useCssVariable";
@@ -13,6 +14,7 @@ const Stat = ({
   value,
   text,
   subtitle,
+  tooltipContent,
   units,
   size,
   icon,
@@ -48,13 +50,14 @@ const Stat = ({
         {subtitle && (
           <div
             className={clsx(
-              "text-heading-50 text-text-primary-50 transition-opacity duration-500",
+              "flex items-center gap-2 text-heading-50 text-text-primary-50 transition-opacity duration-500",
               value === undefined ? "opacity-30" : "opacity-100",
             )}
             role="status"
             aria-label="Data reporting status"
           >
-            {subtitle}
+            <span>{subtitle}</span>
+            {tooltipContent && <Tooltip body={tooltipContent} position="bottom left" icon="info" />}
           </div>
         )}
       </div>

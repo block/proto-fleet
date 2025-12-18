@@ -86,11 +86,13 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
   const efficiencyDisplayValue =
     currentEfficiency !== null && currentEfficiency !== undefined ? currentEfficiency.toFixed(1) : "N/A";
 
+  const subtitle = getMinerCountSubtitle(deviceCount ?? null, totalMiners);
   const stat = {
     label: "Efficiency",
     value: efficiencyDisplayValue,
     units: "J/TH",
-    subtitle: getMinerCountSubtitle(deviceCount ?? null, totalMiners),
+    subtitle,
+    tooltipContent: subtitle ? "Some devices do not make this data available to Proto Fleet." : undefined,
   };
 
   return (
