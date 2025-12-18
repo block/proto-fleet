@@ -66,9 +66,6 @@ message NmapModeRequest {
   // Ports to scan (required). Miner-specific ports should be provided by the client
   // based on the configured plugins/device types.
   repeated string ports = 2;
-
-  // Field 3 removed (fast_scan was not applicable for miner discovery). Reserved to prevent field number reuse.
-  reserved 3;
 }
 
 // Configuration for IP range-based device discovery
@@ -81,9 +78,6 @@ message IPRangeModeRequest {
 
   // Ports to check on each IP address
   repeated string ports = 3;
-
-  // Field 4 removed (timeout_seconds is now server-controlled). Reserved to prevent field number reuse.
-  reserved 4;
 }
 
 // Configuration for discovering devices from a specific list of IP addresses
@@ -93,9 +87,6 @@ message IPListModeRequest {
 
   // Ports to check on each IP address
   repeated string ports = 2;
-
-  // Field 3 removed (timeout_seconds is now server-controlled). Reserved to prevent field number reuse.
-  reserved 3;
 }
 
 // Request message for device discovery, supporting multiple discovery modes

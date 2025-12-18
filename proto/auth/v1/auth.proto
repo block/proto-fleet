@@ -47,17 +47,13 @@ message AuthenticateRequest {
 }
 
 message AuthenticateResponse {
-    // Reserved fields from JWT-based auth (removed in session migration)
-    reserved 1, 2;
-    reserved "token", "token_expiry";
-
     // Authenticated user information
     // Contains user_id, username, role, password change requirements, and audit timestamps
-    UserInfo user_info = 3;
+    UserInfo user_info = 1;
 
     // Unix timestamp (in seconds) indicating when the session will expire
     // Session expiry is extended on each request (sliding window)
-    int64 session_expiry = 4;
+    int64 session_expiry = 2;
 }
 
 message LogoutRequest {

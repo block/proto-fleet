@@ -59,8 +59,8 @@ message CommandCapabilities {
   bool factory_reset_supported = 5;
 
   // Cooling control
-  bool air_cooling_supported = 12;
-  bool immersion_cooling_supported = 13;
+  bool air_cooling_supported = 6;
+  bool immersion_cooling_supported = 7;
 
   // Pool management
   bool pool_switching_supported = 8;
@@ -69,10 +69,6 @@ message CommandCapabilities {
 
   // Log management
   bool logs_download_supported = 11;
-
-  // Reserved field numbers for removed fields
-  reserved 6, 7;
-  reserved "cooling_mode_supported", "cooling_modes_available";
 }
 
 // Telemetry data capabilities
