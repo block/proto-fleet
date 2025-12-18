@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { errorQueryClient } from "@/protoFleet/api/clients";
-import { type DeviceError, QueryRequestSchema, ResultView } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import {
+  type DeviceError,
+  type ErrorMessage,
+  QueryRequestSchema,
+  ResultView,
+} from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
 
 interface UseDeviceErrorsReturn {
@@ -14,6 +19,7 @@ interface UseDeviceErrorsReturn {
 /**
  * Hook to fetch device errors for a list of miner IDs.
  * Returns error status mapped by device ID.
+ * Uses the normalized error store for state management.
  */
 export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
   const { handleAuthErrors } = useAuthErrors();
@@ -21,8 +27,9 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  // Update store when errors change
-  const updateMinersErrorStatuses = useFleetStore((state) => state.fleet.updateMinersErrorStatuses);
+  // Get store actions
+  const clearAllErrors = useFleetStore((state) => state.fleet.clearAllErrors);
+  const setNormalizedErrors = useFleetStore((state) => state.fleet.setErrors);
 
   const fetchDeviceErrors = useCallback(
     async (ids: string[]) => {
@@ -52,19 +59,24 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
         if (response.result?.case === "devices" && response.result.value) {
           const deviceErrors = response.result.value.items;
           const errorMap: Record<string, DeviceError> = {};
+          const allErrorMessages: ErrorMessage[] = [];
 
-          // Map errors by device ID directly
+          // Map errors by device ID and collect all error messages
           deviceErrors.forEach((deviceError) => {
             const deviceId = deviceError.deviceIdentifier;
             if (deviceId) {
               errorMap[deviceId] = deviceError;
+              // Collect all error messages for normalized store
+              if (deviceError.errors) {
+                allErrorMessages.push(...deviceError.errors);
+              }
             }
           });
 
           setErrors(errorMap);
 
-          // Update store with error statuses
-          updateMinersErrorStatuses(errorMap);
+          // Update normalized error store
+          setNormalizedErrors(allErrorMessages, "devices", ids);
         }
       } catch (err) {
         handleAuthErrors({
@@ -78,13 +90,17 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
         setIsLoading(false);
       }
     },
-    [handleAuthErrors, updateMinersErrorStatuses],
+    [handleAuthErrors, setNormalizedErrors],
   );
 
   // Fetch errors when device IDs change
   useEffect(() => {
+    // Clear all errors and refetch when device list changes (for miners page)
+    clearAllErrors();
     fetchDeviceErrors(deviceIds);
-  }, [deviceIds, fetchDeviceErrors]);
+    // Only depend on deviceIds - the store actions are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceIds]);
 
   return {
     errors,

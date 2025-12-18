@@ -100,13 +100,10 @@ export const useMinerUrl = (deviceId: string) => useFleetStore((state) => state.
 /**
  * Hook to get device errors from the store
  * @param deviceId The device identifier to get errors for
- * @returns The error status for the device
+ * @returns The errors for the device
  */
 export const useDeviceErrors = (deviceId: string) => {
-  return useFleetStore((state) => {
-    const miner = state.fleet.miners[deviceId];
-    return miner?.errorStatus;
-  });
+  return useFleetStore((state) => state.fleet.selectErrorsByDevice(deviceId));
 };
 
 /**

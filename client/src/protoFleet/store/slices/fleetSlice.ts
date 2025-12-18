@@ -2,7 +2,7 @@ import { create as createSchema } from "@bufbuild/protobuf";
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
-import { type ErrorMessage, type Status, type Summary } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   type DeviceStatusUpdate,
   MeasurementConfig_MeasurementType,
@@ -23,13 +23,27 @@ import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 // Type Definitions
 // =============================================================================
 
-// Extended MinerStateSnapshot type with error status
+// Extended MinerStateSnapshot type
 export interface MinerStateSnapshot extends ProtoMinerStateSnapshot {
-  errorStatus?: {
-    status: Status;
-    summary: Summary;
-    errors: ErrorMessage[];
-    countsBySeverity: Record<string, number>;
+  // Lightweight error references for quick access
+  errorIds?: string[];
+  hasErrors?: boolean;
+}
+
+// Normalized error state structure
+export interface ErrorState {
+  // Primary storage - all ErrorMessage objects live here
+  byId: Record<string, ErrorMessage>;
+
+  // Indexing structures (only store error IDs)
+  byDevice: Record<string, string[]>;
+
+  // Metadata for staleness/subscription tracking
+  metadata: {
+    lastFetchedAt: number | null;
+    lastFetchScope: "all" | "devices" | null;
+    fetchedDeviceIds: string[]; // Which devices we last fetched
+    activeSubscription: "component" | "device" | null;
   };
 }
 
@@ -122,6 +136,9 @@ export interface FleetSlice {
   miners: Record<string, MinerStateSnapshot>; // deviceIdentifier -> miner data
   minerIds: string[]; // ordered list of miner IDs for the fleet
 
+  // NEW: Normalized error state
+  errors: ErrorState;
+
   totalMiners: number; // total number of miners in the fleet
   deviceStatusCounts: MinerStateCounts; // counts of miners by device status
 
@@ -154,15 +171,17 @@ export interface FleetSlice {
   setCursor: (cursor: string) => void;
   notifyPairingCompleted: () => void;
 
-  // Error management actions
-  setMinerErrors: (deviceId: string, errorStatus: MinerStateSnapshot["errorStatus"]) => void;
-  updateMinerError: (deviceId: string, error: ErrorMessage) => void;
-  removeMinerError: (deviceId: string, errorId: string) => void;
-  updateMinersErrorStatuses: (errorStatuses: Record<string, any>) => void;
+  // Normalized error management actions
+  clearAllErrors: () => void;
+  setErrors: (errors: ErrorMessage[], scope: "all" | "devices", deviceIds?: string[]) => void;
+  handleErrorStreamEvent: (event: "OPENED" | "UPDATED" | "CLOSED", error: ErrorMessage) => void;
 
   // Selectors
   getMinersArray: () => MinerStateSnapshot[];
   isHashing: (deviceId: string) => boolean;
+
+  // Error selectors
+  selectErrorsByDevice: (deviceId: string) => ErrorMessage[];
 }
 
 // =============================================================================
@@ -173,6 +192,16 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   // Initial state
   miners: {},
   minerIds: [],
+  errors: {
+    byId: {},
+    byDevice: {},
+    metadata: {
+      lastFetchedAt: null,
+      lastFetchScope: null,
+      fetchedDeviceIds: [],
+      activeSubscription: null,
+    },
+  },
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
   isLoading: false,
@@ -344,77 +373,116 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
       state.fleet.lastPairingCompletedAt = Date.now();
     }),
 
-  // Error management actions
-  setMinerErrors: (deviceId, errorStatus) =>
+  // Normalized error management actions
+  clearAllErrors: () =>
     set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        miner.errorStatus = errorStatus;
-      }
+      state.fleet.errors = {
+        byId: {},
+        byDevice: {},
+        metadata: {
+          lastFetchedAt: null,
+          lastFetchScope: null,
+          fetchedDeviceIds: [],
+          activeSubscription: null,
+        },
+      };
+      // Also clear error references from miners
+      Object.values(state.fleet.miners).forEach((miner) => {
+        miner.errorIds = [];
+        miner.hasErrors = false;
+      });
     }),
 
-  updateMinerError: (deviceId, error) =>
+  setErrors: (errors, scope, deviceIds) =>
     set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        if (!miner.errorStatus) {
-          miner.errorStatus = {
-            status: 0, // STATUS_UNSPECIFIED - will be updated based on severity
-            summary: {
-              $typeName: "errors.v1.Summary" as const,
-              title: "",
-              details: "",
-              condensed: "",
-            } as Summary,
-            errors: [],
-            countsBySeverity: {},
-          };
+      // Clear existing errors
+      state.fleet.errors.byId = {};
+      state.fleet.errors.byDevice = {};
+
+      // Clear error references from all affected miners
+      // If deviceIds provided, only clear those; otherwise clear all
+      const minersToClean = deviceIds
+        ? deviceIds.map((id) => state.fleet.miners[id]).filter(Boolean)
+        : Object.values(state.fleet.miners);
+
+      minersToClean.forEach((miner) => {
+        miner.errorIds = [];
+        miner.hasErrors = false;
+      });
+
+      // Populate normalized structure
+      errors.forEach((error) => {
+        // Store the error
+        state.fleet.errors.byId[error.errorId] = error;
+
+        // Update device index
+        if (!state.fleet.errors.byDevice[error.deviceIdentifier]) {
+          state.fleet.errors.byDevice[error.deviceIdentifier] = [];
         }
+        state.fleet.errors.byDevice[error.deviceIdentifier].push(error.errorId);
 
-        // Add or update error in the list
-        const existingIndex = miner.errorStatus.errors.findIndex((e) => e.errorId === error.errorId);
-        if (existingIndex >= 0) {
-          miner.errorStatus.errors[existingIndex] = error;
-        } else {
-          miner.errorStatus.errors.push(error);
-        }
-
-        // Update counts by severity
-        // Note: This is a simplified implementation - you may want to recalculate from all errors
-        const severityStr = error.severity.toString();
-        miner.errorStatus.countsBySeverity[severityStr] = (miner.errorStatus.countsBySeverity[severityStr] || 0) + 1;
-      }
-    }),
-
-  removeMinerError: (deviceId, errorId) =>
-    set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner?.errorStatus) {
-        miner.errorStatus.errors = miner.errorStatus.errors.filter((e) => e.errorId !== errorId);
-
-        // Recalculate counts by severity
-        miner.errorStatus.countsBySeverity = {};
-        for (const error of miner.errorStatus.errors) {
-          const severityStr = error.severity.toString();
-          miner.errorStatus.countsBySeverity[severityStr] = (miner.errorStatus.countsBySeverity[severityStr] || 0) + 1;
-        }
-      }
-    }),
-
-  updateMinersErrorStatuses: (errorStatuses) =>
-    set((state) => {
-      // errorStatuses is a map of deviceId -> DeviceError
-      Object.entries(errorStatuses).forEach(([deviceId, deviceError]) => {
-        const miner = state.fleet.miners[deviceId];
-        if (miner && deviceError) {
-          miner.errorStatus = {
-            status: deviceError.status,
-            summary: deviceError.summary,
-            errors: deviceError.errors || [],
-            countsBySeverity: deviceError.countsBySeverity || {},
-          };
+        // Update miner error flags
+        const miner = state.fleet.miners[error.deviceIdentifier];
+        if (miner) {
+          if (!miner.errorIds) miner.errorIds = [];
+          miner.errorIds.push(error.errorId);
+          miner.hasErrors = true;
         }
       });
+
+      // Update metadata
+      state.fleet.errors.metadata = {
+        lastFetchedAt: Date.now(),
+        lastFetchScope: scope,
+        fetchedDeviceIds: deviceIds || [],
+        activeSubscription: scope === "all" ? "component" : "device",
+      };
+    }),
+
+  handleErrorStreamEvent: (event, error) =>
+    set((state) => {
+      if (event === "CLOSED") {
+        // Remove error from all indexes
+        delete state.fleet.errors.byId[error.errorId];
+
+        // Remove from device index
+        if (state.fleet.errors.byDevice[error.deviceIdentifier]) {
+          state.fleet.errors.byDevice[error.deviceIdentifier] = state.fleet.errors.byDevice[
+            error.deviceIdentifier
+          ].filter((id) => id !== error.errorId);
+          if (state.fleet.errors.byDevice[error.deviceIdentifier].length === 0) {
+            delete state.fleet.errors.byDevice[error.deviceIdentifier];
+          }
+        }
+
+        // Update miner
+        const miner = state.fleet.miners[error.deviceIdentifier];
+        if (miner) {
+          miner.errorIds = miner.errorIds?.filter((id) => id !== error.errorId) || [];
+          miner.hasErrors = miner.errorIds.length > 0;
+        }
+      } else {
+        // OPENED or UPDATED - add/update error
+        state.fleet.errors.byId[error.errorId] = error;
+
+        // Ensure indexes exist and add if not present
+        if (!state.fleet.errors.byDevice[error.deviceIdentifier]) {
+          state.fleet.errors.byDevice[error.deviceIdentifier] = [];
+        }
+        if (!state.fleet.errors.byDevice[error.deviceIdentifier].includes(error.errorId)) {
+          state.fleet.errors.byDevice[error.deviceIdentifier].push(error.errorId);
+        }
+
+        // Update miner
+        const miner = state.fleet.miners[error.deviceIdentifier];
+        if (miner) {
+          if (!miner.errorIds) miner.errorIds = [];
+          if (!miner.errorIds.includes(error.errorId)) {
+            miner.errorIds.push(error.errorId);
+          }
+          miner.hasErrors = true;
+        }
+      }
     }),
 
   // Selectors
@@ -426,5 +494,12 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   isHashing: (deviceId: string) => {
     const state = get();
     return isHashing(state.fleet.miners[deviceId]);
+  },
+
+  // Error selectors
+  selectErrorsByDevice: (deviceId: string) => {
+    const state = get();
+    const errorIds = state.fleet.errors.byDevice[deviceId] || [];
+    return errorIds.map((id) => state.fleet.errors.byId[id]).filter(Boolean);
   },
 });

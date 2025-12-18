@@ -18,15 +18,15 @@ interface UseStreamDeviceErrorsOptions {
 /**
  * Hook to stream device error updates for a list of miner IDs.
  * Handles OPENED/UPDATED/CLOSED events for real-time error updates.
+ * Uses the normalized error store for state management.
  */
 export const useStreamDeviceErrors = (options: UseStreamDeviceErrorsOptions) => {
   const { deviceIds, enabled = true } = options;
   const { handleAuthErrors } = useAuthErrors();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Store actions for updating individual miner errors
-  const updateMinerError = useFleetStore((state) => state.fleet.updateMinerError);
-  const removeMinerError = useFleetStore((state) => state.fleet.removeMinerError);
+  // Store action for handling error stream events
+  const handleErrorStreamEvent = useFleetStore((state) => state.fleet.handleErrorStreamEvent);
 
   // Process streaming updates
   const processStreamingUpdate = useCallback(
@@ -44,25 +44,27 @@ export const useStreamDeviceErrors = (options: UseStreamDeviceErrorsOptions) => 
 
         if (!deviceId) return;
 
+        // Map WatchResponse_Kind to our event type and use normalized store
+        let event: "OPENED" | "UPDATED" | "CLOSED" | null = null;
         switch (kind) {
           case WatchResponse_Kind.OPENED:
-            // New error opened - add to miner
-            updateMinerError(deviceId, error);
+            event = "OPENED";
             break;
-
           case WatchResponse_Kind.UPDATED:
-            // Error updated - update existing
-            updateMinerError(deviceId, error);
+            event = "UPDATED";
             break;
-
           case WatchResponse_Kind.CLOSED:
-            // Error closed - remove from miner
-            removeMinerError(deviceId, error.errorId);
+            event = "CLOSED";
             break;
+        }
+
+        if (event) {
+          // Use normalized store action
+          handleErrorStreamEvent(event, error);
         }
       });
     },
-    [updateMinerError, removeMinerError],
+    [handleErrorStreamEvent],
   );
 
   // Start streaming function

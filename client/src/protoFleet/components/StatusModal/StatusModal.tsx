@@ -14,6 +14,7 @@ import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercomman
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
+import { useFleetStore } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
 import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
@@ -53,6 +54,10 @@ const ProtoFleetStatusModal = ({
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
   const groupedErrors = useGroupedErrors(deviceId);
+
+  // Get errors from normalized store for component status
+  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
+  const allErrors = selectErrorsByDevice(deviceId);
 
   // Wake miner functionality
   const { startMining } = useMinerCommand();
@@ -156,8 +161,8 @@ const ProtoFleetStatusModal = ({
     (address: ComponentAddress): ComponentStatusData | undefined => {
       const { componentType: type, componentId: id } = address;
 
-      // Build component status props using the miner data
-      const props = buildComponentStatusProps(miner, type, id);
+      // Build component status props using the miner data and errors
+      const props = buildComponentStatusProps(miner, type, id, allErrors);
 
       if (!props) {
         // Return undefined if component not found
@@ -181,7 +186,7 @@ const ProtoFleetStatusModal = ({
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [miner, onClose],
+    [miner, onClose, allErrors],
   );
 
   // Don't render if no miner data

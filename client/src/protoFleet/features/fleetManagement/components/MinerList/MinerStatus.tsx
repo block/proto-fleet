@@ -3,7 +3,7 @@ import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { SUPPORTED_COMPONENT_TYPES } from "@/protoFleet/components/StatusModal/constants";
-import { useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
+import { useFleetStore, useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 import type { GroupedStatusErrors } from "@/shared/hooks/useStatusSummary";
@@ -34,7 +34,10 @@ function getComponentIcon(componentType: ErrorComponentType): ReactNode {
 const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
-  const errorStatus = miner?.errorStatus;
+
+  // Get errors from normalized store
+  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
+  const errors = selectErrorsByDevice(deviceIdentifier);
 
   // Compute status flags
   const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
@@ -50,9 +53,9 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
       controlBoard: [],
     };
 
-    if (!errorStatus?.errors) return result;
+    if (!errors || errors.length === 0) return result;
 
-    errorStatus.errors.forEach((error) => {
+    errors.forEach((error) => {
       if (!SUPPORTED_COMPONENT_TYPES.has(error.componentType)) return;
 
       const parsed = error.componentId ? parseInt(error.componentId, 10) : NaN;
@@ -75,7 +78,7 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     });
 
     return result;
-  }, [errorStatus]);
+  }, [errors]);
 
   // Use shared hook for condensed text
   const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication);
@@ -86,10 +89,10 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     if (isOffline || isSleeping || needsAuthentication) {
       return null;
     }
-    if (!errorStatus?.errors || errorStatus.errors.length === 0) return null;
+    if (!errors || errors.length === 0) return null;
 
     const componentTypes = new Set<ErrorComponentType>();
-    errorStatus.errors.forEach((error) => {
+    errors.forEach((error) => {
       if (SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
         componentTypes.add(error.componentType);
       }
@@ -100,7 +103,7 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
       return getComponentIcon(Array.from(componentTypes)[0]);
     }
     return <Alert width="w-4" />;
-  }, [errorStatus, isOffline, isSleeping, needsAuthentication]);
+  }, [errors, isOffline, isSleeping, needsAuthentication]);
 
   // Determine StatusCircle status based on flags and errors
   const circleStatus = useMemo(() => {

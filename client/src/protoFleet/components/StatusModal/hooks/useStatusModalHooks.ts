@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { ComponentType as ErrorComponentType, ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { useDeviceErrors, useFleetStore } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store";
 
 /**
  * Hook to get component-specific errors
@@ -11,10 +11,11 @@ import { useDeviceErrors, useFleetStore } from "@/protoFleet/store";
  */
 export function useComponentErrors(deviceId: string, componentType: ErrorComponentType, componentId?: string) {
   return useFleetStore((state) => {
-    const miner = state.fleet.miners[deviceId];
-    if (!miner?.errorStatus?.errors) return [];
+    // Get errors from normalized store
+    const errors = state.fleet.selectErrorsByDevice(deviceId);
+    if (!errors || errors.length === 0) return [];
 
-    return miner.errorStatus.errors.filter((error) => {
+    return errors.filter((error) => {
       // Filter by component type
       if (error.componentType !== componentType) return false;
 
@@ -34,7 +35,8 @@ export function useComponentErrors(deviceId: string, componentType: ErrorCompone
  * @returns Errors grouped by component type
  */
 export function useGroupedErrors(deviceId: string) {
-  const errors = useDeviceErrors(deviceId);
+  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
+  const errors = selectErrorsByDevice(deviceId);
 
   return useMemo(() => {
     const grouped = {
@@ -44,9 +46,9 @@ export function useGroupedErrors(deviceId: string) {
       controlBoard: [] as ErrorMessage[],
     };
 
-    if (!errors?.errors) return grouped;
+    if (!errors || errors.length === 0) return grouped;
 
-    errors.errors.forEach((error) => {
+    errors.forEach((error) => {
       // Use componentType directly from error
       switch (error.componentType) {
         case ErrorComponentType.HASH_BOARD:

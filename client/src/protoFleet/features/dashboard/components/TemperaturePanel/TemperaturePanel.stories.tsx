@@ -88,6 +88,11 @@ function MockTemperaturePanel({
         // Use undefined to indicate loading state (matches ProtoOS pattern)
         temperatureStatusCounts: isLoading ? undefined : temperatureStatusCounts,
         uptimeStatusCounts: undefined,
+        componentErrors: {
+          counts: {},
+          devicesByComponent: {},
+          errorIdsByDeviceAndComponent: {},
+        },
         error: null,
         setHistoricalMetrics: () => {},
         appendStreamingMetrics: () => {},
@@ -98,6 +103,9 @@ function MockTemperaturePanel({
         setAllHistoricalData: () => {},
         clearMetrics: () => {},
         setError: () => {},
+        setComponentErrorCounts: () => {},
+        handleComponentErrorStream: () => {},
+        clearComponentErrors: () => {},
       },
     });
   }, [temperatureStatusCounts, isLoading]);

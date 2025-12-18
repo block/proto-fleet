@@ -70,6 +70,11 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
         temperatureStatusCounts: undefined,
         // Use undefined to indicate loading state (matches ProtoOS pattern)
         uptimeStatusCounts: isLoading ? undefined : uptimeStatusCounts,
+        componentErrors: {
+          counts: {},
+          devicesByComponent: {},
+          errorIdsByDeviceAndComponent: {},
+        },
         error: null,
         setHistoricalMetrics: () => {},
         appendStreamingMetrics: () => {},
@@ -80,6 +85,9 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
         setAllHistoricalData: () => {},
         clearMetrics: () => {},
         setError: () => {},
+        setComponentErrorCounts: () => {},
+        handleComponentErrorStream: () => {},
+        clearComponentErrors: () => {},
       },
     });
   }, [uptimeStatusCounts, isLoading]);

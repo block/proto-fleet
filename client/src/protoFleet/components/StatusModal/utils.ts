@@ -159,6 +159,7 @@ export function buildComponentStatusProps(
   miner: MinerStateSnapshot | undefined,
   componentType: ErrorComponentType,
   componentId: string,
+  allErrors?: ErrorMessage[], // Pass errors from normalized store
 ): ComponentStatusModalProps | undefined {
   if (!miner) return undefined;
 
@@ -170,7 +171,7 @@ export function buildComponentStatusProps(
 
   // Get component-specific errors (only for supported component types)
   const componentErrors =
-    miner.errorStatus?.errors?.filter((error) => {
+    allErrors?.filter((error) => {
       return (
         error.componentType === componentType &&
         error.componentId === componentId &&

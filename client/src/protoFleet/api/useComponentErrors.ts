@@ -31,33 +31,30 @@ interface UseComponentErrorsReturn extends ComponentErrorCounts {
 /**
  * Hook to fetch and stream component error counts for the dashboard.
  * Performs an initial query and then subscribes to real-time updates.
+ * Uses the dashboard slice for component error count tracking.
  */
 export const useComponentErrors = (): UseComponentErrorsReturn => {
   // Get auth loading state
   const authLoading = useFleetStore((state) => state.auth.authLoading);
 
-  // State for error counts
-  const [errorCounts, setErrorCounts] = useState<ComponentErrorCounts>({
-    controlBoardErrors: 0,
-    fanErrors: 0,
-    hashboardErrors: 0,
-    psuErrors: 0,
-  });
+  // Dashboard store actions and state
+  const componentErrorCounts = useFleetStore((state) => state.dashboard.componentErrors.counts);
+  const setComponentErrorCounts = useFleetStore((state) => state.dashboard.setComponentErrorCounts);
+  const handleComponentErrorStream = useFleetStore((state) => state.dashboard.handleComponentErrorStream);
+  const clearComponentErrors = useFleetStore((state) => state.dashboard.clearComponentErrors);
+
+  // Get error counts from dashboard store
+  const errorCounts: ComponentErrorCounts = {
+    controlBoardErrors: componentErrorCounts[ComponentType.CONTROL_BOARD] || 0,
+    fanErrors: componentErrorCounts[ComponentType.FAN] || 0,
+    hashboardErrors: componentErrorCounts[ComponentType.HASH_BOARD] || 0,
+    psuErrors: componentErrorCounts[ComponentType.PSU] || 0,
+  };
 
   // Loading and error states
   const [isLoading, setIsLoading] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-
-  // Track devices with errors per component type
-  const devicesByComponent = useRef<Map<ComponentType, Set<string>>>(
-    new Map([
-      [ComponentType.CONTROL_BOARD, new Set()],
-      [ComponentType.FAN, new Set()],
-      [ComponentType.HASH_BOARD, new Set()],
-      [ComponentType.PSU, new Set()],
-    ]),
-  );
 
   // Abort controller for streaming
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -68,67 +65,75 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
   // Auth error handler
   const { handleAuthErrors } = useAuthErrors();
 
-  // Process component errors and update counts
-  const processComponentErrors = useCallback((components: ComponentError[]) => {
-    // Clear existing tracking
-    devicesByComponent.current.forEach((deviceSet) => deviceSet.clear());
+  // Process component errors and update dashboard store with counts
+  const processComponentErrors = useCallback(
+    (components: ComponentError[]) => {
+      // Calculate counts by component type (number of devices with that component error)
+      const counts: Partial<Record<ComponentType, number>> = {};
+      // Map of component -> device -> error IDs for proper tracking
+      const deviceErrorMap: Partial<Record<ComponentType, Record<string, string[]>>> = {};
 
-    // Track devices by component type
-    components.forEach((component: ComponentError) => {
-      const deviceSet = devicesByComponent.current.get(component.componentType);
-      if (deviceSet) {
-        // Add device ID to the set for this component type
-        deviceSet.add(component.deviceIdentifier.toString());
-      }
-    });
+      components.forEach((component: ComponentError) => {
+        if (
+          component.componentType !== undefined &&
+          component.deviceIdentifier &&
+          component.errors &&
+          component.errors.length > 0
+        ) {
+          // Count 1 per device with this component type error, regardless of how many errors
+          counts[component.componentType] = (counts[component.componentType] || 0) + 1;
 
-    // Calculate counts from unique devices per component
-    const counts = {
-      controlBoardErrors: devicesByComponent.current.get(ComponentType.CONTROL_BOARD)?.size || 0,
-      fanErrors: devicesByComponent.current.get(ComponentType.FAN)?.size || 0,
-      hashboardErrors: devicesByComponent.current.get(ComponentType.HASH_BOARD)?.size || 0,
-      psuErrors: devicesByComponent.current.get(ComponentType.PSU)?.size || 0,
-    };
-    setErrorCounts(counts);
-  }, []);
+          // Build device-error map for streaming update tracking
+          if (!deviceErrorMap[component.componentType]) {
+            deviceErrorMap[component.componentType] = {};
+          }
+          deviceErrorMap[component.componentType]![component.deviceIdentifier] = component.errors.map(
+            (error) => error.errorId,
+          );
+        }
+      });
+
+      // Update the dashboard store with counts and device-error map
+      setComponentErrorCounts(counts, deviceErrorMap);
+    },
+    [setComponentErrorCounts],
+  );
 
   // Process streaming updates (incremental changes)
-  const processStreamingUpdate = useCallback((response: WatchResponse, kind: WatchResponse_Kind) => {
-    if (!response.result?.value) return;
+  const processStreamingUpdate = useCallback(
+    (response: WatchResponse, kind: WatchResponse_Kind) => {
+      if (!response.result?.value) return;
 
-    // Check if the result is components type
-    if (response.result.case !== "components") return;
+      // Check if the result is components type
+      if (response.result.case !== "components") return;
 
-    // Get the component errors from the response
-    const components = response.result.value.items || [];
+      // Get the component errors from the response
+      const components = response.result.value.items || [];
 
-    components.forEach((component) => {
-      const deviceSet = devicesByComponent.current.get(component.componentType);
-      if (!deviceSet) return;
+      // Process each component's errors
+      components.forEach((component) => {
+        if (component.errors && component.componentType !== undefined && component.deviceIdentifier) {
+          component.errors.forEach((error) => {
+            // Map WatchResponse_Kind to our event type
+            let event: "OPENED" | "UPDATED" | "CLOSED";
+            if (kind === WatchResponse_Kind.OPENED) {
+              event = "OPENED";
+            } else if (kind === WatchResponse_Kind.UPDATED) {
+              event = "UPDATED";
+            } else if (kind === WatchResponse_Kind.CLOSED) {
+              event = "CLOSED";
+            } else {
+              return; // Skip unspecified kind
+            }
 
-      const deviceIdStr = component.deviceIdentifier.toString();
-
-      if (kind === WatchResponse_Kind.OPENED) {
-        // New error opened - add device to set
-        deviceSet.add(deviceIdStr);
-      } else if (kind === WatchResponse_Kind.CLOSED) {
-        // Error closed - check if this device still has other errors for this component
-        // For now, we'll need to re-query to be accurate
-        // In a more sophisticated implementation, we'd track error IDs per device
-        deviceSet.delete(deviceIdStr);
-      }
-      // KIND_UPDATED doesn't change the count (same device, error updated)
-    });
-
-    // Update counts based on current sets
-    const updatedCounts = {
-      controlBoardErrors: devicesByComponent.current.get(ComponentType.CONTROL_BOARD)?.size || 0,
-      fanErrors: devicesByComponent.current.get(ComponentType.FAN)?.size || 0,
-      hashboardErrors: devicesByComponent.current.get(ComponentType.HASH_BOARD)?.size || 0,
-      psuErrors: devicesByComponent.current.get(ComponentType.PSU)?.size || 0,
-    };
-    setErrorCounts(updatedCounts);
-  }, []);
+            // Update the dashboard store with streaming event (now includes deviceId)
+            handleComponentErrorStream(event, component.deviceIdentifier, component.componentType, error.errorId);
+          });
+        }
+      });
+    },
+    [handleComponentErrorStream],
+  );
 
   // Initial fetch function
   const fetchComponentErrors = useCallback(async () => {
@@ -240,6 +245,8 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
       return;
     }
 
+    // Clear component errors and fetch fresh data when dashboard mounts
+    clearComponentErrors();
     fetchComponentErrors();
     // Only run once on mount after auth is ready
     // eslint-disable-next-line react-hooks/exhaustive-deps
