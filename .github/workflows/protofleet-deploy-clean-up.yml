@@ -14,7 +14,7 @@ env:
 permissions:
   # Needed for aws-actions/configure-aws-credentials
   id-token: write
-  contents: read
+  contents: write
   pull-requests: read
 
 jobs:
@@ -146,3 +146,67 @@ jobs:
           done
 
           exit "$EXIT_CODE"
+
+  delete-stale-e2e-reports:
+    runs-on: ubuntu-latest
+    needs: get-active-pr-numbers
+    concurrency:
+      group: gh-pages-cleanup
+      cancel-in-progress: false
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+
+      - name: Delete stale e2e reports
+        shell: bash
+        run: |
+          ACTIVE_PR_NUMBERS='${{ needs.get-active-pr-numbers.outputs.active-pr-numbers }}'
+
+          if [ ! -d "e2e-reports" ]; then
+            echo "No e2e-reports directory found, nothing to clean up"
+            exit 0
+          fi
+
+          cd e2e-reports
+          DELETED_COUNT=0
+
+          # Ensure non-matching globs expand to an empty list instead of the literal pattern
+          shopt -s nullglob
+
+          # Find all pr-* directories
+          for DIR in pr-*; do
+            if [ ! -d "$DIR" ]; then
+              continue
+            fi
+            
+            # Extract PR number from directory name (e.g., pr-123)
+            PR_NUMBER="${DIR#pr-}"
+            
+            # Check if this PR is in the active list
+            if [[ ! "|$ACTIVE_PR_NUMBERS|" == *"|$PR_NUMBER|"* ]]; then
+              echo "Deleting stale report: $DIR (PR #$PR_NUMBER is closed/stale)"
+              rm -rf "$DIR"
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+              echo "Keeping active report: $DIR (PR #$PR_NUMBER is active)"
+            fi
+          done
+
+          echo "Deleted $DELETED_COUNT stale e2e report(s)"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit and push if there were changes
+          if [ $DELETED_COUNT -gt 0 ]; then
+            git add -A
+            git commit -m "chore: clean up stale e2e reports for closed PRs"
+            git push origin gh-pages
+            echo "Pushed cleanup commit to gh-pages"
+          else
+            echo "No changes to commit"
+          fi

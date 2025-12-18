@@ -98,5 +98,21 @@ clean-build: build-plugins-docker
 rebuild-fleet-api:
   docker compose up fleet-api -d --build --force-recreate
 
+[working-directory: 'client/e2eTests']
+install-playwright:
+  npx playwright install
+
+[working-directory: 'client/e2eTests']
+test-e2e: install-playwright
+  npx playwright test
+
+[working-directory: 'client/e2eTests']
+test-e2e-ui: install-playwright
+  npx playwright test --ui
+
+[working-directory: 'client/e2eTests']
+test-e2e-headed: install-playwright
+  npx playwright test --headed
+
 clean-submodules:
   git submodule update --init --force --recursive --checkout && git submodule foreach --recursive "git reset --hard && git clean -ffdx" && mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS

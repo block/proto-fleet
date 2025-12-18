@@ -9,11 +9,24 @@ test.describe("Proto Fleet - Onboarding", () => {
     await page.goto("/");
   });
 
-  test("Onboard the admin user", async ({ authPage, minersPage }) => {
+  test("Onboard the admin user", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);
       await authPage.clickContinue();
+    });
+
+    await test.step("Validate admin is logged in", async () => {
+      await authPage.validateLoggedIn();
+    });
+  });
+
+  test("Add all scanned miners", async ({ authPage, minersPage }) => {
+    await test.step("Login as admin", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
     });
 
     await test.step("Get started with onboarding", async () => {

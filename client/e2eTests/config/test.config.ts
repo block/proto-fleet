@@ -1,21 +1,27 @@
-export const testConfig = {
-  baseUrl: "http://localhost:5173",
+import { defaultTestConfig, type TestConfig } from "./test.config.defaults";
 
+let localConfig: Partial<TestConfig> = {};
+try {
+  // Try to import local config if it exists
+  // @ts-expect-error - Local config file may not exist
+  const module = await import("./test.config.local");
+  localConfig = module.localTestConfig || {};
+} catch {
+  // Local config doesn't exist, use defaults only
+}
+
+// Merge default config with local overrides
+export const testConfig: TestConfig = {
+  ...defaultTestConfig,
+  ...localConfig,
   users: {
-    admin: {
-      username: "admin",
-      password: "Pass123!",
-    },
+    ...defaultTestConfig.users,
+    ...localConfig.users,
   },
-
   miners: {
-    username: "root",
-    password: "root",
+    ...defaultTestConfig.miners,
+    ...localConfig.miners,
   },
-
-  testTimeout: 60000,
-  actionTimeout: 15000,
-  interval: 500,
 };
 
 export const DEFAULT_TIMEOUT = testConfig.actionTimeout;

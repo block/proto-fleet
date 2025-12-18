@@ -196,7 +196,7 @@ jobs:
         working-directory: client
         env:
           VITE_VERSION: ${{ github.sha }}
-          VITE_BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
           VITE_COMMIT: ${{ github.sha }}
         run: |
           # Start frontend in background (already built in earlier step)
@@ -223,12 +223,29 @@ jobs:
           path: client/playwright-report/
           retention-days: 30
 
+      - name: Determine report directory
+        if: ${{ !cancelled() }}
+        id: report-dir
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            REPORT_DIR="e2e-reports/pr-${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            REPORT_DIR="e2e-reports/main"
+          else
+            # workflow_dispatch - use sanitized branch name
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
+            REPORT_DIR="e2e-reports/branch-${BRANCH_NAME}"
+          fi
+          echo "dir=${REPORT_DIR}" >> $GITHUB_OUTPUT
+          echo "Report will be published to: ${REPORT_DIR}"
+
       - name: Add job summary with test results
         if: ${{ !cancelled() }}
         run: |
+          REPORT_URL="https://btc-mining.github.io/proto-fleet/${{ steps.report-dir.outputs.dir }}"
           echo "## 🎭 Playwright E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View HTML Report](https://btc-mining.github.io/proto-fleet/e2e-reports/latest)**" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **[View HTML Report](${REPORT_URL})**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📦 **Test artifacts:** Available in the artifacts section below" >> $GITHUB_STEP_SUMMARY
 
@@ -238,7 +255,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./client/playwright-report
-          destination_dir: e2e-reports/latest
+          destination_dir: ${{ steps.report-dir.outputs.dir }}
           keep_files: false
 
       - name: Comment PR with report link
@@ -246,7 +263,8 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const reportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/e2e-reports/latest`;
+            const reportDir = `e2e-reports/pr-${context.issue.number}`;
+            const reportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/${reportDir}`;
             const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
             const body = `## 🎭 Playwright E2E Test Report

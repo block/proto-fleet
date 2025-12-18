@@ -12,6 +12,9 @@ node_modules/
 .env.local
 .env*.local
 
+# Local test config (not committed)
+config/test.config.local.ts
+
 # macOS
 .DS_Store
 
