@@ -12,6 +12,13 @@ import {
 import { useAuthErrors } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 
+const DEFAULT_GRANULARITY_SECONDS = 90;
+const GRANULARITY_48H_SECONDS = 180; // 3 minutes
+const GRANULARITY_5D_SECONDS = 600; // 10 minutes
+
+const HOURS_48_IN_SECONDS = 48 * 3600;
+const DAYS_5_IN_SECONDS = 5 * 24 * 3600;
+
 interface TelemetryMetricsOptions {
   deviceIds?: string[];
   measurementTypes?: MeasurementType[];
@@ -35,6 +42,20 @@ const durationToSeconds = (duration: Duration): number | undefined => {
     default:
       return undefined;
   }
+};
+
+/**
+ * Calculate optimal granularity based on duration to stay within backend LIMIT
+ * Backend has LIMIT of 1000 buckets, so we adjust granularity for longer durations
+ */
+const getGranularityForDuration = (duration: Duration): number => {
+  const totalSeconds = durationToSeconds(duration);
+  if (totalSeconds === undefined) return DEFAULT_GRANULARITY_SECONDS;
+
+  // Round to reasonable intervals to stay within backend bucket limit (1000)
+  if (totalSeconds >= DAYS_5_IN_SECONDS) return GRANULARITY_5D_SECONDS; // 5d -> 10 min
+  if (totalSeconds >= HOURS_48_IN_SECONDS) return GRANULARITY_48H_SECONDS; // 48h -> 3 min
+  return DEFAULT_GRANULARITY_SECONDS; // Default for shorter durations
 };
 
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
@@ -72,7 +93,7 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
             }),
         measurementTypes: options.measurementTypes || [MeasurementType.HASHRATE],
         aggregations: options.aggregations || [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX],
-        granularity: { seconds: BigInt(90), nanos: 0 },
+        granularity: { seconds: BigInt(getGranularityForDuration(options.duration)), nanos: 0 },
         startTime: {
           seconds: BigInt(Math.floor(startTime.getTime() / 1000)),
           nanos: 0,
