@@ -81,51 +81,51 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	}
 
 	capabilities := sdk.Capabilities{
-		// Core capabilities - required for basic operation
-		sdk.CapabilityPollingHost: true, // We support host-side status polling via RPC
-		sdk.CapabilityDiscovery:   true, // We can discover devices via RPC version command
-		sdk.CapabilityPairing:     true, // We can pair with username/password auth
+		// Core capabilities
+		sdk.CapabilityPollingHost: true,
+		sdk.CapabilityDiscovery:   true,
+		sdk.CapabilityPairing:     true,
 
-		// Command capabilities - based on Antminer capabilities
-		sdk.CapabilityReboot:             true,  // We can reboot devices
-		sdk.CapabilityMiningStart:        false, // Not supported by Antminer
-		sdk.CapabilityMiningStop:         false, // Not supported by Antminer
-		sdk.CapabilityLEDBlink:           true,  // We can blink LED for identification
-		sdk.CapabilityFactoryReset:       false, // Factory reset not supported
-		sdk.CapabilityCoolingModeAir:     false, // Air cooling mode not configurable
-		sdk.CapabilityCoolingModeImmerse: false, // Immersion cooling mode not supported
-		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
-		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
-		sdk.CapabilityLogsDownload:       false, // Logs download not supported
+		// Command capabilities
+		sdk.CapabilityReboot:             true,
+		sdk.CapabilityMiningStart:        false,
+		sdk.CapabilityMiningStop:         false,
+		sdk.CapabilityLEDBlink:           true,
+		sdk.CapabilityFactoryReset:       false,
+		sdk.CapabilityCoolingModeAir:     false,
+		sdk.CapabilityCoolingModeImmerse: false,
+		sdk.CapabilityPoolConfig:         true,
+		sdk.CapabilityPoolPriority:       true,
+		sdk.CapabilityLogsDownload:       false,
 
 		// Telemetry capabilities
-		sdk.CapabilityRealtimeTelemetry: true,  // We support real-time telemetry
-		sdk.CapabilityHistoricalData:    false, // Historical data not supported
-		sdk.CapabilityHashrateReported:  true,  // We report hashrate
-		sdk.CapabilityPowerUsage:        true,  // We report power usage
-		sdk.CapabilityTemperature:       true,  // We report temperature
-		sdk.CapabilityFanSpeed:          true,  // We report fan speed
-		sdk.CapabilityEfficiency:        true,  // We report efficiency
-		sdk.CapabilityUptime:            true,  // We report uptime
-		sdk.CapabilityErrorCount:        true,  // We report error count
-		sdk.CapabilityMinerStatus:       true,  // We report miner status
-		sdk.CapabilityPoolStats:         true,  // We report pool stats
-		sdk.CapabilityPerChipStats:      true,  // We report per-chip stats
-		sdk.CapabilityPerBoardStats:     true,  // We report per-board stats
-		sdk.CapabilityPSUStats:          false, // PSU stats not supported
+		sdk.CapabilityRealtimeTelemetry: true,
+		sdk.CapabilityHistoricalData:    false,
+		sdk.CapabilityHashrateReported:  true,
+		sdk.CapabilityPowerUsage:        false,
+		sdk.CapabilityTemperature:       true,
+		sdk.CapabilityFanSpeed:          true,
+		sdk.CapabilityEfficiency:        false,
+		sdk.CapabilityUptime:            true,
+		sdk.CapabilityErrorCount:        true,
+		sdk.CapabilityMinerStatus:       true,
+		sdk.CapabilityPoolStats:         true,
+		sdk.CapabilityPerChipStats:      true,
+		sdk.CapabilityPerBoardStats:     true,
+		sdk.CapabilityPSUStats:          false,
 
 		// Firmware capabilities
-		sdk.CapabilityFirmware:     true,  // We support firmware operations
-		sdk.CapabilityOTAUpdate:    false, // OTA update not supported
-		sdk.CapabilityManualUpload: true,  // We support manual firmware upload
+		sdk.CapabilityFirmware:     true,
+		sdk.CapabilityOTAUpdate:    false,
+		sdk.CapabilityManualUpload: true,
 
 		// Authentication capabilities
-		sdk.CapabilityBasicAuth: true, // We use basic (username/password) authentication
+		sdk.CapabilityBasicAuth: true,
 
-		// Advanced capabilities - not supported by Antminer RPC
-		sdk.CapabilityPollingPlugin: false, // Plugin-side polling not supported
-		sdk.CapabilityBatchStatus:   false, // Batch operations not supported
-		sdk.CapabilityStreaming:     false, // Real-time streaming not supported
+		// Advanced capabilities
+		sdk.CapabilityPollingPlugin: false,
+		sdk.CapabilityBatchStatus:   false,
+		sdk.CapabilityStreaming:     false,
 	}
 
 	return deviceInfo, capabilities, nil

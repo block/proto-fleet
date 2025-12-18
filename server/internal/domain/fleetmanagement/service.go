@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
@@ -17,6 +18,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -56,20 +58,66 @@ func constructWebViewURL(scheme, ipAddress string) string {
 	return fmt.Sprintf("%s://%s", scheme, ipAddress)
 }
 
+// CapabilitiesProvider provides miner capabilities from plugins.
+// Implementations should return device-specific capabilities based on the
+// manufacturer, model, and type information in the provided Device.
+// Returns nil if capabilities cannot be determined for the device.
+type CapabilitiesProvider interface {
+	GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities
+}
+
 type Service struct {
 	deviceStore           interfaces.DeviceStore
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	telemetry             TelemetryCollector
 	minerService          *miner.Service
+	capabilitiesProvider  CapabilitiesProvider
+	capabilitiesCache     sync.Map
 }
 
-func NewService(deviceStore interfaces.DeviceStore, discoveredDeviceStore interfaces.DiscoveredDeviceStore, t TelemetryCollector, minerService *miner.Service) *Service {
+func NewService(
+	deviceStore interfaces.DeviceStore,
+	discoveredDeviceStore interfaces.DiscoveredDeviceStore,
+	t TelemetryCollector,
+	minerService *miner.Service,
+	capabilitiesProvider CapabilitiesProvider,
+) *Service {
 	return &Service{
 		deviceStore:           deviceStore,
 		discoveredDeviceStore: discoveredDeviceStore,
 		telemetry:             t,
 		minerService:          minerService,
+		capabilitiesProvider:  capabilitiesProvider,
 	}
+}
+
+// getCachedCapabilities retrieves capabilities from cache or fetches and caches them
+func (s *Service) getCachedCapabilities(ctx context.Context, manufacturer, model, deviceType string) *capabilitiespb.MinerCapabilities {
+	if s.capabilitiesProvider == nil || manufacturer == "" || model == "" {
+		return nil
+	}
+
+	cacheKey := manufacturer + "|" + model + "|" + deviceType
+
+	if cached, found := s.capabilitiesCache.Load(cacheKey); found {
+		if capabilities, ok := cached.(*capabilitiespb.MinerCapabilities); ok {
+			return capabilities
+		}
+		return nil
+	}
+
+	device := &pairingpb.Device{
+		Manufacturer: manufacturer,
+		Model:        model,
+		Type:         deviceType,
+	}
+	capabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, device)
+
+	if capabilities != nil {
+		s.capabilitiesCache.Store(cacheKey, capabilities)
+	}
+
+	return capabilities
 }
 
 // validatePageSize validates and normalizes the requested page size
@@ -272,6 +320,11 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			}
 			snapshot.Url = url
 			snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_INACTIVE
+		}
+
+		capabilities := s.getCachedCapabilities(ctx, snapshot.Manufacturer, snapshot.Model, snapshot.Type)
+		if capabilities != nil {
+			snapshot.Capabilities = capabilities
 		}
 
 		snapshots = append(snapshots, snapshot)

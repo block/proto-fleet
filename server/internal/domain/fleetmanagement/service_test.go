@@ -7,16 +7,20 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+	pairingmocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 )
@@ -609,4 +613,259 @@ func TestService_GetBatchMinerTelemetry_ShouldReturnForbiddenForUnauthorizedDevi
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Len(t, resp.Miners, 2)
+}
+
+func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+
+	// Expected capabilities for Proto miners
+	protoCapabilities := &capabilitiespb.MinerCapabilities{
+		Manufacturer: "Proto",
+		Telemetry: &capabilitiespb.TelemetryCapabilities{
+			HashrateReported:    true,
+			PowerUsageReported:  true,
+			TemperatureReported: true,
+			EfficiencyReported:  true,
+			FanSpeedReported:    true,
+		},
+		Commands: &capabilitiespb.CommandCapabilities{
+			RebootSupported:      true,
+			MiningStartSupported: true,
+			MiningStopSupported:  true,
+		},
+	}
+
+	mockCapabilities.EXPECT().
+		GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).
+		Return(protoCapabilities).
+		Times(1) // Called once, then cached for second device with same manufacturer/model
+
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+
+	req := &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 10,
+		Filter: &pb.MinerListFilter{
+			PairingStatuses: []pb.PairingStatus{pb.PairingStatus_PAIRING_STATUS_PAIRED},
+		},
+	}
+
+	// Act
+	resp, err := service.ListMinerStateSnapshots(ctx, req)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Miners, 2, "Should return 2 paired devices")
+
+	for _, miner := range resp.Miners {
+		assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, miner.PairingStatus)
+		assert.NotNil(t, miner.Capabilities, "Capabilities should be populated for paired device %s", miner.DeviceIdentifier)
+
+		// Verify telemetry capabilities
+		require.NotNil(t, miner.Capabilities.Telemetry)
+		assert.True(t, miner.Capabilities.Telemetry.HashrateReported, "Hashrate should be reported")
+		assert.True(t, miner.Capabilities.Telemetry.PowerUsageReported, "Power usage should be reported")
+		assert.True(t, miner.Capabilities.Telemetry.EfficiencyReported, "Efficiency should be reported")
+		assert.True(t, miner.Capabilities.Telemetry.TemperatureReported, "Temperature should be reported")
+
+		// Verify command capabilities
+		require.NotNil(t, miner.Capabilities.Commands)
+		assert.True(t, miner.Capabilities.Commands.RebootSupported, "Reboot should be supported")
+
+		// Verify manufacturer
+		assert.Equal(t, "Proto", miner.Capabilities.Manufacturer)
+	}
+}
+
+func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+
+	deviceIdentifier := "unpaired-antminer-1"
+	doi := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            testUser.OrganizationID,
+	}
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pairingpb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			Model:            "S19 Pro",
+			Manufacturer:     "Bitmain",
+			Type:             "ANTMINER",
+			IpAddress:        "192.168.1.100",
+			Port:             "4028",
+			UrlScheme:        "http",
+		},
+		IsActive: true,
+		OrgID:    testUser.OrganizationID,
+	}
+	_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+	require.NoError(t, err)
+
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+
+	antminerCapabilities := &capabilitiespb.MinerCapabilities{
+		Manufacturer: "Bitmain",
+		Telemetry: &capabilitiespb.TelemetryCapabilities{
+			HashrateReported:    true,
+			PowerUsageReported:  false,
+			TemperatureReported: true,
+			EfficiencyReported:  false,
+			FanSpeedReported:    true,
+		},
+		Commands: &capabilitiespb.CommandCapabilities{
+			RebootSupported:           true,
+			PoolSwitchingSupported:    true,
+			MiningStartSupported:      true,
+			MiningStopSupported:       true,
+			AirCoolingSupported:       true,
+			ImmersionCoolingSupported: false,
+		},
+	}
+
+	mockCapabilities.EXPECT().
+		GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).
+		Return(antminerCapabilities).
+		Times(1)
+
+	// Create service with mock capabilities provider
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+
+	req := &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 10,
+		Filter: &pb.MinerListFilter{
+			PairingStatuses: []pb.PairingStatus{pb.PairingStatus_PAIRING_STATUS_UNPAIRED},
+		},
+	}
+
+	// Act
+	resp, err := service.ListMinerStateSnapshots(ctx, req)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Miners, 1, "Should return 1 unpaired device")
+
+	miner := resp.Miners[0]
+	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_UNPAIRED, miner.PairingStatus)
+	assert.NotNil(t, miner.Capabilities, "Capabilities should be populated for unpaired device")
+
+	// Verify capabilities structure
+	require.NotNil(t, miner.Capabilities.Telemetry, "Telemetry capabilities should be present")
+	assert.True(t, miner.Capabilities.Telemetry.HashrateReported)
+	assert.False(t, miner.Capabilities.Telemetry.PowerUsageReported, "Antminers should not report power usage")
+	assert.False(t, miner.Capabilities.Telemetry.EfficiencyReported, "Antminers should not report efficiency")
+
+	require.NotNil(t, miner.Capabilities.Commands, "Command capabilities should be present")
+	assert.True(t, miner.Capabilities.Commands.PoolSwitchingSupported)
+
+	assert.Equal(t, "Bitmain", miner.Capabilities.Manufacturer, "Manufacturer should match")
+}
+
+func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+
+	protoCapabilities := &capabilitiespb.MinerCapabilities{
+		Manufacturer: "Proto",
+		Telemetry: &capabilitiespb.TelemetryCapabilities{
+			HashrateReported:    true,
+			PowerUsageReported:  true,
+			TemperatureReported: true,
+			EfficiencyReported:  true,
+			FanSpeedReported:    true,
+		},
+	}
+
+	mockCapabilities.EXPECT().
+		GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).
+		Return(protoCapabilities).
+		Times(1) // Called only once, then cached
+
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+
+	req := &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 10,
+	}
+
+	// First call - should fetch from provider
+	resp1, err := service.ListMinerStateSnapshots(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp1)
+	require.Len(t, resp1.Miners, 2)
+	require.NotNil(t, resp1.Miners[0].Capabilities)
+	require.NotNil(t, resp1.Miners[1].Capabilities)
+
+	// Second call - should use cache (mock expects only 1 call total)
+	resp2, err := service.ListMinerStateSnapshots(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp2)
+	require.Len(t, resp2.Miners, 2)
+	require.NotNil(t, resp2.Miners[0].Capabilities)
+	require.NotNil(t, resp2.Miners[1].Capabilities)
+
+	assert.True(t, resp2.Miners[0].Capabilities.Telemetry.PowerUsageReported)
+	assert.True(t, resp2.Miners[1].Capabilities.Telemetry.EfficiencyReported)
 }
