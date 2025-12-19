@@ -548,7 +548,7 @@ func TestDetectPoolErrors_NotAlive(t *testing.T) {
 	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
 
 	require.Len(t, errors, 1)
-	assert.Equal(t, sdkerrors.DeviceCommunicationLost, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.VendorErrorUnmapped, errors[0].MinerError)
 	assert.Equal(t, sdkerrors.SeverityMajor, errors[0].Severity)
 	assert.Contains(t, errors[0].Summary, "Dead")
 	assert.Contains(t, errors[0].Summary, "pool.example.com")
@@ -569,7 +569,7 @@ func TestDetectPoolErrors_GetFailures(t *testing.T) {
 	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
 
 	require.Len(t, errors, 1)
-	assert.Equal(t, sdkerrors.DeviceCommunicationLost, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.VendorErrorUnmapped, errors[0].MinerError)
 	assert.Contains(t, errors[0].Summary, "15 get failures")
 }
 
@@ -588,11 +588,11 @@ func TestDetectPoolErrors_RemoteFailures(t *testing.T) {
 	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
 
 	require.Len(t, errors, 1)
-	assert.Equal(t, sdkerrors.DeviceCommunicationLost, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.VendorErrorUnmapped, errors[0].MinerError)
 	assert.Contains(t, errors[0].Summary, "20 remote failures")
 }
 
-// Test: Multiple pools with different issues
+// Test: Multiple pools with different issues - should not error if one pool is working
 func TestDetectPoolErrors_MultiplePools(t *testing.T) {
 	now := time.Now()
 	pools := []rpc.PoolInfo{
@@ -610,8 +610,64 @@ func TestDetectPoolErrors_MultiplePools(t *testing.T) {
 
 	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
 
-	require.Len(t, errors, 1)
-	assert.Equal(t, "1", *errors[0].ComponentID)
+	// Should not report errors because pool 0 is working (failover is functioning)
+	assert.Empty(t, errors, "Expected no errors when at least one pool is working")
+}
+
+// Test: All pools down - should report errors for all
+func TestDetectPoolErrors_AllPoolsDown(t *testing.T) {
+	now := time.Now()
+	pools := []rpc.PoolInfo{
+		{
+			Pool:   0,
+			URL:    "stratum+tcp://pool1.example.com:3333",
+			Status: "Dead",
+		},
+		{
+			Pool:   1,
+			URL:    "stratum+tcp://pool2.example.com:3333",
+			Status: "Dead",
+		},
+		{
+			Pool:   2,
+			URL:    "stratum+tcp://pool3.example.com:3333",
+			Status: "Dead",
+		},
+	}
+
+	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
+
+	// Should report errors for all pools since none are working
+	require.Len(t, errors, 3, "Expected errors for all pools when all are down")
+	assert.Equal(t, "0", *errors[0].ComponentID)
+	assert.Equal(t, "1", *errors[1].ComponentID)
+	assert.Equal(t, "2", *errors[2].ComponentID)
+}
+
+// Test: All pools have high failures - should report errors
+func TestDetectPoolErrors_AllPoolsHighFailures(t *testing.T) {
+	now := time.Now()
+	pools := []rpc.PoolInfo{
+		{
+			Pool:        0,
+			URL:         "stratum+tcp://pool1.example.com:3333",
+			Status:      "Alive",
+			GetFailures: 15, // >10 threshold
+		},
+		{
+			Pool:           1,
+			URL:            "stratum+tcp://pool2.example.com:3333",
+			Status:         "Alive",
+			RemoteFailures: 20, // >10 threshold
+		},
+	}
+
+	errors := detectPoolErrors(pools, testDeviceIDForErrors, now)
+
+	// Should report errors for all pools since all have high failures
+	require.Len(t, errors, 2, "Expected errors for all pools when all have failures")
+	assert.Contains(t, errors[0].Summary, "get failures")
+	assert.Contains(t, errors[1].Summary, "remote failures")
 }
 
 // Test: No pool errors for healthy pools
@@ -738,7 +794,7 @@ func TestDetectErrors_MultipleConcurrentErrors(t *testing.T) {
 			hasComm = true
 		case sdkerrors.HashrateBelowTarget:
 			hasRejection = true
-		case sdkerrors.DeviceCommunicationLost:
+		case sdkerrors.VendorErrorUnmapped:
 			hasPool = true
 		}
 	}

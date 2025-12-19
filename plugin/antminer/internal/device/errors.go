@@ -535,7 +535,29 @@ func detectShareRejectionErrors(summary *rpc.SummaryInfo, deviceID string, now t
 }
 
 // detectPoolErrors checks pool connectivity issues.
+// Only reports errors if ALL pools are not working (to avoid false alarms when failover pools exist).
 func detectPoolErrors(pools []rpc.PoolInfo, deviceID string, now time.Time) []sdkerrors.DeviceError {
+	if len(pools) == 0 {
+		return nil
+	}
+
+	// First pass: check if at least one pool is working
+	hasWorkingPool := false
+	for _, pool := range pools {
+		if pool.Status == poolStatusAlive &&
+			pool.GetFailures < poolFailuresThreshold &&
+			pool.RemoteFailures < poolFailuresThreshold {
+			hasWorkingPool = true
+			break
+		}
+	}
+
+	// If any pool is working, don't report errors (failover is functioning)
+	if hasWorkingPool {
+		return nil
+	}
+
+	// All pools are experiencing issues - report errors for each problematic pool
 	var errors []sdkerrors.DeviceError
 
 	for _, pool := range pools {
@@ -544,13 +566,13 @@ func detectPoolErrors(pools []rpc.PoolInfo, deviceID string, now time.Time) []sd
 		// Check pool status
 		if pool.Status != poolStatusAlive {
 			errors = append(errors, sdkerrors.DeviceError{
-				MinerError:        sdkerrors.DeviceCommunicationLost,
+				MinerError:        sdkerrors.VendorErrorUnmapped,
 				Severity:          sdkerrors.SeverityMajor,
 				Summary:           fmt.Sprintf("Pool %d (%s) status is '%s' (expected '%s')", pool.Pool, pool.URL, pool.Status, poolStatusAlive),
 				CauseSummary:      causePoolNotAlive,
 				RecommendedAction: actionCheckPoolConfig,
 				Impact:            impactPoolConnectivity,
-				ComponentType:     sdkerrors.ComponentTypeControlBoard,
+				ComponentType:     sdkerrors.ComponentTypeUnspecified,
 				ComponentID:       &poolID,
 				FirstSeenAt:       now,
 				LastSeenAt:        now,
@@ -567,13 +589,13 @@ func detectPoolErrors(pools []rpc.PoolInfo, deviceID string, now time.Time) []sd
 		// Check get failures
 		if pool.GetFailures >= poolFailuresThreshold {
 			errors = append(errors, sdkerrors.DeviceError{
-				MinerError:        sdkerrors.DeviceCommunicationLost,
+				MinerError:        sdkerrors.VendorErrorUnmapped,
 				Severity:          sdkerrors.SeverityMajor,
 				Summary:           fmt.Sprintf("Pool %d (%s) has %d get failures (threshold %d)", pool.Pool, pool.URL, pool.GetFailures, poolFailuresThreshold),
 				CauseSummary:      causeHighPoolGetFailures,
 				RecommendedAction: actionCheckPoolConfig,
 				Impact:            impactPoolConnectivity,
-				ComponentType:     sdkerrors.ComponentTypeControlBoard,
+				ComponentType:     sdkerrors.ComponentTypeUnspecified,
 				ComponentID:       &poolID,
 				FirstSeenAt:       now,
 				LastSeenAt:        now,
@@ -591,13 +613,13 @@ func detectPoolErrors(pools []rpc.PoolInfo, deviceID string, now time.Time) []sd
 		// Check remote failures
 		if pool.RemoteFailures >= poolFailuresThreshold {
 			errors = append(errors, sdkerrors.DeviceError{
-				MinerError:        sdkerrors.DeviceCommunicationLost,
+				MinerError:        sdkerrors.VendorErrorUnmapped,
 				Severity:          sdkerrors.SeverityMajor,
 				Summary:           fmt.Sprintf("Pool %d (%s) has %d remote failures (threshold %d)", pool.Pool, pool.URL, pool.RemoteFailures, poolFailuresThreshold),
 				CauseSummary:      causeHighPoolRemoteFailures,
 				RecommendedAction: actionCheckPoolConfig,
 				Impact:            impactPoolConnectivity,
-				ComponentType:     sdkerrors.ComponentTypeControlBoard,
+				ComponentType:     sdkerrors.ComponentTypeUnspecified,
 				ComponentID:       &poolID,
 				FirstSeenAt:       now,
 				LastSeenAt:        now,
