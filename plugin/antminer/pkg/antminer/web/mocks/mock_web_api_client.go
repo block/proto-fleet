@@ -80,6 +80,21 @@ func (mr *MockWebAPIClientMockRecorder) GetNetworkInfo(ctx, connInfo interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkInfo", reflect.TypeOf((*MockWebAPIClient)(nil).GetNetworkInfo), ctx, connInfo)
 }
 
+// GetStatsInfo mocks base method.
+func (m *MockWebAPIClient) GetStatsInfo(ctx context.Context, connInfo *web.AntminerConnectionInfo) (*web.StatsInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStatsInfo", ctx, connInfo)
+	ret0, _ := ret[0].(*web.StatsInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStatsInfo indicates an expected call of GetStatsInfo.
+func (mr *MockWebAPIClientMockRecorder) GetStatsInfo(ctx, connInfo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatsInfo", reflect.TypeOf((*MockWebAPIClient)(nil).GetStatsInfo), ctx, connInfo)
+}
+
 // GetSystemInfo mocks base method.
 func (m *MockWebAPIClient) GetSystemInfo(ctx context.Context, connInfo *web.AntminerConnectionInfo) (*web.SystemInfo, error) {
 	m.ctrl.T.Helper()

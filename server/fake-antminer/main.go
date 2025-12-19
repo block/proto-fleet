@@ -147,6 +147,7 @@ func startHTTPServer(ctx context.Context, state *MinerState) error {
 	mux.HandleFunc("/cgi-bin/set_miner_conf.cgi", createSetConfigHandler(state))
 	mux.HandleFunc("/cgi-bin/reboot.cgi", createRebootHandler(state))
 	mux.HandleFunc("/cgi-bin/blink.cgi", createBlinkHandler(state))
+	mux.HandleFunc("/cgi-bin/stats.cgi", createStatsHandler(state))
 
 	// Add health check endpoint (no auth required)
 	mux.HandleFunc("/health", createHealthHandler())
@@ -187,9 +188,11 @@ func startHTTPServer(ctx context.Context, state *MinerState) error {
 
 // Helper function to determine if a path needs authentication
 func pathNeedsAuth(path string) bool {
-	// Only enforce auth for POST endpoints that modify state
-	// This better matches the original behavior
-	return path == "/cgi-bin/set_miner_conf.cgi" ||
+	// Enforce auth for sensitive GET endpoints and POST endpoints that modify state
+	return path == "/cgi-bin/get_system_info.cgi" ||
+		path == "/cgi-bin/get_miner_conf.cgi" ||
+		path == "/cgi-bin/stats.cgi" ||
+		path == "/cgi-bin/set_miner_conf.cgi" ||
 		path == "/cgi-bin/reboot.cgi" ||
 		path == "/cgi-bin/blink.cgi"
 }

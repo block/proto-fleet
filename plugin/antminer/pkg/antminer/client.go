@@ -10,6 +10,7 @@ package antminer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -26,6 +27,17 @@ const (
 	// THSToGHS converts TH/s to GH/s
 	THSToGHS       = 1000
 	defaultTimeOut = 30 * time.Second
+
+	// Set to absolute zero in Celsius as any reading below this is invalid
+	minValidTemperature = -273.15
+
+	// Temperature sensor positions in TempChip array [inlet_1, inlet_2, outlet_1, outlet_2]
+	// Based on Antminer hardware sensor layout
+	tempSensorCount      = 4
+	inletTempStartIndex  = 0
+	inletTempEndIndex    = 2
+	outletTempStartIndex = 2
+	outletTempEndIndex   = 4
 )
 
 // Client constants
@@ -81,12 +93,38 @@ type Status struct {
 
 // Telemetry represents device telemetry data
 type Telemetry struct {
+	// Device-level aggregates
 	HashrateHS         *float64
-	PowerWatts         *float64
 	TemperatureCelsius *float64
-	EfficiencyJPerHash *float64
 	FanRPM             *float64
 	UptimeSeconds      *int64
+
+	// Component-level metrics
+	HashBoards        []HashBoardTelemetry
+	Fans              []FanTelemetry
+	HardwareErrorRate *float64
+
+	// Note: PowerWatts and EfficiencyJPerHash are not available via Antminer stats.cgi
+	// These would require additional power monitoring hardware or firmware support
+}
+
+// HashBoardTelemetry represents per-hashboard (chain) telemetry
+type HashBoardTelemetry struct {
+	Index            int
+	SerialNumber     string
+	HashrateHS       *float64
+	Temperature      *float64
+	InletTemp        *float64
+	OutletTemp       *float64
+	ChipCount        int
+	ChipFrequencyMHz int
+	HardwareErrors   int
+}
+
+// FanTelemetry represents per-fan telemetry
+type FanTelemetry struct {
+	Index int
+	RPM   int
 }
 
 // Pool represents a mining pool configuration
@@ -235,6 +273,189 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	}, nil
 }
 
+// extractTelemetryFromStats extracts comprehensive telemetry data from stats.cgi response
+func extractTelemetryFromStats(stats *web.StatsInfo) (*Telemetry, error) {
+	if len(stats.STATS) == 0 {
+		return nil, fmt.Errorf("stats response contains no data")
+	}
+
+	statsData := stats.STATS[0]
+
+	// Validate critical fields
+	if statsData.ChainNum == 0 {
+		return nil, fmt.Errorf("invalid chain count: %d", statsData.ChainNum)
+	}
+
+	if len(statsData.Chain) == 0 {
+		return nil, fmt.Errorf("stats response contains no chain data")
+	}
+
+	// Calculate device-level aggregates
+	maxTemp, err := calculateMaxTemperature(statsData.Chain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate max temperature: %w", err)
+	}
+
+	maxFanRPM := calculateMaxFanSpeed(statsData.Fan)
+	hwErrorRate := statsData.HWPTotal
+
+	// Extract per-chain (hashboard) telemetry
+	hashBoards := make([]HashBoardTelemetry, 0, len(statsData.Chain))
+	for _, chain := range statsData.Chain {
+		// Validate hashrate
+		if chain.RateReal < 0 {
+			return nil, fmt.Errorf("invalid hashrate for chain %d: %f GH/s", chain.Index, chain.RateReal)
+		}
+
+		// Validate temperature array length before slicing
+		if len(chain.TempChip) < tempSensorCount {
+			return nil, fmt.Errorf("chain %d has insufficient temperature sensors: got %d, expected %d",
+				chain.Index, len(chain.TempChip), tempSensorCount)
+		}
+
+		hashrate := chain.RateReal * GHSToHS
+		temp, err := calculateMaxTemperatureFromArray(chain.TempChip)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate temperature for chain %d: %w", chain.Index, err)
+		}
+
+		inletTemp, err := calculateAverageTemperatureFromArray(chain.TempChip[inletTempStartIndex:inletTempEndIndex])
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate inlet temperature for chain %d: %w", chain.Index, err)
+		}
+
+		outletTemp, err := calculateAverageTemperatureFromArray(chain.TempChip[outletTempStartIndex:outletTempEndIndex])
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate outlet temperature for chain %d: %w", chain.Index, err)
+		}
+
+		hashBoards = append(hashBoards, HashBoardTelemetry{
+			Index:            chain.Index,
+			SerialNumber:     chain.SN,
+			HashrateHS:       &hashrate,
+			Temperature:      &temp,
+			InletTemp:        &inletTemp,
+			OutletTemp:       &outletTemp,
+			ChipCount:        chain.ASICNum,
+			ChipFrequencyMHz: chain.FreqAvg,
+			HardwareErrors:   chain.HW,
+		})
+	}
+
+	// Extract per-fan telemetry
+	fans := make([]FanTelemetry, len(statsData.Fan))
+	for i, rpm := range statsData.Fan {
+		fans[i] = FanTelemetry{
+			Index: i,
+			RPM:   rpm,
+		}
+	}
+
+	uptime := int64(statsData.Elapsed)
+
+	return &Telemetry{
+		TemperatureCelsius: &maxTemp,
+		FanRPM:             &maxFanRPM,
+		UptimeSeconds:      &uptime,
+		HashBoards:         hashBoards,
+		Fans:               fans,
+		HardwareErrorRate:  &hwErrorRate,
+		// HashrateHS will be set from summary.cgi by GetTelemetry()
+	}, nil
+}
+
+// calculateMaxTemperature calculates the maximum temperature across all chains
+// Returns an error if no valid temperature readings are found
+func calculateMaxTemperature(chains []web.ChainStats) (float64, error) {
+	if len(chains) == 0 {
+		return 0, fmt.Errorf("no chains provided")
+	}
+
+	maxTemp := minValidTemperature
+	validTempFound := false
+
+	for _, chain := range chains {
+		chainMax, err := calculateMaxTemperatureFromArray(chain.TempChip)
+		if err != nil {
+			// Skip chains with no valid temperatures rather than failing completely
+			// but log the issue for debugging
+			slog.Warn("Skipping chain due to invalid temperatures", "chain_index", chain.Index, "error", err)
+			continue
+		}
+		validTempFound = true
+		if chainMax > maxTemp {
+			maxTemp = chainMax
+		}
+	}
+
+	if !validTempFound {
+		return 0, fmt.Errorf("no valid temperature readings found across %d chains", len(chains))
+	}
+
+	return maxTemp, nil
+}
+
+// calculateMaxTemperatureFromArray returns the maximum temperature from an array
+// Returns an error if no valid temperatures are found in the array
+func calculateMaxTemperatureFromArray(temps []float64) (float64, error) {
+	if len(temps) == 0 {
+		return 0, fmt.Errorf("empty temperature array")
+	}
+
+	maxTemp := minValidTemperature
+	validTempFound := false
+
+	for _, temp := range temps {
+		if temp > minValidTemperature {
+			validTempFound = true
+			if temp > maxTemp {
+				maxTemp = temp
+			}
+		}
+	}
+
+	if !validTempFound {
+		return 0, fmt.Errorf("no valid temperature readings in array (all temps <= %.2f°C)", minValidTemperature)
+	}
+
+	return maxTemp, nil
+}
+
+// calculateAverageTemperatureFromArray calculates average temperature from an array
+// Returns an error if no valid temperatures are found in the array
+func calculateAverageTemperatureFromArray(temps []float64) (float64, error) {
+	if len(temps) == 0 {
+		return 0, fmt.Errorf("empty temperature array")
+	}
+
+	totalTemp := 0.0
+	tempCount := 0
+
+	for _, temp := range temps {
+		if temp > minValidTemperature {
+			totalTemp += temp
+			tempCount++
+		}
+	}
+
+	if tempCount == 0 {
+		return 0, fmt.Errorf("no valid temperature readings in array (all temps <= %.2f°C)", minValidTemperature)
+	}
+
+	return totalTemp / float64(tempCount), nil
+}
+
+// calculateMaxFanSpeed returns the maximum fan speed from the fan array
+func calculateMaxFanSpeed(fans []int) float64 {
+	maxRPM := 0
+	for _, rpm := range fans {
+		if rpm > maxRPM {
+			maxRPM = rpm
+		}
+	}
+	return float64(maxRPM)
+}
+
 // GetTelemetry retrieves device telemetry data
 func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
 	summaryResp, err := c.GetSummary(ctx)
@@ -248,47 +469,27 @@ func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
 
 	summary := summaryResp.Summary[0]
 
-	// Get device information for temperature
-	devsResp, err := c.GetDevs(ctx)
-	var avgTemp float64
-	var fanRPM float64
-	if err == nil && len(devsResp.Devs) > 0 {
-		tempSum := 0.0
-		tempCount := 0
-		for _, dev := range devsResp.Devs {
-			temp := dev.GetTemperature()
-			if temp > 0 {
-				tempSum += temp
-				tempCount++
-			}
-		}
-		if tempCount > 0 {
-			avgTemp = tempSum / float64(tempCount)
-		}
+	// Get temperature, fan, and component-level metrics from stats.cgi
+	if c.credentials == nil {
+		return nil, fmt.Errorf("credentials required for telemetry collection")
 	}
 
-	// Try to get more detailed information from web API if available
-	if c.credentials != nil {
-		connInfo := c.getWebConnectionInfo()
-		if webSummary, err := c.webClient.GetMinerSummary(ctx, connInfo); err == nil && len(webSummary.Summary) > 0 {
-			// Use web API data if available
-			webSum := webSummary.Summary[0]
-			if webSum.Rate5s > 0 {
-				// Web API typically provides TH/s, convert to GH/s
-				summary.GHS5s = webSum.Rate5s * THSToGHS
-			}
-		}
+	connInfo := c.getWebConnectionInfo()
+	statsInfo, err := c.webClient.GetStatsInfo(ctx, connInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stats info: %w", err)
 	}
 
-	// Convert GH/s to H/s
+	telemetry, err := extractTelemetryFromStats(statsInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract telemetry from stats: %w", err)
+	}
+
+	// Convert GH/s to H/s for device-level hashrate from RPC summary
 	hashrateHS := summary.GHS5s * GHSToHS
+	telemetry.HashrateHS = &hashrateHS
 
-	return &Telemetry{
-		HashrateHS:         &hashrateHS,
-		TemperatureCelsius: &avgTemp,
-		FanRPM:             &fanRPM,
-		UptimeSeconds:      &summary.Elapsed,
-	}, nil
+	return telemetry, nil
 }
 
 // Pair performs device pairing (authentication setup)

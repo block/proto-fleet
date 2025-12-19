@@ -286,8 +286,6 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 	if telemetry != nil {
 		metrics.HashrateHS = setMetricIfNotNil(telemetry.HashrateHS)
 		metrics.TempC = setMetricIfNotNil(telemetry.TemperatureCelsius)
-		metrics.PowerW = setMetricIfNotNil(telemetry.PowerWatts)
-		metrics.EfficiencyJH = setMetricIfNotNil(telemetry.EfficiencyJPerHash)
 		metrics.FanRPM = setMetricIfNotNil(telemetry.FanRPM)
 
 		// Add uptime as a sensor metric if available

@@ -320,7 +320,11 @@ func TestClient_GetTelemetry(t *testing.T) {
 
 	client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
 
-	// Mock the GetSummary RPC call
+	// Set credentials first (required for stats.cgi)
+	err := client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"})
+	require.NoError(t, err)
+
+	// Mock the GetSummary RPC call for hashrate
 	mockSummaryResponse := &rpc.SummaryResponse{
 		Summary: []rpc.SummaryInfo{
 			{
@@ -333,76 +337,98 @@ func TestClient_GetTelemetry(t *testing.T) {
 		GetSummary(gomock.Any(), gomock.Any()).
 		Return(mockSummaryResponse, nil)
 
-	// Mock the GetDevs RPC call for temperature
-	mockDevsResponse := &rpc.DevsResponse{
-		Devs: []rpc.DevInfo{
-			{
-				Temperature: 65.5,
-			},
-			{
-				Temperature: 67.2,
-			},
+	// Mock the GetStatsInfo web API call for temperature and component metrics
+	mockStatsInfo := &web.StatsInfo{
+		STATUS: web.StatsStatus{
+			Status:     "S",
+			When:       1234567890,
+			Msg:        "stats",
+			APIVersion: "1.0.0",
 		},
-	}
-	mockRPCClient.EXPECT().
-		GetDevs(gomock.Any(), gomock.Any()).
-		Return(mockDevsResponse, nil)
-
-	// Test without credentials (no web API call)
-	telemetry, err := client.GetTelemetry(t.Context())
-	require.NoError(t, err)
-	expectedHashrate := 100.5 * GHSToHS
-	assert.InEpsilon(t, expectedHashrate, *telemetry.HashrateHS, 0.01)
-	assert.Equal(t, int64(3600), *telemetry.UptimeSeconds)
-	assert.InEpsilon(t, 66.35, *telemetry.TemperatureCelsius, 0.01) // Average of 65.5 and 67.2
-
-	// Test with credentials (includes web API call)
-	err = client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"})
-	require.NoError(t, err)
-
-	// Mock the calls again for the second test
-	mockRPCClient.EXPECT().
-		GetSummary(gomock.Any(), gomock.Any()).
-		Return(mockSummaryResponse, nil)
-
-	mockRPCClient.EXPECT().
-		GetDevs(gomock.Any(), gomock.Any()).
-		Return(mockDevsResponse, nil)
-
-	// Mock the GetMinerSummary web API call
-	mockWebSummary := &web.MinerSummary{
-		Summary: []struct {
-			Elapsed   int     `json:"elapsed"`
-			Rate5s    float64 `json:"rate_5s"`
-			Rate30m   float64 `json:"rate_30m"`
-			RateAvg   float64 `json:"rate_avg"`
-			RateIdeal float64 `json:"rate_ideal"`
-			RateUnit  string  `json:"rate_unit"`
-			HwAll     int     `json:"hw_all"`
-			BestShare int64   `json:"bestshare"`
-			Status    []struct {
-				Type   string `json:"type"`
-				Status string `json:"status"`
-				Code   int    `json:"code"`
-				Msg    string `json:"msg"`
-			} `json:"status"`
-		}{
+		INFO: web.StatsMinerInfo{
+			MinerVersion: "uart_trans.1.3",
+			CompileTime:  "Thu Jul 11 16:38:25 CST 2024",
+			Type:         "Antminer S21",
+		},
+		STATS: []web.StatsData{
 			{
-				Rate5s: 110.0, // TH/s from web API
+				Elapsed:  3600,
+				Rate5s:   100500.0, // GH/s
+				ChainNum: 3,
+				FanNum:   4,
+				Fan:      []int{7000, 7100, 7200, 7300},
+				HWPTotal: 0.0006,
+				Chain: []web.ChainStats{
+					{
+						Index:    0,
+						FreqAvg:  490,
+						RateReal: 33500.0,
+						ASICNum:  108,
+						TempChip: []float64{59.0, 59.0, 73.0, 73.0}, // [inlet_1, inlet_2, outlet_1, outlet_2]
+						HW:       0,
+						SN:       "SMTTYRHBDJAAI019D",
+					},
+					{
+						Index:    1,
+						FreqAvg:  490,
+						RateReal: 33500.0,
+						ASICNum:  108,
+						TempChip: []float64{61.0, 61.0, 75.0, 75.0},
+						HW:       0,
+						SN:       "SMTTYRHBDJAAI019E",
+					},
+					{
+						Index:    2,
+						FreqAvg:  490,
+						RateReal: 33500.0,
+						ASICNum:  108,
+						TempChip: []float64{63.0, 63.0, 77.0, 77.0},
+						HW:       0,
+						SN:       "SMTTYRHBDJAAI019F",
+					},
+				},
 			},
 		},
 	}
 	mockWebClient.EXPECT().
-		GetMinerSummary(gomock.Any(), gomock.Any()).
-		Return(mockWebSummary, nil)
+		GetStatsInfo(gomock.Any(), gomock.Any()).
+		Return(mockStatsInfo, nil)
 
-	telemetry, err = client.GetTelemetry(t.Context())
+	telemetry, err := client.GetTelemetry(t.Context())
 	require.NoError(t, err)
-	// Should use web API data: 110 TH/s * 1000 = 110000 GH/s * 1e9 = 1.1e14 H/s
-	expectedHashrateFromWeb := 110000.0 * GHSToHS
-	assert.InEpsilon(t, expectedHashrateFromWeb, *telemetry.HashrateHS, 0.01)
-	// Temperature should still be calculated from RPC data
-	assert.InEpsilon(t, 66.35, *telemetry.TemperatureCelsius, 0.01) // Average of 65.5 and 67.2
+
+	// Verify device-level metrics
+	expectedHashrate := 100.5 * GHSToHS
+	assert.InEpsilon(t, expectedHashrate, *telemetry.HashrateHS, 0.01)
+	assert.Equal(t, int64(3600), *telemetry.UptimeSeconds)
+
+	// Verify temperature (max of all temp_chip values: 77.0°C)
+	assert.InEpsilon(t, 77.0, *telemetry.TemperatureCelsius, 0.01)
+
+	// Verify fan speed (max of all fans: 7300 RPM)
+	assert.InEpsilon(t, 7300.0, *telemetry.FanRPM, 0.01)
+
+	// Verify hardware error rate
+	assert.InEpsilon(t, 0.0006, *telemetry.HardwareErrorRate, 0.0001)
+
+	// Verify component-level metrics
+	require.Len(t, telemetry.HashBoards, 3)
+	require.Len(t, telemetry.Fans, 4)
+
+	// Verify first hashboard
+	assert.Equal(t, 0, telemetry.HashBoards[0].Index)
+	assert.Equal(t, "SMTTYRHBDJAAI019D", telemetry.HashBoards[0].SerialNumber)
+	assert.InEpsilon(t, 73.0, *telemetry.HashBoards[0].Temperature, 0.01) // max of temp_chip
+	assert.InEpsilon(t, 59.0, *telemetry.HashBoards[0].InletTemp, 0.01)   // avg of first 2
+	assert.InEpsilon(t, 73.0, *telemetry.HashBoards[0].OutletTemp, 0.01)  // avg of last 2
+	assert.Equal(t, 108, telemetry.HashBoards[0].ChipCount)
+	assert.Equal(t, 490, telemetry.HashBoards[0].ChipFrequencyMHz)
+
+	// Verify fans
+	assert.Equal(t, 0, telemetry.Fans[0].Index)
+	assert.Equal(t, 7000, telemetry.Fans[0].RPM)
+	assert.Equal(t, 3, telemetry.Fans[3].Index)
+	assert.Equal(t, 7300, telemetry.Fans[3].RPM)
 }
 
 func TestClient_Pair(t *testing.T) {

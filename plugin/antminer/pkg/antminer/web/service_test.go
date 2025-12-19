@@ -37,6 +37,7 @@ func newTestAntminerConnectionInfo(t *testing.T, urlStr string, creds sdk.Userna
 }
 
 func TestGetSystemInfo(t *testing.T) {
+	// Arrange
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "/cgi-bin/get_system_info.cgi", r.URL.Path)
@@ -74,8 +75,10 @@ func TestGetSystemInfo(t *testing.T) {
 	service := web.NewService()
 	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
+	// Act
 	systemInfo, err := service.GetSystemInfo(t.Context(), connInfo)
 
+	// Assert
 	require.NoError(t, err)
 	assert.NotZero(t, systemInfo)
 	assert.Equal(t, "Antminer S21", systemInfo.MinerType)
@@ -84,6 +87,7 @@ func TestGetSystemInfo(t *testing.T) {
 }
 
 func TestGetMinerSummary(t *testing.T) {
+	// Arrange
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "/cgi-bin/summary.cgi", r.URL.Path)
@@ -93,18 +97,18 @@ func TestGetMinerSummary(t *testing.T) {
 			"STATUS": [{"STATUS": "S", "When": 1750192565, "Msg": "summary", "Code": 0, "Description": ""}],
 			"INFO": {"miner_version": "uart_trans.1.3", "CompileTime": "Thu Jul 11 16:38:25 CST 2024", "type": "Antminer S21"},
 			"SUMMARY": [{
-				"elapsed": 3817, 
-				"rate_5s": 206238.69, 
-				"rate_30m": 204185.62, 
-				"rate_avg": 203719.72, 
-				"rate_ideal": 200000.0, 
-				"rate_unit": "GH/s", 
-				"hw_all": 2, 
-				"bestshare": 727920402, 
+				"elapsed": 3817,
+				"rate_5s": 206238.69,
+				"rate_30m": 204185.62,
+				"rate_avg": 203719.72,
+				"rate_ideal": 200000.0,
+				"rate_unit": "GH/s",
+				"hw_all": 2,
+				"bestshare": 727920402,
 				"status": [
-					{"type": "rate", "status": "s", "code": 0, "msg": ""}, 
-					{"type": "network", "status": "s", "code": 0, "msg": ""}, 
-					{"type": "fans", "status": "s", "code": 0, "msg": ""}, 
+					{"type": "rate", "status": "s", "code": 0, "msg": ""},
+					{"type": "network", "status": "s", "code": 0, "msg": ""},
+					{"type": "fans", "status": "s", "code": 0, "msg": ""},
 					{"type": "temp", "status": "s", "code": 0, "msg": ""}
 				]
 			}]
@@ -118,8 +122,10 @@ func TestGetMinerSummary(t *testing.T) {
 	service := web.NewService()
 	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
+	// Act
 	summary, err := service.GetMinerSummary(t.Context(), connInfo)
 
+	// Assert
 	require.NoError(t, err)
 	assert.NotZero(t, summary)
 	require.NotEmpty(t, summary.Status)
@@ -352,6 +358,98 @@ func TestBlink(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestGetStatsInfo(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/cgi-bin/stats.cgi", r.URL.Path)
+
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{
+			"STATUS": {"STATUS": "S", "when": 1766099123, "Msg": "stats", "api_version": "1.0.0"},
+			"INFO": {"miner_version": "uart_trans.1.3", "CompileTime": "Thu Jul 11 16:38:25 CST 2024", "type": "Antminer S21"},
+			"STATS": [{
+				"elapsed": 8152,
+				"rate_5s": 206901.8,
+				"rate_30m": 204393.1,
+				"rate_avg": 203856.36,
+				"rate_ideal": 200000.0,
+				"rate_unit": "GH/s",
+				"chain_num": 3,
+				"fan_num": 4,
+				"fan": [7000, 7000, 7000, 7000],
+				"hwp_total": 0.0006,
+				"chain": [
+					{
+						"index": 0,
+						"freq_avg": 490,
+						"rate_ideal": 67525.0,
+						"rate_real": 67293.41,
+						"asic_num": 108,
+						"temp_pic": [44, 44, 58, 58],
+						"temp_pcb": [54, 54, 68, 68],
+						"temp_chip": [59, 59, 73, 73],
+						"hw": 0,
+						"sn": "SMTTYRHBDJAAI019D",
+						"hwp": 0.0
+					},
+					{
+						"index": 1,
+						"freq_avg": 490,
+						"rate_ideal": 67525.0,
+						"rate_real": 68916.75,
+						"asic_num": 108,
+						"temp_pic": [44, 44, 57, 57],
+						"temp_pcb": [54, 54, 67, 67],
+						"temp_chip": [59, 59, 72, 72],
+						"hw": 1,
+						"sn": "SMTTYRHBDJAAI019N",
+						"hwp": 0.001
+					},
+					{
+						"index": 2,
+						"freq_avg": 490,
+						"rate_ideal": 67525.0,
+						"rate_real": 70691.63,
+						"asic_num": 108,
+						"temp_pic": [44, 44, 58, 58],
+						"temp_pcb": [54, 54, 68, 68],
+						"temp_chip": [59, 59, 73, 73],
+						"hw": 1,
+						"sn": "SMTTYRHBDJAAI019S",
+						"hwp": 0.001
+					}
+				]
+			}]
+		}`))
+		if err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	service := web.NewService()
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+	// Act
+	stats, err := service.GetStatsInfo(t.Context(), connInfo)
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotZero(t, stats)
+	assert.Equal(t, "S", stats.STATUS.Status)
+	assert.Equal(t, "Antminer S21", stats.INFO.Type)
+	require.NotEmpty(t, stats.STATS)
+	assert.Equal(t, 3, stats.STATS[0].ChainNum)
+	assert.Equal(t, 4, stats.STATS[0].FanNum)
+	assert.Len(t, stats.STATS[0].Fan, 4)
+	assert.Equal(t, 7000, stats.STATS[0].Fan[0])
+	assert.Len(t, stats.STATS[0].Chain, 3)
+	assert.Len(t, stats.STATS[0].Chain[0].TempChip, 4)
+	assert.InEpsilon(t, 59.0, stats.STATS[0].Chain[0].TempChip[0], 0.01)
+	assert.InEpsilon(t, 73.0, stats.STATS[0].Chain[0].TempChip[2], 0.01)
 }
 
 func TestErrorHandling(t *testing.T) {

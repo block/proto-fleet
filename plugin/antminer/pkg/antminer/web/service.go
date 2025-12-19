@@ -26,6 +26,7 @@ const (
 	endpointSetConfig    = "/cgi-bin/set_miner_conf.cgi"
 	endpointReboot       = "/cgi-bin/reboot.cgi"
 	endpointBlink        = "/cgi-bin/blink.cgi"
+	endpointStats        = "/cgi-bin/stats.cgi"
 )
 
 // BitmainWorkMode represents the operating mode of an Antminer device
@@ -44,6 +45,7 @@ type WebAPIClient interface {
 	GetMinerSummary(ctx context.Context, connInfo *AntminerConnectionInfo) (*MinerSummary, error)
 	GetMinerConfig(ctx context.Context, connInfo *AntminerConnectionInfo) (*MinerConfig, error)
 	GetNetworkInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*NetworkInfo, error)
+	GetStatsInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*StatsInfo, error)
 	SetMinerConfig(ctx context.Context, connInfo *AntminerConnectionInfo, config *MinerConfig) error
 	Reboot(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	StartBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
@@ -160,6 +162,58 @@ type NetworkInfo struct {
 	ConfDNSServers string `json:"conf_dnsservers"`
 }
 
+// StatsStatus contains status information from stats.cgi response
+type StatsStatus struct {
+	Status     string `json:"STATUS"`
+	When       int64  `json:"when"`
+	Msg        string `json:"Msg"`
+	APIVersion string `json:"api_version"`
+}
+
+// StatsMinerInfo contains miner version and type information
+type StatsMinerInfo struct {
+	MinerVersion string `json:"miner_version"`
+	CompileTime  string `json:"CompileTime"`
+	Type         string `json:"type"`
+}
+
+// ChainStats represents per-chain telemetry data from stats.cgi
+type ChainStats struct {
+	Index     int       `json:"index"`
+	FreqAvg   int       `json:"freq_avg"`
+	RateIdeal float64   `json:"rate_ideal"`
+	RateReal  float64   `json:"rate_real"`
+	ASICNum   int       `json:"asic_num"`
+	TempPIC   []float64 `json:"temp_pic"`
+	TempPCB   []float64 `json:"temp_pcb"`
+	TempChip  []float64 `json:"temp_chip"`
+	HW        int       `json:"hw"`
+	SN        string    `json:"sn"`
+	HWP       float64   `json:"hwp"`
+}
+
+// StatsData contains aggregated miner statistics and per-chain metrics
+type StatsData struct {
+	Elapsed   int          `json:"elapsed"`
+	Rate5s    float64      `json:"rate_5s"`
+	Rate30m   float64      `json:"rate_30m"`
+	RateAvg   float64      `json:"rate_avg"`
+	RateIdeal float64      `json:"rate_ideal"`
+	RateUnit  string       `json:"rate_unit"`
+	ChainNum  int          `json:"chain_num"`
+	FanNum    int          `json:"fan_num"`
+	Fan       []int        `json:"fan"`
+	HWPTotal  float64      `json:"hwp_total"`
+	Chain     []ChainStats `json:"chain"`
+}
+
+// StatsInfo represents the complete response from stats.cgi endpoint
+type StatsInfo struct {
+	STATUS StatsStatus    `json:"STATUS"`
+	INFO   StatsMinerInfo `json:"INFO"`
+	STATS  []StatsData    `json:"STATS"`
+}
+
 type RequestOptions struct {
 	Method      string
 	Endpoint    string
@@ -274,6 +328,19 @@ func (s *Service) GetNetworkInfo(ctx context.Context, connInfo *AntminerConnecti
 		return nil, err
 	}
 	return &networkInfo, nil
+}
+
+func (s *Service) GetStatsInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*StatsInfo, error) {
+	var statsInfo StatsInfo
+	err := s.request(ctx, connInfo, RequestOptions{
+		Method:   http.MethodGet,
+		Endpoint: endpointStats,
+		Result:   &statsInfo,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &statsInfo, nil
 }
 
 func (s *Service) SetMinerConfig(ctx context.Context, connInfo *AntminerConnectionInfo, config *MinerConfig) error {

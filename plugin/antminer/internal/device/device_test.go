@@ -106,20 +106,6 @@ func cleanupDevice(t *testing.T, device *Device, mockClient *mocks.MockAntminerC
 	require.NoError(t, err)
 }
 
-// setupTestWithDevice creates a test device with standard setup and returns cleanup function
-func setupTestWithDevice(t *testing.T) (*Device, *mocks.MockAntminerClient, func()) {
-	ctrl := gomock.NewController(t)
-	mockClient := mocks.NewMockAntminerClient(ctrl)
-	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
-
-	cleanup := func() {
-		cleanupDevice(t, device, mockClient)
-		ctrl.Finish()
-	}
-
-	return device, mockClient, cleanup
-}
-
 // assertMetricValue validates that a telemetry value matches a metric value
 func assertMetricValue(t *testing.T, expected *float64, actual *sdk.MetricValue, msgAndArgs ...interface{}) {
 	if expected != nil && *expected > 0 {
@@ -258,9 +244,7 @@ func TestDevice_Status(t *testing.T) {
 			},
 			telemetry: &antminer.Telemetry{
 				HashrateHS:         ptrFloat64(100e12), // 100 TH/s
-				PowerWatts:         ptrFloat64(3000),
 				TemperatureCelsius: ptrFloat64(70),
-				EfficiencyJPerHash: ptrFloat64(30),
 				FanRPM:             ptrFloat64(4000),
 				UptimeSeconds:      ptrInt64(86400),
 			},
@@ -336,8 +320,8 @@ func TestDevice_Status(t *testing.T) {
 			// Verify telemetry data if provided - now wrapped in MetricValue
 			if tc.telemetry != nil {
 				assertMetricValue(t, tc.telemetry.HashrateHS, status.HashrateHS)
-				assertMetricValue(t, tc.telemetry.PowerWatts, status.PowerW)
 				assertMetricValue(t, tc.telemetry.TemperatureCelsius, status.TempC)
+				assertMetricValue(t, tc.telemetry.FanRPM, status.FanRPM)
 			}
 
 			// Verify SensorMetrics for uptime if provided

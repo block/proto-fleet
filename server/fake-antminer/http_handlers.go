@@ -46,7 +46,11 @@ func createSystemInfoHandler(state *MinerState) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(systemInfo)
+		if err := json.NewEncoder(w).Encode(systemInfo); err != nil {
+			log.Printf("Failed to encode system info response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -100,7 +104,92 @@ func createMinerSummaryHandler(state *MinerState) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(summary)
+		if err := json.NewEncoder(w).Encode(summary); err != nil {
+			log.Printf("Failed to encode miner summary response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func createStatsHandler(state *MinerState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+
+		now := time.Now().Unix()
+
+		const chainCount = 3
+		chains := make([]map[string]interface{}, chainCount)
+
+		// Add realistic variation to chain metrics
+		// Real miners show slight differences in temperature and hashrate per chain
+		chainTempVariations := []float64{0.0, 2.0, 4.0}       // Chains get progressively warmer
+		chainHashrateVariations := []float64{1.0, 1.02, 0.98} // ±2% hashrate variation
+
+		for i := 0; i < chainCount; i++ {
+			baseTemp := state.Temperature + chainTempVariations[i]
+			hashRatePerChain := (state.HashRate * 1000 / float64(chainCount)) * chainHashrateVariations[i]
+
+			chains[i] = map[string]interface{}{
+				"index":      i,
+				"freq_avg":   490,
+				"rate_ideal": state.HashRate * 1000 / float64(chainCount),
+				"rate_real":  hashRatePerChain,
+				"asic_num":   108,
+				"temp_pic":   []float64{baseTemp - 15, baseTemp - 15, baseTemp, baseTemp},
+				"temp_pcb":   []float64{baseTemp - 5, baseTemp - 5, baseTemp + 10, baseTemp + 10},
+				"temp_chip":  []float64{baseTemp, baseTemp, baseTemp + 14, baseTemp + 14},
+				"hw":         0,
+				"sn":         fmt.Sprintf("SMTTYRHBDJAAI019%c", 'D'+i),
+				"hwp":        0.0,
+			}
+		}
+
+		// Add realistic variation to fan speeds
+		// Real fans show slight RPM differences due to manufacturing tolerances and airflow
+		fanSpeeds := []int{7000, 7050, 6980, 7020}
+
+		stats := map[string]interface{}{
+			"STATUS": map[string]interface{}{
+				"STATUS":      "S",
+				"when":        now,
+				"Msg":         "stats",
+				"api_version": "1.0.0",
+			},
+			"INFO": map[string]string{
+				"miner_version": "uart_trans.1.3",
+				"CompileTime":   "Thu Jul 11 16:38:25 CST 2024",
+				"type":          state.MinerType,
+			},
+			"STATS": []map[string]interface{}{
+				{
+					"elapsed":    3600,
+					"rate_5s":    state.HashRate * 1000,
+					"rate_30m":   state.HashRate * 1000,
+					"rate_avg":   state.HashRate * 1000,
+					"rate_ideal": state.HashRate * 1000,
+					"rate_unit":  "GH/s",
+					"chain_num":  chainCount,
+					"fan_num":    4,
+					"fan":        fanSpeeds,
+					"hwp_total":  0.0006,
+					"chain":      chains,
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(stats); err != nil {
+			log.Printf("Failed to encode stats response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -143,7 +232,11 @@ func createMinerConfigHandler(state *MinerState) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(config)
+		if err := json.NewEncoder(w).Encode(config); err != nil {
+			log.Printf("Failed to encode miner config response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -173,7 +266,11 @@ func createNetworkInfoHandler(state *MinerState) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(networkInfo)
+		if err := json.NewEncoder(w).Encode(networkInfo); err != nil {
+			log.Printf("Failed to encode network info response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
