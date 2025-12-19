@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
@@ -201,42 +203,50 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 // Since CGMiner RPC provides point-in-time metrics (not historical errors),
 // errors are detected heuristically from current metric values.
 func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
-	// Fetch data from CGMiner RPC in parallel - collect all available data even if some calls fail
+	// Fetch data from both RPC and Web API in parallel - collect all available data even if some calls fail
 	var summaryResp *rpc.SummaryResponse
 	var devsResp *rpc.DevsResponse
 	var poolsResp *rpc.PoolsResponse
+	var statsResp *web.StatsInfo
 
-	var wg sync.WaitGroup
-	wg.Add(3)
+	g := new(errgroup.Group)
 
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		var err error
 		if summaryResp, err = d.client.GetSummary(ctx); err != nil {
 			slog.Warn("Failed to get summary for error detection", "deviceID", d.id, "error", err)
 		}
-	}()
+		return nil
+	})
 
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		var err error
 		if devsResp, err = d.client.GetDevs(ctx); err != nil {
 			slog.Warn("Failed to get devs for error detection", "deviceID", d.id, "error", err)
 		}
-	}()
+		return nil
+	})
 
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		var err error
 		if poolsResp, err = d.client.GetPools(ctx); err != nil {
 			slog.Warn("Failed to get pools for error detection", "deviceID", d.id, "error", err)
 		}
-	}()
+		return nil
+	})
 
-	wg.Wait()
+	g.Go(func() error {
+		var err error
+		if statsResp, err = d.client.GetStatsInfo(ctx); err != nil {
+			slog.Warn("Failed to get stats for error detection", "deviceID", d.id, "error", err)
+		}
+		return nil
+	})
+
+	_ = g.Wait() // We're collecting data even if some calls fail, so we ignore the error
 
 	// Detect errors from the collected data
-	errors := detectErrors(summaryResp, devsResp, poolsResp, d.id)
+	errors := detectErrors(summaryResp, devsResp, poolsResp, statsResp, d.id)
 
 	return sdk.DeviceErrors{
 		DeviceID: d.id,

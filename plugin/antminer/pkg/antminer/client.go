@@ -679,3 +679,13 @@ func (c *Client) GetPools(ctx context.Context) (*rpc.PoolsResponse, error) {
 	}
 	return c.rpcClient.GetPools(ctx, connInfo)
 }
+
+// GetStatsInfo gets comprehensive stats via Web API
+func (c *Client) GetStatsInfo(ctx context.Context) (*web.StatsInfo, error) {
+	if c.credentials == nil {
+		return nil, fmt.Errorf("credentials required for stats info")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	return c.webClient.GetStatsInfo(ctx, connInfo)
+}

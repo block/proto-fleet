@@ -669,6 +669,8 @@ func TestDevice_GetErrors(t *testing.T) {
 				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
 			},
 		}, nil)
+		// Stats API returns error (credentials required) - should fallback to RPC devs
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
 
 		errors, err := device.GetErrors(ctx)
 		require.NoError(t, err)
@@ -700,11 +702,63 @@ func TestDevice_GetErrors(t *testing.T) {
 				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Dead"}, // Pool down
 			},
 		}, nil)
+		// Stats API returns error (credentials required) - should fallback to RPC devs
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
 
 		errors, err := device.GetErrors(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, testDeviceID, errors.DeviceID)
 		assert.Len(t, errors.Errors, 2, "Expected 2 errors (temperature + pool)")
+	})
+
+	t.Run("stats_api_success_no_fallback_to_devs", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		// Mock RPC calls for summary and pools (still needed)
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{
+				{HardwareErrors: 10, DeviceHardwarePercent: 0.1, DeviceRejectedPercent: 0.5},
+			},
+		}, nil)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(&rpc.DevsResponse{
+			Devs: []rpc.DevInfo{
+				// This data should NOT be used since Stats API succeeds
+				{ASC: 0, Status: "Alive", Enabled: "Y", Temperature: 96.0, MHSAv: 100000000}, // Would trigger error if used
+			},
+		}, nil)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(&rpc.PoolsResponse{
+			Pools: []rpc.PoolInfo{
+				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
+			},
+		}, nil)
+		// Stats API succeeds with healthy chain data - should NOT fallback to RPC devs
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(&web.StatsInfo{
+			STATS: []web.StatsData{
+				{
+					Chain: []web.ChainStats{
+						{
+							Index:     0,
+							RateReal:  13500.0, // Healthy hashrate
+							RateIdeal: 14000.0,
+							TempChip:  []float64{70.0, 72.0, 71.0}, // Healthy temps
+							HW:        50,                          // Low HW errors
+							HWP:       0.05,                        // Low HW error percentage
+							SN:        "test-chain-0",
+						},
+					},
+				},
+			},
+		}, nil)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, testDeviceID, errors.DeviceID)
+		assert.Empty(t, errors.Errors, "Expected no errors when Stats API provides healthy data")
 	})
 
 	t.Run("rpc_failures_graceful_degradation", func(t *testing.T) {
@@ -719,6 +773,7 @@ func TestDevice_GetErrors(t *testing.T) {
 		mockClient.EXPECT().GetSummary(gomock.Any()).Return(nil, assert.AnError)
 		mockClient.EXPECT().GetDevs(gomock.Any()).Return(nil, assert.AnError)
 		mockClient.EXPECT().GetPools(gomock.Any()).Return(nil, assert.AnError)
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
 
 		errors, err := device.GetErrors(ctx)
 		require.NoError(t, err)

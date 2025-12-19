@@ -1,10 +1,12 @@
 package device
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
 	sdkerrors "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,12 +22,12 @@ func createTestDevsResponse(devs ...rpc.DevInfo) *rpc.DevsResponse {
 }
 
 // Helper function to create test summary response
-func createTestSummaryResponse(hwErrors int64, hwPercent float64) *rpc.SummaryResponse {
+func createTestSummaryResponse() *rpc.SummaryResponse {
 	return &rpc.SummaryResponse{
 		Summary: []rpc.SummaryInfo{
 			{
-				HardwareErrors:        hwErrors,
-				DeviceHardwarePercent: hwPercent,
+				HardwareErrors:        10,
+				DeviceHardwarePercent: 0.1,
 			},
 		},
 	}
@@ -690,7 +692,7 @@ func TestDetectErrors_NoErrors(t *testing.T) {
 		healthyPoolInfo(0, "stratum+tcp://pool1.example.com:3333"),
 	)
 
-	errors := detectErrors(summary, devs, pools, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors)
 
 	assert.Empty(t, errors, "Expected no errors for healthy device")
 }
@@ -721,7 +723,7 @@ func TestDetectErrors_MultipleConcurrentErrors(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(summary, devs, pools, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors)
 
 	// Should have: 1 temp error, 1 comm lost, 1 rejection, 1 pool failure
 	require.Len(t, errors, 4)
@@ -748,10 +750,10 @@ func TestDetectErrors_MultipleConcurrentErrors(t *testing.T) {
 
 // Test: Empty responses
 func TestDetectErrors_EmptyResponses(t *testing.T) {
-	errors := detectErrors(nil, nil, nil, testDeviceIDForErrors)
+	errors := detectErrors(nil, nil, nil, nil, testDeviceIDForErrors)
 	assert.Empty(t, errors)
 
-	errors = detectErrors(&rpc.SummaryResponse{}, &rpc.DevsResponse{}, &rpc.PoolsResponse{}, testDeviceIDForErrors)
+	errors = detectErrors(&rpc.SummaryResponse{}, &rpc.DevsResponse{}, &rpc.PoolsResponse{}, nil, testDeviceIDForErrors)
 	assert.Empty(t, errors)
 }
 
@@ -768,7 +770,7 @@ func TestDetectErrors_Timestamps(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(nil, devs, nil, testDeviceIDForErrors)
+	errors := detectErrors(nil, devs, nil, nil, testDeviceIDForErrors)
 
 	afterTest := time.Now()
 
@@ -790,8 +792,311 @@ func TestDetectErrors_DeviceID(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(nil, devs, nil, customDeviceID)
+	errors := detectErrors(nil, devs, nil, nil, customDeviceID)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, customDeviceID, errors[0].DeviceID)
+}
+
+// ============================================================================
+// Stats API-based Error Detection Tests (with fallback to RPC)
+// ============================================================================
+
+// Helper function to create test ChainStats for stats API tests
+func createTestChainStats(index int, tempChip []float64, rateReal float64, hwp float64, hw int) web.ChainStats {
+	return web.ChainStats{
+		Index:     index,
+		TempChip:  tempChip,
+		RateReal:  rateReal,
+		RateIdeal: rateReal * 1.1, // Ideal is typically slightly higher
+		HWP:       hwp,
+		HW:        hw,
+		SN:        fmt.Sprintf("SN-CHAIN-%d", index),
+	}
+}
+
+// Test: Stats API temperature detection - Critical
+func TestDetectTemperatureErrorsFromStats_Critical(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{96.0, 97.0, 95.5, 96.5}, 14000.0, 0.1, 10),
+	}
+
+	errors := detectTemperatureErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.HashboardOverTemperature, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityCritical, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "97.0°C") // Max temp from array
+	assert.Contains(t, errors[0].VendorAttributes, "chain_index")
+	assert.Contains(t, errors[0].VendorAttributes, "serial_number")
+	assert.Equal(t, "SN-CHAIN-0", errors[0].VendorAttributes["serial_number"])
+}
+
+// Test: Stats API temperature detection - Major
+func TestDetectTemperatureErrorsFromStats_Major(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(1, []float64{86.0, 87.0, 85.5, 86.5}, 14000.0, 0.1, 10),
+	}
+
+	errors := detectTemperatureErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.HashboardOverTemperature, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "87.0°C")
+}
+
+// Test: Stats API temperature detection - Multiple chains
+func TestDetectTemperatureErrorsFromStats_MultipleChains(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{96.0, 97.0}, 14000.0, 0.1, 10), // Critical
+		createTestChainStats(1, []float64{70.0, 72.0}, 14000.0, 0.1, 10), // OK
+		createTestChainStats(2, []float64{86.0, 87.0}, 14000.0, 0.1, 10), // Major
+	}
+
+	errors := detectTemperatureErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 2)
+	// Should have one critical and one major
+	severities := []sdkerrors.Severity{errors[0].Severity, errors[1].Severity}
+	assert.Contains(t, severities, sdkerrors.SeverityCritical)
+	assert.Contains(t, severities, sdkerrors.SeverityMajor)
+}
+
+// Test: Stats API temperature detection - Empty temp array
+func TestDetectTemperatureErrorsFromStats_EmptyTempArray(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{}, 14000.0, 0.1, 10),
+	}
+
+	errors := detectTemperatureErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors, "Should not detect errors when temp array is empty")
+}
+
+// Test: Stats API temperature detection - All invalid temperatures
+func TestDetectTemperatureErrorsFromStats_InvalidTemps(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{-300.0, -400.0}, 14000.0, 0.1, 10),
+	}
+
+	errors := detectTemperatureErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors, "Should not detect errors when all temps are invalid")
+}
+
+// Test: Stats API hashboard status - Not hashing
+func TestDetectHashboardStatusErrorsFromStats_NotHashing(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0, 72.0}, 0.0, 0.0, 0), // RateReal = 0
+	}
+
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.HashrateBelowTarget, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "not producing hashrate")
+	assert.Contains(t, errors[0].VendorAttributes, "rate_real_ghs")
+	assert.Contains(t, errors[0].VendorAttributes, "serial_number")
+	// rate_ideal_ghs is not included when RateReal is 0 (validation skips invalid values)
+	assert.NotContains(t, errors[0].VendorAttributes, "rate_ideal_ghs")
+}
+
+// Test: Stats API hashboard status - Multiple chains with issues
+func TestDetectHashboardStatusErrorsFromStats_MultipleChains(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 0.0, 0.0, 0),      // Not hashing
+		createTestChainStats(1, []float64{72.0}, 14000.0, 0.1, 10), // OK
+		createTestChainStats(2, []float64{71.0}, -1.0, 0.0, 0),     // Negative rate
+	}
+
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 2, "Should detect 2 non-hashing chains")
+}
+
+// Test: Stats API hashboard status - All healthy
+func TestDetectHashboardStatusErrorsFromStats_Healthy(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 14000.0, 0.1, 10),
+		createTestChainStats(1, []float64{72.0}, 13500.0, 0.1, 10),
+	}
+
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors, "Should not detect errors for healthy chains")
+}
+
+// Test: Stats API hardware errors - Major percentage
+func TestDetectPerBoardHardwareErrorsFromStats_PercentMajor(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 14000.0, 6.0, 5000), // HWP = 6% > 5% threshold
+	}
+
+	errors := detectPerBoardHardwareErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.HashboardWarnCRCHigh, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "6.00%")
+	assert.Contains(t, errors[0].VendorAttributes, "hw_error_percent")
+	assert.Contains(t, errors[0].VendorAttributes, "hw_error_count")
+	assert.Equal(t, "5000", errors[0].VendorAttributes["hw_error_count"])
+}
+
+// Test: Stats API hardware errors - Minor percentage
+func TestDetectPerBoardHardwareErrorsFromStats_PercentMinor(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 14000.0, 2.0, 1500), // HWP = 2% between 1-5%
+	}
+
+	errors := detectPerBoardHardwareErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.HashboardWarnCRCHigh, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityMinor, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "2.00%")
+}
+
+// Test: Stats API hardware errors - High count threshold
+func TestDetectPerBoardHardwareErrorsFromStats_Count(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 14000.0, 0.5, 1200), // Low % but high count
+	}
+
+	errors := detectPerBoardHardwareErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.SeverityMinor, errors[0].Severity)
+	assert.Contains(t, errors[0].Summary, "1200 hardware errors")
+}
+
+// Test: Stats API hardware errors - No errors
+func TestDetectPerBoardHardwareErrorsFromStats_NoErrors(t *testing.T) {
+	now := time.Now()
+	chains := []web.ChainStats{
+		createTestChainStats(0, []float64{70.0}, 14000.0, 0.1, 10),
+		createTestChainStats(1, []float64{72.0}, 13500.0, 0.2, 20),
+	}
+
+	errors := detectPerBoardHardwareErrorsFromStats(chains, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors, "Should not detect errors with low HW error rates")
+}
+
+// ============================================================================
+// Fallback Behavior Tests
+// ============================================================================
+
+// Test: Fallback from stats to RPC when stats is nil
+func TestDetectErrors_FallbackToRPC_StatsNil(t *testing.T) {
+	summary := createTestSummaryResponse()
+	devs := createTestDevsResponse(
+		rpc.DevInfo{
+			ASC:         0,
+			Status:      "Alive",
+			Enabled:     "Y",
+			Temperature: 96.0, // Critical temp
+			MHSAv:       100000000,
+		},
+	)
+
+	// Pass nil for stats - should use RPC devs data
+	errors := detectErrors(summary, devs, nil, nil, testDeviceIDForErrors)
+
+	require.Len(t, errors, 1, "Should detect temperature error from RPC devs")
+	assert.Equal(t, sdkerrors.HashboardOverTemperature, errors[0].MinerError)
+	// Check that vendor attributes use RPC field name (asc_index not chain_index)
+	assert.Contains(t, errors[0].VendorAttributes, "asc_index")
+	assert.NotContains(t, errors[0].VendorAttributes, "chain_index")
+}
+
+// Test: Fallback from stats to RPC when stats has no chains
+func TestDetectErrors_FallbackToRPC_EmptyChains(t *testing.T) {
+	summary := createTestSummaryResponse()
+	devs := createTestDevsResponse(
+		rpc.DevInfo{
+			ASC:                   0,
+			Status:                "Alive",
+			Enabled:               "Y",
+			Temperature:           96.0,
+			MHSAv:                 100000000,
+			DeviceHardwarePercent: 6.0,
+			HardwareErrors:        5000,
+		},
+	)
+	stats := &web.StatsInfo{
+		STATS: []web.StatsData{
+			{Chain: []web.ChainStats{}}, // Empty chains
+		},
+	}
+
+	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors)
+
+	require.Len(t, errors, 2, "Should detect temp + HW errors from RPC devs")
+	assert.Contains(t, errors[0].VendorAttributes, "asc_index")
+}
+
+// Test: Prefer stats over RPC when stats is available
+func TestDetectErrors_PreferStats_WhenAvailable(t *testing.T) {
+	summary := createTestSummaryResponse()
+	// RPC devs has one error
+	devs := createTestDevsResponse(
+		rpc.DevInfo{
+			ASC:         0,
+			Status:      "Alive",
+			Enabled:     "Y",
+			Temperature: 96.0, // Would trigger error
+			MHSAv:       100000000,
+		},
+	)
+	// Stats has different (healthier) data
+	stats := &web.StatsInfo{
+		STATS: []web.StatsData{
+			{
+				Chain: []web.ChainStats{
+					createTestChainStats(0, []float64{70.0, 72.0}, 14000.0, 0.1, 10), // Healthy
+				},
+			},
+		},
+	}
+
+	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors)
+
+	// Should use stats data (healthy) not RPC devs data (overheating)
+	assert.Empty(t, errors, "Should use healthy stats data, not RPC data")
+}
+
+// Test: Stats data takes precedence and uses chain_index
+func TestDetectErrors_StatsDataUsesChainIndex(t *testing.T) {
+	summary := createTestSummaryResponse()
+	stats := &web.StatsInfo{
+		STATS: []web.StatsData{
+			{
+				Chain: []web.ChainStats{
+					createTestChainStats(0, []float64{96.0, 97.0}, 14000.0, 0.1, 10), // Critical
+				},
+			},
+		},
+	}
+
+	errors := detectErrors(summary, nil, nil, stats, testDeviceIDForErrors)
+
+	require.Len(t, errors, 1)
+	// Verify it uses stats-specific field name
+	assert.Contains(t, errors[0].VendorAttributes, "chain_index")
+	assert.Contains(t, errors[0].VendorAttributes, "serial_number")
+	assert.NotContains(t, errors[0].VendorAttributes, "asc_index")
 }

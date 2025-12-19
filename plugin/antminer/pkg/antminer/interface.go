@@ -21,6 +21,9 @@ type AntminerClient interface {
 	GetDevs(ctx context.Context) (*rpc.DevsResponse, error)
 	GetPools(ctx context.Context) (*rpc.PoolsResponse, error)
 
+	// Web API operations
+	GetStatsInfo(ctx context.Context) (*web.StatsInfo, error)
+
 	// High-level operations
 	GetDeviceInfo(ctx context.Context) (*DeviceInfo, error)
 	GetStatus(ctx context.Context) (*Status, error)
