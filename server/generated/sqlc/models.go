@@ -145,12 +145,13 @@ func (ns NullDevicePairingPairingStatus) Value() (driver.Value, error) {
 type DeviceStatusStatus string
 
 const (
-	DeviceStatusStatusACTIVE      DeviceStatusStatus = "ACTIVE"
-	DeviceStatusStatusINACTIVE    DeviceStatusStatus = "INACTIVE"
-	DeviceStatusStatusOFFLINE     DeviceStatusStatus = "OFFLINE"
-	DeviceStatusStatusMAINTENANCE DeviceStatusStatus = "MAINTENANCE"
-	DeviceStatusStatusERROR       DeviceStatusStatus = "ERROR"
-	DeviceStatusStatusUNKNOWN     DeviceStatusStatus = "UNKNOWN"
+	DeviceStatusStatusACTIVE          DeviceStatusStatus = "ACTIVE"
+	DeviceStatusStatusINACTIVE        DeviceStatusStatus = "INACTIVE"
+	DeviceStatusStatusOFFLINE         DeviceStatusStatus = "OFFLINE"
+	DeviceStatusStatusMAINTENANCE     DeviceStatusStatus = "MAINTENANCE"
+	DeviceStatusStatusERROR           DeviceStatusStatus = "ERROR"
+	DeviceStatusStatusUNKNOWN         DeviceStatusStatus = "UNKNOWN"
+	DeviceStatusStatusNEEDSMININGPOOL DeviceStatusStatus = "NEEDS_MINING_POOL"
 )
 
 func (e *DeviceStatusStatus) Scan(src interface{}) error {

@@ -17,14 +17,16 @@ import { analyzeErrors, computeComponentStatusTitle, getComponentDisplayName, ge
  * Priority for condensed (when no errors):
  * 1. isOffline → "Offline"
  * 2. isSleeping → "Sleeping"
- * 3. needsAuthentication → "Needs Authentication"
- * 4. hasErrors → error title
- * 5. default → "Hashing"
+ * 3. needsMiningPool → "Needs mining pool"
+ * 4. needsAuthentication → "Needs Authentication"
+ * 5. hasErrors → error title
+ * 6. default → "Hashing"
  *
  * @param groupedErrors - Errors grouped by component type
  * @param isSleeping - Miner is intentionally sleeping/stopped
  * @param isOffline - Miner is offline/unreachable (defaults to false)
  * @param needsAuthentication - Miner needs authentication (defaults to false)
+ * @param needsMiningPool - Miner needs a mining pool configured (defaults to false)
  * @returns Memoized MinerStatusSummary object
  *
  * @example
@@ -41,6 +43,7 @@ export function useMinerStatusSummary(
   isSleeping: boolean = false,
   isOffline: boolean = false,
   needsAuthentication: boolean = false,
+  needsMiningPool: boolean = false,
 ): MinerStatusSummary {
   return useMemo(() => {
     const { componentTypesWithErrors } = analyzeErrors(groupedErrors);
@@ -49,12 +52,14 @@ export function useMinerStatusSummary(
     // Compute title based on errors
     const title = hasErrors ? computeErrorTitle(componentTypesWithErrors) : "All systems are operational";
 
-    // Compute condensed: priority is offline → sleeping → needsAuth → errors → hashing
+    // Compute condensed: priority is offline → sleeping → needsMiningPool → needsAuth → errors → hashing
     let condensed: string;
     if (isOffline) {
       condensed = "Offline";
     } else if (isSleeping) {
       condensed = "Sleeping";
+    } else if (needsMiningPool) {
+      condensed = "Needs mining pool";
     } else if (needsAuthentication) {
       condensed = "Needs Authentication";
     } else if (hasErrors) {
@@ -68,7 +73,7 @@ export function useMinerStatusSummary(
       title,
       subtitle: undefined,
     };
-  }, [groupedErrors, isSleeping, isOffline, needsAuthentication]);
+  }, [groupedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool]);
 }
 
 /**

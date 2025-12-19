@@ -65,14 +65,26 @@ describe("useMinerStatusSummary", () => {
       expect(result.current.title).toBe("All systems are operational");
     });
 
-    it("should prioritize offline > sleeping > needsAuthentication", () => {
-      // All three flags true - offline wins
-      const { result: offlineWins } = renderHook(() => useMinerStatusSummary(emptyErrors, true, true, true));
+    it('should return condensed="Needs mining pool" when needsMiningPool is true', () => {
+      const { result } = renderHook(() => useMinerStatusSummary(emptyErrors, false, false, false, true));
+      expect(result.current.condensed).toBe("Needs mining pool");
+      expect(result.current.title).toBe("All systems are operational");
+    });
+
+    it("should prioritize offline > sleeping > needsMiningPool > needsAuthentication", () => {
+      // All flags true - offline wins
+      const { result: offlineWins } = renderHook(() => useMinerStatusSummary(emptyErrors, true, true, true, true));
       expect(offlineWins.current.condensed).toBe("Offline");
 
-      // Sleeping and needsAuth - sleeping wins
-      const { result: sleepingWins } = renderHook(() => useMinerStatusSummary(emptyErrors, true, false, true));
+      // Sleeping and others - sleeping wins
+      const { result: sleepingWins } = renderHook(() => useMinerStatusSummary(emptyErrors, true, false, true, true));
       expect(sleepingWins.current.condensed).toBe("Sleeping");
+
+      // needsMiningPool and needsAuth - needsMiningPool wins
+      const { result: needsMiningPoolWins } = renderHook(() =>
+        useMinerStatusSummary(emptyErrors, false, false, true, true),
+      );
+      expect(needsMiningPoolWins.current.condensed).toBe("Needs mining pool");
     });
 
     it('should default to condensed="Hashing" when no flags provided', () => {

@@ -156,6 +156,7 @@ WHERE dp.pairing_status = 'PAIRED'
 -- 2. Sleeping (sleeping_count):
 --    - MAINTENANCE/INACTIVE status (only if not offline, regardless of errors or auth status)
 -- 3. Needs Attention (broken_count):
+--    - NEEDS_MINING_POOL device status OR
 --    - ERROR device status OR
 --    - AUTHENTICATION_NEEDED pairing status OR
 --    - Has open errors with severity CRITICAL/MAJOR/MINOR
@@ -183,12 +184,12 @@ SELECT
         ELSE 0
     END) as sleeping_count,
 
-    -- Broken/Needs Attention: ERROR status OR auth needed OR actionable errors
+    -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR status OR auth needed OR actionable errors
     -- Only if not offline or sleeping
     SUM(CASE
         WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
              AND ds.status IS NOT NULL
-             AND (ds.status = 'ERROR'
+             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
@@ -386,18 +387,18 @@ FROM (
                     OR (sqlc.narg('needs_attention_filter') = TRUE)
                 )
             )
-            -- For needs attention filter: only include auth needed devices that are not offline/sleeping
+            -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
             OR (sqlc.narg('needs_attention_filter') = TRUE
                 AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 AND ds.status IS NOT NULL)
-            -- For needs attention filter: only include devices with errors that are not offline/sleeping
+            -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
             -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
             -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
             -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
             OR (sqlc.narg('needs_attention_filter') = TRUE
                 AND open_errors.device_id IS NOT NULL
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 AND ds.status IS NOT NULL)
         )
         -- Type filter
@@ -474,18 +475,18 @@ FROM (
                     OR (sqlc.narg('needs_attention_filter') = TRUE)
                 )
             )
-            -- For needs attention filter: only include auth needed devices that are not offline/sleeping
+            -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
             OR (sqlc.narg('needs_attention_filter') = TRUE
                 AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 AND ds.status IS NOT NULL)
-            -- For needs attention filter: only include devices with errors that are not offline/sleeping
+            -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
             -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
             -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
             -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
             OR (sqlc.narg('needs_attention_filter') = TRUE
                 AND open_errors.device_id IS NOT NULL
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 AND ds.status IS NOT NULL)
         )
         -- Type filter

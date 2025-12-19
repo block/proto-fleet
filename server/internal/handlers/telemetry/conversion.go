@@ -530,6 +530,8 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
 		case mm.MinerStatusOffline:
 			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_OFFLINE
+		case mm.MinerStatusNeedsMiningPool:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
 		}
 		telemetryUpdate.DeviceStatus = &deviceStatus
 	}

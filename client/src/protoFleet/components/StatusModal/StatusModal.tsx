@@ -10,6 +10,7 @@ import {
   transformFleetErrorsToShared,
 } from "./utils";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
@@ -97,12 +98,14 @@ const ProtoFleetStatusModal = ({
   // Transform ProtoFleet errors to shared format for status computation
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
-  // Determine status flags from DeviceStatus
+  // Determine status flags from DeviceStatus and PairingStatus
   const isSleeping = miner?.deviceStatus === DeviceStatus.INACTIVE;
   const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
+  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsMiningPool = miner?.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
   // Compute summary using shared hook (replaces API-provided summary)
-  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline);
+  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {

@@ -124,9 +124,11 @@ enum DeviceStatus {
   // Miner is in error state
   DEVICE_STATUS_ERROR = 4;
 
-  // Miner is inactive and not responding
+  // Miner is inactive, not mining but still connected
   DEVICE_STATUS_INACTIVE = 5;
 
+  // Miner is online but needs a mining pool configured to start mining
+  DEVICE_STATUS_NEEDS_MINING_POOL = 6;
 }
 
 // Configuration for a specific measurement type

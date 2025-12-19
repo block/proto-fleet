@@ -12,6 +12,7 @@ const (
 	MinerStatusInactive
 	MinerStatusMaintenance
 	MinerStatusError
+	MinerStatusNeedsMiningPool
 )
 
 func (m MinerStatus) String() string {
@@ -28,6 +29,8 @@ func (m MinerStatus) String() string {
 		return "maintenance"
 	case MinerStatusError:
 		return "error"
+	case MinerStatusNeedsMiningPool:
+		return "needs_mining_pool"
 	default:
 		return "unknown"
 	}
@@ -47,6 +50,8 @@ func (m MinerStatus) Parse(s string) (MinerStatus, error) {
 		return MinerStatusMaintenance, nil
 	case "error":
 		return MinerStatusError, nil
+	case "needs_mining_pool":
+		return MinerStatusNeedsMiningPool, nil
 	default:
 		return MinerStatusUnknown, fmt.Errorf("unknown miner status: %s", s)
 	}

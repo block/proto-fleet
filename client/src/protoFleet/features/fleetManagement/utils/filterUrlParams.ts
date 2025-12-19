@@ -53,6 +53,7 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
           statusValues.push("hashing");
           break;
         case DeviceStatus.ERROR:
+        case DeviceStatus.NEEDS_MINING_POOL:
           statusValues.push("needs-attention");
           break;
         case DeviceStatus.OFFLINE:
@@ -140,6 +141,7 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
           break;
         case "needs-attention":
           filter.deviceStatus.push(DeviceStatus.ERROR);
+          filter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
           break;
         case "offline":
           filter.deviceStatus.push(DeviceStatus.OFFLINE);

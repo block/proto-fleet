@@ -340,6 +340,8 @@ const (
 	HealthWarning
 	// HealthCritical represents failed, non-functional, or requires immediate attention
 	HealthCritical
+	// HealthNeedsMiningPool represents device is online but needs mining pool configured
+	HealthNeedsMiningPool
 )
 
 // DeviceCore represents the core functionality that all devices must implement

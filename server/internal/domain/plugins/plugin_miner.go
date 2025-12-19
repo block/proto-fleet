@@ -141,6 +141,8 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 		status = models.MinerStatusActive // Still operational despite warning
 	case sdk.HealthCritical:
 		status = models.MinerStatusError
+	case sdk.HealthNeedsMiningPool:
+		status = models.MinerStatusNeedsMiningPool
 	case sdk.HealthUnknown:
 		status = models.MinerStatusOffline
 	case sdk.HealthStatusUnspecified:

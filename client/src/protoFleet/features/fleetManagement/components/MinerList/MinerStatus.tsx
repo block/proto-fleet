@@ -42,6 +42,7 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   // Compute status flags
   const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
   const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
+  const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
 
   // Transform errors to shared format
@@ -81,12 +82,12 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   }, [errors]);
 
   // Use shared hook for condensed text
-  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication);
+  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool);
 
   // Determine icon based on error component types (UI-specific)
-  // Don't show error icon when miner is in an inactive state (sleeping/offline/needs auth)
+  // Don't show error icon when miner is in a non-hashing state
   const errorIcon = useMemo((): ReactNode | null => {
-    if (isOffline || isSleeping || needsAuthentication) {
+    if (isOffline || isSleeping || needsAuthentication || needsMiningPool) {
       return null;
     }
     if (!errors || errors.length === 0) return null;
@@ -103,18 +104,18 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
       return getComponentIcon(Array.from(componentTypes)[0]);
     }
     return <Alert width="w-4" />;
-  }, [errors, isOffline, isSleeping, needsAuthentication]);
+  }, [errors, isOffline, isSleeping, needsAuthentication, needsMiningPool]);
 
   // Determine StatusCircle status based on flags and errors
   const circleStatus = useMemo(() => {
-    if (isOffline || isSleeping || needsAuthentication) {
+    if (isOffline || isSleeping || needsAuthentication || needsMiningPool) {
       return statuses.inactive;
     }
     if (errorIcon) {
       return statuses.error;
     }
     return statuses.normal;
-  }, [isOffline, isSleeping, needsAuthentication, errorIcon]);
+  }, [isOffline, isSleeping, needsAuthentication, needsMiningPool, errorIcon]);
 
   // Determine if the status should be clickable
   const isClickable = onClick && (!needsAuthentication || isSleeping);

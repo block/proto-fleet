@@ -434,6 +434,8 @@ func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusStatus {
 		return sqlc.DeviceStatusStatusMAINTENANCE
 	case minermodels.MinerStatusError:
 		return sqlc.DeviceStatusStatusERROR
+	case minermodels.MinerStatusNeedsMiningPool:
+		return sqlc.DeviceStatusStatusNEEDSMININGPOOL
 	default:
 		return sqlc.DeviceStatusStatusUNKNOWN
 	}
@@ -452,6 +454,8 @@ func toMinerStatus(status sqlc.DeviceStatusStatus) minermodels.MinerStatus {
 		return minermodels.MinerStatusMaintenance
 	case sqlc.DeviceStatusStatusERROR:
 		return minermodels.MinerStatusError
+	case sqlc.DeviceStatusStatusNEEDSMININGPOOL:
+		return minermodels.MinerStatusNeedsMiningPool
 	default:
 		return minermodels.MinerStatusUnknown
 	}

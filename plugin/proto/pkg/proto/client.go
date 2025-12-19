@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -358,11 +359,22 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	case miner_data_api.MiningState_MINING_STATE_POWERING_OFF:
 		state = sdk.HealthUnknown
 	case miner_data_api.MiningState_MINING_STATE_NO_POOLS:
-		state = sdk.HealthUnknown
+		state = sdk.HealthNeedsMiningPool
 	case miner_data_api.MiningState_MINING_STATE_ERROR:
 		state = sdk.HealthCritical
 	default:
 		state = sdk.HealthUnknown
+	}
+
+	// If firmware didn't report NO_POOLS state, check pools directly
+	// This matches ProtoOS behavior which checks pools list independently
+	if state != sdk.HealthNeedsMiningPool {
+		needsPool, err := c.checkNeedsMiningPool(ctx)
+		if err != nil {
+			slog.Warn("failed to check pool configuration", "error", err)
+		} else if needsPool {
+			state = sdk.HealthNeedsMiningPool
+		}
 	}
 
 	return &Status{
@@ -370,6 +382,30 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		ErrorMessage:    "", // TODO: Extract from API when available
 		FirmwareVersion: "", // TODO: Get from API when available
 	}, nil
+}
+
+// checkNeedsMiningPool checks if the miner has no active pools configured.
+// Returns true if no pools are configured or all pools are dead/inactive.
+func (c *Client) checkNeedsMiningPool(ctx context.Context) (bool, error) {
+	poolsResp, err := c.dataClient.GetPools(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return false, fmt.Errorf("failed to get pools: %w", err)
+	}
+
+	// No pools configured at all
+	if len(poolsResp.Msg.Pools) == 0 {
+		return true, nil
+	}
+
+	// Check if any pool has a URL configured
+	for _, pool := range poolsResp.Msg.Pools {
+		if pool.Url != "" {
+			return false, nil
+		}
+	}
+
+	// All pools have empty URLs - effectively no pools configured
+	return true, nil
 }
 
 // GetTelemetryValues retrieves comprehensive telemetry data from the miner.

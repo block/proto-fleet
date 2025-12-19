@@ -1,0 +1,11 @@
+ALTER TABLE device_status
+  MODIFY COLUMN status ENUM(
+    'ACTIVE',
+    'INACTIVE',
+    'OFFLINE',
+    'MAINTENANCE',
+    'ERROR',
+    'UNKNOWN',
+    'NEEDS_MINING_POOL'
+  ) NOT NULL
+    DEFAULT 'ACTIVE';

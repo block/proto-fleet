@@ -83,6 +83,8 @@ func mapHealthStatus(sdkHealth sdk.HealthStatus) modelsV2.HealthStatus {
 		return modelsV2.HealthHealthyActive
 	case sdk.HealthHealthyInactive:
 		return modelsV2.HealthHealthyInactive
+	case sdk.HealthNeedsMiningPool:
+		return modelsV2.HealthHealthyInactive
 	case sdk.HealthWarning:
 		return modelsV2.HealthWarning
 	case sdk.HealthCritical:

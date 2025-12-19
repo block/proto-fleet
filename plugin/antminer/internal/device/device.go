@@ -265,6 +265,8 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 	// Refine health status based on telemetry
 	// Health status hierarchy: Critical > Warning > Active/Inactive > Unknown
 	// We may upgrade healthy states to warning/critical based on telemetry
+	// TODO: Move this mapping to fleet side so plugins don't need to handle every SDK
+	// health status. Fleet should map unknown statuses to sensible defaults.
 	switch minerStatus.State {
 	case sdk.HealthHealthyActive:
 		// Detect if active miner has no hash rate, which may indicate an issue
@@ -272,8 +274,8 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 			health = sdk.HealthWarning
 			healthReason = ptrString("Mining but no hashrate detected")
 		}
-	case sdk.HealthHealthyInactive:
-		// Idle state is normal
+	case sdk.HealthHealthyInactive, sdk.HealthNeedsMiningPool:
+		// Idle state is normal, needs mining pool is handled by device status
 	case sdk.HealthWarning, sdk.HealthCritical:
 		// Use error message as health reason
 		if minerStatus.ErrorMessage != "" {

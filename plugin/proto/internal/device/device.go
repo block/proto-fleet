@@ -346,9 +346,12 @@ func safeUint32ToInt32(value uint32) int32 {
 	return int32(value)
 }
 
+// deriveComponentStatus maps device-level health to component-level status.
+// TODO: Move this mapping to fleet side so plugins don't need to handle every SDK
+// health status. Fleet should map unknown statuses to sensible defaults.
 func deriveComponentStatus(deviceHealth sdk.HealthStatus) sdk.ComponentStatus {
 	switch deviceHealth {
-	case sdk.HealthHealthyActive, sdk.HealthHealthyInactive:
+	case sdk.HealthHealthyActive, sdk.HealthHealthyInactive, sdk.HealthNeedsMiningPool:
 		return sdk.ComponentStatusHealthy
 	case sdk.HealthWarning:
 		return sdk.ComponentStatusWarning
