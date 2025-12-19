@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { useMinerHashrate } from "@/protoFleet/store";
 import HashRateValue from "@/shared/components/HashRateValue";
@@ -24,9 +25,9 @@ const Hashrate = ({ deviceIdentifier, hashrate: hashrateProps }: HashrateProps) 
     );
   }
 
-  // null = miner is inactive/offline (show blank)
+  // null = miner is inactive/offline (show placeholder)
   if (hashrate === null) {
-    return null;
+    return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
   const latestValue = getLatestMeasurementWithData(hashrate)?.value;

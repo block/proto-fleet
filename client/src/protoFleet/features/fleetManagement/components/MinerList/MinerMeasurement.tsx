@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
@@ -15,9 +16,9 @@ const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProp
     return <SkeletonBar className={className || "w-full pr-10"} />;
   }
 
-  // null = miner is inactive/offline (show blank)
+  // null = miner is inactive/offline (show placeholder)
   if (measurement === null) {
-    return null;
+    return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
   const latestValue = getLatestMeasurementWithData(measurement)?.value;
@@ -31,7 +32,7 @@ const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProp
     );
   }
 
-  return null;
+  return <>{INACTIVE_PLACEHOLDER}</>;
 };
 
 export default MinerMeasurement;

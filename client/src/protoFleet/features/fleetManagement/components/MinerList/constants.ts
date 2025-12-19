@@ -44,3 +44,6 @@ export const componentIssues = {
   hashBoards: "hash-boards",
   psu: "psu",
 };
+
+/** Placeholder text displayed for metrics when miner is inactive (offline/sleeping) */
+export const INACTIVE_PLACEHOLDER = "-";

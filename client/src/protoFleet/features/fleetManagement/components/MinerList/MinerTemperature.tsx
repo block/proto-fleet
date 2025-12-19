@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { useMinerTemperature, useTemperatureUnit } from "@/protoFleet/store";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
@@ -17,13 +18,13 @@ const MinerTemperature = ({ deviceIdentifier }: MinerTemperatureProps) => {
   }
 
   if (temperature === null) {
-    return null;
+    return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
   const latestValue = getLatestMeasurementWithData(temperature)?.value;
 
   if (latestValue === undefined) {
-    return null;
+    return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
   const displayValue = temperatureUnit === "F" ? convertCtoF(latestValue) : latestValue;
