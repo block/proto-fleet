@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { PoolConfigInner } from "@/protoOS/api/generatedApi";
 
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
@@ -8,7 +8,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface EditPoolProps {
-  onError?: (err: SimpleErrorProps) => void;
+  onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
   poolId: number;
   poolInfo: PoolConfigInner;
@@ -35,7 +35,6 @@ const useEditPool = () => {
           .catch((error) => {
             handleAuthErrors({
               error,
-              // @ts-ignore
               onError,
               onSuccess: () => {
                 performEdit();

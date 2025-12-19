@@ -49,7 +49,7 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
         setNetworkInfoPending(false);
       })
       .catch((err) => {
-        setNetworkInfoError(err?.error?.message ?? err);
+        setNetworkInfoError(err?.error?.message ?? "An error occurred");
       })
       .finally(() => {
         isFetchingRef.current = false;

@@ -30,7 +30,7 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
         setData(res?.data);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
+        setError(err?.error?.message ?? "An error occurred");
       })
       .finally(() => {
         setPending(false);

@@ -48,7 +48,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
             }
           })
           .catch((err) => {
-            const newError = err?.error?.message ?? err;
+            const newError = err?.error?.message ?? "An error occurred";
             if (retryOnMinerDown) {
               setTimeout(() => performFetch(), 5000);
             }

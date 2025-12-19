@@ -54,7 +54,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
         setSystemInfoPending(false);
       })
       .catch((err) => {
-        setSystemInfoError(err?.error?.message ?? err);
+        setSystemInfoError(err?.error?.message ?? "An error occurred");
       })
       .finally(() => {
         isFetchingRef.current = false;

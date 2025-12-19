@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
-import { SimpleErrorProps } from "apiResponseTypes";
+import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/store";
@@ -24,7 +24,7 @@ const MiningPoolPage = () => {
 
   const [pausedAction, setPausedAction] = useState(false);
 
-  const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
+  const [createPoolsError, setCreatePoolsError] = useState<ErrorProps>();
   const { checkAccess } = useAccessToken(pausedAction);
 
   useEffect(() => {
@@ -104,13 +104,13 @@ const MiningPoolPage = () => {
           <WarnDefaultPoolCallout onDismiss={() => setWarnDefaultPool(false)} show={warnDefaultPool} />
           <DismissibleCalloutWrapper
             className={clsx({
-              "mb-10!": createPoolsError?.error !== undefined,
+              "mb-10!": createPoolsError?.error?.message !== undefined,
             })}
             icon={<Alert />}
             // TODO intent here has no effect, because callout doesn't have a header
             intent={intents.danger}
-            show={createPoolsError?.error !== undefined}
-            title={createPoolsError?.error}
+            show={createPoolsError?.error?.message !== undefined}
+            title={createPoolsError?.error?.message ?? "An error occurred"}
             onDismiss={() => setCreatePoolsError(undefined)}
           />
         </MiningPools>

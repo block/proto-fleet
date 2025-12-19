@@ -38,7 +38,7 @@ const useLogin = () => {
           onSuccess?.(accessTokenValue, refreshTokenValue);
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          onError?.(err?.error?.message ?? "An error occurred");
         })
         .finally(() => {
           onFinally?.();

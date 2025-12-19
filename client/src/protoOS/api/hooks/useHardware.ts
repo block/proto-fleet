@@ -75,7 +75,7 @@ const useHardware = () => {
         setFansInfo(allFans);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
+        setError(err?.error?.message ?? "An error occurred");
       })
       .finally(() => {
         setPending(false);

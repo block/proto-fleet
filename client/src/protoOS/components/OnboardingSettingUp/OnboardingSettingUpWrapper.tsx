@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCreatePools, usePoolsInfo, useSystemStatus } from "@/protoOS/api";
-import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
@@ -11,7 +11,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 interface OnboardingSettingUpWrapperProps {
   onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
   pools: PoolInfo[];
-  setCreatePoolsError: (error: SimpleErrorProps) => void;
+  setCreatePoolsError: (error: ErrorProps) => void;
 }
 
 const OnboardingSettingUpWrapper = ({
