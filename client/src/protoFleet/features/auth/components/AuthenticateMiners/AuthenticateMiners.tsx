@@ -47,6 +47,17 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
 
+  // Stable reference to track authentication completion across re-renders
+  const completionTrackerRef = useRef<{
+    completed: number;
+    total: number;
+    failedMiners: string[];
+  }>({
+    completed: 0,
+    total: 0,
+    failedMiners: [],
+  });
+
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
@@ -231,27 +242,28 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
       }
     });
 
-    const completionTracker = {
+    // Initialize or reset the completion tracker
+    completionTrackerRef.current = {
       completed: 0,
       total: credentialGroups.size,
       failedMiners: [] as string[],
     };
 
     const handleRequestComplete = () => {
-      completionTracker.completed++;
+      completionTrackerRef.current.completed++;
 
       // Only process final results if all requests are complete
-      if (completionTracker.completed !== completionTracker.total) return;
+      if (completionTrackerRef.current.completed !== completionTrackerRef.current.total) return;
 
       // Check if component is still mounted before updating state
       if (!isMountedRef.current) return;
 
       setAuthenticateLoading(false);
-      setMinerErrors(completionTracker.failedMiners);
+      setMinerErrors(completionTrackerRef.current.failedMiners);
 
-      const successCount = selectedMiners.length - completionTracker.failedMiners.length;
-      const allSucceeded = completionTracker.failedMiners.length === 0;
-      const allFailed = completionTracker.failedMiners.length === selectedMiners.length;
+      const successCount = selectedMiners.length - completionTrackerRef.current.failedMiners.length;
+      const allSucceeded = completionTrackerRef.current.failedMiners.length === 0;
+      const allFailed = completionTrackerRef.current.failedMiners.length === selectedMiners.length;
       const totalMiners = Object.keys(minersByIdentifier).length;
       const allMinersAuthenticated = allSucceeded && successCount === totalMiners;
 
@@ -303,13 +315,13 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
         pairRequest,
         onSuccess: (failedDeviceIds) => {
           // Safely aggregate failed device IDs
-          completionTracker.failedMiners.push(...failedDeviceIds);
+          completionTrackerRef.current.failedMiners.push(...failedDeviceIds);
           handleRequestComplete();
         },
         onError: (error) => {
           console.error("Pairing error:", error);
           // On error, mark all devices in this group as failed
-          completionTracker.failedMiners.push(...deviceIds);
+          completionTrackerRef.current.failedMiners.push(...deviceIds);
           handleRequestComplete();
         },
       });
