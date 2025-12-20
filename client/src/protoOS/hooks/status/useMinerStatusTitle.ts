@@ -18,20 +18,20 @@ export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
     () => ({
       hashboard: groupedErrors.hashboard.map((e) => ({
         componentType: "hashboard",
-        componentIndex: e.componentIndex,
+        slot: e.slot,
       })),
       psu: groupedErrors.psu.map((e) => ({
         componentType: "psu",
-        componentIndex: e.componentIndex,
+        slot: e.slot,
       })),
       fan: groupedErrors.fan.map((e) => ({
         componentType: "fan",
-        componentIndex: e.componentIndex,
+        slot: e.slot,
       })),
       // Map 'system' errors to 'controlBoard' for shared format
       controlBoard: groupedErrors.system.map((e) => ({
         componentType: "controlBoard",
-        componentIndex: e.componentIndex,
+        slot: e.slot,
       })),
     }),
     [groupedErrors],

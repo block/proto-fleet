@@ -28,8 +28,8 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
   const temperatureUnit = useTemperatureUnit();
 
   const currentAsicId = useMemo(
-    () => (asic.id !== undefined ? getAsicUniqueId(asic.id, hashboardSerial) : undefined),
-    [asic.id, hashboardSerial],
+    () => (asic.index !== undefined ? getAsicUniqueId(asic.index, hashboardSerial) : undefined),
+    [asic.index, hashboardSerial],
   );
 
   const shouldShowPopover = currentAsicId !== undefined && showPopover === currentAsicId;

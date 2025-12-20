@@ -38,8 +38,7 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
     };
   }, [psuData?.temperatureAverage, psuData?.temperatureHotspot]);
 
-  // Check for errors
-  const errors = useErrorsByComponent("PSU", psuId - 1);
+  const errors = useErrorsByComponent("PSU", psuId);
   const hasErrors = errors.length > 0;
 
   return (

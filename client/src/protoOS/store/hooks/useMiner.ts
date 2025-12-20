@@ -173,7 +173,7 @@ export const useMinerFans = (): FanData[] => {
     const fans = Array.from(hardwareFans.values());
 
     return fans.map((hardware) => {
-      const telemetry = telemetryFans.get(hardware.id);
+      const telemetry = telemetryFans.get(hardware.slot);
 
       return {
         ...hardware,

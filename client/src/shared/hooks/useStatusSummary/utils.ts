@@ -15,16 +15,16 @@ const COMPONENT_DISPLAY_NAMES: Record<StatusComponentType, { singular: string; c
 };
 
 /**
- * Get display name for a component type with optional index
+ * Get display name for a component type with optional slot number
  * @param componentType - The component type
- * @param componentIndex - Optional 0-based index (will be displayed as 1-based)
+ * @param slot - Optional 1-based slot number
  * @returns Formatted name like "Hashboard 1", "PSU 2", "Control board"
  */
-export function getComponentDisplayName(componentType: StatusComponentType, componentIndex?: number): string {
+export function getComponentDisplayName(componentType: StatusComponentType, slot?: number): string {
   const { capitalized } = COMPONENT_DISPLAY_NAMES[componentType];
 
-  if (componentIndex !== undefined) {
-    return `${capitalized} ${componentIndex + 1}`;
+  if (slot !== undefined) {
+    return `${capitalized} ${slot}`;
   }
 
   return capitalized;
@@ -45,13 +45,13 @@ export function getComponentSingularName(componentType: StatusComponentType): st
  * Used by useComponentStatusTitle hook and can be called directly from non-hook functions.
  *
  * @param componentType - The component type being viewed
- * @param componentIndex - The specific component index (0-based)
+ * @param slot - The specific component slot (1-based)
  * @param errorCount - Number of errors for this specific component
  * @returns Title string or null (null means don't render title, show error instead)
  */
 export function computeComponentStatusTitle(
   componentType: StatusComponentType,
-  componentIndex: number | undefined,
+  slot: number | undefined,
   errorCount: number,
 ): string | null {
   // No errors
@@ -65,7 +65,7 @@ export function computeComponentStatusTitle(
   }
 
   // Multiple errors
-  const displayName = getComponentDisplayName(componentType, componentIndex);
+  const displayName = getComponentDisplayName(componentType, slot);
   return `${displayName} has multiple issues`;
 }
 

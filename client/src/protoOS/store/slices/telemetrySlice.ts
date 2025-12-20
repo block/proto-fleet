@@ -93,7 +93,7 @@ export interface TelemetrySlice {
 
   // PSU/Fan Update Actions
   updatePsuTelemetry: (psuId: number, telemetryData: Partial<PsuTelemetryData>) => void;
-  updateFanTelemetry: (fanId: number, telemetryData: Partial<FanTelemetryData>) => void;
+  updateFanTelemetry: (fanSlot: number, telemetryData: Partial<FanTelemetryData>) => void;
 
   // Utility Actions
   clearOldData: (olderThanTimestamp: number) => void;
@@ -649,19 +649,19 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       });
     }),
 
-  updateFanTelemetry: (fanId, telemetryData) =>
+  updateFanTelemetry: (fanSlot, telemetryData) =>
     set((state) => {
-      let fan = state.telemetry.fans.get(fanId);
+      let fan = state.telemetry.fans.get(fanSlot);
 
       // Create Fan if it doesn't exist
       if (!fan) {
-        fan = { id: fanId };
-        state.telemetry.fans.set(fanId, fan);
+        fan = { slot: fanSlot };
+        state.telemetry.fans.set(fanSlot, fan);
       }
 
       // Update telemetry data
       Object.entries(telemetryData).forEach(([key, value]) => {
-        if (key !== "id" && value !== undefined) {
+        if (key !== "slot" && value !== undefined) {
           (fan as any)[key] = value;
         }
       });

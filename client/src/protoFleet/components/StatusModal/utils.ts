@@ -67,9 +67,10 @@ export function transformFleetErrorsToShared(groupedErrors: GroupedFleetErrors):
   const transformErrors = (errors: ErrorMessage[], componentType: StatusComponentType) =>
     errors.map((e) => {
       const parsed = e.componentId ? parseInt(e.componentId, 10) : NaN;
+      // componentId is already 1-based slot from firmware
       return {
         componentType,
-        componentIndex: !isNaN(parsed) ? parsed : undefined,
+        slot: !isNaN(parsed) ? parsed : undefined,
       };
     });
 
@@ -83,13 +84,13 @@ export function transformFleetErrorsToShared(groupedErrors: GroupedFleetErrors):
 
 /**
  * Get display index from component ID for UI display purposes only
- * Currently componentId is just the index as a string ("0", "1", "2")
+ * ComponentId contains 1-based slot values from firmware ("1", "2", "3")
  * This will change when componentId becomes a unique ID
  */
-export function getComponentDisplayIndex(componentId: string): number {
-  // Currently componentId is just the index as a string
-  const index = parseInt(componentId, 10);
-  return isNaN(index) ? 0 : index;
+export function getComponentDisplayIndex(componentId: string): number | null {
+  // componentId is already 1-based slot from firmware, use as-is for display
+  const slot = parseInt(componentId, 10);
+  return isNaN(slot) ? null : slot;
 }
 
 /**
@@ -117,7 +118,10 @@ export function transformErrorsForModal(
         if (error.componentId) {
           const componentIdValue = error.componentId; // Capture value for closure
           const displayIndex = getComponentDisplayIndex(componentIdValue);
-          componentName = `${getComponentName(sharedType)} ${displayIndex + 1}`;
+
+          componentName = displayIndex
+            ? `${getComponentName(sharedType)} ${displayIndex}`
+            : getComponentName(sharedType);
 
           // Create onClick handler with componentId
           if (onClick) {
@@ -188,7 +192,7 @@ export function buildComponentStatusProps(
     }
 
     return {
-      componentName: `${getComponentName(sharedType)} ${displayIndex + 1}`,
+      componentName: `${getComponentName(sharedType)} ${displayIndex}`,
       message: error.summary || "Unknown error",
       timestamp,
     };
@@ -202,7 +206,7 @@ export function buildComponentStatusProps(
   const metadata: ComponentMetadata = {
     component: {
       label: "Component",
-      value: `${getComponentName(sharedType)} ${displayIndex + 1}`,
+      value: `${getComponentName(sharedType)} ${displayIndex}`,
     },
     device: {
       label: "Device",
@@ -215,7 +219,8 @@ export function buildComponentStatusProps(
   }
 
   // Compute summary using shared logic
-  const summary = computeComponentStatusTitle(sharedType, displayIndex, componentErrors.length) ?? undefined;
+  const summary =
+    computeComponentStatusTitle(sharedType, displayIndex ?? undefined, componentErrors.length) ?? undefined;
 
   return {
     componentType: sharedType,

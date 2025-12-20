@@ -135,6 +135,6 @@ export const usePsu = (id: number) => useMinerStore((state) => state.hardware.ge
 export const useFans = () => useMinerStore((state) => state.hardware.getAllFans());
 
 export const useFanIds = () =>
-  useMinerStore(useShallow((state) => Array.from(state.hardware.fans.values()).map((fan) => fan.id)));
+  useMinerStore(useShallow((state) => Array.from(state.hardware.fans.values()).map((fan) => fan.slot)));
 
 export const useFan = (id: number) => useMinerStore((state) => state.hardware.getFan(id));

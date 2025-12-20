@@ -9,7 +9,7 @@ describe("errorTransformer", () => {
         error_code: "E001",
         timestamp: 1234567890,
         source: "fan",
-        component_index: 2,
+        slot: 2,
         message: "Fan speed low",
       };
 
@@ -19,7 +19,7 @@ describe("errorTransformer", () => {
         errorCode: "E001",
         timestamp: 1234567890,
         source: "FAN",
-        componentIndex: 2,
+        slot: 2,
         message: "Fan speed low",
       });
     });
@@ -29,7 +29,7 @@ describe("errorTransformer", () => {
         error_code: "E002",
         source: "psu",
         message: "PSU fault",
-        // timestamp and component_index omitted
+        // timestamp and slot omitted
       };
 
       const result = transformNotificationError(apiError);
@@ -38,7 +38,7 @@ describe("errorTransformer", () => {
         errorCode: "E002",
         timestamp: undefined,
         source: "PSU",
-        componentIndex: undefined,
+        slot: undefined,
         message: "PSU fault",
       });
     });
@@ -72,7 +72,7 @@ describe("errorTransformer", () => {
         errorCode: "",
         timestamp: undefined,
         source: "RIG", // Default when source is missing
-        componentIndex: undefined,
+        slot: undefined,
         message: "Error undefined", // Default message when both message and error_code are missing
       });
     });
@@ -97,14 +97,14 @@ describe("errorTransformer", () => {
           error_code: "E001",
           timestamp: 1234567890,
           source: "fan",
-          component_index: 0,
+          slot: 0,
           message: "Fan 1 error",
         },
         {
           error_code: "E002",
           timestamp: 1234567891,
           source: "psu",
-          component_index: 1,
+          slot: 1,
           message: "PSU 2 error",
         },
       ];
@@ -116,14 +116,14 @@ describe("errorTransformer", () => {
         errorCode: "E001",
         timestamp: 1234567890,
         source: "FAN",
-        componentIndex: 0,
+        slot: 0,
         message: "Fan 1 error",
       });
       expect(result[1]).toEqual({
         errorCode: "E002",
         timestamp: 1234567891,
         source: "PSU",
-        componentIndex: 1,
+        slot: 1,
         message: "PSU 2 error",
       });
     });

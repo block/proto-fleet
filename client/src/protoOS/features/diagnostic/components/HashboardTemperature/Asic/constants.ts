@@ -51,7 +51,7 @@ const createMockAsic = (id: number, row: number, column: number, tempC: number, 
 // Mock hashboard stats with simplified ASIC grid (10x10)
 export const mockHashboardStats = {
   hb_sn: "421FS23103000005",
-  hb_id: 2,
+  slot: 2,
   status: "Running",
   power_usage_watts: 783,
   voltage_mv: 13.699999809265137,

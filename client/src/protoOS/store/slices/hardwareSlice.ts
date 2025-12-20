@@ -65,7 +65,7 @@ export interface HardwareSlice {
   // Fan Actions
   setFans: (fans: FanHardwareData[]) => void;
   addFan: (fan: FanHardwareData) => void;
-  getFan: (id: number) => FanHardwareData | undefined;
+  getFan: (slot: number) => FanHardwareData | undefined;
   getAllFans: () => FanHardwareData[];
 
   // Bulk Operations
@@ -246,17 +246,17 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     set((state) => {
       state.hardware.fans.clear();
       fans.forEach((fan) => {
-        state.hardware.fans.set(fan.id, fan);
+        state.hardware.fans.set(fan.slot, fan);
       });
     }),
 
   addFan: (fan) =>
     set((state) => {
-      state.hardware.fans.set(fan.id, fan);
+      state.hardware.fans.set(fan.slot, fan);
     }),
 
-  getFan: (id) => {
-    return get().hardware.fans.get(id);
+  getFan: (slot) => {
+    return get().hardware.fans.get(slot);
   },
 
   getAllFans: () => {
@@ -297,7 +297,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
       if (fans) {
         state.hardware.fans.clear();
         fans.forEach((fan) => {
-          state.hardware.fans.set(fan.id, fan);
+          state.hardware.fans.set(fan.slot, fan);
         });
       }
     }),

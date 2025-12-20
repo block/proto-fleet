@@ -206,13 +206,12 @@ export type PsuData = PsuHardwareData & PsuTelemetryData;
 
 // Fan Types
 export interface FanHardwareData {
-  id: number; // unique identifier starting from 0
-  slot?: number; // physical slot number starting from 1
+  slot: number; // physical slot number (1-based from API)
   name?: string;
 }
 
 export interface FanTelemetryData {
-  id: number;
+  slot: number; // matches FanHardwareData.slot
   rpm?: MetricTelemetry;
   percentage?: MetricTelemetry;
   minRpm?: MetricTelemetry;
@@ -229,7 +228,7 @@ export interface MinerError {
   errorCode: string; // Maps from error_code in API
   timestamp?: number; // Unix timestamp from API (optional)
   source: ErrorSource; // Maps directly from API source
-  componentIndex?: number; // 0-based index from API (optional)
+  slot?: number; // Component slot from API (1-based, optional)
   message: string; // Error message from API
 }
 

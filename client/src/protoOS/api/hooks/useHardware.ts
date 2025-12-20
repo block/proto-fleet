@@ -64,8 +64,8 @@ const useHardware = () => {
         const fans = responseData?.["fans-info"];
         const fansBySlot = new Map<number, FanInfo>();
         fans?.forEach((fan) => {
-          if (fan.id !== undefined) {
-            fansBySlot.set(fan.id, fan);
+          if (fan.slot !== undefined) {
+            fansBySlot.set(fan.slot, fan);
           }
         });
         const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
@@ -172,17 +172,16 @@ const useHardware = () => {
     if (!fansInfo) return;
 
     fansInfo.forEach((fan) => {
-      if (fan?.id !== undefined) {
+      if (fan?.slot !== undefined) {
         // Update hardware store
         useMinerStore.getState().hardware.addFan({
-          id: fan.id,
-          slot: fan.id,
+          slot: fan.slot,
           name: fan.name,
         });
 
         // Update telemetry store with fan min/max RPM
-        useMinerStore.getState().telemetry.updateFanTelemetry(fan.id, {
-          id: fan.id,
+        useMinerStore.getState().telemetry.updateFanTelemetry(fan.slot, {
+          slot: fan.slot,
           minRpm:
             fan.min_rpm !== undefined
               ? {

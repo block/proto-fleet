@@ -27,8 +27,7 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock fan hardware data
     store.hardware.addFan({
-      id: fanId,
-      slot: config.slot,
+      slot: fanId,
       name: `Fan ${config.slot}`,
     });
 

@@ -60,20 +60,20 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
       if (!SUPPORTED_COMPONENT_TYPES.has(error.componentType)) return;
 
       const parsed = error.componentId ? parseInt(error.componentId, 10) : NaN;
-      const componentIndex = !isNaN(parsed) ? parsed : undefined;
+      const slot = !isNaN(parsed) ? parsed : undefined;
 
       switch (error.componentType) {
         case ErrorComponentType.HASH_BOARD:
-          result.hashboard.push({ componentType: "hashboard", componentIndex });
+          result.hashboard.push({ componentType: "hashboard", slot });
           break;
         case ErrorComponentType.PSU:
-          result.psu.push({ componentType: "psu", componentIndex });
+          result.psu.push({ componentType: "psu", slot });
           break;
         case ErrorComponentType.FAN:
-          result.fan.push({ componentType: "fan", componentIndex });
+          result.fan.push({ componentType: "fan", slot });
           break;
         case ErrorComponentType.CONTROL_BOARD:
-          result.controlBoard.push({ componentType: "controlBoard", componentIndex });
+          result.controlBoard.push({ componentType: "controlBoard", slot });
           break;
       }
     });

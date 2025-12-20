@@ -98,7 +98,7 @@ const Hardware = () => {
                 <FanIndicator fanPosition={fanPosition} numFans={TOTAL_FAN_SLOTS} />
               </div>
               {fan ? (
-                <div className="w-46 text-300">Fan {fan.id}</div>
+                <div className="w-46 text-300">Fan {fan.slot}</div>
               ) : (
                 <div className="w-46 text-300 text-text-primary-70">No component found</div>
               )}

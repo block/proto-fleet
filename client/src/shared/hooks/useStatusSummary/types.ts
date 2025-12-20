@@ -16,7 +16,7 @@ export type StatusComponentType = "hashboard" | "psu" | "fan" | "controlBoard";
  */
 export interface StatusError {
   componentType: StatusComponentType;
-  componentIndex?: number; // 0-based index
+  slot?: number; // 1-based slot number
 }
 
 /**

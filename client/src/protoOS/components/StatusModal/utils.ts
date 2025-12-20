@@ -58,7 +58,7 @@ export function mapErrorSourceToComponentType(source: ErrorSource): ComponentTyp
  */
 function transformMinerErrorToError(error: MinerError): ErrorData {
   return {
-    componentName: getComponentDisplayName(error.source, error.componentIndex),
+    componentName: getComponentDisplayName(error.source, error.slot),
     message: error.message,
     timestamp: error.timestamp,
   };
@@ -222,13 +222,13 @@ function getComponentMetadata(type: ComponentType, hardware: ComponentHardware):
  */
 export function transformErrorsForModal(
   minerErrors: MinerError[] = [],
-  onErrorClick?: (source: ErrorSource, componentIndex?: number) => void,
+  onErrorClick?: (source: ErrorSource, slot?: number) => void,
 ): ErrorData[] {
   return minerErrors.map((error) => ({
-    componentName: getComponentDisplayName(error.source, error.componentIndex),
+    componentName: getComponentDisplayName(error.source, error.slot),
     message: error.message,
     timestamp: error.timestamp,
-    onClick: onErrorClick ? () => onErrorClick(error.source, error.componentIndex) : undefined,
+    onClick: onErrorClick ? () => onErrorClick(error.source, error.slot) : undefined,
   }));
 }
 
@@ -237,7 +237,7 @@ export function transformErrorsForModal(
  */
 export function buildComponentStatusProps(
   source: ErrorSource,
-  componentIndex: number | undefined,
+  slot: number | undefined,
   errors: MinerError[],
   telemetry: ComponentTelemetry,
   hardware: ComponentHardware,
@@ -247,14 +247,14 @@ export function buildComponentStatusProps(
 
   // Filter errors for this specific component
   const componentErrors = errors.filter((error) => {
-    return error.source === source && error.componentIndex === componentIndex;
+    return error.source === source && error.slot === slot;
   });
 
   // Transform errors to Error format
   const transformedErrors = componentErrors.map(transformMinerErrorToError);
 
   // Generate summary text
-  const componentName = getComponentDisplayName(source, componentIndex);
+  const componentName = getComponentDisplayName(source, slot);
   const errorCount = transformedErrors.length;
   const summary =
     errorCount === 0

@@ -45,8 +45,8 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
             const fans = coolingData.fans;
             const fansBySlot = new Map<number, FanStatus>();
             fans?.forEach((fan) => {
-              if (fan.id !== undefined) {
-                fansBySlot.set(fan.id, fan);
+              if (fan.slot !== undefined) {
+                fansBySlot.set(fan.slot, fan);
               }
             });
             const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
@@ -91,9 +91,9 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     if (!data?.fans) return;
 
     data.fans.forEach((fan) => {
-      if (fan?.id !== undefined) {
-        useMinerStore.getState().telemetry.updateFanTelemetry(fan.id, {
-          id: fan.id,
+      if (fan?.slot !== undefined) {
+        useMinerStore.getState().telemetry.updateFanTelemetry(fan.slot, {
+          slot: fan.slot,
           rpm:
             fan.rpm !== undefined
               ? {

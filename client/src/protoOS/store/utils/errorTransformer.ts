@@ -23,7 +23,7 @@ export function transformNotificationError(apiError: NotificationError): MinerEr
     errorCode: apiError.error_code || "",
     timestamp: apiError.timestamp, // Keep optional, no default value
     source,
-    componentIndex: apiError.component_index,
+    slot: apiError.slot,
     message: apiError.message || `Error ${apiError.error_code}`,
   };
 }

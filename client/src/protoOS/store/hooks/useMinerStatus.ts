@@ -165,7 +165,7 @@ export const useErrorsByComponent = (source: ErrorSource, componentIndex: number
   return useMinerStore(
     useShallow((state) => {
       const allErrors = state.minerStatus.errors.errors;
-      return allErrors.filter((error) => error.source === source && error.componentIndex === componentIndex);
+      return allErrors.filter((error) => error.source === source && error.slot === componentIndex);
     }),
   );
 };

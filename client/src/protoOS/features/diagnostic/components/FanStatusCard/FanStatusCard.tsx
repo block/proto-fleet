@@ -19,11 +19,10 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
   const pwm = fanData?.percentage?.latest?.value ?? 0;
-  const position = fanData?.slot ?? fanData?.id ?? fanId;
+  const position = fanData?.slot ?? fanId;
   const name = `Fan ${position}`;
 
-  // Check for errors
-  const errors = useErrorsByComponent("FAN", fanId - 1);
+  const errors = useErrorsByComponent("FAN", fanId);
   const hasErrors = errors.length > 0;
 
   return (

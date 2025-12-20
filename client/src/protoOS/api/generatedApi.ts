@@ -61,15 +61,15 @@ export interface AsicStats {
    */
   hashrate_ghs?: number;
   /**
-   * Unique identifier assigned to each ASIC located on a hashboard, starting from 0.
-   * @example 0
-   */
-  id?: number;
-  /**
    * The expected hashrate determined by the clock frequency of the ASIC, measured in GH/s.
    * @example 300
    */
   ideal_hashrate_ghs?: number;
+  /**
+   * Zero-based index of the ASIC on the hashboard (first ASIC is 0).
+   * @example 0
+   */
+  index?: number;
   /**
    * Physical row location of the ASIC on the hashboard.
    * @example 0
@@ -377,11 +377,6 @@ export interface FWInfo {
 /** Individual fan information including status and RPM data */
 export interface FanInfo {
   /**
-   * Each cooling device is assigned a unique identifier starting from 0.
-   * @example 0
-   */
-  id?: number;
-  /**
    * The maximum RPM of the cooling device.
    * @example 1000
    */
@@ -396,15 +391,15 @@ export interface FanInfo {
    * @example "CPU Cooler"
    */
   name?: string;
+  /**
+   * Each cooling device is assigned a unique identifier starting from 1.
+   * @example 1
+   */
+  slot?: number;
 }
 
 /** Current status and performance metrics for individual cooling fans */
 export interface FanStatus {
-  /**
-   * Each fan is assigned a unique identifier starting from 0.
-   * @example 0
-   */
-  id?: number;
   /**
    * The fan's set speed as a percentage from 0 to 100.
    * @example 55
@@ -415,6 +410,11 @@ export interface FanStatus {
    * @example 1200
    */
   rpm?: number;
+  /**
+   * Each fan is assigned a unique identifier starting from 1.
+   * @example 1
+   */
+  slot?: number;
 }
 
 export interface GetAsicHashrateParams {
@@ -687,11 +687,6 @@ export interface HashboardStatsHashboardstats {
    * @example 300
    */
   hashrate_ghs?: number;
-  /**
-   * Internal ID of the hashboard, assigned to each hashboard starting from 1.
-   * @example 3
-   */
-  hb_id?: number;
   /** Manufacturing serial number of the hashboard, used for subsequent API calls. */
   hb_sn?: string;
   /**
@@ -719,6 +714,11 @@ export interface HashboardStatsHashboardstats {
    * @example 1000
    */
   power_usage_watts?: number;
+  /**
+   * The physical slot where the Hashboard is inserted in the system.
+   * @example 3
+   */
+  slot?: number;
   /**
    * The current state or condition of the hashboard.
    * @example "Running"
@@ -1050,11 +1050,11 @@ export interface NetworkInfoNetworkinfo {
 
 /** Notification error information with source and details */
 export interface NotificationError {
-  component_index?: number;
   /** @example "FanSlow" */
   error_code?: string;
   /** @example "Fan 1 is not operating correctly." */
   message?: string;
+  slot?: number;
   /** @example "rig" */
   source?: "rig" | "fan" | "psu" | "hashboard";
   timestamp?: number;

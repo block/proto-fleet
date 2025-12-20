@@ -101,7 +101,7 @@ function computeErrorTitle(
 
   // Single error - show specific component
   const error = errors[0];
-  const displayName = getComponentDisplayName(type, error.componentIndex);
+  const displayName = getComponentDisplayName(type, error.slot);
   return `${displayName} issue`;
 }
 
@@ -111,30 +111,30 @@ function computeErrorTitle(
  * Returns a unified Summary object with title and subtitle fields.
  *
  * @param componentType - The component type being viewed
- * @param componentIndex - The specific component index (0-based)
+ * @param slot - The specific component slot (1-based)
  * @param errorCount - Number of errors for this specific component
  * @returns Memoized ComponentStatusSummary object
  *
  * @example
- * const summary = useComponentStatusSummary("hashboard", 0, 0);
+ * const summary = useComponentStatusSummary("hashboard", 1, 0);
  * // { title: "All systems are operational", subtitle: undefined }
  *
- * const summary = useComponentStatusSummary("hashboard", 0, 1);
+ * const summary = useComponentStatusSummary("hashboard", 1, 1);
  * // { title: null, subtitle: undefined } // null = show error message instead
  *
- * const summary = useComponentStatusSummary("hashboard", 0, 3);
+ * const summary = useComponentStatusSummary("hashboard", 1, 3);
  * // { title: "Hashboard 1 has multiple issues", subtitle: undefined }
  */
 export function useComponentStatusSummary(
   componentType: StatusComponentType,
-  componentIndex: number | undefined,
+  slot: number | undefined,
   errorCount: number,
 ): ComponentStatusSummary {
   return useMemo(
     () => ({
-      title: computeComponentStatusTitle(componentType, componentIndex, errorCount),
+      title: computeComponentStatusTitle(componentType, slot, errorCount),
       subtitle: undefined,
     }),
-    [componentType, componentIndex, errorCount],
+    [componentType, slot, errorCount],
   );
 }

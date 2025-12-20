@@ -21,11 +21,11 @@ describe("getComponentDisplayName", () => {
   });
 
   it("should return capitalized name with 1-based index", () => {
-    expect(getComponentDisplayName("hashboard", 0)).toBe("Hashboard 1");
-    expect(getComponentDisplayName("hashboard", 2)).toBe("Hashboard 3");
-    expect(getComponentDisplayName("psu", 0)).toBe("PSU 1");
-    expect(getComponentDisplayName("fan", 1)).toBe("Fan 2");
-    expect(getComponentDisplayName("controlBoard", 0)).toBe("Control board 1");
+    expect(getComponentDisplayName("hashboard", 1)).toBe("Hashboard 1");
+    expect(getComponentDisplayName("hashboard", 3)).toBe("Hashboard 3");
+    expect(getComponentDisplayName("psu", 1)).toBe("PSU 1");
+    expect(getComponentDisplayName("fan", 2)).toBe("Fan 2");
+    expect(getComponentDisplayName("controlBoard", 1)).toBe("Control board 1");
   });
 });
 
@@ -98,7 +98,7 @@ describe("useMinerStatusSummary", () => {
     it('should return condensed="Sleeping" but title shows error when there are errors', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", componentIndex: 0 }],
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors, true));
       expect(result.current.condensed).toBe("Sleeping");
@@ -108,7 +108,7 @@ describe("useMinerStatusSummary", () => {
     it('should return condensed="Offline" but title shows error when there are errors', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", componentIndex: 0 }],
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors, false, true));
       expect(result.current.condensed).toBe("Offline");
@@ -117,34 +117,34 @@ describe("useMinerStatusSummary", () => {
   });
 
   describe("single error", () => {
-    it('should return "[Component] [index+1] issue" for hashboard with index', () => {
+    it('should return "[Component] [slot] issue" for hashboard with slot', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", componentIndex: 0 }],
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
       expect(result.current.condensed).toBe("Hashboard 1 issue");
       expect(result.current.title).toBe("Hashboard 1 issue");
     });
 
-    it('should return "[Component] [index+1] issue" for PSU with index', () => {
+    it('should return "[Component] [slot] issue" for PSU with slot', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        psu: [{ componentType: "psu", componentIndex: 1 }],
+        psu: [{ componentType: "psu", slot: 2 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
       expect(result.current.condensed).toBe("PSU 2 issue");
       expect(result.current.title).toBe("PSU 2 issue");
     });
 
-    it('should return "[Component] [index+1] issue" for fan with index', () => {
+    it('should return "[Component] [slot] issue" for fan with slot', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        fan: [{ componentType: "fan", componentIndex: 2 }],
+        fan: [{ componentType: "fan", slot: 2 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Fan 3 issue");
-      expect(result.current.title).toBe("Fan 3 issue");
+      expect(result.current.condensed).toBe("Fan 2 issue");
+      expect(result.current.title).toBe("Fan 2 issue");
     });
 
     it('should return "[Component] issue" for control board without index', () => {
@@ -157,7 +157,7 @@ describe("useMinerStatusSummary", () => {
       expect(result.current.title).toBe("Control board issue");
     });
 
-    it('should return "[Component] issue" when no index provided', () => {
+    it('should return "[Component] issue" when no slot provided', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
         hashboard: [{ componentType: "hashboard" }],
@@ -173,8 +173,8 @@ describe("useMinerStatusSummary", () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
         hashboard: [
-          { componentType: "hashboard", componentIndex: 0 },
-          { componentType: "hashboard", componentIndex: 1 },
+          { componentType: "hashboard", slot: 1 },
+          { componentType: "hashboard", slot: 2 },
         ],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
@@ -186,8 +186,8 @@ describe("useMinerStatusSummary", () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
         psu: [
-          { componentType: "psu", componentIndex: 0 },
-          { componentType: "psu", componentIndex: 0 },
+          { componentType: "psu", slot: 1 },
+          { componentType: "psu", slot: 1 },
         ],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
@@ -220,8 +220,8 @@ describe("useMinerStatusSummary", () => {
     it('should return "Multiple issues" when hashboard and PSU have errors', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", componentIndex: 0 }],
-        psu: [{ componentType: "psu", componentIndex: 0 }],
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
+        psu: [{ componentType: "psu", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
       expect(result.current.condensed).toBe("Multiple issues");
@@ -230,9 +230,9 @@ describe("useMinerStatusSummary", () => {
 
     it('should return "Multiple issues" when all component types have errors', () => {
       const errors: GroupedStatusErrors = {
-        hashboard: [{ componentType: "hashboard", componentIndex: 0 }],
-        psu: [{ componentType: "psu", componentIndex: 0 }],
-        fan: [{ componentType: "fan", componentIndex: 0 }],
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
+        psu: [{ componentType: "psu", slot: 1 }],
+        fan: [{ componentType: "fan", slot: 1 }],
         controlBoard: [{ componentType: "controlBoard" }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
@@ -245,13 +245,13 @@ describe("useMinerStatusSummary", () => {
 describe("useComponentStatusSummary", () => {
   describe("no errors", () => {
     it('should return title="All systems are operational"', () => {
-      const { result } = renderHook(() => useComponentStatusSummary("hashboard", 0, 0));
+      const { result } = renderHook(() => useComponentStatusSummary("hashboard", 1, 0));
       expect(result.current.title).toBe("All systems are operational");
       expect(result.current.subtitle).toBeUndefined();
     });
 
     it('should return title="All systems are operational" for any component type', () => {
-      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 1, 0));
+      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 2, 0));
       expect(psu.current.title).toBe("All systems are operational");
 
       const { result: fan } = renderHook(() => useComponentStatusSummary("fan", undefined, 0));
@@ -261,13 +261,13 @@ describe("useComponentStatusSummary", () => {
 
   describe("single error", () => {
     it("should return title=null to indicate UI should show error message instead", () => {
-      const { result: hashboard } = renderHook(() => useComponentStatusSummary("hashboard", 0, 1));
+      const { result: hashboard } = renderHook(() => useComponentStatusSummary("hashboard", 1, 1));
       expect(hashboard.current.title).toBeNull();
 
-      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 1, 1));
+      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 2, 1));
       expect(psu.current.title).toBeNull();
 
-      const { result: fan } = renderHook(() => useComponentStatusSummary("fan", 2, 1));
+      const { result: fan } = renderHook(() => useComponentStatusSummary("fan", 3, 1));
       expect(fan.current.title).toBeNull();
 
       const { result: controlBoard } = renderHook(() => useComponentStatusSummary("controlBoard", undefined, 1));
@@ -276,14 +276,14 @@ describe("useComponentStatusSummary", () => {
   });
 
   describe("multiple errors", () => {
-    it('should return title="[Component] [index+1] has multiple issues" with index', () => {
-      const { result: hashboard } = renderHook(() => useComponentStatusSummary("hashboard", 0, 3));
+    it('should return title="[Component] [slot] has multiple issues" with slot', () => {
+      const { result: hashboard } = renderHook(() => useComponentStatusSummary("hashboard", 1, 3));
       expect(hashboard.current.title).toBe("Hashboard 1 has multiple issues");
 
-      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 1, 2));
+      const { result: psu } = renderHook(() => useComponentStatusSummary("psu", 2, 2));
       expect(psu.current.title).toBe("PSU 2 has multiple issues");
 
-      const { result: fan } = renderHook(() => useComponentStatusSummary("fan", 2, 5));
+      const { result: fan } = renderHook(() => useComponentStatusSummary("fan", 3, 5));
       expect(fan.current.title).toBe("Fan 3 has multiple issues");
     });
 

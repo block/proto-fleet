@@ -42,8 +42,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const position = slot || 0;
   const name = `Slot ${slot}`;
 
-  // Check for errors
-  const errors = useErrorsByComponent("HASHBOARD", (slot ?? 1) - 1);
+  const errors = useErrorsByComponent("HASHBOARD", slot ?? 1);
   const hasErrors = errors.length > 0;
 
   return (

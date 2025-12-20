@@ -71,8 +71,8 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
       const existingHashboard = useMinerStore.getState().hardware.getHashboard(hashboardSerialNumber);
 
       const asicIds = asics
-        .filter((asic) => asic?.id !== undefined)
-        .map((asic) => getAsicId(hashboardSerialNumber, asic.id!));
+        .filter((asic) => asic?.index !== undefined)
+        .map((asic) => getAsicId(hashboardSerialNumber, asic.index!));
 
       if (!existingHashboard) {
         useMinerStore.getState().hardware.addHashboard({
@@ -89,9 +89,9 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
       // Collect ASIC info with positional data for batch processing
       for (const asic of asics) {
-        if (asic !== undefined && asic.id !== undefined && asic.row !== undefined && asic.column !== undefined) {
+        if (asic !== undefined && asic.index !== undefined && asic.row !== undefined && asic.column !== undefined) {
           // Create globally unique ASIC ID using consistent utility
-          const asicId = getAsicId(hashboardSerialNumber, asic.id);
+          const asicId = getAsicId(hashboardSerialNumber, asic.index);
           const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
 
           if (!existingAsic) {
