@@ -19,7 +19,7 @@ export class MinersPage extends BasePage {
     expect(await rows.count()).toBeGreaterThanOrEqual(5);
   }
 
-  async filterMinersByType(minerType: string) {
+  private async filterMinersByType(minerType: string) {
     await this.click("Type");
     await this.page.locator(`//div[text()='${minerType}']/following-sibling::*//input`).click();
     await this.click("Apply");
@@ -27,7 +27,28 @@ export class MinersPage extends BasePage {
 
   async filterProtoMiners() {
     await this.filterMinersByType("Proto Rig");
-    await this.waitForAntminersToDisappear();
+    await this.waitForBitmainMinersToDisappear();
+  }
+
+  async filterBitmainMiners() {
+    await this.filterMinersByType("Bitmain");
+    await this.waitForProtoMinersToDisappear();
+  }
+
+  async waitForBitmainMinersToDisappear() {
+    const bitmainRows = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("name").getByText("Bitmain") });
+    await expect(bitmainRows).toHaveCount(0);
+  }
+
+  async waitForProtoMinersToDisappear() {
+    const protoRigRows = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("name").getByText("Proto") });
+    await expect(protoRigRows).toHaveCount(0);
   }
 
   async getMinerRowByIp(ipAddress: string): Promise<Locator> {
@@ -212,13 +233,5 @@ export class MinersPage extends BasePage {
 
   async clickAddMinersButton() {
     await this.click("Add miners");
-  }
-
-  async waitForAntminersToDisappear() {
-    const antminerRows = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({ has: this.page.getByTestId("name").getByText("Antminer") });
-    await expect(antminerRows).toHaveCount(0);
   }
 }

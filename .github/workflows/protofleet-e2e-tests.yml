@@ -245,7 +245,7 @@ jobs:
           REPORT_URL="https://btc-mining.github.io/proto-fleet/${{ steps.report-dir.outputs.dir }}"
           echo "## 🎭 Playwright E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View HTML Report](${REPORT_URL})**" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **[View Latest Published HTML Report](${REPORT_URL})**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📦 **Test artifacts:** Available in the artifacts section below" >> $GITHUB_STEP_SUMMARY
 
@@ -269,7 +269,7 @@ jobs:
 
             const body = `## 🎭 Playwright E2E Test Report
 
-            📊 **[View HTML Report](${reportUrl})**
+            📊 **[View Latest Published HTML Report](${reportUrl})**
             📦 **[Download Artifacts](${artifactUrl})**
 
             *Report for workflow run #${context.runNumber}*`;

@@ -29,6 +29,8 @@ test.describe("General Settings", () => {
     await test.step("Navigate to miners page and verify Fahrenheit", async () => {
       await authPage.navigateToMinersPage();
       await minersPage.validateMinersPageOpened();
+      // Workaround: proto rig miners don't have temperature displayed atm
+      await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitFahrenheit();
     });
 
@@ -43,6 +45,8 @@ test.describe("General Settings", () => {
     await test.step("Navigate to miners page and verify Celsius", async () => {
       await authPage.navigateToMinersPage();
       await minersPage.validateMinersPageOpened();
+      // Workaround: proto rig miners don't have temperature displayed atm
+      await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitCelsius();
     });
   });

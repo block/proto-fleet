@@ -18,8 +18,8 @@ test.describe.serial("Miners", () => {
     await test.step("Navigate to miners page", async () => {
       await authPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
-      // Workaround: antminers always have status 'hashing'
       await minersPage.waitForMinersListToLoad();
+      // Workaround: Bitmain miner status remains as 'hashing' or with an error
       await minersPage.filterProtoMiners();
     });
 
@@ -53,6 +53,8 @@ test.describe.serial("Miners", () => {
       await authPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
+      // Workaround: Bitmain miner status remains as 'hashing' or with an error
+      await minersPage.filterProtoMiners();
     });
 
     await test.step("Select first miner and wake it up", async () => {
@@ -254,6 +256,9 @@ test.describe.serial("Miners", () => {
       await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
       await authPage.navigateToMinersPage();
+      // Workaround: Bitmain miners have error statuses.
+      // Waiting for needs-authentication status to be implemented
+      await minersPage.filterProtoMiners();
       await minersPage.validateAllMinersStatus("Hashing");
     });
   });

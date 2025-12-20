@@ -69,6 +69,9 @@ test.describe("Proto Fleet - Onboarding", () => {
       await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
       await authPage.navigateToMinersPage();
+      // Workaround: bitmain miners have error statuses.
+      // Waiting for needs-authentication status to be implemented
+      await minersPage.filterProtoMiners();
       await minersPage.validateAllMinersStatus("Hashing");
     });
   });
