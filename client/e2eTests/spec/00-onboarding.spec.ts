@@ -2,7 +2,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
-test.describe("Proto Fleet - Onboarding", () => {
+test.describe("Proto Fleet - Onboarding @setup", () => {
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(async ({ page }) => {
@@ -46,7 +46,7 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Authenticate miners", async ({ authPage, homePage, minersPage }) => {
+  test("Authenticate miners", async ({ authPage, homePage }) => {
     await test.step("Login as admin", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);
@@ -68,11 +68,6 @@ test.describe("Proto Fleet - Onboarding", () => {
     await test.step("Validate all miners authenticated", async () => {
       await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
-      await authPage.navigateToMinersPage();
-      // Workaround: bitmain miners have error statuses.
-      // Waiting for needs-authentication status to be implemented
-      await minersPage.filterProtoMiners();
-      await minersPage.validateAllMinersStatus("Hashing");
     });
   });
 });

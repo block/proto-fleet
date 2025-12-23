@@ -22,6 +22,7 @@ interface MiningPoolsListProps {
   createNewLabel: string;
   poolNumber?: number;
   excludedPoolIds?: (string | undefined)[];
+  testId?: string;
 }
 
 const PoolsList = ({
@@ -31,6 +32,7 @@ const PoolsList = ({
   createNewLabel,
   poolNumber,
   excludedPoolIds = [],
+  testId,
 }: MiningPoolsListProps) => {
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [poolState, setPoolState] = useState<PoolSelectionState>({
@@ -101,7 +103,7 @@ const PoolsList = ({
 
   return (
     <>
-      <div className="flex flex-col rounded-xl border border-border-10 p-4">
+      <div className="flex flex-col rounded-xl border border-border-10 p-4" data-testid={testId}>
         {/* Header */}
         <div className="mb-4 flex flex-col gap-3">
           {/* Icon */}

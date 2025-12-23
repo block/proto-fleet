@@ -180,13 +180,29 @@ const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
                     key={pool.poolId}
                     className="flex cursor-pointer items-center gap-4 border-b border-border-5 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
                     onClick={() => setSelectedPoolId(pool.poolId)}
+                    data-testid={`pool-row-${pool.name}`}
                   >
                     <div className="flex w-11 items-center justify-center">
                       <Radio selected={isSelected} />
                     </div>
-                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">{pool.name}</div>
-                    <div className="flex flex-[2] items-center truncate text-300 text-text-primary">{pool.poolUrl}</div>
-                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">{pool.username}</div>
+                    <div
+                      className="flex flex-1 items-center truncate text-300 text-text-primary"
+                      data-testid="pool-name"
+                    >
+                      {pool.name}
+                    </div>
+                    <div
+                      className="flex flex-[2] items-center truncate text-300 text-text-primary"
+                      data-testid="pool-url"
+                    >
+                      {pool.poolUrl}
+                    </div>
+                    <div
+                      className="flex flex-1 items-center truncate text-300 text-text-primary"
+                      data-testid="pool-username"
+                    >
+                      {pool.username}
+                    </div>
                   </div>
                 );
               })

@@ -57,4 +57,8 @@ export class BasePage {
   async click(text: string) {
     await this.page.getByRole("button", { name: text, disabled: false }).click();
   }
+
+  async clickIn(text: string, testId: string) {
+    await this.page.getByTestId(testId).getByRole("button", { name: text, disabled: false }).click();
+  }
 }

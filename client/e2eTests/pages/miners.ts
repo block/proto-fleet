@@ -82,6 +82,13 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("list-header").locator('input[type="checkbox"]').click();
   }
 
+  async uncheckSelectAllCheckbox() {
+    const checkbox = this.page.getByTestId("list-header").locator('input[type="checkbox"]');
+    if (await checkbox.isChecked()) {
+      await checkbox.click();
+    }
+  }
+
   async clickActionsMenuButton() {
     await this.page.getByTestId("actions-menu-button").click();
   }
@@ -111,6 +118,10 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("shutdown-confirm-button").click();
   }
 
+  async clickEditMiningPoolButton() {
+    await this.page.getByTestId("mining-pool-popover-button").click();
+  }
+
   async clickUnpairButton() {
     await this.page.getByTestId("unpair-popover-button").click();
   }
@@ -137,16 +148,30 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async validateAllMinersStatus(expectedStatus: string) {
+  async validateAllMinersStatus(status: string, expected: boolean = true) {
     await this.waitForMinersListToLoad();
+    // To avoid miner actions hiding some valuable data in screenshots
+    await this.uncheckSelectAllCheckbox();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
-    for (let i = 0; i < rowCount; i++) {
+    // Start from last one to workaround data not loading
+    for (let i = rowCount - 1; i >= 0; i--) {
       await rows.nth(i).scrollIntoViewIfNeeded();
-      await expect(rows.nth(i).locator(`//td[@data-testid='status']`)).toContainText(expectedStatus, {
-        timeout: PROLONGED_TIMEOUT,
-      });
+      const statusLocator = rows.nth(i).locator(`//td[@data-testid='status']`);
+      if (expected) {
+        await expect(statusLocator).toContainText(status, {
+          timeout: PROLONGED_TIMEOUT,
+        });
+      } else {
+        await expect(statusLocator).not.toContainText(status, {
+          timeout: PROLONGED_TIMEOUT,
+        });
+      }
     }
+  }
+
+  async validateNoMinerWithStatus(status: string) {
+    await this.validateAllMinersStatus(status, false);
   }
 
   async validateMinerStatus(ipAddress: string, expectedStatus: string) {
@@ -161,7 +186,8 @@ export class MinersPage extends BasePage {
     await this.waitForMinersListToLoad();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
-    for (let i = 0; i < rowCount; i++) {
+    // Start from last one to workaround data not loading
+    for (let i = rowCount - 1; i >= 0; i--) {
       await rows.nth(i).scrollIntoViewIfNeeded();
       await expect(async () => {
         const locator = rows.nth(i).locator(`//td[@data-testid='${columnTestId}']`);

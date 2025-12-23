@@ -86,6 +86,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
                 onSelect={handleSelectDefaultPool}
                 createNewLabel="Add pool"
                 excludedPoolIds={selectedBackupPools}
+                testId="default-pool"
               />
 
               {/* Backup pools - side by side */}
@@ -103,6 +104,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
                         createNewLabel="Add pool"
                         poolNumber={index + 1}
                         excludedPoolIds={excludedPools}
+                        testId={`backup-pool-${index + 1}`}
                       />
                     </div>
                   );

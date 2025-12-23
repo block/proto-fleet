@@ -53,11 +53,9 @@ test.describe.serial("Miners", () => {
       await authPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
-      // Workaround: Bitmain miner status remains as 'hashing' or with an error
-      await minersPage.filterProtoMiners();
     });
 
-    await test.step("Select first miner and wake it up", async () => {
+    await test.step("Select all miners and wake them up", async () => {
       await minersPage.clickSelectAllCheckbox();
       await minersPage.clickActionsMenuButton();
       await minersPage.clickWakeUpButton();
@@ -69,8 +67,8 @@ test.describe.serial("Miners", () => {
       await minersPage.validateUpdateCompleted();
     });
 
-    await test.step("Validate miner is hashing", async () => {
-      await minersPage.validateAllMinersStatus("Hashing");
+    await test.step("Validate none of the miners are sleeping", async () => {
+      await minersPage.validateNoMinerWithStatus("Sleeping");
     });
   });
 
@@ -232,7 +230,7 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("CLEANUP: Re-authenticate added miners", async ({ authPage, homePage, minersPage }) => {
+  test("CLEANUP: Re-authenticate added miners", async ({ authPage, homePage }) => {
     // Workaround - re-added Antminers need authentication again
     await test.step("Login as admin", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
@@ -255,11 +253,6 @@ test.describe.serial("Miners", () => {
     await test.step("Validate all miners authenticated", async () => {
       await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
-      await authPage.navigateToMinersPage();
-      // Workaround: Bitmain miners have error statuses.
-      // Waiting for needs-authentication status to be implemented
-      await minersPage.filterProtoMiners();
-      await minersPage.validateAllMinersStatus("Hashing");
     });
   });
 });

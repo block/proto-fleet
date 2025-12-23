@@ -3,8 +3,10 @@
 import { test as base } from "@playwright/test";
 import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
+import { EditPoolPage } from "../pages/editPool";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
+import { NewPoolModalPage } from "../pages/newPoolModal";
 import { SettingsPage } from "../pages/settings";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsTeamPage } from "../pages/settingsTeam";
@@ -17,6 +19,8 @@ type PageFixtures = {
   settingsPage: SettingsPage;
   settingsTeamPage: SettingsTeamPage;
   settingsPoolsPage: SettingsPoolsPage;
+  editPoolPage: EditPoolPage;
+  newPoolModal: NewPoolModalPage;
 };
 
 export const test = base.extend<PageFixtures>({
@@ -40,6 +44,12 @@ export const test = base.extend<PageFixtures>({
   },
   settingsPoolsPage: async ({ page }, use) => {
     await use(new SettingsPoolsPage(page));
+  },
+  editPoolPage: async ({ page }, use) => {
+    await use(new EditPoolPage(page));
+  },
+  newPoolModal: async ({ page }, use) => {
+    await use(new NewPoolModalPage(page));
   },
 });
 
