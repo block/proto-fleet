@@ -1,3 +1,4 @@
+import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "./constants";
 import { useCoolingStatus } from "./hooks/useCoolingStatus";
 import { useCreatePools } from "./hooks/useCreatePools";
 import { useEditPool } from "./hooks/useEditPool";
@@ -26,6 +27,9 @@ import { useTimeSeries } from "./hooks/useTimeSeries";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export {
+  TOTAL_FAN_SLOTS,
+  TOTAL_HASHBOARD_SLOTS,
+  TOTAL_PSU_SLOTS,
   useCoolingStatus,
   useCreatePools,
   useEditPool,

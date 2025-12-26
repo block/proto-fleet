@@ -7,7 +7,7 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
-import { useTelemetry } from "@/protoOS/api";
+import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useTelemetry } from "@/protoOS/api";
 // import { useErrors, useTelemetry } from "@/protoOS/api";
 // import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
 import {
@@ -15,8 +15,6 @@ import {
   useControlBoard,
   useFanIds,
   useHashboardSerialsByBay,
-  useMinerFans,
-  useMinerPsus,
   usePsuIds,
   useSlotsPerBay,
 } from "@/protoOS/store";
@@ -29,22 +27,18 @@ interface DiagnosticViewProps {
 
 const FansSection = () => {
   const fanIds = useFanIds();
-  const fans = useMinerFans();
+  const occupiedSlots = new Set(fanIds);
 
   return (
     <ComponentSection title="Fans">
       <div className="grid gap-1 sm:grid-cols-2 lg:auto-cols-fr lg:grid-flow-col lg:grid-rows-2">
-        {fanIds.map((id) => (
-          <FanStatusCard key={id} fanId={id} />
-        ))}
-        {/* Render empty slots - assuming 4 total fan slots */}
-        {fans.length < 4 &&
-          Array.from({ length: 4 - fans.length }, (_, i) => {
-            const position = fans.length + i + 1;
-            return (
-              <EmptySlotCard key={`fan-empty-${position}`} type="fan" position={position} title={`Fan ${position}`} />
-            );
-          })}
+        {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
+          const slot = i + 1;
+          if (occupiedSlots.has(slot)) {
+            return <FanStatusCard key={slot} fanId={slot} />;
+          }
+          return <EmptySlotCard key={`fan-empty-${slot}`} type="fan" position={slot} title={`Fan ${slot}`} />;
+        })}
       </div>
     </ComponentSection>
   );
@@ -96,22 +90,18 @@ HashboardsSection.displayName = "HashboardsSection";
 
 const PsusSection = () => {
   const psuIds = usePsuIds();
-  const psus = useMinerPsus();
+  const occupiedSlots = new Set(psuIds);
 
   return (
     <ComponentSection title="PSU">
       <div className="grid gap-1 md:grid-cols-2 lg:grid-cols-3">
-        {psuIds.map((id) => (
-          <PsuStatusCard key={id} psuId={id} />
-        ))}
-        {/* Render empty slots - assuming 3 total PSU slots */}
-        {psus.length < 3 &&
-          Array.from({ length: 3 - psus.length }, (_, i) => {
-            const position = psus.length + i + 1;
-            return (
-              <EmptySlotCard key={`psu-empty-${position}`} type="psu" position={position} title={`PSU ${position}`} />
-            );
-          })}
+        {Array.from({ length: TOTAL_PSU_SLOTS }, (_, i) => {
+          const slot = i + 1;
+          if (occupiedSlots.has(slot)) {
+            return <PsuStatusCard key={slot} psuId={slot} />;
+          }
+          return <EmptySlotCard key={`psu-empty-${slot}`} type="psu" position={slot} title={`PSU ${slot}`} />;
+        })}
       </div>
     </ComponentSection>
   );
