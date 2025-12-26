@@ -15,7 +15,7 @@ const InfoItem = ({ divider, label, loading, testId, value }: InfoItemProps) => 
       <div className="grow">
         <div className="relative text-200 text-text-primary-70">{label}</div>
         <div className="font-mono text-mono-text-50 leading-[14px] text-text-primary-30">
-          {loading ? <SkeletonBar className="h-[14px]! w-2/3" /> : (value ?? "-")}
+          {loading ? <SkeletonBar className="h-[14px]! w-2/3" /> : (value ?? "—")}
         </div>
       </div>
     </Row>

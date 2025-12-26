@@ -46,4 +46,4 @@ export const componentIssues = {
 };
 
 /** Placeholder text displayed for metrics when miner is inactive (offline/sleeping) */
-export const INACTIVE_PLACEHOLDER = "-";
+export const INACTIVE_PLACEHOLDER = "—";
