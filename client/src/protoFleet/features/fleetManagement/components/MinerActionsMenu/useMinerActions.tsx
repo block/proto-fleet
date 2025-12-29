@@ -165,9 +165,12 @@ export const useMinerActions = ({
     (batchIdentifier: string) => {
       if (miningPoolToastIdRef.current !== null) {
         handleSuccess(settingsActions.miningPool, miningPoolToastIdRef.current, batchIdentifier);
+        miningPoolToastIdRef.current = null;
       }
+      setCurrentAction(null);
+      onActionComplete?.();
     },
-    [handleSuccess],
+    [handleSuccess, onActionComplete],
   );
 
   const handleMiningPoolError = useCallback(
