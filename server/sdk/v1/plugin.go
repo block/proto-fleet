@@ -349,6 +349,19 @@ func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolin
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) SetPowerTarget(ctx context.Context, req *pb.SetPowerTargetRequest) (*emptypb.Empty, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	err := device.SetPowerTarget(ctx, PerformanceMode(req.PerformanceMode))
+	return &emptypb.Empty{}, err
+}
+
 func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.UpdateMiningPoolsRequest) (*emptypb.Empty, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]

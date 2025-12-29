@@ -411,6 +411,37 @@ func TestPluginMiner_SetCoolingMode(t *testing.T) {
 	}
 }
 
+func TestPluginMiner_SetPowerTarget(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        pb.PerformanceMode
+		expectedSDK sdk.PerformanceMode
+	}{
+		{"maximum hashrate", pb.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE, sdk.PerformanceModeMaximumHashrate},
+		{"efficiency", pb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, sdk.PerformanceModeEfficiency},
+		{"unspecified", pb.PerformanceMode_PERFORMANCE_MODE_UNSPECIFIED, sdk.PerformanceModeUnspecified},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockDevice := createTestPluginMiner()
+
+			var receivedMode sdk.PerformanceMode
+			mockDevice.setPowerTargetFunc = func(ctx context.Context, mode sdk.PerformanceMode) error {
+				receivedMode = mode
+				return nil
+			}
+
+			err := pm.SetPowerTarget(t.Context(), dto.PowerTargetPayload{
+				PerformanceMode: tt.mode,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedSDK, receivedMode)
+		})
+	}
+}
+
 func TestPluginMiner_UpdateMiningPools(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
 
