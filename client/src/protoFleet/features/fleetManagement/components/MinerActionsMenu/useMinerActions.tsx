@@ -34,7 +34,7 @@ import {
   // Curtail, // TODO: Uncomment when Curtail is implemented
   // Fan, // TODO: Uncomment when Cooling Mode is implemented
   LEDIndicator,
-  Lock,
+  // Lock, // TODO: Uncomment when Security is implemented
   MiningPools,
   Play,
   Power,
@@ -400,10 +400,11 @@ export const useMinerActions = ({
     //   // TODO show modal
     // };
 
-    const handleSecurity = () => {
-      setCurrentAction(settingsActions.security);
-      // TODO show modal
-    };
+    // TODO: Implement Security action
+    // const handleSecurity = () => {
+    //   setCurrentAction(settingsActions.security);
+    //   // TODO show modal
+    // };
 
     const sleepAction: BulkAction<SupportedAction> = {
       action: deviceActions.shutdown,
@@ -540,13 +541,14 @@ export const useMinerActions = ({
       //   actionHandler: handleCoolingMode,
       //   requiresConfirmation: false,
       // },
-      {
-        action: settingsActions.security,
-        title: "Security",
-        icon: <Lock />,
-        actionHandler: handleSecurity,
-        requiresConfirmation: false,
-      },
+      // TODO: Implement Security action
+      // {
+      //   action: settingsActions.security,
+      //   title: "Security",
+      //   icon: <Lock />,
+      //   actionHandler: handleSecurity,
+      //   requiresConfirmation: false,
+      // },
       {
         action: deviceActions.unpair,
         title: "Unpair",
