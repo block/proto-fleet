@@ -22,7 +22,7 @@ test.describe("Mining Pools @setup", () => {
 
     await test.step("Navigate to mining pools settings", async () => {
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToMiningPoolsSettings();
+      await settingsPage.navigateToMiningPoolsSettings();
       await settingsPoolsPage.validateMiningPoolsPageOpened();
     });
 

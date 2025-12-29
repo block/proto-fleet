@@ -154,7 +154,7 @@ export class MinersPage extends BasePage {
     await this.uncheckSelectAllCheckbox();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
-    // Start from last one to workaround data not loading
+    // Start from last row to avoid extremely long tests due to lazy loading
     for (let i = rowCount - 1; i >= 0; i--) {
       await rows.nth(i).scrollIntoViewIfNeeded();
       const statusLocator = rows.nth(i).locator(`//td[@data-testid='status']`);
@@ -186,7 +186,7 @@ export class MinersPage extends BasePage {
     await this.waitForMinersListToLoad();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
-    // Start from last one to workaround data not loading
+    // Start from last row to avoid extremely long tests due to lazy loading
     for (let i = rowCount - 1; i >= 0; i--) {
       await rows.nth(i).scrollIntoViewIfNeeded();
       await expect(async () => {

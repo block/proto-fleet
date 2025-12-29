@@ -1,8 +1,16 @@
 import { IconProps } from "./types";
 
-const Pause = ({ className, onClick }: IconProps) => {
+const Pause = ({ className, onClick, testId }: IconProps) => {
   return (
-    <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} onClick={onClick}>
+    <svg
+      width="20"
+      height="20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      onClick={onClick}
+      data-testid={testId}
+    >
       <path
         transform="rotate(90 19.6 .4)"
         className="stroke-surface-base"

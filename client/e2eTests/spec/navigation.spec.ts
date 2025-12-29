@@ -59,4 +59,57 @@ test.describe.serial("Navigation", () => {
       await homePage.validateHomePageOpened();
     });
   });
+
+  test("Navigate between main pages and settings sub-pages", async ({ authPage, settingsPage }) => {
+    await test.step("Log in as admin user", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate from Home to Settings page", async () => {
+      await authPage.navigateToSettingsPage();
+    });
+
+    await test.step("Navigate from Settings to Team Settings", async () => {
+      await settingsPage.navigateToTeamSettings();
+    });
+
+    await test.step("Navigate from Team Settings back to Settings page", async () => {
+      await settingsPage.navigateToSettingsPage();
+    });
+
+    await test.step("Navigate from Settings to Home page", async () => {
+      await settingsPage.navigateToHomePage();
+    });
+
+    await test.step("Navigate from Home to Team Settings", async () => {
+      await settingsPage.navigateToTeamSettings();
+    });
+
+    await test.step("Navigate from Team Settings back to Settings page", async () => {
+      await settingsPage.navigateToSettingsPage();
+    });
+
+    await test.step("Navigate from Settings to Security Settings", async () => {
+      await settingsPage.navigateToSecuritySettings();
+    });
+
+    await test.step("Navigate from Security Settings to Mining Pools Settings", async () => {
+      await settingsPage.navigateToMiningPoolsSettings();
+    });
+
+    await test.step("Navigate from Mining Pools Settings to Miners page", async () => {
+      await settingsPage.navigateToMinersPage();
+    });
+
+    await test.step("Navigate from Miners page back to Mining Pools Settings", async () => {
+      await settingsPage.navigateToMiningPoolsSettings();
+    });
+
+    await test.step("Navigate from Mining Pools Settings to Home page", async () => {
+      await settingsPage.navigateToHomePage();
+    });
+  });
 });

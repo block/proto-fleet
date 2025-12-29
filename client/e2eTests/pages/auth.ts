@@ -34,10 +34,6 @@ export class AuthPage extends BasePage {
     await this.click("Login");
   }
 
-  async validateMinersNavigationVisible() {
-    await expect(this.page.locator(`//*[@data-testid="navigation-menu"]//*[@href='/miners']`)).toBeVisible();
-  }
-
   async clickPasswordVisibilityToggle() {
     await this.page.locator(`//*[@data-testid="eye-icon"]`).click();
   }

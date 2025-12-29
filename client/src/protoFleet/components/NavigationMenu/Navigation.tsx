@@ -170,6 +170,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                   {isSettingsExpanded && (
                     <motion.div
                       id="settings-submenu"
+                      data-testid="secondary-nav"
                       initial={{ opacity: 0, y: -12 }}
                       animate={{
                         opacity: 1,

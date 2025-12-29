@@ -40,7 +40,11 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
         <div className="flex grow items-center px-4">
           <div className="flex grow items-center">
             {(isPhone || isTablet) && (
-              <Pause className="mr-2 text-text-primary hover:cursor-pointer" onClick={openMenu} />
+              <Pause
+                className="mr-2 text-text-primary hover:cursor-pointer"
+                onClick={openMenu}
+                testId="navigation-menu-button"
+              />
             )}
             <LocationSelector />
           </div>

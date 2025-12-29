@@ -24,32 +24,32 @@ type PageFixtures = {
 };
 
 export const test = base.extend<PageFixtures>({
-  authPage: async ({ page }, use) => {
-    await use(new AuthPage(page));
+  authPage: async ({ page, isMobile }, use) => {
+    await use(new AuthPage(page, isMobile));
   },
-  homePage: async ({ page }, use) => {
-    await use(new HomePage(page));
+  homePage: async ({ page, isMobile }, use) => {
+    await use(new HomePage(page, isMobile));
   },
-  minersPage: async ({ page }, use) => {
-    await use(new MinersPage(page));
+  minersPage: async ({ page, isMobile }, use) => {
+    await use(new MinersPage(page, isMobile));
   },
-  addMinersPage: async ({ page }, use) => {
-    await use(new AddMinersPage(page));
+  addMinersPage: async ({ page, isMobile }, use) => {
+    await use(new AddMinersPage(page, isMobile));
   },
-  settingsPage: async ({ page }, use) => {
-    await use(new SettingsPage(page));
+  settingsPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsPage(page, isMobile));
   },
-  settingsTeamPage: async ({ page }, use) => {
-    await use(new SettingsTeamPage(page));
+  settingsTeamPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsTeamPage(page, isMobile));
   },
-  settingsPoolsPage: async ({ page }, use) => {
-    await use(new SettingsPoolsPage(page));
+  settingsPoolsPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsPoolsPage(page, isMobile));
   },
-  editPoolPage: async ({ page }, use) => {
-    await use(new EditPoolPage(page));
+  editPoolPage: async ({ page, isMobile }, use) => {
+    await use(new EditPoolPage(page, isMobile));
   },
-  newPoolModal: async ({ page }, use) => {
-    await use(new NewPoolModalPage(page));
+  newPoolModal: async ({ page, isMobile }, use) => {
+    await use(new NewPoolModalPage(page, isMobile));
   },
 });
 

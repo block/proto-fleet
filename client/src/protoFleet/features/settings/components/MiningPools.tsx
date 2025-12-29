@@ -157,11 +157,15 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, connectionStatus }: Poo
   return (
     <div className="grid grid-cols-2 items-start py-4" data-testid="pool-row">
       {/* Left column: Pool name and URL */}
-      <div className="flex flex-col" data-testid="pool-name">
+      <div className="flex flex-col">
         {pool.poolName ? (
           <>
-            <div className="text-300 text-text-primary">{pool.poolName}</div>
-            <div className="text-200 break-all text-text-primary-70">{formattedUrl}</div>
+            <div className="text-300 text-text-primary" data-testid="pool-name">
+              {pool.poolName}
+            </div>
+            <div className="text-200 break-all text-text-primary-70" data-testid="pool-url">
+              {formattedUrl}
+            </div>
           </>
         ) : (
           <div className="text-300 break-all text-text-primary" data-testid="pool-url">

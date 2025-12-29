@@ -20,7 +20,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
 
     await test.step("Navigate to Team Settings", async () => {
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToTeamSettings();
+      await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
 
@@ -54,7 +54,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await authPage.clickLogin();
       await authPage.validateLoggedIn();
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToTeamSettings();
+      await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
 
@@ -84,12 +84,12 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await authPage.inputConfirmPassword("Password123!");
       await authPage.clickContinue();
       await authPage.clickLoginButton();
-      await authPage.validateMinersNavigationVisible();
+      await authPage.validateLoggedIn();
     });
 
     await test.step("Verify no admin rights", async () => {
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToTeamSettings();
+      await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.validateNoAdminRights();
     });
@@ -109,7 +109,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
 
     await test.step("Navigate to team settings", async () => {
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToTeamSettings();
+      await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
 
@@ -160,7 +160,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
 
     await test.step("Complete login", async () => {
       await authPage.clickLoginButton();
-      await authPage.validateMinersNavigationVisible();
+      await authPage.validateLoggedIn();
     });
 
     await test.step("Log out", async () => {
@@ -182,7 +182,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
 
     await test.step("Navigate to team settings", async () => {
       await authPage.navigateToSettingsPage();
-      await settingsPage.clickNavigateToTeamSettings();
+      await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
 

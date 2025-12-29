@@ -1,17 +1,25 @@
 import { expect, Page } from "@playwright/test";
 
 export class BasePage {
-  constructor(protected page: Page) {}
+  constructor(
+    protected page: Page,
+    protected isMobile: boolean = false,
+  ) {}
 
   async reloadPage() {
     await this.page.reload();
   }
 
   async validateLoggedIn() {
-    await expect(this.page.getByTestId("logout-button")).toBeVisible();
+    if (this.isMobile) {
+      await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
+    } else {
+      await expect(this.page.getByTestId("logout-button")).toBeVisible();
+    }
   }
 
   async logout() {
+    await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("logout-button").click();
   }
 
@@ -39,19 +47,67 @@ export class BasePage {
     await expect(titleLocator).toBeHidden();
   }
 
+  async clickNavigationMenuIfMobile() {
+    if (this.isMobile) {
+      await this.page.getByTestId("navigation-menu-button").click();
+    }
+  }
+
+  async clickExpandSettingsIfMobile() {
+    if (this.isMobile && !this.page.url().includes("/settings")) {
+      await this.clickIn("Settings", "navigation-menu");
+    }
+  }
+
   async navigateToHomePage() {
+    await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/"]').click();
     await expect(this.page).toHaveURL(/.*\/$/);
   }
 
   async navigateToMinersPage() {
+    await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/miners"]').click();
     await expect(this.page).toHaveURL(/.*\/miners/);
   }
 
   async navigateToSettingsPage() {
-    await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    if (this.isMobile) {
+      await this.page.getByTestId("navigation-menu").locator('a[href="/settings/general"]').click();
+    } else {
+      await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
+    }
     await expect(this.page).toHaveURL(/.*\/settings/);
+  }
+
+  async navigateSettingsIfDesktop() {
+    // desktop can't navigate directly to subpages of settings
+    if (!this.isMobile && !this.page.url().includes("/settings")) {
+      this.navigateToSettingsPage();
+    }
+  }
+
+  async navigateToSecuritySettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
+  }
+
+  async navigateToTeamSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
+  }
+
+  async navigateToMiningPoolsSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
   }
 
   async click(text: string) {

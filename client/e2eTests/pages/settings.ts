@@ -2,14 +2,6 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class SettingsPage extends BasePage {
-  async clickNavigateToTeamSettings() {
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
-  }
-
-  async clickNavigateToMiningPoolsSettings() {
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
-  }
-
   async clickTemperatureButton() {
     await this.page.click('[data-testid="temperature-button"]');
   }

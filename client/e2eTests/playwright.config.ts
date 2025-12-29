@@ -44,8 +44,21 @@ export default defineConfig({
 
   projects: [
     {
-      name: "chromium",
-      use: {},
+      name: "desktop",
+      use: {
+        viewport: { width: 1920, height: 1080 },
+        isMobile: false,
+      },
     },
+    // Uncomment to run mobile tests. In future will be used as: npx playwright test --project=mobile
+    // Currently commented out to avoid someone executing both configurations in parallel, as they're guaranteed to fail.
+    // Needs multiple independent environments
+    // {
+    //   name: "mobile",
+    //   use: {
+    //     viewport: { width: 393, height: 852 },
+    //     isMobile: true,
+    //   },
+    // },
   ],
 });
