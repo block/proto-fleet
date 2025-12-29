@@ -16,6 +16,20 @@ const (
 	stratumPort   = "3333"
 )
 
+// rpcRequest and rpcResponse are used with PlainObjectStream directly instead of
+// jsonrpc2.NewConn, which panics on id:null notifications from stratum servers.
+type rpcRequest struct {
+	ID     int    `json:"id"`
+	Method string `json:"method"`
+	Params []any  `json:"params"`
+}
+
+type rpcResponse struct {
+	ID     any `json:"id"`
+	Result any `json:"result"`
+	Error  any `json:"error"`
+}
+
 // Authenticate returns true if the authentication is successful, otherwise false.
 // It also returns an error if there is any issue during the connection or authentication process.
 // The context can be used to set a timeout for the authentication process.
@@ -32,19 +46,52 @@ func Authenticate(ctx context.Context, url string, username string, password *se
 	if err != nil {
 		return false, fmt.Errorf("unable to dial: %v", err)
 	}
+	defer netConn.Close()
 
-	conn := jsonrpc2.NewConn(ctx, jsonrpc2.NewPlainObjectStream(netConn), nil)
-	defer conn.Close()
+	// Apply context deadline to the connection
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := netConn.SetDeadline(deadline); err != nil {
+			return false, fmt.Errorf("unable to set deadline: %v", err)
+		}
+	}
+
+	// Use PlainObjectStream directly instead of jsonrpc2.NewConn because NewConn
+	// spawns a background goroutine that panics when stratum servers send
+	// notifications with id:null (which the library doesn't support).
+	stream := jsonrpc2.NewPlainObjectStream(netConn)
+	defer stream.Close()
 
 	request := &AuthRequest{
 		Username: username,
 		Password: password,
 	}
 
-	var response bool
-	err = conn.Call(ctx, request.Method(), request.MarshalParams(), &response)
-	if err != nil {
-		return false, fmt.Errorf("unable to call: %v", err)
+	req := rpcRequest{
+		ID:     1,
+		Method: request.Method(),
+		Params: request.MarshalParams(),
+	}
+
+	if err := stream.WriteObject(req); err != nil {
+		return false, fmt.Errorf("failed to send authentication request: %v", err)
+	}
+
+	var resp rpcResponse
+	if err := stream.ReadObject(&resp); err != nil {
+		return false, fmt.Errorf("failed to receive authentication response: %v", err)
+	}
+
+	if resp.Error != nil {
+		return false, fmt.Errorf("authentication failed: %v", resp.Error)
+	}
+
+	if resp.Result == nil {
+		return false, fmt.Errorf("server returned null result")
+	}
+
+	response, ok := resp.Result.(bool)
+	if !ok {
+		return false, fmt.Errorf("unexpected result type: %T", resp.Result)
 	}
 
 	return response, nil
