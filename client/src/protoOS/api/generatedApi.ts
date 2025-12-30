@@ -61,15 +61,15 @@ export interface AsicStats {
    */
   hashrate_ghs?: number;
   /**
+   * Unique identifier assigned to each ASIC located on a hashboard, starting from 0.
+   * @example 0
+   */
+  id?: number;
+  /**
    * The expected hashrate determined by the clock frequency of the ASIC, measured in GH/s.
    * @example 300
    */
   ideal_hashrate_ghs?: number;
-  /**
-   * Zero-based index of the ASIC on the hashboard (first ASIC is 0).
-   * @example 0
-   */
-  index?: number;
   /**
    * Physical row location of the ASIC on the hashboard.
    * @example 0
@@ -377,6 +377,11 @@ export interface FWInfo {
 /** Individual fan information including status and RPM data */
 export interface FanInfo {
   /**
+   * Each cooling device is assigned a unique identifier starting from 0.
+   * @example 0
+   */
+  id?: number;
+  /**
    * The maximum RPM of the cooling device.
    * @example 1000
    */
@@ -391,15 +396,15 @@ export interface FanInfo {
    * @example "CPU Cooler"
    */
   name?: string;
-  /**
-   * Each cooling device is assigned a unique identifier starting from 1.
-   * @example 1
-   */
-  slot?: number;
 }
 
 /** Current status and performance metrics for individual cooling fans */
 export interface FanStatus {
+  /**
+   * Each fan is assigned a unique identifier starting from 0.
+   * @example 0
+   */
+  id?: number;
   /**
    * The fan's set speed as a percentage from 0 to 100.
    * @example 55
@@ -410,11 +415,6 @@ export interface FanStatus {
    * @example 1200
    */
   rpm?: number;
-  /**
-   * Each fan is assigned a unique identifier starting from 1.
-   * @example 1
-   */
-  slot?: number;
 }
 
 export interface GetAsicHashrateParams {
@@ -687,6 +687,11 @@ export interface HashboardStatsHashboardstats {
    * @example 300
    */
   hashrate_ghs?: number;
+  /**
+   * Internal ID of the hashboard, assigned to each hashboard starting from 1.
+   * @example 3
+   */
+  hb_id?: number;
   /** Manufacturing serial number of the hashboard, used for subsequent API calls. */
   hb_sn?: string;
   /**
@@ -714,11 +719,6 @@ export interface HashboardStatsHashboardstats {
    * @example 1000
    */
   power_usage_watts?: number;
-  /**
-   * The physical slot where the Hashboard is inserted in the system.
-   * @example 3
-   */
-  slot?: number;
   /**
    * The current state or condition of the hashboard.
    * @example "Running"
@@ -907,13 +907,13 @@ export interface MiningStatusMiningstatus {
    * @example 60
    */
   average_asic_temp_c?: number;
-  /** The average efficiency in joules per terahash, since the device started mining. */
-  average_efficiency_jth?: number;
   /**
    * The average hash rate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
    * @example 110000.2
    */
   average_hashrate_ghs?: number;
+  /** The average hashboard efficiency in joules per terahash, since the device started mining. */
+  average_hb_efficiency_jth?: number;
   /**
    * Average temperature of the mining device.
    * @example 60
@@ -929,13 +929,13 @@ export interface MiningStatusMiningstatus {
    * @example 112000
    */
   ideal_hashrate_ghs?: number;
-  /** @example "This reserved space can be utilized to include additional debug information." */
-  message?: string;
   /**
    * The amount of time in seconds that has passed since the start of the mining operation.
    * @example 521
    */
   mining_uptime_s?: number;
+  /** The power efficiency in joules per terahash, calculated from total PSU input power and current hashrate. */
+  power_efficiency_jth?: number;
   /**
    * Amount of power in watts for the system to target.
    * @example 3120
@@ -1050,11 +1050,11 @@ export interface NetworkInfoNetworkinfo {
 
 /** Notification error information with source and details */
 export interface NotificationError {
+  component_index?: number;
   /** @example "FanSlow" */
   error_code?: string;
   /** @example "Fan 1 is not operating correctly." */
   message?: string;
-  slot?: number;
   /** @example "rig" */
   source?: "rig" | "fan" | "psu" | "hashboard";
   timestamp?: number;
@@ -2158,7 +2158,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.7.1
+ * @version 1.7.2
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>
