@@ -97,34 +97,6 @@ To test code changes locally, run the vite dev server with one of the following 
 PROXY_URL = http://127.0.0.1:8000
 ```
 
-#### Using Minefield for Error Injection (ProtoOS)
-
-Minefield is a development tool that acts as an HTTP proxy to inject errors and test error handling in the application. When enabled, it sits between the frontend and the API server, allowing you to simulate various error conditions.
-
-To use minefield with ProtoOS:
-
-1. **Set the PROXY_URL** in your `.env` file (pointing to your actual API server)
-2. **Optionally set MINEFIELD_URL** to specify which port minefield should run on (defaults to `http://localhost:7070`)
-3. **Start the dev server with the `--minefield` flag**:
-
-```bash
-npm run dev:protoOS -- --minefield
-```
-
-When minefield is active:
-
-- A floating button appears in the bottom-right corner of the UI
-- Click the button to open the minefield control panel
-- Use the control panel to inject various miner errors and test error states
-- The proxy transparently forwards all requests to your actual API server when not injecting errors
-
-Minefield configuration in `.env`:
-
-```
-PROXY_URL = http://127.0.0.1:8000  # Your actual API server
-MINEFIELD_URL = http://localhost:7070  # Optional: defaults to this value if not set
-```
-
 **ProtoFleet**
 
 - Build and start the docker containers to run the backend locally

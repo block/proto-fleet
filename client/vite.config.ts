@@ -116,9 +116,8 @@ export default defineConfig(({ mode, command }) => {
       },
     };
   } else {
-    // For ProtoOS: Check if VITE_MINEFIELD_URL was passed by the script (--minefield flag)
-    // If not, use PROXY_URL from .env file
-    const targetUrl = process.env.VITE_MINEFIELD_URL || env.PROXY_URL;
+    // For ProtoOS: Use PROXY_URL from .env file
+    const targetUrl = env.PROXY_URL;
     proxies = targetUrl
       ? {
           "/api/v1": {
@@ -131,10 +130,7 @@ export default defineConfig(({ mode, command }) => {
 
     // Log which proxy is being used for clarity
 
-    if (process.env.VITE_MINEFIELD_URL) {
-      // eslint-disable-next-line no-console
-      console.log(`[ProtoOS] Using Minefield proxy at ${process.env.VITE_MINEFIELD_URL}`);
-    } else if (env.PROXY_URL) {
+    if (env.PROXY_URL) {
       // eslint-disable-next-line no-console
       console.log(`[ProtoOS] Using direct miner connection at ${env.PROXY_URL}`);
     }

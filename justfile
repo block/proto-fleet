@@ -68,13 +68,6 @@ gen-protos:
 gen-server:
     just gen
 
-[working-directory: 'minefield']
-gen-minefield:
-    just gen
-
-[working-directory: 'minefield']
-minefield-build:
-    just build
 
 [working-directory: 'server']
 fmt-server:
