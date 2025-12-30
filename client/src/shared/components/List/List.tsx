@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -127,11 +127,19 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  const lastClickedIndexRef = useRef<number | null>(null);
 
   const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
+
+  // Memoized callback for action bar - defined first so handleSelectAll can use it
+  const clearSelection = useCallback(() => {
+    customSetSelectedItems ? customSetSelectedItems([]) : setSelectedItems([]);
+    setSelectionMode("none");
+    onSelectionModeChange?.("none");
+  }, [customSetSelectedItems, onSelectionModeChange]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -141,32 +149,64 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       setSelectionMode(newMode);
       onSelectionModeChange?.(newMode);
     } else {
-      customSetSelectedItems ? customSetSelectedItems([]) : setSelectedItems([]);
-      setSelectionMode("none");
-      onSelectionModeChange?.("none");
+      clearSelection();
     }
   };
 
-  const handleSelectItem = (itemKey: ItemKeyValueType, checked: boolean) => {
-    const cb = (prev: ItemKeyValueType[]) => {
-      if (checked && !prev.includes(itemKey)) {
-        return [...prev, itemKey];
-      } else if (!checked) {
-        return prev.filter((addr) => addr !== itemKey);
-      }
-      return prev;
-    };
+  // Clear selection anchor when bulk selection changes (Select All or Clear Selection)
+  useEffect(() => {
+    if (selectionMode === "all" || selectionMode === "none") {
+      lastClickedIndexRef.current = null;
+    }
+  }, [selectionMode]);
+
+  const selectRange = (anchorIndex: number, targetIndex: number, currentSelected: ItemKeyValueType[]) => {
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    const rangeKeys = filteredItems.slice(start, end + 1).map((item) => item[itemKey] as ItemKeyValueType);
+
+    const selectedSet = new Set(currentSelected);
+    rangeKeys.forEach((key) => selectedSet.add(key));
+    return Array.from(selectedSet);
+  };
+
+  const toggleSingleItem = (itemKeyValue: ItemKeyValueType, checked: boolean, currentSelected: ItemKeyValueType[]) => {
+    if (checked && !currentSelected.includes(itemKeyValue)) {
+      return [...currentSelected, itemKeyValue];
+    } else if (!checked) {
+      return currentSelected.filter((key) => key !== itemKeyValue);
+    }
+    return currentSelected;
+  };
+
+  const handleSelectItem = (
+    itemKeyValue: ItemKeyValueType,
+    checked: boolean,
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const currentSelected = customSelectedItems ?? selectedItems;
+    const isShiftClick = event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey;
+    const canRangeSelect = isShiftClick && lastClickedIndexRef.current !== null && checked;
 
     let newSelectedItems: ItemKeyValueType[];
-    if (customSetSelectedItems && customSelectedItems) {
-      newSelectedItems = cb(customSelectedItems);
+
+    if (canRangeSelect) {
+      newSelectedItems = selectRange(lastClickedIndexRef.current!, index, currentSelected);
+      lastClickedIndexRef.current = null;
+    } else {
+      newSelectedItems = toggleSingleItem(itemKeyValue, checked, currentSelected);
+      lastClickedIndexRef.current = checked ? index : null;
+    }
+
+    if (customSetSelectedItems) {
       customSetSelectedItems(newSelectedItems);
     } else {
-      newSelectedItems = cb(selectedItems);
       setSelectedItems(newSelectedItems);
     }
 
-    const newMode = newSelectedItems.length === 0 ? "none" : "subset";
+    const allItemsSelected = newSelectedItems.length === items.length && items.length > 0;
+    const newMode = newSelectedItems.length === 0 ? "none" : allItemsSelected && !hasActiveFilters ? "all" : "subset";
     setSelectionMode(newMode);
     onSelectionModeChange?.(newMode);
   };
@@ -197,6 +237,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       setFilteredItems(items);
     }
   }, [items, isServerSideFiltering]);
+
+  // Clear selection anchor when filtered items change to prevent invalid range selection
+  useEffect(() => {
+    lastClickedIndexRef.current = null;
+  }, [filteredItems]);
 
   // Sync selected items when items list changes
   useEffect(() => {
@@ -396,7 +441,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                                 customSelectedItems?.includes(item[itemKey] as ItemKeyValueType) ||
                                 selectedItems.includes(item[itemKey] as ItemKeyValueType)
                               }
-                              onChange={(e) => handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked)}
+                              onChange={(e) =>
+                                handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked, i, e)
+                              }
                             />
                           </div>
                         </td>
@@ -464,7 +511,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems, () => handleSelectAll(false), selectionMode)}</div>
+          <div className="w-full">{renderActionBar(selectedItems, clearSelection, selectionMode)}</div>
         )}
       </div>
     </div>

@@ -388,4 +388,198 @@ describe("List", () => {
       expect(getByTestId("selection-mode").textContent).toBe("all");
     });
   });
+
+  describe("Shift+click range selection", () => {
+    it("selects range of items when Shift+clicking after initial selection", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Click first checkbox (normal click)
+      fireEvent.click(selectItemCheckboxes[0]);
+      expect(selectItemCheckboxes[0].checked).toBe(true);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(1);
+
+      // Shift+click third checkbox to select range (items 0, 1, 2)
+      fireEvent.click(selectItemCheckboxes[2], { shiftKey: true });
+
+      // All three items should be selected
+      expect(selectItemCheckboxes[0].checked).toBe(true);
+      expect(selectItemCheckboxes[1].checked).toBe(true);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(3);
+    });
+
+    it("selects range in reverse order when Shift+clicking above initial selection", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Click third checkbox first (normal click)
+      fireEvent.click(selectItemCheckboxes[2]);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(1);
+
+      // Shift+click first checkbox to select range (items 0, 1, 2)
+      fireEvent.click(selectItemCheckboxes[0], { shiftKey: true });
+
+      // All three items should be selected
+      expect(selectItemCheckboxes[0].checked).toBe(true);
+      expect(selectItemCheckboxes[1].checked).toBe(true);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(3);
+    });
+
+    it("adds to existing selection when Shift+clicking with items already selected", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Select first item
+      fireEvent.click(selectItemCheckboxes[0]);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(1);
+
+      // Select fourth item separately
+      fireEvent.click(selectItemCheckboxes[3]);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(2);
+
+      // Shift+click second item (should add items 1, 2 to selection since last click was on index 3)
+      fireEvent.click(selectItemCheckboxes[1], { shiftKey: true });
+
+      // Items 0, 1, 2, 3 should all be selected now
+      expect(selectItemCheckboxes[0].checked).toBe(true);
+      expect(selectItemCheckboxes[1].checked).toBe(true);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+      expect(selectItemCheckboxes[3].checked).toBe(true);
+    });
+
+    it("clears anchor after Shift+click so next Shift+click requires new anchor", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Click first checkbox (sets anchor at index 0)
+      fireEvent.click(selectItemCheckboxes[0]);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(1);
+
+      // Shift+click third checkbox (selects 0, 1, 2 and clears anchor)
+      fireEvent.click(selectItemCheckboxes[2], { shiftKey: true });
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(3);
+
+      // Another Shift+click should NOT do range selection since anchor was cleared
+      // It should just select that single item (normal click behavior when no anchor)
+      fireEvent.click(selectItemCheckboxes[3], { shiftKey: true });
+
+      // Should only add item 3, not create a range from anywhere
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(4);
+      expect(selectItemCheckboxes[3].checked).toBe(true);
+    });
+
+    it("does not select range when Shift+clicking to uncheck", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Select first three items individually
+      fireEvent.click(selectItemCheckboxes[0]);
+      fireEvent.click(selectItemCheckboxes[1]);
+      fireEvent.click(selectItemCheckboxes[2]);
+      expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(3);
+
+      // Shift+click to uncheck should only uncheck that item (no range deselection)
+      fireEvent.click(selectItemCheckboxes[1], { shiftKey: true });
+
+      // Only item 1 should be unchecked, items 0 and 2 remain checked
+      expect(selectItemCheckboxes[0].checked).toBe(true);
+      expect(selectItemCheckboxes[1].checked).toBe(false);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+    });
+
+    it("sets selection mode to 'all' when Shift+click selects all items", () => {
+      const onSelectionModeChange = vi.fn();
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Click first checkbox (sets anchor at index 0)
+      fireEvent.click(selectItemCheckboxes[0]);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("subset");
+
+      // Shift+click last checkbox to select all items (0, 1, 2, 3, 4)
+      fireEvent.click(selectItemCheckboxes[4], { shiftKey: true });
+
+      // All items should be selected
+      expect(Array.from(selectItemCheckboxes).every((c) => c.checked)).toBe(true);
+
+      // Mode should be "all" since all items are selected
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
+    });
+  });
 });
