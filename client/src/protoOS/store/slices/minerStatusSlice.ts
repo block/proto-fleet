@@ -104,7 +104,6 @@ export const createMinerStatusSlice: StateCreator<
           units: undefined,
         };
         state.minerStatus.hwErrors = apiMiningStatus.hw_errors;
-        state.minerStatus.message = apiMiningStatus.message;
       },
       false,
       "minerStatus/setMiningStatus",
