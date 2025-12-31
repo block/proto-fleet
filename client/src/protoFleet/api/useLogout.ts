@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { authClient } from "@/protoFleet/api/clients";
 import { useFleetStore } from "@/protoFleet/store";
@@ -9,6 +10,8 @@ import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster
  * Calls the server to invalidate the session, then clears client-side state.
  */
 const useLogoutAction = () => {
+  const navigate = useNavigate();
+
   const logout = useCallback(async () => {
     try {
       // Call server to invalidate session and clear cookie
@@ -23,8 +26,9 @@ const useLogoutAction = () => {
     } finally {
       // Always clear client-side auth state
       useFleetStore.getState().auth.logout();
+      navigate("/auth");
     }
-  }, []);
+  }, [navigate]);
 
   return logout;
 };
