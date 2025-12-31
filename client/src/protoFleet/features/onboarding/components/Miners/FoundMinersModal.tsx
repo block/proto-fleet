@@ -95,7 +95,7 @@ const FoundMinersModal = ({ miners, models, setDeselectedMiners, onDismiss }: Fo
         },
       ]}
     >
-      <div className="flex flex-col gap-4 overflow-hidden">
+      <div className="flex flex-col gap-4">
         <Header
           titleSize="text-heading-300"
           title={`${miners.length} miners found on your network`}
