@@ -34,7 +34,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
           go-version: "1.25.4"
 
@@ -71,7 +71,7 @@ jobs:
             version.txt
 
       - name: Upload server artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: proto-fleet-server-artifact
           path: ./server/proto-fleet-server-dev.tar.gz
@@ -89,7 +89,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -121,7 +121,7 @@ jobs:
           tar -czf proto-fleet-client-dev.tar.gz dist/protoFleet
 
       - name: Upload client artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: proto-fleet-client-artifact
           path: ./client/proto-fleet-client-dev.tar.gz
@@ -144,13 +144,13 @@ jobs:
           touch deployment/server/influx_config/.env
 
       - name: Download server artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: proto-fleet-server-artifact
           path: /tmp
 
       - name: Download client artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: proto-fleet-client-artifact
           path: /tmp
@@ -195,7 +195,7 @@ jobs:
           tar -czf proto-fleet-deployment.tar.gz deployment
 
       - name: Upload deployment bundle
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: proto-fleet-deployment-bundle
           path: proto-fleet-deployment.tar.gz
