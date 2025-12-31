@@ -223,10 +223,12 @@ const AuthenticationSettings = () => {
           <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
             <Header title="Account" titleSize="text-heading-200" />
             <div>
-              <Row className="flex items-center justify-between gap-5" divider>
+              <Row className="flex items-center justify-between gap-5" divider testId="username-row">
                 <div className="text-emphasis-300">Username</div>
                 <div className="flex items-center gap-3">
-                  <span className="text-300">{username}</span>
+                  <span className="text-300" data-testid="username-value">
+                    {username}
+                  </span>
                   <Button
                     onClick={() => {
                       setShowModal(true);
@@ -244,7 +246,7 @@ const AuthenticationSettings = () => {
                   </Button>
                 </div>
               </Row>
-              <Row divider={false} className="flex items-center justify-between gap-5">
+              <Row divider={false} className="flex items-center justify-between gap-5" testId="password-row">
                 <div className="text-emphasis-300">Password</div>
                 <div className="flex items-center gap-3">
                   {passwordLastUpdatedAt ? (

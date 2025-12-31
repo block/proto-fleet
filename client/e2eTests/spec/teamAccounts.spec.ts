@@ -19,7 +19,6 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Navigate to Team Settings", async () => {
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
@@ -53,7 +52,6 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await authPage.inputPassword(testConfig.users.admin.password);
       await authPage.clickLogin();
       await authPage.validateLoggedIn();
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
@@ -88,7 +86,6 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Verify no admin rights", async () => {
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.validateNoAdminRights();
@@ -108,7 +105,6 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Navigate to team settings", async () => {
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
@@ -181,7 +177,6 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Navigate to team settings", async () => {
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });

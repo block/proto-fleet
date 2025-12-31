@@ -18,7 +18,6 @@ test.describe("Proto Fleet - Authentication", () => {
     });
 
     await test.step("Navigate to Team Settings and validate admin access", async () => {
-      await authPage.navigateToSettingsPage();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.validateIsAdmin();

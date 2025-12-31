@@ -131,11 +131,11 @@ export class MinersPage extends BasePage {
   }
 
   async validateUpdateInProgress() {
-    await expect(this.page.locator(`text=Update in progress`)).toBeVisible();
+    await expect(this.page.getByText(`Update in progress`)).toBeVisible();
   }
 
   async validateUpdateCompleted() {
-    await expect(this.page.locator(`text=Update in progress`)).toBeHidden();
+    await expect(this.page.getByText(`Update in progress`)).toBeHidden();
   }
 
   async waitForMinersListToLoad() {

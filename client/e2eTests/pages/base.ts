@@ -94,6 +94,7 @@ export class BasePage {
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
     await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/security/);
   }
 
   async navigateToTeamSettings() {
@@ -101,6 +102,7 @@ export class BasePage {
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
     await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/team/);
   }
 
   async navigateToMiningPoolsSettings() {
@@ -108,6 +110,7 @@ export class BasePage {
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
     await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
   async click(text: string) {
