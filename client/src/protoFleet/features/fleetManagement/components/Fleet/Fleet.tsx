@@ -101,7 +101,6 @@ const Fleet = () => {
             laptop: "40px",
             desktop: "40px",
           }}
-          overflowContainer={false}
           onAddMiners={() => setShowAddMinersModal(true)}
           itemRef={registerMiner}
           loading={!hasInitialLoadCompleted}
