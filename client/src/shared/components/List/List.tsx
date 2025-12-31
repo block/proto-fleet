@@ -85,12 +85,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
 const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
-const baseStickyClassList = "sticky z-1";
+const baseStickyClassList = "tablet:sticky laptop:sticky desktop:sticky z-1";
 const tdClassList = "text-left text-300";
 const tdPaddingClassList = "px-2 py-4";
-// use after element for shadow
+// use after element for shadow (hidden on phone since column isn't sticky)
 const columnShadowClassList =
-  "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)]";
+  "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)] phone:after:content-none";
 
 const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
   activeCols,
@@ -337,7 +337,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       : "",
   );
 
-  const firstStickyClasses = clsx(baseStickyClassList, "left-0", stickyBgColor, paddingClasses);
+  const firstStickyClasses = clsx(
+    baseStickyClassList,
+    "tablet:left-0 laptop:left-0 desktop:left-0",
+    stickyBgColor,
+    paddingClasses,
+  );
 
   const secondStickyClasses = clsx(
     baseStickyClassList,
@@ -345,7 +350,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     "desktop:left-[calc(var(--list-padding-desktop)+theme(spacing.9))]",
     "laptop:left-[calc(var(--list-padding-laptop)+theme(spacing.9))]",
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
-    "phone:left-[calc(var(--list-padding-phone)+theme(spacing.9))]",
   );
 
   return (
