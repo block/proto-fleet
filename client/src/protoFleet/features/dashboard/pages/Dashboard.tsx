@@ -193,8 +193,7 @@ const Dashboard = () => {
             </div>
 
             <p className="px-10 pt-6 text-300 text-text-primary phone:px-6 tablet:px-6">
-              Data gaps may occur where third-party miner telemetry is unavailable. Efficiency and power reports will
-              not reflect Antminer devices.
+              Some devices do not make all data available to Proto Fleet.
             </p>
             {/* eslint-disable-next-line react-hooks/refs */}
             <div ref={refs.vertical.end} />
