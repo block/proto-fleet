@@ -50,7 +50,9 @@ const Header = ({
   description,
 }: HeaderProps) => {
   return (
-    <div className={clsx("flex w-full justify-between", { "items-center": centerButton }, className)}>
+    <div
+      className={clsx("flex w-full justify-between gap-3 phone:flex-wrap", { "items-center": centerButton }, className)}
+    >
       <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
           <Button
@@ -94,7 +96,7 @@ const Header = ({
       </div>
       {children}
       {buttons && (
-        <div className="ml-3">
+        <div className="ml-3 phone:ml-0 phone:w-full">
           <ButtonGroup buttons={buttons} variant={groupVariants.rightAligned} size={buttonSize} />
         </div>
       )}
