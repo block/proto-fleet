@@ -31,7 +31,7 @@ const FansSection = () => {
 
   return (
     <ComponentSection title="Fans">
-      <div className="grid gap-1 sm:grid-cols-2 lg:auto-cols-fr lg:grid-flow-col lg:grid-rows-2">
+      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
           const slot = i + 1;
           if (occupiedSlots.has(slot)) {
@@ -58,8 +58,8 @@ const HashboardsSection = () => {
 
   return (
     <ComponentSection title="Hashboards">
-      {/* Grid with columns for each bay - column-first layout */}
-      <div className="grid gap-1 lg:grid-flow-col lg:grid-cols-3 lg:grid-rows-3">
+      {/* Grid with responsive columns */}
+      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
         {bayIndices
           .map((bayIndex) => {
             // Get serials for this bay, or create empty slots
@@ -94,7 +94,7 @@ const PsusSection = () => {
 
   return (
     <ComponentSection title="PSU">
-      <div className="grid gap-1 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: TOTAL_PSU_SLOTS }, (_, i) => {
           const slot = i + 1;
           if (occupiedSlots.has(slot)) {
@@ -115,7 +115,7 @@ const ControlBoardSection = () => {
 
   return (
     <ComponentSection title="Control Board">
-      <div className="grid gap-1 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
         <ControlBoardStatusCard />
       </div>
     </ComponentSection>
