@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, usernameValidationErrors } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 
 import { Alert, Success } from "@/shared/assets/icons";
@@ -39,7 +39,9 @@ const PoolModal = ({
 }: PoolModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
+  const [poolNameError, setPoolNameError] = useState<string | undefined>();
   const [urlError, setUrlError] = useState<string | undefined>();
+  const [usernameError, setUsernameError] = useState<string | undefined>();
   const [showCallout, setShowCallout] = useState(false);
   const [error, setError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,7 +62,13 @@ const PoolModal = ({
 
   const showSaveErrorCallout = useMemo(() => saveError && !isSaving, [saveError, isSaving]);
 
-  const isSaveDisabled = useMemo(() => !draftPoolInfo[poolIndex]?.url.trim(), [draftPoolInfo, poolIndex]);
+  const isSaveDisabled = useMemo(
+    () =>
+      !draftPoolInfo[poolIndex]?.name?.trim() ||
+      !draftPoolInfo[poolIndex]?.url?.trim() ||
+      !draftPoolInfo[poolIndex]?.username?.trim(),
+    [draftPoolInfo, poolIndex],
+  );
 
   useEffect(() => {
     setDraftPoolInfo(deepClone(pools));
@@ -68,7 +76,9 @@ const PoolModal = ({
 
   useEffect(() => {
     if (show) {
+      setPoolNameError(undefined);
       setUrlError(undefined);
+      setUsernameError(undefined);
       setShowCallout(false);
       setError(false);
       setIsSaving(false);
@@ -85,8 +95,16 @@ const PoolModal = ({
       poolsInfo[poolIndex][infoKey] = value;
       setDraftPoolInfo(poolsInfo);
 
+      if (infoKey === poolInfoAttributes.name) {
+        setPoolNameError(value.trim() ? undefined : poolNameValidationErrors.required);
+      }
+
       if (infoKey === poolInfoAttributes.url) {
         setUrlError(value.trim() ? undefined : urlValidationErrors.required);
+      }
+
+      if (infoKey === poolInfoAttributes.username) {
+        setUsernameError(value.trim() ? undefined : usernameValidationErrors.required);
       }
 
       if (infoKey === poolInfoAttributes.password) {
@@ -193,32 +211,34 @@ const PoolModal = ({
         <Input
           id={`${poolInfoAttributes.name} ${poolIndex}`}
           label="Pool Name"
-          onChangeBlur={onPoolChange}
+          onChange={onPoolChange}
           initValue={draftPoolInfo[poolIndex].name || ""}
-          testId={`${poolInfoAttributes.name}-${poolIndex}-input`}
+          testId={`pool-name-${poolIndex}-input`}
+          error={poolNameError}
         />
         <Input
           id={`${poolInfoAttributes.url} ${poolIndex}`}
           label="Pool URL"
           maxLength={2083}
-          onChangeBlur={onPoolChange}
-          initValue={draftPoolInfo[poolIndex].url}
+          onChange={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].url || ""}
           testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           error={urlError}
         />
         <Input
           id={`${poolInfoAttributes.username} ${poolIndex}`}
           label="Username"
-          onChangeBlur={onPoolChange}
-          initValue={draftPoolInfo[poolIndex].username}
+          onChange={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].username || ""}
           testId={`${poolInfoAttributes.username}-${poolIndex}-input`}
+          error={usernameError}
         />
         <Input
           id={`${poolInfoAttributes.password} ${poolIndex}`}
           label="Password (optional)"
           type="password"
-          onChangeBlur={onPoolChange}
-          initValue={draftPoolInfo[poolIndex].password}
+          onChange={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].password || ""}
           testId={`${poolInfoAttributes.password}-${poolIndex}-input`}
         />
       </div>

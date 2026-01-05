@@ -32,6 +32,8 @@ const backupPoolDismissButton = "header-icon-button";
 const finishSetupButton = "finish-setup-button";
 const urlInput = "url-0-input";
 const backupUrlInput = "url-1-input";
+const backupUsernameInput = "username-1-input";
+const backupPoolNameInput = "pool-name-1-input";
 const validationError = "url-0-input-validation-error";
 const poolNotConnectedCallout = "pool-not-connected-callout";
 const warnDefaultPoolCallout = "warn-default-pool-callout";
@@ -129,12 +131,24 @@ describe("Onboarding", () => {
     fireEvent.blur(urlInputElement);
     // click add button of backup pool 1
     fireEvent.click(getByTestId(backupPoolAddButton));
+    // input backup pool name (required field)
+    const backupNameInputElement = getByTestId(backupPoolNameInput);
+    fireEvent.change(backupNameInputElement, {
+      target: { value: "Backup Pool 1" },
+    });
+    fireEvent.blur(backupNameInputElement);
     // input backup pool URL
     const backupUrlInputElement = getByTestId(backupUrlInput);
     fireEvent.change(backupUrlInputElement, {
       target: { value: poolUrl },
     });
     fireEvent.blur(backupUrlInputElement);
+    // input backup pool username (required field)
+    const backupUsernameInputElement = getByTestId(backupUsernameInput);
+    fireEvent.change(backupUsernameInputElement, {
+      target: { value: "testuser" },
+    });
+    fireEvent.blur(backupUsernameInputElement);
     // click save button
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(finishSetupButton));
@@ -149,9 +163,19 @@ describe("Onboarding", () => {
     expect(addButtonWrapper.getByText("Add")).toBeInTheDocument();
     await user.click(getByTestId(backupPoolAddButton));
 
+    // input pool name (required field)
+    let nameInput = getByTestId(backupPoolNameInput);
+    await user.clear(nameInput);
+    await user.type(nameInput, "Backup Pool");
+
     let backupInput = getByTestId(backupUrlInput);
     await user.clear(backupInput);
     await user.type(backupInput, poolUrl);
+
+    // input username (required field)
+    let usernameInput = getByTestId(backupUsernameInput);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
 
     let saveButtonWrapper = within(getByTestId(backupPoolSaveButton));
     expect(saveButtonWrapper.getByText("Save")).toBeInTheDocument();

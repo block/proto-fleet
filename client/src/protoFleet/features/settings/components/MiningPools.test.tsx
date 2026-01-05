@@ -294,10 +294,13 @@ describe("MiningPools", () => {
       fireEvent.click(addButton);
 
       // Fill in pool details using test IDs
+      const nameInput = screen.getByTestId("pool-name-0-input");
       const urlInput = screen.getByTestId("url-0-input");
       const usernameInput = screen.getByTestId("username-0-input");
       const passwordInput = screen.getByTestId("password-0-input");
 
+      fireEvent.change(nameInput, { target: { value: "New Pool" } });
+      fireEvent.blur(nameInput);
       fireEvent.change(urlInput, { target: { value: "stratum+tcp://newpool.com:3333" } });
       fireEvent.blur(urlInput);
       fireEvent.change(usernameInput, { target: { value: "newuser" } });
@@ -336,9 +339,17 @@ describe("MiningPools", () => {
       const addButton = screen.getByRole("button", { name: /add pool/i });
       fireEvent.click(addButton);
 
+      const nameInput = screen.getByTestId("pool-name-0-input");
+      fireEvent.change(nameInput, { target: { value: "Test Pool" } });
+      fireEvent.blur(nameInput);
+
       const urlInput = screen.getByTestId("url-0-input");
       fireEvent.change(urlInput, { target: { value: "stratum+tcp://test.com:3333" } });
       fireEvent.blur(urlInput);
+
+      const usernameInput = screen.getByTestId("username-0-input");
+      fireEvent.change(usernameInput, { target: { value: "testuser" } });
+      fireEvent.blur(usernameInput);
 
       const saveButton = screen.getByTestId("pool-save-button");
       fireEvent.click(saveButton);
