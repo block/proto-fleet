@@ -22,7 +22,6 @@ const temperatureSegmentConfig: SegmentConfig = {
     displayInBreakdown: true,
     index: 3,
     showButton: false,
-    percentageLabel: "Within optimal range", // Custom label for normal temperature
   },
   hot: {
     color: "var(--color-intent-warning-fill)",
