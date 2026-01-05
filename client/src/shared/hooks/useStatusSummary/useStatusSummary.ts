@@ -16,9 +16,9 @@ import { analyzeErrors, computeComponentStatusTitle, getComponentDisplayName, ge
  *
  * Priority for condensed (when no errors):
  * 1. isOffline → "Offline"
- * 2. isSleeping → "Sleeping"
- * 3. needsMiningPool → "Needs mining pool"
- * 4. needsAuthentication → "Needs Authentication"
+ * 2. needsAuthentication → "Needs Authentication"
+ * 3. isSleeping → "Sleeping"
+ * 4. needsMiningPool → "Needs mining pool"
  * 5. hasErrors → error title
  * 6. default → "Hashing"
  *
@@ -52,16 +52,16 @@ export function useMinerStatusSummary(
     // Compute title based on errors
     const title = hasErrors ? computeErrorTitle(componentTypesWithErrors) : "All systems are operational";
 
-    // Compute condensed: priority is offline → sleeping → needsMiningPool → needsAuth → errors → hashing
+    // Compute condensed: priority is offline → needsAuth → sleeping → needsMiningPool → errors → hashing
     let condensed: string;
     if (isOffline) {
       condensed = "Offline";
+    } else if (needsAuthentication) {
+      condensed = "Needs Authentication";
     } else if (isSleeping) {
       condensed = "Sleeping";
     } else if (needsMiningPool) {
       condensed = "Needs mining pool";
-    } else if (needsAuthentication) {
-      condensed = "Needs Authentication";
     } else if (hasErrors) {
       condensed = computeErrorTitle(componentTypesWithErrors);
     } else {
