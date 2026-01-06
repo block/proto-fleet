@@ -13,7 +13,6 @@ import (
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -208,10 +207,7 @@ func TestHandler_GetError(t *testing.T) {
 			tt.setupMocks(mockErrorStore)
 
 			diagnosticsSvc := diagnostics.NewService(context.Background(), diagnostics.Config{}, mockErrorStore, mockTransactor)
-			fakeManager := errorquery.NewFakeErrorManager()
-			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-			errorQuerySvc := errorquery.NewService(fakeManager, mockDeviceStore)
-			handler := NewHandler(errorQuerySvc, diagnosticsSvc)
+			handler := NewHandler(diagnosticsSvc)
 
 			ctx := tt.setupContext()
 			req := connect.NewRequest(tt.request)

@@ -12,7 +12,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 )
@@ -22,14 +21,12 @@ var _ errorsv1connect.ErrorQueryServiceHandler = &Handler{}
 
 // Handler implements the ErrorQueryService gRPC handlers.
 type Handler struct {
-	service            *errorquery.Service
 	diagnosticsService *diagnostics.Service
 }
 
 // NewHandler creates a new error query handler.
-func NewHandler(service *errorquery.Service, diagnosticsService *diagnostics.Service) *Handler {
+func NewHandler(diagnosticsService *diagnostics.Service) *Handler {
 	return &Handler{
-		service:            service,
 		diagnosticsService: diagnosticsService,
 	}
 }

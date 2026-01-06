@@ -43,8 +43,6 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery/testdata"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
@@ -286,22 +284,6 @@ func start(config *Config) error {
 
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService)
 
-	// Initialize error query service with fake manager
-	fakeErrorManager := errorquery.NewFakeErrorManager()
-
-	// Load seed data from YAML file if configured (FOR TESTING/DEVELOPMENT ONLY)
-	if config.ErrorQueryTest.SeedFile != "" {
-		seedData, err := testdata.LoadSeedFile(config.ErrorQueryTest.SeedFile)
-		if err != nil {
-			slog.Error("failed to load error seed file", "path", config.ErrorQueryTest.SeedFile, "error", err)
-		} else {
-			fakeErrorManager.Seed(seedData)
-			slog.Info("loaded error seed data (testing only)", "path", config.ErrorQueryTest.SeedFile, "devices", len(seedData))
-		}
-	}
-
-	errorQuerySvc := errorquery.NewService(fakeErrorManager, deviceStore)
-
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
@@ -361,7 +343,7 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
-	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(errorQuerySvc, diagnosticsService), li))
+	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {
