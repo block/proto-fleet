@@ -1,7 +1,8 @@
 import React, { useState } from "react";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
-import { useMinerName, useMinerUrl } from "@/protoFleet/store";
+import { useMiner, useMinerName, useMinerUrl } from "@/protoFleet/store";
 
 type MinerNameProps = {
   deviceIdentifier: string;
@@ -10,7 +11,11 @@ type MinerNameProps = {
 const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const name = useMinerName(deviceIdentifier) || deviceIdentifier;
   const url = useMinerUrl(deviceIdentifier);
+  const miner = useMiner(deviceIdentifier);
   const [isMinerFrameOpen, setIsMinerFrameOpen] = useState(false);
+
+  // Don't show actions menu for miners requiring authentication (disabled rows)
+  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (url) {
@@ -42,7 +47,7 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
           <span>{name}</span>
         )}
       </div>
-      <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} />
+      <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
     </div>
   );
 };

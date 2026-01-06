@@ -20,9 +20,15 @@ interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
   onActionStart?: () => void;
   onActionComplete?: () => void;
+  disabled?: boolean;
 }
 
-const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionComplete }: SingleMinerActionsMenuProps) => {
+const SingleMinerActionsMenu = ({
+  deviceIdentifier,
+  onActionStart,
+  onActionComplete,
+  disabled = false,
+}: SingleMinerActionsMenuProps) => {
   const deviceStatus = useMinerDeviceStatus(deviceIdentifier);
 
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
@@ -94,6 +100,7 @@ const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionCompl
         showManagePowerModal={showManagePowerModal}
         handleManagePowerConfirm={handleManagePowerConfirm}
         handleManagePowerDismiss={handleManagePowerDismiss}
+        disabled={disabled}
       />
     </PopoverProvider>
   );
@@ -119,6 +126,7 @@ interface SingleMinerActionsMenuInnerProps {
   showManagePowerModal: boolean;
   handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
   handleManagePowerDismiss: () => void;
+  disabled?: boolean;
 }
 
 const SingleMinerActionsMenuInner = ({
@@ -141,6 +149,7 @@ const SingleMinerActionsMenuInner = ({
   showManagePowerModal,
   handleManagePowerConfirm,
   handleManagePowerDismiss,
+  disabled = false,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -159,8 +168,11 @@ const SingleMinerActionsMenuInner = ({
       <Button
         size={sizes.compact}
         variant={variants.textOnly}
-        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        prefixIcon={
+          <Ellipsis width={iconSizes.small} className={disabled ? "text-text-primary-30" : "text-text-primary-70"} />
+        }
         testId="single-miner-actions-menu-button"
+        disabled={disabled}
         onClick={(e) => {
           e.stopPropagation();
           setIsOpen((prev) => !prev);

@@ -9,9 +9,10 @@ import { positions } from "@/shared/constants";
 interface ListActionProps<ListItem> {
   item: ListItem;
   actions: ListAction<ListItem>[];
+  disabled?: boolean;
 }
 
-const ListActions = <ListItem,>({ item, actions }: ListActionProps<ListItem>) => {
+const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionProps<ListItem>) => {
   const { triggerRef } = usePopover();
 
   const [actionsVisible, setActionsVisible] = useState<boolean>(false);
@@ -23,13 +24,17 @@ const ListActions = <ListItem,>({ item, actions }: ListActionProps<ListItem>) =>
   return (
     <div className="relative" ref={triggerRef}>
       <button
-        className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50"
+        className={clsx("align-middle", {
+          "text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50": !disabled,
+          "cursor-not-allowed text-text-primary-30": disabled,
+        })}
         data-testid="list-actions-trigger"
-        onClick={() => setActionsVisible(true)}
+        onClick={() => !disabled && setActionsVisible(true)}
+        disabled={disabled}
       >
         <Ellipsis />
       </button>
-      {actionsVisible && (
+      {actionsVisible && !disabled && (
         <Popover
           className="!space-y-0 px-4 pt-2 pb-1"
           position={positions["bottom left"]}

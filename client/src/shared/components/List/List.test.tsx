@@ -582,4 +582,296 @@ describe("List", () => {
       expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
     });
   });
+
+  describe("disabled rows", () => {
+    it("disables checkboxes for rows matching isRowDisabled predicate", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id || item.id === testItems[2].id;
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // First and third checkboxes should be disabled
+      expect(selectItemCheckboxes[0].disabled).toBe(true);
+      expect(selectItemCheckboxes[1].disabled).toBe(false);
+      expect(selectItemCheckboxes[2].disabled).toBe(true);
+      expect(selectItemCheckboxes[3].disabled).toBe(false);
+    });
+
+    it("applies opacity-50 class to disabled rows", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+        />,
+      );
+
+      const rows = Array.from(getByTestId("list-body").querySelectorAll("tr"));
+      expect(rows[0].className).toContain("opacity-50");
+      expect(rows[1].className).not.toContain("opacity-50");
+    });
+
+    it("excludes disabled rows when Select All is clicked", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id || item.id === testItems[1].id;
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Click Select All
+      fireEvent.click(selectAllCheckbox);
+
+      // Only enabled checkboxes (items 2, 3, 4) should be checked
+      expect(selectItemCheckboxes[0].checked).toBe(false); // disabled
+      expect(selectItemCheckboxes[1].checked).toBe(false); // disabled
+      expect(selectItemCheckboxes[2].checked).toBe(true); // enabled
+      expect(selectItemCheckboxes[3].checked).toBe(true); // enabled
+      expect(selectItemCheckboxes[4].checked).toBe(true); // enabled
+    });
+
+    it("shows Select All as checked when all selectable items are selected", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id || item.id === testItems[1].id;
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Manually select all enabled items (items 2, 3, 4)
+      fireEvent.click(selectItemCheckboxes[2]);
+      fireEvent.click(selectItemCheckboxes[3]);
+      fireEvent.click(selectItemCheckboxes[4]);
+
+      // Select All checkbox should now be checked
+      expect(selectAllCheckbox.checked).toBe(true);
+    });
+
+    it("passes totalSelectable to renderActionBar (total - totalDisabled)", () => {
+      const renderActionBar = vi.fn(
+        (
+          _selectedItems: TestItemKey[],
+          _clearSelection: () => void,
+          _selectionMode: string,
+          totalSelectable?: number,
+        ) => <div data-testid="total-selectable">{totalSelectable}</div>,
+      );
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          total={10}
+          totalDisabled={3}
+          renderActionBar={renderActionBar}
+          isRowDisabled={() => false}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      // totalSelectable should be 10 - 3 = 7
+      expect(getByTestId("total-selectable").textContent).toBe("7");
+    });
+
+    it("excludes disabled items when syncing selection in 'all' mode", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId, rerender } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems.slice(0, 3)}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+
+      // Select all (should select items 1 and 2, skipping item 0)
+      fireEvent.click(selectAllCheckbox);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
+
+      // Simulate loading more items
+      rerender(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Item 0 should still be disabled and unchecked
+      expect(selectItemCheckboxes[0].disabled).toBe(true);
+      expect(selectItemCheckboxes[0].checked).toBe(false);
+
+      // All other items should be selected
+      expect(selectItemCheckboxes[1].checked).toBe(true);
+      expect(selectItemCheckboxes[2].checked).toBe(true);
+      expect(selectItemCheckboxes[3].checked).toBe(true);
+      expect(selectItemCheckboxes[4].checked).toBe(true);
+    });
+
+    it("shows Select All as unchecked when no selectable items exist", () => {
+      const isRowDisabled = () => true; // All items disabled
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          isRowDisabled={isRowDisabled}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+
+      // Select All should be unchecked when all items are disabled
+      expect(selectAllCheckbox.checked).toBe(false);
+
+      // Click Select All should not select anything
+      fireEvent.click(selectAllCheckbox);
+      expect(selectAllCheckbox.checked).toBe(false);
+    });
+
+    it("disables single action button for disabled rows", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
+      const mockActionHandler = vi.fn();
+      const actions = [{ title: "Edit", actionHandler: mockActionHandler }];
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          isRowDisabled={isRowDisabled}
+          actions={actions}
+        />,
+      );
+
+      const actionButtons = getByTestId("list-body").querySelectorAll("button");
+
+      // First row action button should be disabled
+      expect(actionButtons[0].disabled).toBe(true);
+
+      // Other row action buttons should be enabled
+      expect(actionButtons[1].disabled).toBe(false);
+      expect(actionButtons[2].disabled).toBe(false);
+
+      // Clicking disabled button should not trigger action
+      fireEvent.click(actionButtons[0]);
+      expect(mockActionHandler).not.toHaveBeenCalled();
+
+      // Clicking enabled button should trigger action
+      fireEvent.click(actionButtons[1]);
+      expect(mockActionHandler).toHaveBeenCalledWith(testItems[1]);
+    });
+
+    it("disables multi-action menu for disabled rows", () => {
+      const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
+      const mockAction1 = vi.fn();
+      const mockAction2 = vi.fn();
+      const actions = [
+        { title: "Edit", actionHandler: mockAction1 },
+        { title: "Delete", actionHandler: mockAction2 },
+      ];
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          isRowDisabled={isRowDisabled}
+          actions={actions}
+        />,
+      );
+
+      const actionTriggers = getByTestId("list-body").querySelectorAll("[data-testid='list-actions-trigger']");
+
+      // First row action trigger should be disabled
+      expect((actionTriggers[0] as HTMLButtonElement).disabled).toBe(true);
+
+      // Other row action triggers should be enabled
+      expect((actionTriggers[1] as HTMLButtonElement).disabled).toBe(false);
+
+      // Clicking disabled trigger should not open menu
+      fireEvent.click(actionTriggers[0]);
+      expect(document.querySelector(".popover-content")).toBeNull();
+
+      // Clicking enabled trigger should open menu
+      fireEvent.click(actionTriggers[1]);
+      // Menu should be visible (implementation shows popover when actionsVisible is true)
+      const rows = document.querySelectorAll("[data-testid='action'] > div > div");
+      expect(rows.length).toBeGreaterThan(1); // Popover should exist
+    });
+  });
 });

@@ -13,7 +13,11 @@ import {
 import minerColConfig from "./minerColConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { MinerListFilterSchema, MinerType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MinerListFilterSchema,
+  MinerType,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -21,6 +25,7 @@ import {
   encodeFilterToURL,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { useFleetStore } from "@/protoFleet/store";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -36,6 +41,11 @@ type MinerListProps = {
   overflowContainer?: boolean;
   onAddMiners: () => void;
   totalMiners?: number;
+  /**
+   * Total number of disabled miners (requiring authentication).
+   * Used to calculate selectable count: totalMiners - totalDisabledMiners
+   */
+  totalDisabledMiners?: number;
   /**
    * Optional callback to attach refs to list row elements.
    * Used for viewport visibility tracking.
@@ -81,6 +91,7 @@ const MinerList = ({
   overflowContainer,
   onAddMiners,
   totalMiners,
+  totalDisabledMiners = 0,
   itemRef,
   loading = false,
   onLoadMore,
@@ -91,6 +102,16 @@ const MinerList = ({
   const [searchParams] = useSearchParams();
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
+
+  const miners = useFleetStore((state) => state.fleet.miners);
+
+  const isRowDisabled = useCallback(
+    (item: DeviceListItem) => {
+      const miner = miners[item.deviceIdentifier];
+      return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+    },
+    [miners],
+  );
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
@@ -226,13 +247,13 @@ const MinerList = ({
           itemKey={"deviceIdentifier"}
           itemSelectable
           hasActiveFilters={hasActiveFilters}
-          renderActionBar={(selectedItems, clearSelection, selectionMode) => (
+          renderActionBar={(selectedItems, clearSelection, selectionMode, totalSelectable) => (
             <div className="flex w-full justify-center">
               <MinerListActionBar
                 selectedMiners={selectedItems}
                 onClearSelection={clearSelection}
                 selectionMode={selectionMode}
-                totalCount={totalMiners}
+                totalCount={totalSelectable}
               />
             </div>
           )}
@@ -240,12 +261,14 @@ const MinerList = ({
           paddingLeft={paddingLeft}
           overflowContainer={overflowContainer}
           total={totalMiners}
+          totalDisabled={totalDisabledMiners}
           itemName={{ singular: "miner", plural: "miners" }}
           itemRef={itemRef}
           initialActiveFilters={initialActiveFilters}
           onLoadMore={onLoadMore}
           hasMore={hasMore}
           isLoadingMore={isLoadingMore}
+          isRowDisabled={isRowDisabled}
         />
       )}
     </>

@@ -118,7 +118,8 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   }, [isOffline, isSleeping, needsAuthentication, needsMiningPool, errorIcon]);
 
   // Determine if the status should be clickable
-  const isClickable = onClick && (!needsAuthentication || isSleeping);
+  // Status is NOT clickable when authentication is needed (disabled row)
+  const isClickable = onClick && !needsAuthentication;
 
   return (
     <div

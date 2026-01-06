@@ -4,6 +4,7 @@ import { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/f
 
 type UseAuthNeededMinersOptions = {
   pageSize?: number;
+  filter?: MinerListFilter;
 };
 
 type UseAuthNeededMinersReturn = {
@@ -41,6 +42,7 @@ type UseAuthNeededMinersReturn = {
  *
  * @param options - Configuration options for the hook
  * @param options.pageSize - Number of devices to fetch per page (default: 100)
+ * @param options.filter - Optional filter to apply to the auth-needed miners (e.g., status, tags, etc.)
  * @returns Object containing miner data and pagination controls
  *
  * @example
@@ -61,11 +63,12 @@ type UseAuthNeededMinersReturn = {
  * ```
  */
 const useAuthNeededMiners = (options: UseAuthNeededMinersOptions = {}): UseAuthNeededMinersReturn => {
-  const { pageSize = 100 } = options;
+  const { pageSize = 100, filter } = options;
 
   return useFleet({
     scope: "local", // Use local state to avoid conflicts with global fleet view
     pageSize,
+    filter,
     pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
   }) as UseAuthNeededMinersReturn;
 };

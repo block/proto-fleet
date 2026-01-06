@@ -36,12 +36,18 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
     selectedItems: ItemKeyValueType[],
     clearSelection: () => void,
     selectionMode: SelectionMode,
+    totalSelectable?: number,
   ) => ReactNode;
   containerClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
   stickyBgColor?: string;
   total?: number;
+  /**
+   * Total number of disabled items across all pages.
+   * Used with total to calculate selectable count: total - totalDisabled
+   */
+  totalDisabled?: number;
   itemName?: {
     singular: string;
     plural: string;
@@ -80,6 +86,13 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * Whether the list is currently loading more items.
    */
   isLoadingMore?: boolean;
+  /**
+   * Optional callback to determine if a specific row should be disabled.
+   * Disabled rows are greyed out and cannot be selected.
+   * @param item - The list item
+   * @returns true if the row should be disabled
+   */
+  isRowDisabled?: (item: ListItem) => boolean;
 };
 
 const cellClassList = "text-left";
@@ -117,6 +130,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   overflowContainer = true,
   stickyBgColor = "bg-surface-base",
   total,
+  totalDisabled = 0,
   itemName = { singular: "item", plural: "items" },
   itemRef,
   hasActiveFilters = false,
@@ -124,6 +138,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onLoadMore,
   hasMore = false,
   isLoadingMore = false,
+  isRowDisabled,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -134,6 +149,21 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
 
+  // Helper to get selectable items (excludes disabled rows)
+  const getSelectableItems = useCallback(
+    (itemList: ListItem[]) => {
+      if (!isRowDisabled) return itemList;
+      return itemList.filter((item) => !isRowDisabled(item));
+    },
+    [isRowDisabled],
+  );
+
+  // Calculate total selectable count (total - disabled)
+  const totalSelectable = useMemo(() => {
+    if (total === undefined) return undefined;
+    return total - totalDisabled;
+  }, [total, totalDisabled]);
+
   // Memoized callback for action bar - defined first so handleSelectAll can use it
   const clearSelection = useCallback(() => {
     customSetSelectedItems ? customSetSelectedItems([]) : setSelectedItems([]);
@@ -143,7 +173,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const selection = items.map((item) => item[itemKey] as ItemKeyValueType);
+      const selectableItems = getSelectableItems(items);
+      const selection = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       customSetSelectedItems ? customSetSelectedItems(selection) : setSelectedItems(selection);
       const newMode = hasActiveFilters ? "subset" : "all";
       setSelectionMode(newMode);
@@ -163,7 +194,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const selectRange = (anchorIndex: number, targetIndex: number, currentSelected: ItemKeyValueType[]) => {
     const start = Math.min(anchorIndex, targetIndex);
     const end = Math.max(anchorIndex, targetIndex);
-    const rangeKeys = filteredItems.slice(start, end + 1).map((item) => item[itemKey] as ItemKeyValueType);
+    const rangeItems = filteredItems.slice(start, end + 1);
+    const selectableRangeItems = getSelectableItems(rangeItems);
+    const rangeKeys = selectableRangeItems.map((item) => item[itemKey] as ItemKeyValueType);
 
     const selectedSet = new Set(currentSelected);
     rangeKeys.forEach((key) => selectedSet.add(key));
@@ -205,15 +238,19 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       setSelectedItems(newSelectedItems);
     }
 
-    const allItemsSelected = newSelectedItems.length === items.length && items.length > 0;
+    const selectableItems = getSelectableItems(items);
+    const allItemsSelected = newSelectedItems.length === selectableItems.length && selectableItems.length > 0;
     const newMode = newSelectedItems.length === 0 ? "none" : allItemsSelected && !hasActiveFilters ? "all" : "subset";
     setSelectionMode(newMode);
     onSelectionModeChange?.(newMode);
   };
 
   const allSelected = useMemo(() => {
-    return items.length > 0 && (customSelectedItems?.length === items.length || selectedItems.length === items.length);
-  }, [selectedItems, items, customSelectedItems]);
+    const selectableItems = getSelectableItems(items);
+    const selectableCount = selectableItems.length;
+    if (selectableCount === 0) return false;
+    return customSelectedItems?.length === selectableCount || selectedItems.length === selectableCount;
+  }, [selectedItems, items, customSelectedItems, getSelectableItems]);
 
   const handleServerFiltering = useCallback(
     (activeFilters: ActiveFilters) => {
@@ -245,19 +282,21 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   // Sync selected items when items list changes
   useEffect(() => {
+    const selectableItems = getSelectableItems(items);
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
     const currentSelected = customSelectedItems ?? selectedItems;
 
-    // In "all" mode, ensure all current items are selected (handles Load More)
+    // In "all" mode, ensure all selectable current items are selected (handles Load More)
     if (selectionMode === "all") {
-      // Only update if there are items not yet selected
-      const allSelected = items.every((item) => currentSelected.includes(item[itemKey] as ItemKeyValueType));
-      if (!allSelected) {
-        const allCurrentItems = items.map((item) => item[itemKey] as ItemKeyValueType);
+      const allSelectableItemKeys = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
+      const currentSelectedSet = new Set(currentSelected);
+      const needsUpdate = allSelectableItemKeys.some((key) => !currentSelectedSet.has(key));
+
+      if (needsUpdate) {
         if (customSetSelectedItems) {
-          customSetSelectedItems(allCurrentItems);
+          customSetSelectedItems(allSelectableItemKeys);
         } else {
-          setSelectedItems(allCurrentItems);
+          setSelectedItems(allSelectableItemKeys);
         }
       }
       return;
@@ -281,15 +320,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         onSelectionModeChange?.(newMode);
       }
     }
-  }, [
-    items,
-    itemKey,
-    customSetSelectedItems,
-    customSelectedItems,
-    selectedItems,
-    selectionMode,
-    onSelectionModeChange,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, itemKey, customSetSelectedItems, onSelectionModeChange, isRowDisabled]);
 
   // Infinite scroll: trigger loadMore when scroll reaches near bottom
   useEffect(() => {
@@ -380,9 +412,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             <>
               <div ref={refs.vertical.start} />
               <div className="sticky top-0 flex justify-between">
-                {/* eslint-disable-next-line react-hooks/refs */}
                 <div ref={refs.horizontal.start} />
-                {/* eslint-disable-next-line react-hooks/refs */}
                 <div ref={refs.horizontal.end} />
               </div>
               <table className="mb-6 min-w-full table-fixed border-collapse">
@@ -431,74 +461,85 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                   </tr>
                 </thead>
                 <tbody data-testid="list-body">
-                  {filteredItems.map((item, i) => (
-                    <tr key={i} className={rowClassList} ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}>
-                      {itemSelectable && (
-                        <td
-                          className={clsx(tdClassList, firstStickyClasses, "w-9")}
-                          style={paddingCssVariables}
-                          data-testid="checkbox"
-                        >
-                          <div className={clsx("w-9 truncate overflow-hidden", "py-4")}>
-                            <Checkbox
-                              checked={
-                                customSelectedItems?.includes(item[itemKey] as ItemKeyValueType) ||
-                                selectedItems.includes(item[itemKey] as ItemKeyValueType)
-                              }
-                              onChange={(e) =>
-                                handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked, i, e)
-                              }
-                            />
-                          </div>
-                        </td>
-                      )}
-
-                      {activeCols.map((row, j) => (
-                        <td
-                          className={clsx(
-                            tdClassList,
-                            j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                            j === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
-                          )}
-                          key={j}
-                          style={paddingCssVariables}
-                          data-testid={row}
-                        >
-                          <div
-                            className={clsx("truncate overflow-hidden", tdPaddingClassList, colConfig[row]?.width, {
-                              "text-core-primary-50": disabled,
-                            })}
+                  {filteredItems.map((item, i) => {
+                    const rowDisabled = isRowDisabled?.(item) ?? false;
+                    return (
+                      <tr
+                        key={i}
+                        className={clsx(rowClassList, {
+                          "opacity-50": rowDisabled,
+                        })}
+                        ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}
+                      >
+                        {itemSelectable && (
+                          <td
+                            className={clsx(tdClassList, firstStickyClasses, "w-9")}
+                            style={paddingCssVariables}
+                            data-testid="checkbox"
                           >
-                            {colConfig[row]?.component
-                              ? colConfig[row].component(item, selectedItems)
-                              : typeof item === "object" && item !== null && row in item
-                                ? ((item as Record<string, unknown>)[row as string] as ReactNode)
-                                : null}
-                          </div>
-                        </td>
-                      ))}
-                      {actions.length == 1 ? (
-                        <td className={tdClassList} data-testid="action">
-                          <div className={clsx("flex justify-end", tdPaddingClassList)}>
-                            <Button
-                              variant={variants.secondary}
-                              size={sizes.compact}
-                              text={actions[0].title}
-                              onClick={() => actions[0].actionHandler(item)}
-                            />
-                          </div>
-                        </td>
-                      ) : actions.length > 1 ? (
-                        <td className={tdClassList} data-testid="action">
-                          <div className={clsx("w-11", tdPaddingClassList)}>
-                            <PopoverProvider>
-                              <ListActions<ListItem> item={item} actions={actions} />
-                            </PopoverProvider>
-                          </div>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
+                            <div className={clsx("w-9 truncate overflow-hidden", "py-4")}>
+                              <Checkbox
+                                checked={
+                                  customSelectedItems?.includes(item[itemKey] as ItemKeyValueType) ||
+                                  selectedItems.includes(item[itemKey] as ItemKeyValueType)
+                                }
+                                onChange={(e) =>
+                                  handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked, i, e)
+                                }
+                                disabled={rowDisabled}
+                              />
+                            </div>
+                          </td>
+                        )}
+
+                        {activeCols.map((row, j) => (
+                          <td
+                            className={clsx(
+                              tdClassList,
+                              j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                              j === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
+                            )}
+                            key={j}
+                            style={paddingCssVariables}
+                            data-testid={row}
+                          >
+                            <div
+                              className={clsx("truncate overflow-hidden", tdPaddingClassList, colConfig[row]?.width, {
+                                "text-core-primary-50": disabled,
+                              })}
+                            >
+                              {colConfig[row]?.component
+                                ? colConfig[row].component(item, selectedItems)
+                                : typeof item === "object" && item !== null && row in item
+                                  ? ((item as Record<string, unknown>)[row as string] as ReactNode)
+                                  : null}
+                            </div>
+                          </td>
+                        ))}
+                        {actions.length == 1 ? (
+                          <td className={tdClassList} data-testid="action">
+                            <div className={clsx("flex justify-end", tdPaddingClassList)}>
+                              <Button
+                                variant={variants.secondary}
+                                size={sizes.compact}
+                                text={actions[0].title}
+                                onClick={() => actions[0].actionHandler(item)}
+                                disabled={rowDisabled}
+                              />
+                            </div>
+                          </td>
+                        ) : actions.length > 1 ? (
+                          <td className={tdClassList} data-testid="action">
+                            <div className={clsx("w-11", tdPaddingClassList)}>
+                              <PopoverProvider>
+                                <ListActions<ListItem> item={item} actions={actions} disabled={rowDisabled} />
+                              </PopoverProvider>
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {/* Infinite scroll trigger element */}
@@ -507,7 +548,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                   {isLoadingMore && <ProgressCircular indeterminate />}
                 </div>
               )}
-              {/* eslint-disable-next-line react-hooks/refs */}
               <div ref={refs.vertical.end} />
             </>
           ) : (
@@ -515,7 +555,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems, clearSelection, selectionMode)}</div>
+          <div className="w-full">{renderActionBar(selectedItems, clearSelection, selectionMode, totalSelectable)}</div>
         )}
       </div>
     </div>

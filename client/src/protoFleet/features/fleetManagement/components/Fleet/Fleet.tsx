@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
@@ -26,6 +27,9 @@ const Fleet = () => {
   // Get filter from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
   const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+
+  // Get count of miners requiring authentication (disabled rows)
+  const { totalMiners: totalAuthNeededMiners } = useAuthNeededMiners({ pageSize: 1, filter: currentFilter });
 
   // Fetch all devices (both paired and unpaired) with a single API call
   // Metadata only - telemetry is fetched separately via useBatchTelemetry for visible miners
@@ -95,6 +99,7 @@ const Fleet = () => {
           title="Miners"
           minerIds={minerIds}
           totalMiners={totalMiners}
+          totalDisabledMiners={totalAuthNeededMiners}
           paddingLeft={{
             phone: "24px",
             tablet: "24px",
