@@ -242,7 +242,6 @@ test.describe.serial("Miners", () => {
       await authPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
-      await minersPage.filterProtoMiners();
     });
 
     const requestPromise = page.waitForRequest(/Reboot/);
@@ -315,6 +314,161 @@ test.describe.serial("Miners", () => {
       const response = await responsePromise;
       test.expect(request.method()).toBe("POST");
       const requestBody = request.postDataJSON();
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("MANAGE POWER for a single miner", async ({ authPage, minersPage, page }) => {
+    await test.step("Login as admin", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate to miners page", async () => {
+      await authPage.navigateToMinersPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+    });
+
+    const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
+    await test.step("Select first miner and set MAX power", async () => {
+      let minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickManagePowerButton();
+      await minersPage.clickMaxPowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetPowerTarget' API request", async () => {
+      const request = await requestPromise1;
+      const response = await responsePromise1;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_MAXIMUM_HASHRATE");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+
+    const requestPromise2 = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise2 = page.waitForResponse(/SetPowerTarget/);
+    await test.step("Select first miner and set REDUCE power", async () => {
+      let minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickManagePowerButton();
+      await minersPage.clickReducePowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetPowerTarget' API request", async () => {
+      const request = await requestPromise2;
+      const response = await responsePromise2;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_EFFICIENCY");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("MANAGE POWER for multiple miners", async ({ authPage, minersPage, page }) => {
+    await test.step("Login as admin", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate to miners page", async () => {
+      await authPage.navigateToMinersPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+    });
+
+    const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
+    await test.step("Select multiple miners and set MAX power", async () => {
+      let minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      let minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      let minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
+
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.validateActionBarMinerCount(1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.validateActionBarMinerCount(2);
+      await minersPage.clickMinerCheckbox(minerIp3);
+      await minersPage.validateActionBarMinerCount(3);
+
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickManagePowerButton();
+      await minersPage.clickMaxPowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetPowerTarget' API request", async () => {
+      const request = await requestPromise1;
+      const response = await responsePromise1;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_MAXIMUM_HASHRATE");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
+      test.expect(response.status()).toBe(200);
+    });
+
+    const requestPromise2 = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise2 = page.waitForResponse(/SetPowerTarget/);
+    await test.step("Select multiple miners and set REDUCE power", async () => {
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickManagePowerButton();
+      await minersPage.clickReducePowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetPowerTarget' API request", async () => {
+      const request = await requestPromise2;
+      const response = await responsePromise2;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_EFFICIENCY");
       test.expect(requestBody).toHaveProperty("deviceSelector");
       test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
       test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");

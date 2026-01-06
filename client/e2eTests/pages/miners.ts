@@ -126,6 +126,22 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("shutdown-confirm-button").click();
   }
 
+  async clickManagePowerButton() {
+    await this.page.getByTestId("manage-power-popover-button").click();
+  }
+
+  async clickMaxPowerOption() {
+    await this.page.getByTestId("power-option-maximize").locator("input").click();
+  }
+
+  async clickReducePowerOption() {
+    await this.page.getByTestId("power-option-reduce").locator("input").click();
+  }
+
+  async clickManagePowerConfirm() {
+    await this.clickIn("Confirm", "modal");
+  }
+
   async clickEditMiningPoolButton() {
     await this.page.getByTestId("mining-pool-popover-button").click();
   }
@@ -139,11 +155,11 @@ export class MinersPage extends BasePage {
   }
 
   async validateUpdateInProgress() {
-    await expect(this.page.getByText(`Update in progress`)).toBeVisible();
+    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeVisible();
   }
 
   async validateUpdateCompleted() {
-    await expect(this.page.getByText(`Update in progress`)).toBeHidden();
+    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeHidden();
   }
 
   async waitForMinersListToLoad() {

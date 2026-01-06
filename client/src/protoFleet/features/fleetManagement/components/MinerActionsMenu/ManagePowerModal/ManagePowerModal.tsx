@@ -72,6 +72,7 @@ const ManagePowerModal = ({ show, onConfirm, onDismiss }: ManagePowerModalProps)
       <div className="mt-6 flex flex-col gap-4">
         <SelectRow
           id={POWER_MODES.maximize}
+          data-testid="power-option-maximize"
           isSelected={selectedOption === POWER_MODES.maximize}
           onChange={handleChange}
           divider={false}
@@ -88,6 +89,7 @@ const ManagePowerModal = ({ show, onConfirm, onDismiss }: ManagePowerModalProps)
         />
         <SelectRow
           id={POWER_MODES.reduce}
+          data-testid="power-option-reduce"
           isSelected={selectedOption === POWER_MODES.reduce}
           onChange={handleChange}
           divider={false}
