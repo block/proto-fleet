@@ -14,13 +14,8 @@ function PowerValue({ value }: PowerValueProps) {
     return <SkeletonBar />;
   }
 
-  // Convert W to kW if value >= 1000
-  if (value >= 1000) {
-    const displayValue = value / 1000;
-    return <>{separateByCommas(displayValue.toFixed(1))} kW</>;
-  }
-
-  return <>{separateByCommas(value.toFixed(0))} W</>;
+  // Always display power in watts (W)
+  return <>{separateByCommas(Math.round(value))} W</>;
 }
 
 export default PowerValue;
