@@ -230,6 +230,99 @@ test.describe.serial("Miners", () => {
     });
   });
 
+  test("REBOOT a single miner", async ({ authPage, minersPage, page }) => {
+    await test.step("Login as admin", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate to miners page", async () => {
+      await authPage.navigateToMinersPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.filterProtoMiners();
+    });
+
+    const requestPromise = page.waitForRequest(/Reboot/);
+    const responsePromise = page.waitForResponse(/Reboot/);
+    await test.step("Select first miner and reboot it", async () => {
+      let minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickRebootButton();
+      await minersPage.clickRebootConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate reboot API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("REBOOT multiple miners", async ({ authPage, minersPage, page }) => {
+    await test.step("Login as admin", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate to miners page", async () => {
+      await authPage.navigateToMinersPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+    });
+
+    const requestPromise = page.waitForRequest(/Reboot/);
+    const responsePromise = page.waitForResponse(/Reboot/);
+    await test.step("Select multiple miners and reboot them", async () => {
+      let minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      let minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      let minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
+
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.validateActionBarMinerCount(1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.validateActionBarMinerCount(2);
+      await minersPage.clickMinerCheckbox(minerIp3);
+      await minersPage.validateActionBarMinerCount(3);
+
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickRebootButton();
+      await minersPage.clickRebootConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate reboot API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      test.expect(request.method()).toBe("POST");
+      const requestBody = request.postDataJSON();
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
   test("CLEANUP: Re-authenticate added miners", async ({ authPage, homePage }) => {
     // Workaround - re-added Antminers need authentication again
     await test.step("Login as admin", async () => {

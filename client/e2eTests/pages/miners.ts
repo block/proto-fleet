@@ -102,6 +102,14 @@ export class MinersPage extends BasePage {
     }
   }
 
+  async clickRebootButton() {
+    await this.page.getByTestId("reboot-popover-button").click();
+  }
+
+  async clickRebootConfirm() {
+    await this.page.getByTestId("reboot-confirm-button").click();
+  }
+
   async clickWakeUpButton() {
     await this.page.getByTestId("wake-up-popover-button").click();
   }
