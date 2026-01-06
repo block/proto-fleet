@@ -68,8 +68,8 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
   // Process component errors and update dashboard store with counts
   const processComponentErrors = useCallback(
     (components: ComponentError[]) => {
-      // Calculate counts by component type (number of devices with that component error)
-      const counts: Partial<Record<ComponentType, number>> = {};
+      // Track unique devices per component type using Sets
+      const devicesByComponentType: Partial<Record<ComponentType, Set<string>>> = {};
       // Map of component -> device -> error IDs for proper tracking
       const deviceErrorMap: Partial<Record<ComponentType, Record<string, string[]>>> = {};
 
@@ -80,17 +80,27 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
           component.errors &&
           component.errors.length > 0
         ) {
-          // Count 1 per device with this component type error, regardless of how many errors
-          counts[component.componentType] = (counts[component.componentType] || 0) + 1;
+          // Track unique devices per component type
+          if (!devicesByComponentType[component.componentType]) {
+            devicesByComponentType[component.componentType] = new Set();
+          }
+          devicesByComponentType[component.componentType]!.add(component.deviceIdentifier);
 
           // Build device-error map for streaming update tracking
           if (!deviceErrorMap[component.componentType]) {
             deviceErrorMap[component.componentType] = {};
           }
-          deviceErrorMap[component.componentType]![component.deviceIdentifier] = component.errors.map(
-            (error) => error.errorId,
-          );
+          // Merge error IDs if device already has errors for this component type
+          const existingErrors = deviceErrorMap[component.componentType]![component.deviceIdentifier] || [];
+          const newErrors = component.errors.map((error) => error.errorId);
+          deviceErrorMap[component.componentType]![component.deviceIdentifier] = [...existingErrors, ...newErrors];
         }
+      });
+
+      // Convert Sets to counts (number of unique devices per component type)
+      const counts: Partial<Record<ComponentType, number>> = {};
+      Object.entries(devicesByComponentType).forEach(([type, devices]) => {
+        counts[Number(type) as ComponentType] = devices.size;
       });
 
       // Update the dashboard store with counts and device-error map
