@@ -7,7 +7,7 @@ export class NewPoolModalPage extends BasePage {
   }
 
   async inputPoolName(name: string) {
-    await this.page.getByTestId(`name-0-input`).fill(name);
+    await this.page.getByTestId(`pool-name-0-input`).fill(name);
   }
 
   async inputPoolUrl(url: string) {
