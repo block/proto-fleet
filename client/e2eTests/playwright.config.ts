@@ -42,6 +42,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
 
+  // E.g.:  npx playwright test --project=desktop
   projects: [
     {
       name: "desktop",
@@ -50,15 +51,13 @@ export default defineConfig({
         isMobile: false,
       },
     },
-    // Uncomment to run mobile tests. In future will be used as: npx playwright test --project=mobile
-    // Currently commented out to avoid someone executing both configurations in parallel, as they're guaranteed to fail.
-    // Needs multiple independent environments
-    // {
-    //   name: "mobile",
-    //   use: {
-    //     viewport: { width: 393, height: 852 },
-    //     isMobile: true,
-    //   },
-    // },
+    // Resolution of the iPhone 14 Pro / 15 Pro / 16
+    {
+      name: "mobile",
+      use: {
+        viewport: { width: 393, height: 852 },
+        isMobile: true,
+      },
+    },
   ],
 });

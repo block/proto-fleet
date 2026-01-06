@@ -17,6 +17,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
 
     steps:
       - name: Create GitHub App token
@@ -210,9 +214,9 @@ jobs:
           timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
           echo "Frontend is ready!"
 
-      - name: Run Playwright tests
+      - name: Run Playwright tests (${{ matrix.project }})
         working-directory: client
-        run: npx playwright test --config=e2eTests/playwright.config.ts
+        run: npx playwright test --config=e2eTests/playwright.config.ts --project=${{ matrix.project }}
         env:
           CI: true
 
@@ -220,7 +224,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: client/playwright-report/
           retention-days: 30
 
@@ -229,13 +233,13 @@ jobs:
         id: report-dir
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            REPORT_DIR="e2e-reports/pr-${{ github.event.pull_request.number }}"
+            REPORT_DIR="e2e-reports/pr-${{ github.event.pull_request.number }}/${{ matrix.project }}"
           elif [ "${{ github.event_name }}" = "schedule" ]; then
-            REPORT_DIR="e2e-reports/main"
+            REPORT_DIR="e2e-reports/main/${{ matrix.project }}"
           else
             # workflow_dispatch - use sanitized branch name
             BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
-            REPORT_DIR="e2e-reports/branch-${BRANCH_NAME}"
+            REPORT_DIR="e2e-reports/branch-${BRANCH_NAME}/${{ matrix.project }}"
           fi
           echo "dir=${REPORT_DIR}" >> $GITHUB_OUTPUT
           echo "Report will be published to: ${REPORT_DIR}"
@@ -244,7 +248,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           REPORT_URL="https://btc-mining.github.io/proto-fleet/${{ steps.report-dir.outputs.dir }}"
-          echo "## 🎭 Playwright E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎭 Playwright E2E Test Results (${{ matrix.project }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📊 **[View Latest Published HTML Report](${REPORT_URL})**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -260,17 +264,18 @@ jobs:
           keep_files: false
 
       - name: Comment PR with report link
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && matrix.project == 'desktop' }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
-            const reportDir = `e2e-reports/pr-${context.issue.number}`;
-            const reportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/${reportDir}`;
+            const prNumber = context.issue.number;
+            const desktopReportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/e2e-reports/pr-${prNumber}/desktop`;
+            const mobileReportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/e2e-reports/pr-${prNumber}/mobile`;
             const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
             const body = `## 🎭 Playwright E2E Test Report
 
-            📊 **[View Latest Published HTML Report](${reportUrl})**
+            📊 **[Desktop Report](${desktopReportUrl})** | **[Mobile Report](${mobileReportUrl})**
             📦 **[Download Artifacts](${artifactUrl})**
 
             *Report for workflow run #${context.runNumber}*`;
@@ -286,7 +291,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: failure()
         with:
-          name: playwright-screenshots
+          name: playwright-screenshots-${{ matrix.project }}
           path: client/e2eTests/test-results/
           retention-days: 7
 
