@@ -49,8 +49,19 @@ export function useMinerStatusSummary(
     const { componentTypesWithErrors } = analyzeErrors(groupedErrors);
     const hasErrors = componentTypesWithErrors.length > 0;
 
-    // Compute title based on errors
-    const title = hasErrors ? computeErrorTitle(componentTypesWithErrors) : "All systems are operational";
+    // Compute title based on errors and connection status
+    let title: string;
+    let subtitle: string | undefined;
+    if (isOffline) {
+      title = "Device is offline";
+      if (hasErrors) {
+        subtitle = computeErrorTitle(componentTypesWithErrors);
+      }
+    } else if (hasErrors) {
+      title = computeErrorTitle(componentTypesWithErrors);
+    } else {
+      title = "All systems are operational";
+    }
 
     // Compute condensed: priority is offline → needsAuth → sleeping → needsMiningPool → errors → hashing
     let condensed: string;
@@ -71,7 +82,7 @@ export function useMinerStatusSummary(
     return {
       condensed,
       title,
-      subtitle: undefined,
+      subtitle,
     };
   }, [groupedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool]);
 }

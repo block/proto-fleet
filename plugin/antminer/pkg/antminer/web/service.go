@@ -234,14 +234,14 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 		bodyBuf := &bytes.Buffer{}
 		encoder := json.NewEncoder(bodyBuf)
 		if err := encoder.Encode(opts.Body); err != nil {
-			return fmt.Errorf("failed to encode request body: %v", err)
+			return fmt.Errorf("failed to encode request body: %w", err)
 		}
 		bodyReader = bodyBuf
 	}
 
 	req, err := http.NewRequestWithContext(ctx, opts.Method, reqURL, bodyReader)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	if bodyReader != nil {
@@ -254,13 +254,13 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 
 	if connInfo.Creds.Username != "" && connInfo.Creds.Password != "" {
 		if err := s.addDigestAuth(req, connInfo.Creds); err != nil {
-			return fmt.Errorf("failed to add digest auth: %v", err)
+			return fmt.Errorf("failed to add digest auth: %w", err)
 		}
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to execute request: %v", err)
+		return fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -271,7 +271,7 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 	if opts.Result != nil {
 		decoder := json.NewDecoder(resp.Body)
 		if err := decoder.Decode(opts.Result); err != nil {
-			return fmt.Errorf("failed to decode response: %v", err)
+			return fmt.Errorf("failed to decode response: %w", err)
 		}
 	}
 
@@ -381,12 +381,12 @@ func (s *Service) setBlink(ctx context.Context, connInfo *AntminerConnectionInfo
 func (s *Service) addDigestAuth(req *http.Request, creds sdk.UsernamePassword) error {
 	challengeReq, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), nil)
 	if err != nil {
-		return fmt.Errorf("failed to create challenge request: %v", err)
+		return fmt.Errorf("failed to create challenge request: %w", err)
 	}
 
 	challengeResp, err := s.httpClient.Do(challengeReq)
 	if err != nil {
-		return fmt.Errorf("failed to get auth challenge: %v", err)
+		return fmt.Errorf("failed to get auth challenge: %w", err)
 	}
 	defer challengeResp.Body.Close()
 
@@ -401,12 +401,12 @@ func (s *Service) addDigestAuth(req *http.Request, creds sdk.UsernamePassword) e
 
 	challenge, err := parseDigestChallenge(authHeader)
 	if err != nil {
-		return fmt.Errorf("failed to parse digest challenge: %v", err)
+		return fmt.Errorf("failed to parse digest challenge: %w", err)
 	}
 
 	digestAuth, err := generateDigestResponse(challenge, creds, req.Method, req.URL.Path)
 	if err != nil {
-		return fmt.Errorf("failed to generate digest response: %v", err)
+		return fmt.Errorf("failed to generate digest response: %w", err)
 	}
 
 	authHeaderValue := buildAuthorizationHeader(digestAuth)
@@ -461,7 +461,7 @@ func parseDigestChallenge(authHeader string) (*DigestChallenge, error) {
 func generateDigestResponse(challenge *DigestChallenge, creds sdk.UsernamePassword, method, uri string) (*DigestAuth, error) {
 	cnonce, err := generateCNonce()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate cnonce: %v", err)
+		return nil, fmt.Errorf("failed to generate cnonce: %w", err)
 	}
 
 	nc := "00000001" // Nonce count
@@ -527,7 +527,7 @@ func generateCNonce() (string, error) {
 	b := make([]byte, cnonceBufferSize)
 	n, err := rand.Read(b)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %v", err)
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	if n != len(b) {
 		return "", fmt.Errorf("failed to generate enough random bytes")

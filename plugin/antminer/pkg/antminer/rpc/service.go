@@ -73,16 +73,16 @@ func (s *Service) executeRPCCommand(ctx context.Context, connInfo *networking.Co
 
 	conn, err := dialer.DialContext(ctx, protocol, address)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s: %v", address, err)
+		return fmt.Errorf("failed to connect to %s: %w", address, err)
 	}
 	defer conn.Close()
 
 	if err := conn.SetReadDeadline(time.Now().Add(s.readTimeout)); err != nil {
-		return fmt.Errorf("failed to set read deadline: %v", err)
+		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
-		return fmt.Errorf("failed to encode request: %v", err)
+		return fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	// Use a limited reader to prevent reading more than MaxResponseSize
@@ -92,7 +92,7 @@ func (s *Service) executeRPCCommand(ctx context.Context, connInfo *networking.Co
 	decoder.UseNumber()
 
 	if err := decoder.Decode(out); err != nil {
-		return fmt.Errorf("failed to decode response: %v", err)
+		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return nil

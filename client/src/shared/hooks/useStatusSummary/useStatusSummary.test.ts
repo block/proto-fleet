@@ -56,7 +56,8 @@ describe("useMinerStatusSummary", () => {
     it('should return condensed="Offline" when offline (takes priority over sleeping)', () => {
       const { result } = renderHook(() => useMinerStatusSummary(emptyErrors, true, true));
       expect(result.current.condensed).toBe("Offline");
-      expect(result.current.title).toBe("All systems are operational");
+      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.subtitle).toBeUndefined();
     });
 
     it('should return condensed="Needs Authentication" when needsAuthentication is true', () => {
@@ -103,14 +104,27 @@ describe("useMinerStatusSummary", () => {
       expect(result.current.title).toBe("Hashboard 1 issue");
     });
 
-    it('should return condensed="Offline" but title shows error when there are errors', () => {
+    it('should return condensed="Offline" and show single error in subtitle when offline', () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
         hashboard: [{ componentType: "hashboard", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors, false, true));
       expect(result.current.condensed).toBe("Offline");
-      expect(result.current.title).toBe("Hashboard 1 issue");
+      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.subtitle).toBe("Hashboard 1 issue");
+    });
+
+    it('should return condensed="Offline" and show multiple errors in subtitle when offline', () => {
+      const errors: GroupedStatusErrors = {
+        ...emptyErrors,
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
+        psu: [{ componentType: "psu", slot: 1 }],
+      };
+      const { result } = renderHook(() => useMinerStatusSummary(errors, false, true));
+      expect(result.current.condensed).toBe("Offline");
+      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.subtitle).toBe("Multiple issues");
     });
   });
 

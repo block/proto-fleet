@@ -295,3 +295,35 @@ func IsInvalidArgumentError(err error) bool {
 
 	return false
 }
+
+// ConnectionError represents a network connectivity error when attempting to reach a device
+type ConnectionError struct {
+	DeviceIdentifier string
+	Err              error
+}
+
+func (e ConnectionError) Error() string {
+	return fmt.Sprintf("failed to connect to device %s: %v", e.DeviceIdentifier, e.Err)
+}
+
+func (e ConnectionError) Unwrap() error {
+	return e.Err
+}
+
+// NewConnectionError creates a new ConnectionError
+func NewConnectionError(deviceIdentifier string, err error) ConnectionError {
+	return ConnectionError{
+		DeviceIdentifier: deviceIdentifier,
+		Err:              err,
+	}
+}
+
+// IsConnectionError checks if an error is a connection error
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var connErr ConnectionError
+	return errors.As(err, &connErr)
+}

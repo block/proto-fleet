@@ -3,10 +3,16 @@ package plugins
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -624,4 +630,242 @@ func TestPluginMiner_GetErrors_MapsAllFields(t *testing.T) {
 	assert.Equal(t, "Fan stall detected on fan 2", errMsg.Summary)
 	assert.Equal(t, "FAN_001", errMsg.VendorCode)
 	assert.Equal(t, "v1.2.3", errMsg.Firmware)
+}
+
+func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *testing.T) {
+	// Create a mock SDK device that returns a network error
+	netErr := &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: errors.New("connection refused"),
+	}
+
+	mockDevice := &mockSDKDevice{
+		id: "test-device",
+		statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+			return sdk.DeviceMetrics{}, netErr
+		},
+	}
+
+	deviceID := models.DeviceIdentifier("device-123")
+	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
+
+	pluginMiner := NewPluginMiner(
+		testOrgID,
+		deviceID,
+		models.TypeProto,
+		"serial-123",
+		*connInfo,
+		mockDevice,
+		sdk.DeviceInfo{
+			Host: "192.168.1.100",
+			Port: 4028,
+		},
+	)
+
+	status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+	// Should return offline status
+	assert.Equal(t, models.MinerStatusOffline, status)
+
+	// Error should be wrapped as ConnectionError
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsConnectionError(err), "Error should be a ConnectionError")
+
+	// Should be able to extract the ConnectionError
+	var connErr fleeterror.ConnectionError
+	require.True(t, errors.As(err, &connErr))
+	assert.Equal(t, string(deviceID), connErr.DeviceIdentifier)
+}
+
+func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *testing.T) {
+	// Create a mock SDK device that returns a non-network error
+	genericErr := errors.New("some internal SDK error")
+
+	mockDevice := &mockSDKDevice{
+		id: "test-device",
+		statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+			return sdk.DeviceMetrics{}, genericErr
+		},
+	}
+
+	deviceID := models.DeviceIdentifier("device-456")
+	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
+
+	pluginMiner := NewPluginMiner(
+		testOrgID,
+		deviceID,
+		models.TypeProto,
+		"serial-456",
+		*connInfo,
+		mockDevice,
+		sdk.DeviceInfo{
+			Host: "192.168.1.100",
+			Port: 4028,
+		},
+	)
+
+	status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+	// Should return offline status
+	assert.Equal(t, models.MinerStatusOffline, status)
+
+	// Error should NOT be a ConnectionError (should be InternalError)
+	require.Error(t, err)
+	assert.False(t, fleeterror.IsConnectionError(err), "Error should NOT be a ConnectionError")
+}
+
+func TestIsNetworkError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name: "net.OpError",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: errors.New("connection refused"),
+			},
+			expected: true,
+		},
+		{
+			name: "url.Error wrapping net.OpError",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "http://device.local",
+				Err: &net.OpError{
+					Op:  "dial",
+					Net: "tcp",
+					Err: errors.New("connection refused"),
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "url.Error wrapping generic error",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "http://device.local",
+				Err: errors.New("some other error"),
+			},
+			expected: false,
+		},
+		{
+			name:     "generic error",
+			err:      errors.New("generic error"),
+			expected: false,
+		},
+		{
+			name:     "gRPC error with i/o timeout",
+			err:      errors.New("rpc error: code = Unknown desc = failed to connect: dial tcp 172.16.2.23:4028: i/o timeout"),
+			expected: true,
+		},
+		{
+			name:     "gRPC error with connection refused",
+			err:      errors.New("rpc error: code = Unknown desc = failed to connect: connection refused"),
+			expected: true,
+		},
+		{
+			name:     "error with dial tcp indicator",
+			err:      errors.New("failed to connect: dial tcp 192.168.1.100:4028: connection refused"),
+			expected: true,
+		},
+		{
+			name:     "error with connection reset",
+			err:      errors.New("read failed: connection reset by peer"),
+			expected: true,
+		},
+		{
+			name:     "error with no route to host",
+			err:      errors.New("dial tcp: no route to host"),
+			expected: true,
+		},
+		{
+			name:     "syscall.ECONNREFUSED",
+			err:      fmt.Errorf("connection failed: %w", syscall.ECONNREFUSED),
+			expected: true,
+		},
+		{
+			name:     "syscall.ETIMEDOUT",
+			err:      fmt.Errorf("dial failed: %w", syscall.ETIMEDOUT),
+			expected: true,
+		},
+		{
+			name:     "syscall.ENETUNREACH",
+			err:      fmt.Errorf("network error: %w", syscall.ENETUNREACH),
+			expected: true,
+		},
+		{
+			name:     "syscall.EHOSTDOWN",
+			err:      fmt.Errorf("host error: %w", syscall.EHOSTDOWN),
+			expected: true,
+		},
+		{
+			name:     "syscall.EPIPE",
+			err:      fmt.Errorf("write failed: %w", syscall.EPIPE),
+			expected: true,
+		},
+		{
+			name:     "syscall.ENOTCONN",
+			err:      fmt.Errorf("socket error: %w", syscall.ENOTCONN),
+			expected: true,
+		},
+		{
+			name:     "syscall.ESHUTDOWN",
+			err:      fmt.Errorf("send failed: %w", syscall.ESHUTDOWN),
+			expected: true,
+		},
+		{
+			name:     "gRPC error with context deadline exceeded",
+			err:      errors.New("rpc error: code = DeadlineExceeded desc = context deadline exceeded"),
+			expected: true,
+		},
+		{
+			name:     "wrapped context deadline exceeded",
+			err:      fmt.Errorf("failed to create device: %w", context.DeadlineExceeded),
+			expected: true,
+		},
+		{
+			name: "net.DNSError",
+			err: &net.DNSError{
+				Err:        "no such host",
+				Name:       "device.local",
+				IsTimeout:  false,
+				IsNotFound: true,
+			},
+			expected: true,
+		},
+		{
+			name: "os.SyscallError wrapping ECONNREFUSED",
+			err: &os.SyscallError{
+				Syscall: "connect",
+				Err:     syscall.ECONNREFUSED,
+			},
+			expected: true,
+		},
+		{
+			name:     "gRPC error with broken pipe",
+			err:      errors.New("rpc error: code = Unavailable desc = write tcp: broken pipe"),
+			expected: true,
+		},
+		{
+			name:     "generic authentication error",
+			err:      errors.New("authentication failed: invalid credentials"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isNetworkError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

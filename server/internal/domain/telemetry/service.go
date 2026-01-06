@@ -450,6 +450,14 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
+		if fleeterror.IsConnectionError(err) {
+			if updateErr := s.deviceStore.UpsertDeviceStatus(ctx, device.ID, mm.MinerStatusOffline, ""); updateErr != nil {
+				// Log the update failure but still return the original connection error
+				slog.Error("failed to update device status to offline",
+					"device_id", device.ID,
+					"error", updateErr)
+			}
+		}
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
@@ -459,15 +467,20 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 	}
 	oldStatus, hadOldStatus := oldStatuses[device.ID]
 
-	newStatus, err := miner.GetDeviceStatus(ctx)
-	if err != nil {
+	newStatus, statusErr := miner.GetDeviceStatus(ctx)
+	if statusErr != nil {
 		slog.Error("Telemetry service failed to get device status",
 			"device_id", device.ID,
-			"error", err)
+			"error", statusErr)
+		if fleeterror.IsConnectionError(statusErr) {
+			newStatus = mm.MinerStatusOffline
+		}
 	}
 
-	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, newStatus, "")
-	if err != nil {
+	if err := s.deviceStore.UpsertDeviceStatus(ctx, device.ID, newStatus, ""); err != nil {
+		if statusErr != nil {
+			return fmt.Errorf("failed to upsert device status (status error: %v): %w", statusErr, err)
+		}
 		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
 	}
 

@@ -30,6 +30,7 @@ export type MinerStatusModalProps = {
   };
   isSleeping?: boolean;
   isMining?: boolean;
+  isOffline?: boolean;
 };
 
 /**

@@ -2,8 +2,13 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"math"
+	"net"
 	"net/url"
+	"os"
+	"strings"
+	"syscall"
 	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -128,6 +133,9 @@ func (p *PluginMiner) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetr
 func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
 	metrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
+		if isNetworkError(err) {
+			return models.MinerStatusOffline, fleeterror.NewConnectionError(string(p.deviceID), err)
+		}
 		return models.MinerStatusOffline, fleeterror.NewInternalErrorf("failed to get device status: %v", err)
 	}
 
@@ -304,4 +312,68 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 		URL:        pool.URL,
 		WorkerName: pool.Username,
 	}, nil
+}
+
+// isNetworkError determines if an error represents a network connectivity failure.
+// It uses a layered approach: type-based detection via standard Go error interfaces,
+// then syscall errno matching, and finally string matching as a fallback for errors
+// that have crossed serialization boundaries (e.g., gRPC status errors).
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+		if err == nil {
+			return true
+		}
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Some network failures are wrapped in os.SyscallError - unwrap to check the errno
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		err = syscallErr.Err
+	}
+
+	// Check for specific syscall errno values that indicate network failures
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED),
+		errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, syscall.ECONNABORTED),
+		errors.Is(err, syscall.ETIMEDOUT),
+		errors.Is(err, syscall.ENETUNREACH),
+		errors.Is(err, syscall.EHOSTUNREACH),
+		errors.Is(err, syscall.EHOSTDOWN),
+		errors.Is(err, syscall.EPIPE),
+		errors.Is(err, syscall.ENOTCONN),
+		errors.Is(err, syscall.ESHUTDOWN):
+		return true
+	}
+
+	// Fallback: string matching for errors that crossed serialization boundaries (e.g., gRPC)
+	// Keep this list narrow and high-confidence to minimize false positives
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "broken pipe"),
+		strings.Contains(msg, "no route to host"),
+		strings.Contains(msg, "network is unreachable"),
+		strings.Contains(msg, "context deadline exceeded"):
+		return true
+	}
+
+	return false
 }

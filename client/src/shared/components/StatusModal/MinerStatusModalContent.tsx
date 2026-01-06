@@ -15,17 +15,19 @@ const componentIcons = {
 const MINER_ASLEEP_TITLE = "Miner is asleep";
 const MINER_ASLEEP_SUBTITLE = "Wake your miner to start hashing again";
 
-const MinerStatusModalContent = ({ title, subtitle, errors, isSleeping }: MinerStatusModalProps) => {
+const MinerStatusModalContent = ({ title, subtitle, errors, isSleeping, isOffline }: MinerStatusModalProps) => {
   const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
   const icon = useMemo(() => {
-    if (isSleeping) {
+    if (isOffline) {
+      return <Alert className="text-text-warning" width={iconSizes.xLarge} />;
+    } else if (isSleeping) {
       return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
     } else if (haserrors) {
       return <Alert className="text-text-critical" width={iconSizes.xLarge} />;
     } else
       return <Checkmark className="rounded-full bg-intent-success-fill text-surface-base" width={iconSizes.xLarge} />;
-  }, [haserrors, isSleeping]);
+  }, [haserrors, isSleeping, isOffline]);
 
   // Determine what titles to show
   const displayTitle = isSleeping ? MINER_ASLEEP_TITLE : title;

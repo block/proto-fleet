@@ -138,6 +138,10 @@ func NewPluginMinerWithCredentials(
 	// Create the SDK device using the plugin driver
 	result, err := driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
 	if err != nil {
+		// Check if this is a network error and wrap it as ConnectionError
+		if isNetworkError(err) {
+			return nil, fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
 	}
 

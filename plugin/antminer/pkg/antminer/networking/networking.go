@@ -66,7 +66,7 @@ type ConnectionInfo struct {
 func NewConnectionInfo(ipAddress string, port string, protocol Protocol) (*ConnectionInfo, error) {
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert port to int: %v", err)
+		return nil, fmt.Errorf("failed to convert port to int: %w", err)
 	}
 	if portInt < 0 || portInt > 65535 {
 		return nil, fmt.Errorf("port out of range: %d", portInt)

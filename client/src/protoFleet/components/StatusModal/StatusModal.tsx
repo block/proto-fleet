@@ -152,12 +152,13 @@ const ProtoFleetStatusModal = ({
         subtitle: summary.subtitle,
         errors: errorsBySource,
         isSleeping: isMinersleeping,
+        isOffline,
       },
       title: `${miner?.name || deviceId} Status`,
       buttons,
       onDismiss: onClose,
     };
-  }, [groupedErrors, summary, miner, deviceId, onClose, handleWakeMiner]);
+  }, [groupedErrors, summary, miner, deviceId, onClose, handleWakeMiner, isOffline]);
 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(
