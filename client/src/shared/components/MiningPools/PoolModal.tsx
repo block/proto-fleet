@@ -95,16 +95,17 @@ const PoolModal = ({
       poolsInfo[poolIndex][infoKey] = value;
       setDraftPoolInfo(poolsInfo);
 
-      if (infoKey === poolInfoAttributes.name) {
-        setPoolNameError(value.trim() ? undefined : poolNameValidationErrors.required);
+      // Clear errors as user types (but don't validate/show new errors until submission)
+      if (infoKey === poolInfoAttributes.name && value.trim()) {
+        setPoolNameError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.url) {
-        setUrlError(value.trim() ? undefined : urlValidationErrors.required);
+      if (infoKey === poolInfoAttributes.url && value.trim()) {
+        setUrlError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.username) {
-        setUsernameError(value.trim() ? undefined : usernameValidationErrors.required);
+      if (infoKey === poolInfoAttributes.username && value.trim()) {
+        setUsernameError(undefined);
       }
 
       if (infoKey === poolInfoAttributes.password) {
@@ -115,6 +116,28 @@ const PoolModal = ({
   );
 
   const onSubmit = useCallback(async () => {
+    const pool = draftPoolInfo[poolIndex];
+    let hasError = false;
+
+    if (!pool?.name?.trim()) {
+      setPoolNameError(poolNameValidationErrors.required);
+      hasError = true;
+    }
+
+    if (!pool?.url?.trim()) {
+      setUrlError(urlValidationErrors.required);
+      hasError = true;
+    }
+
+    if (!pool?.username?.trim()) {
+      setUsernameError(usernameValidationErrors.required);
+      hasError = true;
+    }
+
+    if (hasError) {
+      return;
+    }
+
     onChangePools(draftPoolInfo);
 
     if (onSave) {
