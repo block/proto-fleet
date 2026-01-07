@@ -56,11 +56,16 @@ const useMinerMeasurement = (
     const miner = state.fleet.miners[deviceId];
     if (!miner) return undefined;
 
+    // Offline miners should always show placeholder, not stale cached values
+    if (miner.deviceStatus === DeviceStatus.OFFLINE) {
+      return null;
+    }
+
     const measurementData = measurementGetter(miner);
     const hasValidData = measurementData && getLatestMeasurementWithData(measurementData);
 
     if (!hasValidData) {
-      if (miner.deviceStatus === DeviceStatus.OFFLINE || miner.deviceStatus === DeviceStatus.INACTIVE) {
+      if (miner.deviceStatus === DeviceStatus.INACTIVE) {
         return null;
       }
       return undefined;
