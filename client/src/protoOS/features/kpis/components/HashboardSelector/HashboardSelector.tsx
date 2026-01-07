@@ -59,8 +59,17 @@ const HashboardSelector = ({
   className = "",
 }: HashboardSelectorProps) => {
   const handleSummaryClick = () => {
+    // If no filters are active (default state), selecting Summary enters filtered mode
+    if (activeChartLines.length === 0) {
+      setActiveChartLines([aggregateKey]);
+      return;
+    }
+
+    // In filtered mode, toggle Summary on/off
     if (activeChartLines.includes(aggregateKey)) {
-      setActiveChartLines(activeChartLines.filter((a) => a !== aggregateKey));
+      const newLines = activeChartLines.filter((a) => a !== aggregateKey);
+      // If this was the last active line, return to default (show all)
+      setActiveChartLines(newLines.length === 0 ? [] : newLines);
     } else {
       setActiveChartLines([...activeChartLines, aggregateKey]);
     }
@@ -68,18 +77,42 @@ const HashboardSelector = ({
 
   const handleAllHashboardsClick = () => {
     const hashboardLines = chartLines.filter((key) => key !== aggregateKey);
+
+    // If no filters are active (default state), selecting All Hashboards enters filtered mode
+    if (activeChartLines.length === 0) {
+      setActiveChartLines([...hashboardLines]);
+      return;
+    }
+
     const activeHashboardLines = activeChartLines.filter((key) => key !== aggregateKey);
 
-    if (activeHashboardLines.length === hashboardLines.length) {
-      setActiveChartLines(activeChartLines.filter((key) => hashboardLines.indexOf(key) === -1));
+    // Check if all hashboards are actually selected (not just matching count)
+    const areAllHashboardsSelected =
+      hashboardLines.length > 0 && hashboardLines.every((line) => activeHashboardLines.includes(line));
+
+    if (areAllHashboardsSelected) {
+      const summaryOnly = activeChartLines.filter((key) => key === aggregateKey);
+      // If Summary is the only remaining line, return to default (show all)
+      setActiveChartLines(summaryOnly.length === 0 ? [] : summaryOnly);
     } else {
-      setActiveChartLines([...new Set([...activeChartLines, ...hashboardLines])]);
+      // Select all hashboards (preserve Summary state)
+      const summaryState = activeChartLines.filter((key) => key === aggregateKey);
+      setActiveChartLines([...summaryState, ...hashboardLines]);
     }
   };
 
   const handleHashboardClick = (serial: string) => {
+    // If no filters are active (default state), selecting a hashboard enters filtered mode
+    if (activeChartLines.length === 0) {
+      setActiveChartLines([serial]);
+      return;
+    }
+
+    // In filtered mode, toggle hashboard on/off
     if (activeChartLines.includes(serial)) {
-      setActiveChartLines(activeChartLines.filter((a) => a !== serial));
+      const newLines = activeChartLines.filter((a) => a !== serial);
+      // If this was the last active line, return to default (show all)
+      setActiveChartLines(newLines.length === 0 ? [] : newLines);
     } else {
       setActiveChartLines([...activeChartLines, serial]);
     }
@@ -88,11 +121,15 @@ const HashboardSelector = ({
   // Check if all hashboards are selected (excluding the aggregate/miner key)
   const hashboardLines = chartLines.filter((key) => key !== aggregateKey);
 
+  // When no filters are active (default state), no buttons should be selected
+  // In filtered mode, buttons are selected based on activeChartLines
+  const isFilteredMode = activeChartLines.length > 0;
+
   // Check if every hashboard in hashboardLines is in activeChartLines
   const allHashboardsSelected =
-    hashboardLines.length > 0 && hashboardLines.every((line) => activeChartLines.includes(line));
+    isFilteredMode && hashboardLines.length > 0 && hashboardLines.every((line) => activeChartLines.includes(line));
 
-  const summarySelected = activeChartLines.includes(aggregateKey);
+  const summarySelected = isFilteredMode && activeChartLines.includes(aggregateKey);
 
   return (
     <div className={`inline-flex gap-2 py-4 ${className}`}>
@@ -103,7 +140,7 @@ const HashboardSelector = ({
         text={"Summary"}
         onClick={handleSummaryClick}
       />
-      {chartLines.length > 0 && (
+      {hashboardLines.length > 0 && (
         <Button
           size={sizes.compact}
           variant={allHashboardsSelected ? variants.secondary : variants.ghost}
@@ -117,7 +154,7 @@ const HashboardSelector = ({
         <HashboardSelectorItem
           key={serial}
           slot={useMinerStore.getState().hardware.getHashboard(serial)?.slot}
-          selected={activeChartLines.includes(serial)}
+          selected={isFilteredMode && activeChartLines.includes(serial)}
           onClick={() => {
             handleHashboardClick(serial);
           }}

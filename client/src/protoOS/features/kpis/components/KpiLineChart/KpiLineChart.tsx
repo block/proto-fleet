@@ -46,14 +46,29 @@ const KpiLineChart = ({
   const activeChartLines = useActiveChartLines() || [];
   const setActiveChartLines = useSetActiveChartLines();
 
-  // Initialize active lines when chart lines change (only if not already set)
-  // Also clear active lines when chart lines becomes empty (e.g., when duration changes)
+  // Clear active lines when chart lines becomes empty (e.g., when duration changes)
+  // This resets to default state (show all) when data is reloading
+  // Also filter out any stale serials that are no longer in chartLines
   useEffect(() => {
-    if (chartLines.length > 0 && activeChartLines.length === 0) {
-      setActiveChartLines(chartLines);
-    } else if (chartLines.length === 0 && activeChartLines.length > 0) {
+    const currentActiveLines = activeChartLines;
+
+    if (chartLines.length === 0 && currentActiveLines.length > 0) {
       setActiveChartLines([]);
+      return;
     }
+
+    if (chartLines.length > 0 && currentActiveLines.length > 0) {
+      // Remove any active lines that are no longer in chartLines (e.g., hashboard went offline)
+      const validActiveLines = currentActiveLines.filter((serial) => chartLines.includes(serial));
+      // Only update if there are stale serials to remove
+      if (validActiveLines.length !== currentActiveLines.length) {
+        setActiveChartLines(validActiveLines.length > 0 ? validActiveLines : []);
+      }
+    }
+    // Note: We intentionally use activeChartLines.length instead of activeChartLines in dependencies
+    // to avoid infinite loops caused by array reference changes. We capture the current array value
+    // inside the effect and only re-run when the length changes or chartLines changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartLines, activeChartLines.length, setActiveChartLines]);
 
   const colorMap = useMemo(() => {
@@ -89,7 +104,7 @@ const KpiLineChart = ({
       <LineChart
         chartData={chartData}
         aggregateKey={aggregateKey}
-        activeKeys={activeChartLines}
+        activeKeys={activeChartLines.length === 0 ? chartLines : activeChartLines}
         colorMap={colorMap}
         toolTipItemIcon={ToolTipItemIcon}
         units={units}
