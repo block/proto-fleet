@@ -22,9 +22,16 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
   const allCompleted = toasts.every((toast) => toast.status === STATUSES.success || toast.status === STATUSES.error);
   const hasErrors = toasts.some((toast) => toast.status === STATUSES.error);
 
-  // Auto-expand once when errors are detected to draw user attention
+  // Auto-expand once when:
+  // 1. Errors are detected to draw user attention
+  // 2. Multiple loading toasts appear (e.g., "taking longer than expected" message)
   useEffect(() => {
-    if (allCompleted && hasErrors && !isExpanded && !hasAutoExpandedRef.current) {
+    const shouldAutoExpand =
+      !isExpanded &&
+      !hasAutoExpandedRef.current &&
+      ((allCompleted && hasErrors) || (!allCompleted && toasts.length > 1));
+
+    if (shouldAutoExpand) {
       hasAutoExpandedRef.current = true;
       queueMicrotask(() => setIsExpanded(true));
     }

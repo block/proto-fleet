@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { MinerDiscoveryMode } from "./types";
@@ -13,8 +13,11 @@ import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onboarding/constants";
 import { useFleetStore, useMinerIds } from "@/protoFleet/store";
-import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+
+// Show a toast if pairing takes longer than this threshold
+const LONG_PAIRING_THRESHOLD_MS = 3000;
 
 type MinersPageProps = {
   /**
@@ -40,8 +43,38 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [ipListDiscoveryPending, setIpListDiscoveryPending] = useState(false);
   const scanAbortController = useRef<AbortController>(new AbortController());
+  const longPairingToastShown = useRef(false);
+  const loadingToastIds = useRef<number[]>([]);
 
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
+
+  // Show a toast if pairing takes longer than the threshold
+  useEffect(() => {
+    if (!pairingPending) {
+      longPairingToastShown.current = false;
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      if (pairingPending && !longPairingToastShown.current) {
+        longPairingToastShown.current = true;
+        const toastId = pushToast({
+          message: "Adding miners is taking longer than expected. Some miners may be slow to respond.",
+          status: TOAST_STATUSES.loading,
+        });
+        loadingToastIds.current.push(toastId);
+      }
+    }, LONG_PAIRING_THRESHOLD_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [pairingPending]);
+
+  // Clean up loading toasts on unmount to prevent lingering toasts if user navigates away
+  useEffect(() => {
+    return () => {
+      loadingToastIds.current.forEach((id) => removeToast(id));
+    };
+  }, []);
 
   const { refetch } = useOnboardedStatus();
 
@@ -149,13 +182,56 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
     }
   }, [scanDiscoveryPending, handleNmapDiscovery]);
 
+  // Helper to clear all loading toasts
+  function clearLoadingToasts() {
+    loadingToastIds.current.forEach((id) => removeToast(id));
+    loadingToastIds.current = [];
+  }
+
   function handleContinue(selectedMinerIdentifiers: string[]) {
+    // Clear any previous loading toasts and reset state
+    clearLoadingToasts();
+
+    // Show immediate feedback when user clicks Continue
+    const toastId = pushToast({
+      message: `Adding ${selectedMinerIdentifiers.length} miner${selectedMinerIdentifiers.length !== 1 ? "s" : ""} to fleet...`,
+      status: TOAST_STATUSES.loading,
+    });
+    loadingToastIds.current.push(toastId);
+
     const pairRequest = create(PairRequestSchema, {
       deviceIdentifiers: selectedMinerIdentifiers,
     });
     pair({
       pairRequest: pairRequest,
-      onSuccess: () => {
+      onSuccess: (failedDeviceIds) => {
+        // Clear loading toasts before showing result
+        clearLoadingToasts();
+
+        const successCount = selectedMinerIdentifiers.length - failedDeviceIds.length;
+        const failedCount = failedDeviceIds.length;
+
+        // Show appropriate toast based on results
+        if (failedCount > 0 && successCount > 0) {
+          // Partial success - some miners failed
+          pushToast({
+            message: `Added ${successCount} miner${successCount !== 1 ? "s" : ""}. ${failedCount} miner${failedCount !== 1 ? "s" : ""} could not be reached.`,
+            status: TOAST_STATUSES.error,
+          });
+        } else if (failedCount > 0 && successCount === 0) {
+          // All failed
+          pushToast({
+            message: `Failed to add ${failedCount} miner${failedCount !== 1 ? "s" : ""}. Please check that miners are online and try again.`,
+            status: TOAST_STATUSES.error,
+          });
+        } else if (successCount > 0) {
+          // All succeeded
+          pushToast({
+            message: `Successfully added ${successCount} miner${successCount !== 1 ? "s" : ""} to fleet.`,
+            status: TOAST_STATUSES.success,
+          });
+        }
+
         refetch();
         refetchFleet();
         if (mode === "onboarding") {
@@ -166,8 +242,11 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       },
       onError: (error) => {
         console.error("Pairing error:", error);
+
+        // Clear loading toasts before showing error
+        clearLoadingToasts();
         pushToast({
-          message: "Pairing failed",
+          message: "Failed to add miners. Please check that miners are online and try again.",
           status: TOAST_STATUSES.error,
         });
       },

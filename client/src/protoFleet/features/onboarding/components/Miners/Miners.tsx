@@ -129,11 +129,15 @@ const Miners = ({
               title="Add miners"
               titleSize="text-heading-200"
               icon={<Dismiss />}
-              iconOnClick={() => {
-                handleScanCancel();
-                setActiveStep("findMiners");
-                setShowModal(false);
-              }}
+              iconOnClick={
+                pairingPending
+                  ? undefined
+                  : () => {
+                      handleScanCancel();
+                      setActiveStep("findMiners");
+                      setShowModal(false);
+                    }
+              }
               inline
               buttonSize={sizes.base}
               buttons={
@@ -142,34 +146,38 @@ const Miners = ({
                   : [
                       {
                         variant: variants.secondary,
-
                         onClick: onRescan,
                         text: "Rescan network",
+                        disabled: pairingPending,
                         className: clsx({
                           hidden: activeStep !== "pairing" || selectedMode !== minerDiscoveryModes.scan,
                         }),
                       },
                       {
                         variant: variants.secondary,
-
                         onClick: () => {
                           setShowFoundMinersModal(true);
                         },
                         text: "Choose miners",
+                        disabled: pairingPending,
                         className: clsx({
                           hidden: activeStep !== "pairing" || foundMiners.length <= 1,
                         }),
                       },
                       {
                         variant: variants.primary,
+                        loading: pairingPending,
                         onClick: () => {
                           const selectedMinerIdentifiers = foundMiners
                             .filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier))
                             .map((miner) => miner.deviceIdentifier);
                           onContinue(selectedMinerIdentifiers);
                         },
-                        disabled: foundMiners.length === 0 || foundMiners.length === deselectedMiners.length,
-                        text: `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
+                        disabled:
+                          pairingPending || foundMiners.length === 0 || foundMiners.length === deselectedMiners.length,
+                        text: pairingPending
+                          ? `Adding ${foundMiners.length - deselectedMiners.length} miners...`
+                          : `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
                         className: clsx({
                           hidden: activeStep !== "pairing",
                         }),

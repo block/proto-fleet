@@ -102,8 +102,8 @@ const App = ({ children, fullscreen }: AppProps) => {
   // ============================================================================
   return (
     <ErrorBoundary>
-      {/* Toaster - Fixed position, renders above everything */}
-      <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
+      {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
+      <div className="fixed right-4 bottom-4 z-60 phone:right-2 phone:bottom-2">
         <Toaster />
       </div>
 
