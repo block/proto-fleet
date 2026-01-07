@@ -1,11 +1,14 @@
 package sdk
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Test constants for deterministic testing
@@ -826,4 +829,132 @@ func assertMetricValueEqual(t *testing.T, expected, actual *MetricValue) {
 		require.NotNil(t, actual.MetaData.Timestamp)
 		assert.Equal(t, expected.MetaData.Timestamp.Unix(), actual.MetaData.Timestamp.Unix())
 	}
+}
+
+// ============================================================================
+// SDK Error Tests
+// ============================================================================
+
+func TestNewErrorAuthenticationFailed(t *testing.T) {
+	tests := []struct {
+		name             string
+		deviceID         string
+		underlyingErr    error
+		expectedCode     ErrorCode
+		expectedContains string
+	}{
+		{
+			name:             "basic_auth_error",
+			deviceID:         "device-123",
+			underlyingErr:    nil,
+			expectedCode:     ErrCodeAuthenticationFailed,
+			expectedContains: "device-123",
+		},
+		{
+			name:             "auth_error_with_underlying",
+			deviceID:         "proto-miner-456",
+			underlyingErr:    errors.New("invalid JWT token"),
+			expectedCode:     ErrCodeAuthenticationFailed,
+			expectedContains: "proto-miner-456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sdkErr SDKError
+			if tt.underlyingErr != nil {
+				sdkErr = NewErrorAuthenticationFailed(tt.deviceID, tt.underlyingErr)
+			} else {
+				sdkErr = NewErrorAuthenticationFailed(tt.deviceID)
+			}
+
+			assert.Equal(t, tt.expectedCode, sdkErr.Code)
+			assert.Contains(t, sdkErr.Message, tt.expectedContains)
+			assert.Contains(t, sdkErr.Error(), tt.expectedContains)
+
+			if tt.underlyingErr != nil {
+				assert.Equal(t, tt.underlyingErr, sdkErr.Unwrap())
+			} else {
+				assert.Nil(t, sdkErr.Unwrap())
+			}
+		})
+	}
+}
+
+func TestSDKErrorToGRPCStatus_AuthenticationFailed(t *testing.T) {
+	sdkErr := NewErrorAuthenticationFailed("device-123", errors.New("missing api key"))
+
+	grpcErr := sdkErrorToGRPCStatus(sdkErr)
+
+	require.Error(t, grpcErr)
+	assert.Contains(t, grpcErr.Error(), "authentication failed")
+
+	// Extract the gRPC status from the wrapped error
+	st, ok := status.FromError(errors.Unwrap(grpcErr))
+	require.True(t, ok, "should be able to extract gRPC status")
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+}
+
+func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
+	tests := []struct {
+		name         string
+		sdkErr       SDKError
+		expectedCode codes.Code
+	}{
+		{
+			name:         "device_not_found",
+			sdkErr:       NewErrorDeviceNotFound("device-123"),
+			expectedCode: codes.NotFound,
+		},
+		{
+			name:         "unsupported_capability",
+			sdkErr:       NewErrUnsupportedCapability("streaming"),
+			expectedCode: codes.Unimplemented,
+		},
+		{
+			name:         "invalid_config",
+			sdkErr:       NewErrorInvalidConfig("device-123"),
+			expectedCode: codes.InvalidArgument,
+		},
+		{
+			name:         "device_unavailable",
+			sdkErr:       NewErrorDeviceUnavailable("device-123"),
+			expectedCode: codes.Unavailable,
+		},
+		{
+			name:         "driver_shutdown",
+			sdkErr:       NewErrorDriverShutdown(),
+			expectedCode: codes.Aborted,
+		},
+		{
+			name:         "authentication_failed",
+			sdkErr:       NewErrorAuthenticationFailed("device-123"),
+			expectedCode: codes.Unauthenticated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grpcErr := sdkErrorToGRPCStatus(tt.sdkErr)
+
+			require.Error(t, grpcErr)
+
+			st, ok := status.FromError(errors.Unwrap(grpcErr))
+			require.True(t, ok, "should be able to extract gRPC status from %v", grpcErr)
+			assert.Equal(t, tt.expectedCode, st.Code())
+		})
+	}
+}
+
+func TestSDKError_ErrorsAs(t *testing.T) {
+	originalErr := errors.New("original cause")
+	sdkErr := NewErrorAuthenticationFailed("device-123", originalErr)
+
+	wrappedErr := errors.New("wrapped: " + sdkErr.Error())
+
+	var extractedErr SDKError
+	assert.True(t, errors.As(sdkErr, &extractedErr))
+	assert.Equal(t, ErrCodeAuthenticationFailed, extractedErr.Code)
+
+	assert.False(t, errors.As(wrappedErr, &extractedErr))
 }

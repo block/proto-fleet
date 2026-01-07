@@ -13,6 +13,8 @@ const (
 	ErrCodeDeviceUnavailable ErrorCode = "DEVICE_UNAVAILABLE"
 	// ErrCodeDriverShutdown represents a driver shutdown error
 	ErrCodeDriverShutdown ErrorCode = "DRIVER_SHUTDOWN"
+	// ErrCodeAuthenticationFailed represents an authentication failure error
+	ErrCodeAuthenticationFailed ErrorCode = "AUTHENTICATION_FAILED"
 )
 
 type SDKError struct {
@@ -90,6 +92,19 @@ func NewErrorDriverShutdown(err ...error) SDKError {
 	return SDKError{
 		Code:    ErrCodeDriverShutdown,
 		Message: "driver shutdown",
+		Err:     underlying,
+	}
+}
+
+// NewErrorAuthenticationFailed returns a new authentication failed error
+func NewErrorAuthenticationFailed(deviceID string, err ...error) SDKError {
+	var underlying error
+	if len(err) > 0 {
+		underlying = err[0]
+	}
+	return SDKError{
+		Code:    ErrCodeAuthenticationFailed,
+		Message: "authentication failed for device: " + deviceID,
 		Err:     underlying,
 	}
 }

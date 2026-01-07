@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -142,6 +143,13 @@ func NewPluginMinerWithCredentials(
 		if isNetworkError(err) {
 			return nil, fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
 		}
+
+		// Check if this is an SDK authentication error and wrap it as UnauthenticatedError
+		var sdkErr sdk.SDKError
+		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
+			return nil, fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", config.DeviceIdentifier, err)
+		}
+
 		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
 	}
 

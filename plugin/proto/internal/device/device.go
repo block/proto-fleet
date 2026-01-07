@@ -16,11 +16,15 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/btc-mining/proto-fleet/plugin/proto/internal/device/types"
 	"github.com/btc-mining/proto-fleet/plugin/proto/pkg/proto"
@@ -96,11 +100,39 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 
 	if _, err := device.Status(ctx); err != nil {
 		client.Close()
+
+		if isAuthenticationError(err) {
+			return nil, sdk.NewErrorAuthenticationFailed(deviceID, err)
+		}
+
 		return nil, fmt.Errorf("failed to verify device communication: %w", err)
 	}
 
 	slog.Debug("Device instance created successfully", "deviceID", deviceID)
 	return device, nil
+}
+
+// isAuthenticationError checks if the error is an authentication failure from the miner.
+// It uses Connect-RPC error codes when available, with string matching as fallback
+// for errors that have been wrapped or serialized.
+func isAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		if connectErr.Code() == connect.CodeUnauthenticated || connectErr.Code() == connect.CodePermissionDenied {
+			return true
+		}
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthenticated") ||
+		strings.Contains(msg, "missing api key") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "authentication failed") ||
+		strings.Contains(msg, "invalid credentials")
 }
 
 // ID implements the SDK Device interface.
