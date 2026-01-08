@@ -1049,9 +1049,11 @@ LIMIT 1000
 		params := s.getCombinedMetricsParams(query)
 		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
 		if err != nil {
-			s.logger.Debug("combined metrics device_metrics query failed",
-				slog.String("field", fieldName),
-				slog.Any("error", err))
+			if !isTableNotFoundError(err) {
+				s.logger.Debug("combined metrics device_metrics query failed",
+					slog.String("field", fieldName),
+					slog.Any("error", err))
+			}
 			continue
 		}
 
@@ -1245,82 +1247,83 @@ LIMIT 1000
 
 		iterator, err := s.client.QueryPointValueWithParameters(ctx, temperatureStatusQuery, params)
 		if err != nil {
-			// This is a legitimate error - query failed
-			return models.CombinedMetric{}, fmt.Errorf("failed to query temperature status counts: %w", err)
-		}
-
-		// Process pre-grouped results from InfluxDB
-		// Results come back as: bucket_time, temperature_status, count
-		statusCountsByTime := make(map[time.Time]map[string]int32)
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				// Skip invalid points
-				continue
+			if !isTableNotFoundError(err) {
+				s.logger.Warn("failed to query temperature status counts", "error", err)
 			}
-
-			// Get the bucket_time from the query result (returned as arrow.Timestamp)
-			var pointTime time.Time
-			if timeField := point.GetField("bucket_time"); timeField != nil {
-				if arrowTS, ok := timeField.(arrow.Timestamp); ok {
-					// Arrow timestamp is in nanoseconds since Unix epoch
-					pointTime = time.Unix(0, int64(arrowTS))
+		} else {
+			// Process pre-grouped results from InfluxDB
+			// Results come back as: bucket_time, temperature_status, count
+			statusCountsByTime := make(map[time.Time]map[string]int32)
+			for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+				if err != nil {
+					// Skip invalid points
+					continue
 				}
-			}
 
-			if pointTime.IsZero() {
-				// Skip points without valid timestamp
-				continue
-			}
-
-			// Get the temperature status (from CASE statement, this is a field)
-			status := ""
-			if statusField := point.GetField("temperature_status"); statusField != nil {
-				if s, ok := statusField.(string); ok {
-					status = s
-				}
-			}
-
-			// Get the count from the aggregation
-			var count int32
-			if countField := point.GetField("count"); countField != nil {
-				switch v := countField.(type) {
-				case float64:
-					count = int32(v)
-				case int64:
-					// Validate int64 is within int32 bounds before conversion
-					if v > math.MaxInt32 || v < math.MinInt32 {
-						// Skip this point if value is out of bounds
-						continue
+				// Get the bucket_time from the query result (returned as arrow.Timestamp)
+				var pointTime time.Time
+				if timeField := point.GetField("bucket_time"); timeField != nil {
+					if arrowTS, ok := timeField.(arrow.Timestamp); ok {
+						// Arrow timestamp is in nanoseconds since Unix epoch
+						pointTime = time.Unix(0, int64(arrowTS))
 					}
-					count = int32(v)
-				case int32:
-					count = v
 				}
+
+				if pointTime.IsZero() {
+					// Skip points without valid timestamp
+					continue
+				}
+
+				// Get the temperature status (from CASE statement, this is a field)
+				status := ""
+				if statusField := point.GetField("temperature_status"); statusField != nil {
+					if s, ok := statusField.(string); ok {
+						status = s
+					}
+				}
+
+				// Get the count from the aggregation
+				var count int32
+				if countField := point.GetField("count"); countField != nil {
+					switch v := countField.(type) {
+					case float64:
+						count = int32(v)
+					case int64:
+						// Validate int64 is within int32 bounds before conversion
+						if v > math.MaxInt32 || v < math.MinInt32 {
+							// Skip this point if value is out of bounds
+							continue
+						}
+						count = int32(v)
+					case int32:
+						count = v
+					}
+				}
+
+				// Initialize map for this time if needed
+				if statusCountsByTime[pointTime] == nil {
+					statusCountsByTime[pointTime] = make(map[string]int32)
+				}
+				// Store the count for this status at this time
+				statusCountsByTime[pointTime][status] = count
 			}
 
-			// Initialize map for this time if needed
-			if statusCountsByTime[pointTime] == nil {
-				statusCountsByTime[pointTime] = make(map[string]int32)
+			// Convert to TemperatureStatusCount array
+			for timestamp, counts := range statusCountsByTime {
+				temperatureStatusCounts = append(temperatureStatusCounts, models.TemperatureStatusCount{
+					Timestamp:     timestamp,
+					ColdCount:     counts["cold"],
+					OkCount:       counts["ok"],
+					HotCount:      counts["hot"],
+					CriticalCount: counts["critical"],
+				})
 			}
-			// Store the count for this status at this time
-			statusCountsByTime[pointTime][status] = count
-		}
 
-		// Convert to TemperatureStatusCount array
-		for timestamp, counts := range statusCountsByTime {
-			temperatureStatusCounts = append(temperatureStatusCounts, models.TemperatureStatusCount{
-				Timestamp:     timestamp,
-				ColdCount:     counts["cold"],
-				OkCount:       counts["ok"],
-				HotCount:      counts["hot"],
-				CriticalCount: counts["critical"],
+			// Sort by timestamp
+			sort.Slice(temperatureStatusCounts, func(i, j int) bool {
+				return temperatureStatusCounts[i].Timestamp.Before(temperatureStatusCounts[j].Timestamp)
 			})
 		}
-
-		// Sort by timestamp
-		sort.Slice(temperatureStatusCounts, func(i, j int) bool {
-			return temperatureStatusCounts[i].Timestamp.Before(temperatureStatusCounts[j].Timestamp)
-		})
 	}
 
 	// Query uptime status counts if uptime is in the measurement types
@@ -1382,8 +1385,10 @@ LIMIT 1000
 
 		iterator, err := s.client.QueryPointValueWithParameters(ctx, uptimeStatusQuery, params)
 		if err != nil {
-			// Log but don't fail - uptime counts are optional
-			s.logger.Warn("failed to query uptime status counts", "error", err)
+			if !isTableNotFoundError(err) {
+				// Log but don't fail - uptime counts are optional
+				s.logger.Warn("failed to query uptime status counts", "error", err)
+			}
 		} else {
 			// Process pre-grouped results from InfluxDB
 			uptimeStatusCountsByTime := make(map[time.Time]map[string]int32)
@@ -1456,11 +1461,6 @@ LIMIT 1000
 	sort.Slice(allMetrics, func(i, j int) bool {
 		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
 	})
-
-	// Ensure we have at least some data to return
-	if len(allMetrics) == 0 && len(temperatureStatusCounts) == 0 && len(uptimeStatusCounts) == 0 {
-		return models.CombinedMetric{}, fmt.Errorf("no combined metrics found in device_metrics")
-	}
 
 	return models.CombinedMetric{
 		Metrics:                 allMetrics,

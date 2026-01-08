@@ -207,3 +207,13 @@ func newTelemetryPingError(err error) error {
 		Context:   map[string]interface{}{},
 	}
 }
+
+// isTableNotFoundError checks if the error indicates a table doesn't exist in InfluxDB.
+// This is expected when no data has been written yet (e.g., fresh database with no miners paired).
+func isTableNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "table") && strings.Contains(errStr, "not found")
+}
