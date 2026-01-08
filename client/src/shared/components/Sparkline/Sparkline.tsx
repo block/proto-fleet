@@ -52,7 +52,7 @@ const Sparkline = ({ data, threshold = 2 }: SparklineProps) => {
       <LineChart data={data}>
         <YAxis domain={[minValue, maxValue]} hide={true} />
         <ReferenceLine y={startValue} stroke={gray} />
-        <Line type="monotone" dataKey="y" stroke={lineColor} dot={false} />
+        <Line type="monotone" dataKey="y" stroke={lineColor} dot={false} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import HashboardSelector from "@/protoOS/features/kpis/components/HashboardSelector";
 import { aggregateColor, aggregateKey } from "@/protoOS/features/kpis/constants";
 import { getHashboardColor } from "@/protoOS/features/kpis/utility";
@@ -46,10 +46,24 @@ const KpiLineChart = ({
   const activeChartLines = useActiveChartLines() || [];
   const setActiveChartLines = useSetActiveChartLines();
 
+  // Track previous chartLines to detect actual content changes (not just reference changes)
+  const prevChartLinesRef = useRef<string[]>([]);
+
   // Clear active lines when chart lines becomes empty (e.g., when duration changes)
   // This resets to default state (show all) when data is reloading
   // Also filter out any stale serials that are no longer in chartLines
   useEffect(() => {
+    // Compare array contents, not references, to avoid infinite loops
+    const chartLinesChanged =
+      chartLines.length !== prevChartLinesRef.current.length ||
+      chartLines.some((line, i) => line !== prevChartLinesRef.current[i]);
+
+    if (!chartLinesChanged) {
+      return;
+    }
+
+    prevChartLinesRef.current = chartLines;
+
     const currentActiveLines = activeChartLines;
 
     if (chartLines.length === 0 && currentActiveLines.length > 0) {

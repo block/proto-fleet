@@ -1,4 +1,4 @@
-import { ComponentType, useEffect, useMemo, useState } from "react";
+import { ComponentType, useCallback, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart as RechartsLineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import { lineProps } from "./constants";
@@ -11,13 +11,23 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-const ANIMATION_DURATION = 1500;
 const TOOLTIP_WIDTH = 269;
 const TOOLTIP_WIDTH_PHONE = 150;
 const TOOLTIP_OFFSET = 24;
 const Y_AXIS_TICK_WIDTH = 50;
 const MIN_TIMESTAMP_X_POSITION = 70; // Padding to prevent timestamp label from being clipped on left edge
 const MAX_TIMESTAMP_X_POSITION = 52; // Padding to prevent timestamp label from being clipped on right edge
+
+// Static objects moved to module scope to avoid creating new references on every render
+// This prevents Recharts from detecting "changes" and triggering infinite re-render loops
+const X_AXIS_PADDING = { left: 25, right: 10 };
+const X_AXIS_LINE_STYLE = {
+  stroke: "#000",
+  strokeWidth: 1,
+  strokeOpacity: 0, // hide the line because bottom tickline serves as axis line
+};
+const TOOLTIP_WRAPPER_STYLE = { outline: "none" };
+const LINE_CURSOR = <LineCursor />;
 
 interface CustomYAxisTickProps {
   payload: {
@@ -164,19 +174,7 @@ const LineChart = ({
     return [firstTimestamp, lastTimestamp];
   }, [chartData]);
 
-  const [shouldAnimate, setShouldAnimate] = useState(true);
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
-
-  // initialize animation flags and chart data
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShouldAnimate(true);
-
-    const timeoutId = setTimeout(() => {
-      setShouldAnimate(false);
-    }, ANIMATION_DURATION);
-    return () => clearTimeout(timeoutId);
-  }, []);
 
   // Calculate Y-axis domain and ticks from chart data
   const { minDomain, maxDomain, yAxisTicks } = useMemo(() => {
@@ -287,6 +285,60 @@ const LineChart = ({
     return chartBoundingRect.width - MAX_TIMESTAMP_X_POSITION;
   }, [chartBoundingRect.width]);
 
+  // Memoize tick components to prevent infinite re-render loops
+  // These must NOT depend on tooltipData to avoid the cycle:
+  // hover → tooltipData updates → tick re-renders → triggers more updates
+  const maxTicksToShow = isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6;
+
+  const xAxisTick = useMemo(
+    () => (
+      <TimeXAxisTick
+        tooltipDatetime={undefined} // Don't pass tooltipData to break the render cycle
+        dataPointCount={chartData?.length || 0}
+        maxTicksToShow={maxTicksToShow}
+        minXPosition={MIN_TIMESTAMP_X_POSITION}
+        maxXPosition={maxXPosition}
+        labelCount={xAxisLabelCount}
+        timeBasedIndices={timeBasedLabelIndices}
+      />
+    ),
+    [chartData?.length, maxTicksToShow, maxXPosition, xAxisLabelCount, timeBasedLabelIndices],
+  );
+
+  const yAxisTick = useCallback(
+    (props: CustomYAxisTickProps) => (
+      <CustomYAxisTick
+        {...props}
+        yAxisTicks={yAxisTicks}
+        yOffset={yAxisTickYOffset}
+        visibleTickIndices={visibleTickIndices}
+      />
+    ),
+    [yAxisTicks, yAxisTickYOffset, visibleTickIndices],
+  );
+
+  const yAxisLineStyle = useMemo(() => ({ stroke: corePrimary10 }), [corePrimary10]);
+
+  const tooltipPosition = useMemo(() => ({ y: TOOLTIP_OFFSET, x: toolTipPositionX }), [toolTipPositionX]);
+
+  const tooltipContent = useMemo(
+    () => (
+      <ChartTooltip
+        aggregateKey={aggregateKey}
+        aggregateLabel="Summary"
+        onHover={setTooltipData}
+        tooltipData={tooltipData}
+        activeKeys={activeKeys}
+        units={units}
+        segmentsLabel={segmentsLabel}
+        colorMap={colorMap}
+        tooltipWidth={isPhone ? TOOLTIP_WIDTH_PHONE : TOOLTIP_WIDTH}
+        toolTipItemIcon={toolTipItemIcon}
+      />
+    ),
+    [aggregateKey, tooltipData, activeKeys, units, segmentsLabel, colorMap, isPhone, toolTipItemIcon],
+  );
+
   return (
     <div ref={chartRef} className="min-h-100 flex-1 [&_*]:!outline-none">
       <ChartWrapper className="mb-10 h-full w-full">
@@ -305,50 +357,20 @@ const LineChart = ({
             <XAxis
               {...xAxisProps}
               tickMargin={28}
-              padding={{ left: 25, right: 10 }}
+              padding={X_AXIS_PADDING}
               domain={xAxisDomain}
               type="number"
-              axisLine={{
-                stroke: "#000",
-                strokeWidth: 1,
-                strokeOpacity: 0, // hide the line because bottom tickline serves as axis line
-              }}
+              axisLine={X_AXIS_LINE_STYLE}
               dataKey="datetime"
               scale="time"
-              tick={
-                <TimeXAxisTick
-                  tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
-                  dataPointCount={chartData?.length || 0}
-                  maxTicksToShow={isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6}
-                  minXPosition={MIN_TIMESTAMP_X_POSITION}
-                  maxXPosition={maxXPosition}
-                  labelCount={xAxisLabelCount}
-                  timeBasedIndices={timeBasedLabelIndices}
-                />
-              }
+              tick={xAxisTick}
             />
 
             <Tooltip
-              position={{
-                y: TOOLTIP_OFFSET,
-                x: toolTipPositionX,
-              }}
-              wrapperStyle={{ outline: "none" }}
-              content={
-                <ChartTooltip
-                  aggregateKey={aggregateKey} // key of the aggregate value in the payload
-                  aggregateLabel="Summary" // displayed name of the aggregate in the tooltip
-                  onHover={setTooltipData}
-                  tooltipData={tooltipData}
-                  activeKeys={activeKeys}
-                  units={units}
-                  segmentsLabel={segmentsLabel}
-                  colorMap={colorMap}
-                  tooltipWidth={isPhone ? TOOLTIP_WIDTH_PHONE : TOOLTIP_WIDTH}
-                  toolTipItemIcon={toolTipItemIcon}
-                />
-              }
-              cursor={<LineCursor />}
+              position={tooltipPosition}
+              wrapperStyle={TOOLTIP_WRAPPER_STYLE}
+              content={tooltipContent}
+              cursor={LINE_CURSOR}
               isAnimationActive={false}
             />
 
@@ -356,31 +378,14 @@ const LineChart = ({
               (key, index) => {
                 const strokeColor = colorMap?.[key] ? `var(${colorMap[key]})` : "var(--color-core-primary-fill)";
 
-                return (
-                  <Line
-                    {...lineProps}
-                    dataKey={key}
-                    key={index}
-                    isAnimationActive={key === aggregateKey && shouldAnimate}
-                    stroke={strokeColor}
-                  />
-                );
+                return <Line {...lineProps} dataKey={key} key={index} stroke={strokeColor} />;
               },
             )}
 
             <YAxis
-              axisLine={{
-                stroke: corePrimary10,
-              }}
+              axisLine={yAxisLineStyle}
               tickLine={false}
-              tick={(props) => (
-                <CustomYAxisTick
-                  {...props}
-                  yAxisTicks={yAxisTicks}
-                  yOffset={yAxisTickYOffset}
-                  visibleTickIndices={visibleTickIndices}
-                />
-              )}
+              tick={yAxisTick}
               tickSize={0}
               width={Y_AXIS_TICK_WIDTH}
               interval={0}

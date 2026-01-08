@@ -82,7 +82,15 @@ const ChartTooltip = ({
         lastUpdateRef.current.active !== active
       ) {
         lastUpdateRef.current = { x: newX, y: newY, payloadLength, active };
-        onHover({ payload: payloads, x: newX, y: newY });
+        // Extract only primitive data to avoid storing Recharts internal objects
+        // which contain circular references that cause stack overflow during serialization
+        const sanitizedPayloads = payloads.map((p) => ({
+          name: p.name,
+          payload: Object.fromEntries(
+            Object.entries(p.payload).filter(([, value]) => typeof value === "number" || typeof value === "string"),
+          ) as PayloadType["payload"],
+        }));
+        onHover({ payload: sanitizedPayloads, x: newX, y: newY });
       }
     } else if (!active && lastUpdateRef.current.active) {
       lastUpdateRef.current = LAST_UPDATE_DEFAULT;

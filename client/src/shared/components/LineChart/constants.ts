@@ -9,7 +9,7 @@ export const lineProps = {
   strokeLinecap: "round" as "round" | "inherit" | "butt" | "square" | undefined,
   strokeLinejoin: "round" as "round" | "inherit" | "miter" | "bevel" | undefined,
   activeDot: false,
-  isAnimationActive: true,
+  isAnimationActive: false, // Disabled due to Recharts JavascriptAnimate infinite loop bug
   connectNulls: false,
 };
 
