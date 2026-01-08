@@ -10,10 +10,9 @@ const SkeletonBar = ({ className }: SkeletonBarProps) => {
       <div
         className={clsx(
           "relative isolate h-full overflow-hidden rounded-sm",
-          "before:absolute before:inset-0 before:-translate-x-full",
-          "before:animate-[shimmer_2s_infinite]",
-          "before:bg-linear-to-r before:from-transparent before:to-transparent",
-          "before:via-core-primary-5",
+          "before:absolute before:inset-0",
+          "before:animate-[shimmer_2s_ease-in-out_infinite]",
+          "before:bg-[linear-gradient(90deg,transparent_0%,var(--color-core-primary-5)_30%,var(--color-core-primary-5)_70%,transparent_100%)]",
         )}
       >
         <div className="h-full rounded-sm bg-core-primary-10" />

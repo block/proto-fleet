@@ -282,6 +282,9 @@ WOuld be best to switch over to mobile first stying  */
   --animate-slide-up: slide-up 0.3s var(--ease-gentle);
 
   @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
     100% {
       transform: translateX(100%);
     }
