@@ -1,5 +1,4 @@
 /* eslint-disable playwright/expect-expect */
-import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomUsername } from "../helpers/testDataHelper";
 
@@ -10,12 +9,9 @@ test.describe("Proto Fleet - Team Accounts", () => {
     await page.goto("/");
   });
 
-  test("Add team member", async ({ authPage, settingsPage, settingsTeamPage }) => {
+  test("Add team member", async ({ settingsPage, settingsTeamPage, commonSteps }) => {
     await test.step("Log in as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
+      await commonSteps.loginAsAdmin();
     });
 
     await test.step("Navigate to Team Settings", async () => {
@@ -43,15 +39,12 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("New member log in", async ({ authPage, settingsPage, settingsTeamPage }) => {
+  test("New member log in", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
     let username = generateRandomUsername();
     let tempPassword: string;
 
     await test.step("Log in as admin and navigate to team settings", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
+      await commonSteps.loginAsAdmin();
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
     });
@@ -92,17 +85,12 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("New member password reset", async ({ authPage, settingsPage, settingsTeamPage }) => {
+  test("New member password reset", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
     let username = generateRandomUsername();
     let tempPassword1: string;
     let tempPassword2: string;
 
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to team settings", async () => {
       await settingsPage.navigateToTeamSettings();
@@ -165,16 +153,11 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("Deactivate team member", async ({ authPage, settingsPage, settingsTeamPage }) => {
+  test("Deactivate team member", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
     let username = generateRandomUsername();
     let tempPassword: string;
 
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to team settings", async () => {
       await settingsPage.navigateToTeamSettings();

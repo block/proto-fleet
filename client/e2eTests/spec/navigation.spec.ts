@@ -7,13 +7,8 @@ test.describe.serial("Navigation", () => {
     await page.goto("/");
   });
 
-  test("Overview navigation", async ({ authPage, homePage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Overview navigation", async ({ homePage, minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to control board issues", async () => {
       await homePage.clickControlBoardsLink();

@@ -6,102 +6,61 @@ This directory contains end-to-end (E2E) tests for the ProtoFleet client applica
 
 The E2E test suite validates critical user workflows and functionality across the ProtoFleet application, including authentication, miner management, pool configuration, and settings management.
 
-## Tech Stack
-
-- **[Playwright](https://playwright.dev/)**: Modern end-to-end testing framework
-- **TypeScript**: Type-safe test development
-- **Page Object Model**: Organized, maintainable test structure
-
-## Project Structure
-
-```
-e2eTests/
-├── config/              # Test configuration files
-│   └── test.config.ts   # Base URL, user credentials, timeouts
-├── fixtures/            # Playwright fixtures for dependency injection
-│   └── pageFixtures.ts  # Page object fixtures
-├── pages/               # Page Object Model implementations
-│   ├── base.ts          # Base page class with common methods
-│   ├── auth.ts          # Authentication page objects
-│   ├── miners.ts        # Miners page objects
-│   └── settings.ts      # Settings page objects
-├── spec/                # Test specifications
-│   ├── auth.spec.ts     # Authentication tests
-│   ├── miners.spec.ts   # Miner management tests
-│   ├── miningPools.spec.ts  # Pool configuration tests
-│   └── teamAccounts.spec.ts # Team account tests
-├── playwright-report/   # Generated test reports (gitignored)
-└── playwright.config.ts # Playwright configuration
-```
-
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js and npm installed
-- ProtoFleet client and server running locally
-- Test environment set up with virtual miners (default: 12 miners)
+- All dependencies installed via `npm install` in the client directory
+- ProtoFleet development environment and simulated miners set up (usually with `just dev`)
 
-### Installation
+### Quick Start
 
-Playwright is already included in the project dependencies. To install Playwright browsers:
-
-```bash
-npx playwright install
-```
-
-### Configuration
-
-Test configuration is managed in `config/test.config.ts`:
-
-```typescript
-export const testConfig = {
-  baseUrl: "http://localhost:5173", // Client application URL
-  users: {
-    admin: {
-      username: "admin",
-      password: "Pass123!",
-    },
-  },
-  timeouts: 30000,
-};
-```
-
-Adjust these values based on your local environment.
-
-## Running Tests
-
-### Run all tests
+The test configuration is already set up with default values. Simply run:
 
 ```bash
-npx playwright test
+just test-e2e
 ```
 
-### Run specific test file
+This command will:
+
+- Install Playwright browsers automatically if needed
+- Run all tests in desktop mode
+- Generate an HTML report
+
+🔒 The default credentials are `admin` and `Pass123!`
+
+### Available Commands
+
+**Using justfile (recommended):**
 
 ```bash
-npx playwright test spec/auth.spec.ts
+just test-e2e              # Run all tests (desktop)
+just test-e2e-ui           # Run in interactive UI mode
+just test-e2e-headed       # Run with visible browser
+just test-e2e-wip          # Run only tests tagged @wip
 ```
 
-### Run tests in headed mode (see browser)
+**Using npm scripts:**
 
 ```bash
-npx playwright test --headed
+npm run test:e2e           # Run all tests (desktop)
+npm run test:e2e:ui        # Run in interactive UI mode
+npm run test:e2e:headed    # Run with visible browser
 ```
 
-### Run tests in debug mode
+**Using Playwright directly:**
 
 ```bash
-npx playwright test --debug
+cd e2eTests
+npx playwright test --project=desktop    # Desktop viewport (1920x1080)
+npx playwright test --project=mobile     # Mobile viewport (393x852)
+npx playwright test --headed             # See browser
+npx playwright test --debug              # Debug mode
+npx playwright test --ui                 # Interactive UI
+npx playwright test spec/auth.spec.ts    # Run specific file
 ```
 
-### Run tests in UI mode (interactive)
-
-```bash
-npx playwright test --ui
-```
-
-## Viewing Test Reports
+### Viewing Test Reports
 
 After running tests, view the HTML report:
 
@@ -112,9 +71,83 @@ npx playwright show-report
 The report includes:
 
 - Test results and execution times
-- Screenshots (captured on test runs)
+- Screenshots (captured on failure)
 - Videos (retained on failure)
 - Traces (captured on first retry)
+
+### Configuration
+
+Test configuration is in `config/test.config.ts`:
+
+```typescript
+export const testConfig = {
+  baseUrl: "http://localhost:5173",
+  users: {
+    admin: {
+      username: "admin",
+      password: "Pass123!",
+    },
+  },
+  testTimeout: 60000,
+  actionTimeout: 30000,
+};
+```
+
+### Desktop vs Mobile Testing
+
+The test suite supports both desktop and mobile viewports, configured in `playwright.config.ts`:
+
+- **Desktop**: 1920x1080 viewport (default)
+- **Mobile**: 393x852 viewport (iPhone 14/15/16 Pro resolution)
+
+Switch between projects using the `--project` flag:
+
+```bash
+npx playwright test --project=desktop
+npx playwright test --project=mobile
+```
+
+## Tech Stack
+
+- **[Playwright](https://playwright.dev/)**: Modern end-to-end testing framework
+- **TypeScript**: Type-safe test development
+- **Page Object Model**: Organized, maintainable test structure
+
+## Project Structure
+
+```
+e2eTests/
+├── config/                    # Test configuration files
+│   └── test.config.ts         # Base URL, user credentials, timeouts
+├── fixtures/                  # Playwright fixtures for dependency injection
+│   └── pageFixtures.ts        # Page object and helper fixtures
+├── helpers/                   # Reusable test helper classes
+│   ├── commonSteps.ts         # Common test workflows (login, navigation)
+│   └── testDataHelper.ts      # Test data generation utilities
+├── pages/                     # Page Object Model implementations
+│   ├── base.ts                # Base page class with common methods
+│   ├── auth.ts                # Authentication page objects
+│   ├── home.ts                # Home page objects
+│   ├── miners.ts              # Miners page objects
+│   ├── addMiners.ts           # Add miners page objects
+│   ├── editPool.ts            # Pool editor page objects
+│   ├── newPoolModal.ts        # New pool modal objects
+│   ├── settings.ts            # Settings page objects
+│   ├── settingsSecurity.ts    # Security settings page objects
+│   ├── settingsTeam.ts        # Team settings page objects
+│   └── settingsPools.ts       # Pool settings page objects
+├── spec/                      # Test specifications
+│   ├── 00-onboarding.spec.ts  # Initial setup and onboarding tests
+│   ├── 01-miningPools.spec.ts # Pool configuration tests
+│   ├── auth.spec.ts           # Authentication tests
+│   ├── minersActions.spec.ts  # Miner management and actions tests
+│   ├── securitySettings.spec.ts # Security settings tests
+│   ├── generalSettings.spec.ts # General settings tests
+│   ├── teamAccounts.spec.ts   # Team account management tests
+│   └── navigation.spec.ts     # Navigation flow tests
+├── playwright-report/         # Generated test reports (gitignored)
+└── playwright.config.ts       # Playwright configuration
+```
 
 ## Writing Tests
 
@@ -136,18 +169,59 @@ export class MinersPage extends BasePage {
 }
 ```
 
+### Helper Classes
+
+Common test workflows are encapsulated in helper classes:
+
+```typescript
+// Example: helpers/commonSteps.ts
+export class CommonSteps {
+  async loginAsAdmin() {
+    await test.step("Login as admin", async () => {
+      await this.authPage.inputUsername(testConfig.users.admin.username);
+      await this.authPage.inputPassword(testConfig.users.admin.password);
+      await this.authPage.clickLogin();
+      await this.authPage.validateLoggedIn();
+    });
+  }
+
+  async goToMinersPage() {
+    await test.step("Navigate to miners page", async () => {
+      await this.minersPage.navigateToMinersPage();
+      await this.minersPage.waitForMinersTitle();
+      await this.minersPage.waitForMinersListToLoad();
+    });
+  }
+}
+```
+
 ### Using Fixtures
 
-Fixtures provide automatic dependency injection for page objects:
+Fixtures provide automatic dependency injection for page objects and helpers:
 
 ```typescript
 import { test } from "../fixtures/pageFixtures";
 
-test("My test", async ({ authPage, minersPage }) => {
-  await authPage.login();
+test("My test", async ({ authPage, minersPage, commonSteps }) => {
+  await commonSteps.loginAsAdmin();
+  await commonSteps.goToMinersPage();
   await minersPage.validateMiners();
 });
 ```
+
+Available fixtures:
+
+- `authPage` - Authentication page
+- `homePage` - Home page
+- `minersPage` - Miners page
+- `addMinersPage` - Add miners page
+- `settingsPage` - Settings page
+- `settingsSecurityPage` - Security settings page
+- `settingsTeamPage` - Team settings page
+- `settingsPoolsPage` - Pool settings page
+- `editPoolPage` - Pool editor page
+- `newPoolModal` - New pool modal
+- `commonSteps` - Common test workflows
 
 ### Test Structure Example
 
@@ -157,16 +231,31 @@ test.describe("Feature Name", () => {
     await page.goto("/");
   });
 
-  test("should perform action", async ({ authPage, minersPage }) => {
+  test("should perform action", async ({ minersPage, commonSteps }) => {
     // Arrange
-    await authPage.login();
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     // Act
-    await minersPage.performAction();
+    await test.step("Perform action", async () => {
+      await minersPage.performAction();
+    });
 
     // Assert
-    await minersPage.validateResult();
+    await test.step("Validate result", async () => {
+      await minersPage.validateResult();
+    });
   });
+});
+```
+
+### Serial Test Execution
+
+Some test suites use serial execution when tests depend on previous test state:
+
+```typescript
+test.describe.serial("Dependent Tests", () => {
+  // Tests run in order, sharing state
 });
 ```
 
@@ -176,8 +265,11 @@ test.describe("Feature Name", () => {
 
 - Group related tests using `test.describe()`
 - Use descriptive test names that explain the scenario
-- Keep tests independent and idempotent
+- Keep tests independent and idempotent (except when using `.serial()`)
 - Use `beforeEach` for common setup
+- Use `test.step()` to organize test logic into readable sections
+- Leverage `commonSteps` helper for frequently used workflows
+- Number test files (00-, 01-) when execution order matters
 
 ### Locator Strategy
 
@@ -197,11 +289,26 @@ await expect(element).toHaveText("Expected text");
 await expect(page).toHaveURL(/.*\/expected-path/);
 ```
 
+### API Validation
+
+- Use `page.waitForRequest()` and `page.waitForResponse()` to validate API calls
+- Verify request payloads and response status codes
+- Ensure critical operations complete successfully at the network level
+
+```typescript
+const responsePromise = page.waitForResponse(
+  (response) => response.url().includes("/api/reboot") && response.status() === 200,
+);
+await minersPage.clickRebootButton();
+await responsePromise;
+```
+
 ### Error Handling
 
 - Tests automatically capture screenshots and videos on failure
 - Use traces for debugging complex failures
 - Add explicit waits for dynamic content
+- Validate both UI state and API responses for critical operations
 
 ### Code Quality
 
@@ -231,7 +338,25 @@ await expect(page).toHaveURL(/.*\/expected-path/);
 
 ## CI/CD Integration
 
-WIP
+E2E tests run automatically in GitHub Actions:
+
+- **Triggers**: Pull requests affecting e2e tests, daily at 7 AM UTC, manual dispatch
+- **Matrix**: Tests run on both `desktop` and `mobile` projects
+- **Environment**: Ubuntu with Docker, MySQL, InfluxDB, and 12 simulated miners
+- **Reporting**: HTML reports and GitHub annotations
+
+See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet-e2e-tests.yml) for full workflow configuration.
+
+### CI Test Execution
+
+The workflow:
+
+1. Builds ProtoFleet client (both ProtoOS and ProtoFleet apps)
+2. Starts MySQL and InfluxDB services
+3. Builds and runs 12 simulated miners via Docker Compose
+4. Runs backend server
+5. Executes Playwright tests with `--project=desktop` or `--project=mobile`
+6. Uploads test reports and traces as artifacts
 
 ## Additional Resources
 

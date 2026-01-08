@@ -1,5 +1,4 @@
 /* eslint-disable playwright/expect-expect */
-import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("General Settings", () => {
@@ -7,13 +6,8 @@ test.describe("General Settings", () => {
     await page.goto("/");
   });
 
-  test("Set temperature format", async ({ authPage, settingsPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Set temperature format", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to general settings", async () => {
       await authPage.navigateToSettingsPage();

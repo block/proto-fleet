@@ -1,6 +1,7 @@
 // NOTE: eslint incorrectly identifies 'use' as react hook
 /* eslint-disable react-hooks/rules-of-hooks */
 import { test as base } from "@playwright/test";
+import { CommonSteps } from "../helpers/commonSteps";
 import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
 import { EditPoolPage } from "../pages/editPool";
@@ -23,6 +24,7 @@ type PageFixtures = {
   settingsPoolsPage: SettingsPoolsPage;
   editPoolPage: EditPoolPage;
   newPoolModal: NewPoolModalPage;
+  commonSteps: CommonSteps;
 };
 
 export const test = base.extend<PageFixtures>({
@@ -55,6 +57,9 @@ export const test = base.extend<PageFixtures>({
   },
   newPoolModal: async ({ page, isMobile }, use) => {
     await use(new NewPoolModalPage(page, isMobile));
+  },
+  commonSteps: async ({ authPage, minersPage }, use) => {
+    await use(new CommonSteps(authPage, minersPage));
   },
 });
 

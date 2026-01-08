@@ -7,18 +7,11 @@ test.describe.serial("Miners", () => {
     await page.goto("/");
   });
 
-  test("Put miners to SLEEP", async ({ authPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Put miners to SLEEP", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
+    await test.step("Filter Proto miners as a workaround", async () => {
       // Workaround: Bitmain miner status remains as 'hashing' or with an error
       await minersPage.filterProtoMiners();
     });
@@ -41,19 +34,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("WAKE miners up", async ({ authPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("WAKE miners up", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     await test.step("Select all miners and wake them up", async () => {
       await minersPage.clickSelectAllCheckbox();
@@ -72,19 +55,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("UNPAIR a single miner", async ({ authPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("UNPAIR a single miner", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     let minerCount: number;
     let minerIp: string;
@@ -107,19 +80,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("UNPAIR multiple miners", async ({ authPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("UNPAIR multiple miners", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     let minerCount: number;
     let minerIp1: string;
@@ -154,19 +117,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("ADD a single miner", async ({ authPage, minersPage, addMinersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("ADD a single miner", async ({ minersPage, addMinersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     let minerIp: string;
     let minerCount: number;
@@ -190,19 +143,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("ADD multiple miners", async ({ authPage, minersPage, addMinersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("ADD multiple miners", async ({ minersPage, addMinersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     let minerIp1: string;
     let minerIp2: string;
@@ -230,19 +173,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("REBOOT a single miner", async ({ authPage, minersPage, page }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("REBOOT a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     const requestPromise = page.waitForRequest(/Reboot/);
     const responsePromise = page.waitForResponse(/Reboot/);
@@ -271,19 +204,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("REBOOT multiple miners", async ({ authPage, minersPage, page }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("REBOOT multiple miners", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     const requestPromise = page.waitForRequest(/Reboot/);
     const responsePromise = page.waitForResponse(/Reboot/);
@@ -322,19 +245,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("MANAGE POWER for a single miner", async ({ authPage, minersPage, page }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("MANAGE POWER for a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
@@ -395,19 +308,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("MANAGE POWER for multiple miners", async ({ authPage, minersPage, page }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+  test("MANAGE POWER for multiple miners", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
@@ -477,14 +380,9 @@ test.describe.serial("Miners", () => {
     });
   });
 
-  test("CLEANUP: Re-authenticate added miners", async ({ authPage, homePage }) => {
+  test("CLEANUP: Re-authenticate added miners", async ({ homePage, commonSteps }) => {
     // Workaround - re-added Antminers need authentication again
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+    await commonSteps.loginAsAdmin();
 
     await test.step("Authenticate miners", async () => {
       await homePage.validateCompleteSetupTitle();

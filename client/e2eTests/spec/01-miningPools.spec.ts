@@ -1,6 +1,5 @@
 /* eslint-disable playwright/expect-expect */
 import { generateRandomText } from "e2eTests/helpers/testDataHelper";
-import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Mining Pools @setup", () => {
@@ -10,15 +9,10 @@ test.describe("Mining Pools @setup", () => {
   const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
   const validPoolUrl = "stratum+tcp://stratum.slushpool.com:3333";
 
-  test("Configure mining pool", async ({ authPage, settingsPage, settingsPoolsPage, newPoolModal }) => {
+  test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
     const poolName = generateRandomText("PoolName");
     const poolUsername = "test";
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to mining pools settings", async () => {
       await settingsPage.navigateToMiningPoolsSettings();
@@ -53,21 +47,12 @@ test.describe("Mining Pools @setup", () => {
     });
   });
 
-  test("Add default mining pool to all miners", async ({ authPage, minersPage, editPoolPage, newPoolModal }) => {
+  test("Add default mining pool to all miners", async ({ minersPage, editPoolPage, newPoolModal, commonSteps }) => {
     const poolName = generateRandomText("PoolName");
     const poolUsername = "pool";
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+    await commonSteps.loginAsAdmin();
 
-    await test.step("Navigate to miners page", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-    });
+    await commonSteps.goToMinersPage();
 
     let amountOfMiners: number;
     await test.step("Select all miners and open pool editor", async () => {

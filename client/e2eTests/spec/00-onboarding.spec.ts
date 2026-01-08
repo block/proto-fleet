@@ -21,13 +21,8 @@ test.describe("Proto Fleet - Onboarding @setup", () => {
     });
   });
 
-  test("Add all scanned miners", async ({ authPage, minersPage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Add all scanned miners", async ({ authPage, minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
 
     await test.step("Get started with onboarding", async () => {
       await authPage.clickGetStarted();
@@ -38,21 +33,15 @@ test.describe("Proto Fleet - Onboarding @setup", () => {
       await authPage.clickContinueWithSelectedMiners();
     });
 
-    await test.step("Navigate to miners page and validate", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Validate miners added", async () => {
       await minersPage.validateMinersAdded();
     });
   });
 
-  test("Authenticate miners", async ({ authPage, homePage }) => {
-    await test.step("Login as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Authenticate miners", async ({ homePage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
 
     await test.step("Authenticate miners", async () => {
       await homePage.validateCompleteSetupTitle();
