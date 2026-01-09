@@ -7,7 +7,7 @@ import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { ids } from "@/protoFleet/features/auth/components/AuthenticateMiners/constants";
 import { Credentials, UnauthenticatedMiner } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
-import { useFleetStore } from "@/protoFleet/store";
+import { useFleetStore, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -43,6 +43,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
   const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners } = useAuthNeededMiners();
   const { pair } = useMinerPairing();
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
+  const notifyPairingCompleted = useNotifyPairingCompleted();
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -295,6 +296,8 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
       // Refetch global fleet state if callback is available
       useFleetStore.getState().fleet.refetchMiners?.();
       refetchAuthNeededMiners();
+      // Signal that pairing status changed so Fleet can reset telemetry cache
+      notifyPairingCompleted();
       // Call parent's success handler if at least one miner was authenticated
       if (successCount > 0) {
         onSuccess?.();
@@ -333,6 +336,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
     minersByIdentifier,
     refetchOnboardingStatus,
     refetchAuthNeededMiners,
+    notifyPairingCompleted,
     onClose,
     onSuccess,
     pair,

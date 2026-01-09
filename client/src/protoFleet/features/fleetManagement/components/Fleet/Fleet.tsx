@@ -12,7 +12,7 @@ import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useVisibleMiners } from "@/protoFleet/hooks";
-import { useNotifyPairingCompleted } from "@/protoFleet/store";
+import { useLastPairingCompletedAt, useNotifyPairingCompleted } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 // Stable reference to prevent re-renders
@@ -68,6 +68,18 @@ const Fleet = () => {
   useEffect(() => {
     resetFetchedIds();
   }, [currentFilter, resetFetchedIds]);
+
+  // Reset telemetry cache and refetch when pairing status changes (e.g., after authentication)
+  const lastPairingCompletedAt = useLastPairingCompletedAt();
+  useEffect(() => {
+    if (lastPairingCompletedAt > 0) {
+      resetFetchedIds();
+      // Immediately refetch telemetry for visible miners after cache reset
+      if (hasInitialLoadCompleted && visibleMinerIds.size > 0) {
+        fetchBatchTelemetry(visibleMinerIds);
+      }
+    }
+  }, [lastPairingCompletedAt, resetFetchedIds, hasInitialLoadCompleted, visibleMinerIds, fetchBatchTelemetry]);
 
   useStreamMinerListUpdates({
     filter: currentFilter,

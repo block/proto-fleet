@@ -14,6 +14,7 @@ vi.mock("@/protoFleet/api/useOnboardedStatus");
 vi.mock("@/shared/features/toaster");
 
 const mockRefetchMiners = vi.fn();
+const mockNotifyPairingCompleted = vi.fn();
 vi.mock("@/protoFleet/store", () => ({
   useFleetStore: {
     getState: () => ({
@@ -22,6 +23,7 @@ vi.mock("@/protoFleet/store", () => ({
       },
     }),
   },
+  useNotifyPairingCompleted: () => mockNotifyPairingCompleted,
 }));
 
 const mockUnpairedMiners = {
@@ -356,6 +358,7 @@ describe("AuthenticateMiners", () => {
     await vi.waitFor(() => {
       expect(mockRefetchOnboardingStatus).toHaveBeenCalled();
       expect(mockRefetchMiners).toHaveBeenCalled();
+      expect(mockNotifyPairingCompleted).toHaveBeenCalled();
       expect(mockOnSuccess).toHaveBeenCalled();
     });
   });
