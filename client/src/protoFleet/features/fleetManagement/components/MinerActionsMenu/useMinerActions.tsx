@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { BulkAction } from "../BulkActions/types";
 import {
@@ -45,7 +45,7 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 export interface MinerSelection {
   deviceIdentifier: string;
@@ -73,7 +73,6 @@ export const useMinerActions = ({
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
-  const miningPoolToastIdRef = useRef<number | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -163,10 +162,13 @@ export const useMinerActions = ({
 
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
-      if (miningPoolToastIdRef.current !== null) {
-        handleSuccess(settingsActions.miningPool, miningPoolToastIdRef.current, batchIdentifier);
-        miningPoolToastIdRef.current = null;
-      }
+      const toastId = pushToast({
+        message: `${loadingMessages[settingsActions.miningPool]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
+      handleSuccess(settingsActions.miningPool, toastId, batchIdentifier);
       setCurrentAction(null);
       onActionComplete?.();
     },
@@ -175,16 +177,15 @@ export const useMinerActions = ({
 
   const handleMiningPoolError = useCallback(
     (error: string) => {
-      if (miningPoolToastIdRef.current !== null) {
-        handleError(miningPoolToastIdRef.current, error);
-        // Clear ref so handleCancel doesn't remove the error toast
-        miningPoolToastIdRef.current = null;
-      }
-      // Dismiss the component but keep the error toast visible
+      pushToast({
+        message: error,
+        status: TOAST_STATUSES.error,
+        longRunning: true,
+      });
       setCurrentAction(null);
       onActionComplete?.();
     },
-    [handleError, onActionComplete],
+    [onActionComplete],
   );
 
   const handleManagePowerConfirm = useCallback(
@@ -295,11 +296,6 @@ export const useMinerActions = ({
   ]);
 
   const handleCancel = useCallback(() => {
-    if (miningPoolToastIdRef.current !== null) {
-      removeToast(miningPoolToastIdRef.current);
-      miningPoolToastIdRef.current = null;
-    }
-
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -385,13 +381,6 @@ export const useMinerActions = ({
     const handleMiningPool = () => {
       setCurrentAction(settingsActions.miningPool);
       onActionStart?.();
-
-      miningPoolToastIdRef.current = pushToast({
-        message: `${loadingMessages[settingsActions.miningPool]} ${minersMessage}`,
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-        onClose: () => onActionComplete?.(),
-      });
     };
 
     // TODO: Implement Cooling Mode action
@@ -566,16 +555,7 @@ export const useMinerActions = ({
         },
       },
     ] as BulkAction<SupportedAction>[];
-  }, [
-    blinkLED,
-    handleSuccess,
-    handleError,
-    displayCount,
-    onActionStart,
-    onActionComplete,
-    deviceSelector,
-    deviceStatus,
-  ]);
+  }, [blinkLED, handleSuccess, handleError, displayCount, onActionStart, deviceSelector, deviceStatus]);
 
   return {
     currentAction,

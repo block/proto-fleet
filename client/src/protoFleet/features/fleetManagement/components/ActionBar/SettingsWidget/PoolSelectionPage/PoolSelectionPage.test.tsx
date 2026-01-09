@@ -139,38 +139,36 @@ describe("Pool selection page", () => {
     });
   });
 
-  test("calls onCancel when close button clicked after selecting backup pool", async () => {
-    const { getByText, getAllByText, getAllByTestId } = render(
+  test("disables backup pool buttons when no default pool is selected", async () => {
+    const { getByTestId } = render(
       <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
-    // Click the "Add pool" button for the first backup pool (second button)
-    const addPoolButtons = getAllByText("Add pool");
-    fireEvent.click(addPoolButtons[1]);
+    const backupPool1 = getByTestId("backup-pool-1");
+    const backupPool2 = getByTestId("backup-pool-2");
 
-    // Wait for modal to open
+    expect(backupPool1).toHaveAttribute("aria-disabled", "true");
+    expect(backupPool2).toHaveAttribute("aria-disabled", "true");
+
+    expect(backupPool1.querySelector("button")).toBeDisabled();
+    expect(backupPool2.querySelector("button")).toBeDisabled();
+  });
+
+  test("enables backup pool #1 after selecting default pool, but keeps #2 disabled", async () => {
+    const { getByText, getAllByText, getByTestId } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    const addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
+
     await waitFor(() => {
       expect(getByText("Select pool")).toBeInTheDocument();
     });
 
-    // Select a pool from the modal by clicking on the pool row
-    const poolRow = getByText("Client pool A1");
-    fireEvent.click(poolRow);
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
 
-    // Click Save button in the modal
-    const saveButtons = getAllByText("Save");
-    const modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
-    fireEvent.click(modalSaveButton);
-
-    // Wait for validation to complete and modal to close (800ms minimum delay)
-    await waitFor(
-      () => {
-        expect(() => getByText("Select pool")).toThrow();
-      },
-      { timeout: 2000 },
-    );
-
-    // Wait for the "Testing connection" phase to complete and "Update" button to appear
     await waitFor(
       () => {
         expect(getAllByText("Update").length).toBeGreaterThan(0);
@@ -178,48 +176,73 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
-    // Close the page
-    const closeModalButton = getAllByTestId("header-icon-button")[0];
-    fireEvent.click(closeModalButton);
+    const backupPool1 = getByTestId("backup-pool-1");
+    expect(backupPool1).toHaveAttribute("aria-disabled", "false");
+    expect(backupPool1.querySelector("button")).not.toBeDisabled();
 
-    await waitFor(() => {
-      expect(onCancel).toHaveBeenCalled();
-    });
+    const backupPool2 = getByTestId("backup-pool-2");
+    expect(backupPool2).toHaveAttribute("aria-disabled", "true");
   });
 
-  test("prevents selecting the same pool for both backup slots", async () => {
-    const { getAllByText, getAllByTestId, queryAllByText } = render(
+  test("enables backup pool #2 after selecting backup pool #1", async () => {
+    const { getByText, getAllByText, getByTestId, queryAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    let addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
+
+    await waitFor(() => {
+      expect(getByText("Select pool")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+
+    await waitFor(
+      () => {
+        expect(getAllByText("Update").length).toBeGreaterThan(0);
+      },
+      { timeout: 2000 },
+    );
+
+    addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
+
+    await waitFor(() => {
+      expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(getByTestId("pool-row-Client pool A2"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+
+    await waitFor(
+      () => {
+        expect(getAllByText("Update").length).toBe(2);
+      },
+      { timeout: 2000 },
+    );
+
+    const backupPool2 = getByTestId("backup-pool-2");
+    expect(backupPool2).toHaveAttribute("aria-disabled", "false");
+    expect(backupPool2.querySelector("button")).not.toBeDisabled();
+  });
+
+  test("shows already selected pools as greyed out with assignment label in backup pool modal", async () => {
+    const { getAllByText, getByText, queryAllByText, getByTestId } = render(
       <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     const addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
 
-    // Select a pool for backup slot 1 (index 1 = second "Add pool" button)
-    fireEvent.click(addPoolButtons[1]);
-
-    // Wait for modal to open
     await waitFor(() => {
-      expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
+      expect(getByText("Select pool")).toBeInTheDocument();
     });
 
-    // Select first pool from the modal - there should be only one in the modal at this point
-    let poolRows = queryAllByText("Client pool A1");
-    fireEvent.click(poolRows[0]);
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
 
-    // Click Save button in the modal
-    let saveButtons = getAllByText("Save");
-    let modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
-    fireEvent.click(modalSaveButton);
-
-    // Wait for validation to complete and modal to close (800ms minimum delay)
-    await waitFor(
-      () => {
-        expect(queryAllByText("Select pool").length).toBe(0);
-      },
-      { timeout: 2000 },
-    );
-
-    // Wait for the "Testing connection" phase to complete and "Update" button to appear
     await waitFor(
       () => {
         expect(getAllByText("Update").length).toBeGreaterThan(0);
@@ -227,35 +250,33 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
-    // Try to select the same pool for backup slot 2 (index 2 = third "Add pool" button)
-    // Need to get fresh button references after the first pool was selected
-    const updatedAddPoolButtons = getAllByText("Add pool");
-    fireEvent.click(updatedAddPoolButtons[1]); // This is now backup slot 2
+    fireEvent.click(getAllByText("Add pool")[0]);
 
-    // Wait for modal to open again
     await waitFor(() => {
       expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
     });
 
-    // Try to select the same pool again - now there are multiple instances (one in the page, one in modal)
-    poolRows = queryAllByText("Client pool A1");
-    // Click the one in the modal (should be the last one)
-    fireEvent.click(poolRows[poolRows.length - 1]);
+    expect(queryAllByText("Client pool A1").length).toBe(2);
+    expect(getByTestId("pool-row-Client pool A1")).toHaveAttribute("aria-disabled", "true");
+    expect(getByText("Default")).toBeInTheDocument();
+    expect(getByTestId("pool-row-Client pool A2")).toHaveAttribute("aria-disabled", "false");
+  });
 
-    // Click Save
-    saveButtons = getAllByText("Save");
-    modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
-    fireEvent.click(modalSaveButton);
-
-    // Wait for modal to close (800ms minimum delay)
-    await waitFor(
-      () => {
-        expect(queryAllByText("Select pool").length).toBe(0);
-      },
-      { timeout: 2000 },
+  test("clears backup pool when same pool is selected as default", async () => {
+    const { getAllByText, getByText, getByTestId, queryAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
-    // Wait for the "Testing connection" phase to complete and "Update" buttons to appear
+    let addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
+
+    await waitFor(() => {
+      expect(getByText("Select pool")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByTestId("pool-row-Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+
     await waitFor(
       () => {
         expect(getAllByText("Update").length).toBeGreaterThan(0);
@@ -263,12 +284,38 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
-    // Close the page - should report false (assignment success is handled by wrapper)
-    const closeModalButton = getAllByTestId("header-icon-button")[0];
-    fireEvent.click(closeModalButton);
+    addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
 
     await waitFor(() => {
-      expect(onCancel).toHaveBeenCalled();
+      expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
     });
+
+    fireEvent.click(getByTestId("pool-row-Client pool A2"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+
+    await waitFor(
+      () => {
+        expect(getAllByText("Update").length).toBeGreaterThan(1);
+      },
+      { timeout: 2000 },
+    );
+
+    // Change default to same pool as backup #1
+    fireEvent.click(getByTestId("default-pool").querySelector("button")!);
+
+    await waitFor(() => {
+      expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(getByTestId("pool-row-Client pool A2"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+
+    await waitFor(
+      () => {
+        expect(queryAllByText("Duplicate pool selected").length).toBe(0);
+      },
+      { timeout: 2000 },
+    );
   });
 });

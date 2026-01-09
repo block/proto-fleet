@@ -99,4 +99,37 @@ describe("Pools list", () => {
     fireEvent.click(getByRole("button", { name: addDefaultPoolLabel }));
     expect(getByText("Select pool")).toBeInTheDocument();
   });
+
+  test("disables Add pool button when disabled prop is true", () => {
+    const { getByRole } = render(
+      <PoolsList
+        title={backupPoolTitle}
+        subtitle={backupPoolSubtitle}
+        onSelect={onSelect}
+        createNewLabel={addBackupPoolLabel}
+        poolNumber={1}
+        disabled={true}
+      />,
+    );
+
+    const addButton = getByRole("button", { name: addBackupPoolLabel });
+    expect(addButton).toBeDisabled();
+  });
+
+  test("sets aria-disabled when disabled", () => {
+    const { getByTestId } = render(
+      <PoolsList
+        title={backupPoolTitle}
+        subtitle={backupPoolSubtitle}
+        onSelect={onSelect}
+        createNewLabel={addBackupPoolLabel}
+        poolNumber={1}
+        disabled={true}
+        testId="backup-pool-1"
+      />,
+    );
+
+    const poolCard = getByTestId("backup-pool-1");
+    expect(poolCard).toHaveAttribute("aria-disabled", "true");
+  });
 });

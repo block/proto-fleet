@@ -14,9 +14,16 @@ import Radio from "@/shared/components/Radio";
 interface PoolSelectionModalProps {
   onDismiss: () => void;
   onSave: (selectedPoolId: string, poolData?: MiningPool) => void;
+  excludedPoolIds?: (string | undefined)[];
+  poolAssignments?: Record<string, string>;
 }
 
-const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
+const PoolSelectionModal = ({
+  onDismiss,
+  onSave,
+  excludedPoolIds = [],
+  poolAssignments = {},
+}: PoolSelectionModalProps) => {
   const [selectedPoolId, setSelectedPoolId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPoolModal, setShowAddPoolModal] = useState(false);
@@ -33,6 +40,8 @@ const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
       pool.username.toLowerCase().includes(query)
     );
   });
+
+  const isPoolExcluded = (poolId: string) => excludedPoolIds.some((id) => id === poolId);
 
   const handleSave = () => {
     if (selectedPoolId) {
@@ -167,6 +176,7 @@ const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
             <div className="flex-1 text-emphasis-300 text-text-primary-50">Name</div>
             <div className="flex-[2] text-emphasis-300 text-text-primary-50">URL</div>
             <div className="flex-1 text-emphasis-300 text-text-primary-50">Username</div>
+            <div className="w-28 text-emphasis-300 text-text-primary-50">Assigned to</div>
           </div>
 
           <div className="flex max-h-[500px] flex-col overflow-y-auto">
@@ -175,15 +185,23 @@ const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
             ) : (
               filteredPools.map((pool) => {
                 const isSelected = selectedPoolId === pool.poolId;
+                const isExcluded = isPoolExcluded(pool.poolId);
+                const assignmentLabel = poolAssignments[pool.poolId];
+
                 return (
                   <div
                     key={pool.poolId}
-                    className="flex cursor-pointer items-center gap-4 border-b border-border-5 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                    onClick={() => setSelectedPoolId(pool.poolId)}
+                    className={`flex items-center gap-4 border-b border-border-5 py-3 transition-colors ${
+                      isExcluded
+                        ? "cursor-not-allowed opacity-50"
+                        : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    }`}
+                    onClick={() => !isExcluded && setSelectedPoolId(pool.poolId)}
                     data-testid={`pool-row-${pool.name}`}
+                    aria-disabled={isExcluded}
                   >
                     <div className="flex w-11 items-center justify-center">
-                      <Radio selected={isSelected} />
+                      <Radio selected={isSelected} disabled={isExcluded} />
                     </div>
                     <div
                       className="flex flex-1 items-center truncate text-300 text-text-primary"
@@ -202,6 +220,15 @@ const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
                       data-testid="pool-username"
                     >
                       {pool.username}
+                    </div>
+                    <div className="w-28 text-300" data-testid="pool-assignment">
+                      {assignmentLabel ? (
+                        <span className="text-text-secondary rounded bg-surface-5 px-2 py-0.5 text-200 whitespace-nowrap">
+                          {assignmentLabel}
+                        </span>
+                      ) : (
+                        <span className="text-text-tertiary">—</span>
+                      )}
                     </div>
                   </div>
                 );
