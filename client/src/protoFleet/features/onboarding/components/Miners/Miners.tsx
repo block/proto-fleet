@@ -98,7 +98,7 @@ const Miners = ({
   }
 
   return (
-    <div className="h-[calc(100vh-theme(spacing.1)*15)] p-20">
+    <div className="h-[calc(100vh-theme(spacing.1)*15)] p-8 sm:p-20">
       <Dialog title="Pairing the found miners" subtitle="This may take a few seconds" loading show={pairingPending} />
 
       {mode === "onboarding" && (
