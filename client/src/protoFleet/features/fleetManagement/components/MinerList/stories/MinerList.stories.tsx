@@ -24,6 +24,14 @@ export const MinerList = () => {
   );
 };
 
+export const EmptyMinerList = () => {
+  return (
+    <div>
+      <MinerListComponent title="Miners" minerIds={[]} totalMiners={0} onAddMiners={action("onAddMiners")} />
+    </div>
+  );
+};
+
 export default {
   title: "Proto Fleet/MinerList",
 };

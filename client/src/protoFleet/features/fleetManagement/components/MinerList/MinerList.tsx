@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import {
   componentIssues,
@@ -27,11 +28,15 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { useFleetStore } from "@/protoFleet/store";
 
+import { LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
+import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type MinerListProps = {
   title: string;
@@ -100,6 +105,10 @@ const MinerList = ({
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { isPhone } = useWindowDimensions();
+  const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
+
+  const showPhoneWidgets = isPhone && dismissedSetup;
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
@@ -225,6 +234,41 @@ const MinerList = ({
     },
     [navigate],
   );
+  // Show null state when no miners are paired and not loading
+  const showNullState = !loading && totalMiners === 0 && !hasActiveFilters;
+
+  if (showNullState) {
+    return (
+      <div
+        className={clsx(
+          "fixed top-[calc(theme(spacing.1)*15)] right-0 bottom-0 left-16 z-20 overflow-auto bg-surface-base",
+          "phone:left-0 tablet:top-[calc(theme(spacing.1)*12)] tablet:left-0",
+          showPhoneWidgets ? "phone:top-[calc(theme(spacing.1)*12+57px)]" : "phone:top-[calc(theme(spacing.1)*12)]",
+        )}
+      >
+        <div className="h-[calc(100vh-theme(spacing.1)*15)] p-6 sm:p-10">
+          <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20 dark:bg-core-primary-5">
+            <div className="flex flex-col gap-12">
+              <div className="flex flex-col gap-4">
+                <LogoAlt width="w-[48px]" />
+                <Header
+                  title="You haven't paired any miners"
+                  titleSize="text-display-200"
+                  description="Add miners to your fleet to get started."
+                />
+              </div>
+              <div>
+                <Button variant="primary" onClick={onAddMiners}>
+                  Get started
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="sticky left-0 flex items-center justify-between text-heading-300 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
