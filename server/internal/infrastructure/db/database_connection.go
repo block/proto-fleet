@@ -56,6 +56,10 @@ func ConnectToDatabase(config *Config) (*sql.DB, error) {
 		return nil, fleeterror.NewInternalErrorf("error creating mysql connection: %v", err)
 	}
 
+	conn.SetMaxOpenConns(config.MaxOpenConns)
+	conn.SetMaxIdleConns(config.MaxIdleConns)
+	conn.SetConnMaxLifetime(config.ConnMaxLifetime)
+
 	return conn, nil
 }
 

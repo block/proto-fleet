@@ -28,7 +28,7 @@ services:
       MYSQL_INITDB_SKIP_TZINFO: "1"
     ports:
       - "3306:3306"
-    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
+    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON --max_connections=300
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
