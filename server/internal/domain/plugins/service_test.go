@@ -244,120 +244,19 @@ func TestService_GetSupportedMinerTypes(t *testing.T) {
 	assert.ElementsMatch(t, expectedTypes, types)
 }
 
-func TestService_CreateDiscoverers(t *testing.T) {
+func TestService_CreateDiscoverer(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Test with no plugins
-	discoverers := service.CreateDiscoverers()
-	assert.Len(t, discoverers, 1) // Should have multi-type discoverer
+	discoverer := service.CreateDiscoverer()
 
-	// Verify the multi-type discoverer
-	multiDiscoverer, ok := discoverers[0].(*MultiTypeDiscoverer)
+	// Verify it's a MultiTypeDiscoverer
+	multiDiscoverer, ok := discoverer.(*MultiTypeDiscoverer)
 	assert.True(t, ok)
-	assert.Equal(t, models.TypeUnknown, multiDiscoverer.GetMinerType())
-
-	// Add mock plugins
-	mockPlugin1 := &LoadedPlugin{
-		Name:       "plugin1",
-		MinerTypes: []models.Type{models.TypeAntminer},
-	}
-	mockPlugin2 := &LoadedPlugin{
-		Name:       "plugin2",
-		MinerTypes: []models.Type{models.TypeWhatsminer},
-	}
-
-	manager.plugins["plugin1"] = mockPlugin1
-	manager.plugins["plugin2"] = mockPlugin2
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin1
-	manager.pluginsByType[models.TypeWhatsminer] = mockPlugin2
-
-	// Test with plugins
-	discoverers = service.CreateDiscoverers()
-	assert.Len(t, discoverers, 3) // 2 type-specific + 1 multi-type
-
-	// Check that we have discoverers for each type
-	var antminerDiscoverer, whatsminerDiscoverer, multiTypeDiscoverer bool
-	for _, discoverer := range discoverers {
-		switch discoverer.GetMinerType() {
-		case models.TypeAntminer:
-			antminerDiscoverer = true
-		case models.TypeWhatsminer:
-			whatsminerDiscoverer = true
-		case models.TypeUnknown:
-			multiTypeDiscoverer = true
-		case models.TypeProto, models.TypeAvalon:
-			// Other types not tested in this specific test
-		default:
-			// Other types not tested in this specific test
-		}
-	}
-
-	assert.True(t, antminerDiscoverer, "should have Antminer discoverer")
-	assert.True(t, whatsminerDiscoverer, "should have Whatsminer discoverer")
-	assert.True(t, multiTypeDiscoverer, "should have multi-type discoverer")
-}
-
-func TestService_TryDiscoverWithPlugin_NoPlugins(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	ctx := t.Context()
-	device, err := service.TryDiscoverWithPlugin(ctx, "192.168.1.100", "80", nil)
-
-	assert.Nil(t, device)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no plugins available for discovery")
-}
-
-func TestService_TryDiscoverWithPlugin_PreferredType(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	// Add mock plugin for preferred type
-	mockDeviceInfo := sdk.DeviceInfo{
-		Type:         sdk.DeviceTypeASIC,
-		SerialNumber: "PREFERRED123",
-		Model:        "S19",
-		Manufacturer: "Bitmain",
-		URLScheme:    "http",
-		MacAddress:   "00:11:22:33:44:55",
-	}
-
-	// Create mock driver with discovery expectation
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
-		Return(mockDeviceInfo, nil)
-
-	mockPlugin := &LoadedPlugin{
-		Name:   "antminer-plugin",
-		Driver: mockDriver,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityDiscovery: true,
-		},
-		MinerTypes: []models.Type{models.TypeAntminer},
-	}
-
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
-	manager.plugins["antminer-plugin"] = mockPlugin
-
-	preferredType := models.TypeAntminer
-	ctx := t.Context()
-	device, err := service.TryDiscoverWithPlugin(ctx, "192.168.1.100", "80", &preferredType)
-
-	require.NoError(t, err)
-	require.NotNil(t, device)
-	assert.Equal(t, "PREFERRED123", device.SerialNumber)
+	assert.NotNil(t, multiDiscoverer)
 }
 
 func TestService_Shutdown(t *testing.T) {

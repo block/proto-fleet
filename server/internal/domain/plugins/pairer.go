@@ -69,7 +69,7 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 		return nil, fleeterror.NewInternalErrorf("failed to describe device: %v", err)
 	}
 
-	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port)
+	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port, p.minerType.String())
 
 	return updatedDevice, nil
 }

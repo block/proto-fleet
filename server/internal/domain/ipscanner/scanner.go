@@ -18,16 +18,16 @@ type DeviceIdentityCheckService interface {
 
 // NetworkScanner handles the actual network scanning operations
 type NetworkScanner struct {
-	discoveryService     *minerdiscovery.Service
+	discoverer           minerdiscovery.Discoverer
 	deviceIDCheckService DeviceIdentityCheckService
 	maxConcurrentIPScans int
 	logger               *slog.Logger
 }
 
 // NewNetworkScanner creates a new network scanner
-func NewNetworkScanner(discoveryService *minerdiscovery.Service, deviceIDCheckService DeviceIdentityCheckService, maxConcurrentIPScans int, logger *slog.Logger) *NetworkScanner {
+func NewNetworkScanner(discoverer minerdiscovery.Discoverer, deviceIDCheckService DeviceIdentityCheckService, maxConcurrentIPScans int, logger *slog.Logger) *NetworkScanner {
 	return &NetworkScanner{
-		discoveryService:     discoveryService,
+		discoverer:           discoverer,
 		deviceIDCheckService: deviceIDCheckService,
 		maxConcurrentIPScans: maxConcurrentIPScans,
 		logger:               logger.With("component", "network_scanner"),
@@ -129,7 +129,7 @@ scanLoop:
 			// Try each port for each target device at this IP
 			for port := range portsToTry {
 				// Try to discover device at this IP and port
-				device, err := n.discoveryService.Discover(scanCtx, ipAddr, port)
+				device, err := n.discoverer.Discover(scanCtx, ipAddr, port)
 				if err != nil {
 					// Discovery failed, which is expected for most IPs
 					continue

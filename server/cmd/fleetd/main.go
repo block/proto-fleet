@@ -44,7 +44,6 @@ import (
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
@@ -185,15 +184,7 @@ func start(config *Config) error {
 		return fmt.Errorf("proto plugin is required but not loaded - ensure 'proto' plugin binary is in the plugins directory (check PLUGIN_DIR environment variable or default './plugins' directory)")
 	}
 
-	var discoverers []minerdiscovery.Discoverer
-
-	pluginDiscoverers := pluginService.CreateDiscoverers()
-	discoverers = append(discoverers, pluginDiscoverers...)
-
-	discoveryService, err := minerdiscovery.NewService(discoverers...)
-	if err != nil {
-		return err
-	}
+	discoverer := pluginService.CreateDiscoverer()
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
 	influxdbService, err := influxdb.NewTelemetryStore(config.InfluxDB)
@@ -253,7 +244,7 @@ func start(config *Config) error {
 		deviceStore,
 		transactor,
 		tokenSvc,
-		discoveryService,
+		discoverer,
 		pluginService,
 		telemetryService,
 		pairers...,
@@ -264,7 +255,7 @@ func start(config *Config) error {
 		config.IPScanner,
 		deviceStore,
 		discoveredDeviceStore,
-		discoveryService,
+		discoverer,
 		pairingSvc,
 		slog.Default(),
 	)

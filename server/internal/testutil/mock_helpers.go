@@ -7,9 +7,8 @@ import (
 	"github.com/golang/mock/gomock"
 )
 
-// NewMockProtoDiscoverer creates a mock discoverer pre-configured for Proto miner type.
-// The mock automatically sets GetMinerType() to return models.TypeProto.
-// Use this helper in tests that need a Proto discoverer without testing actual discovery logic.
+// NewMockProtoDiscoverer creates a mock discoverer for testing.
+// Use this helper in tests that need a discoverer without testing actual discovery logic.
 // For custom discovery behavior, create the mock directly and set specific expectations.
 //
 // Example usage:
@@ -18,9 +17,7 @@ import (
 //	mockDiscoverer := testutil.NewMockProtoDiscoverer(ctrl)
 //	mockDiscoverer.EXPECT().Discover(ctx, "192.168.1.1", "2121").Return(device, nil)
 func NewMockProtoDiscoverer(ctrl *gomock.Controller) *discovererMocks.MockDiscoverer {
-	mockDiscoverer := discovererMocks.NewMockDiscoverer(ctrl)
-	mockDiscoverer.EXPECT().GetMinerType().Return(models.TypeProto).AnyTimes()
-	return mockDiscoverer
+	return discovererMocks.NewMockDiscoverer(ctrl)
 }
 
 // NewMockProtoPairer creates a mock pairer configured for Proto miner type

@@ -123,7 +123,7 @@ type Service struct {
 	deviceStore           interfaces.DeviceStore
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
-	minerDiscoveryService *minerdiscovery.Service
+	discoverer            minerdiscovery.Discoverer
 	capabilitiesProvider  CapabilitiesProvider
 	pairers               map[models.Type]Pairer
 	listener              Listener
@@ -134,7 +134,7 @@ func NewService(
 	deviceStore interfaces.DeviceStore,
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
-	minerDiscoveryService *minerdiscovery.Service,
+	discoverer minerdiscovery.Discoverer,
 	capabilitiesProvider CapabilitiesProvider,
 	listener Listener,
 	pairers ...Pairer,
@@ -149,7 +149,7 @@ func NewService(
 		deviceStore:           deviceStore,
 		transactor:            transactor,
 		tokenService:          tokenService,
-		minerDiscoveryService: minerDiscoveryService,
+		discoverer:            discoverer,
 		capabilitiesProvider:  capabilitiesProvider,
 		pairers:               pairersMap,
 		listener:              listener,
@@ -515,7 +515,7 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 	discoveryCtx, cancel := context.WithTimeout(ctx, perDeviceDiscoveryTimeout)
 	defer cancel()
 
-	discoveredDevice, err := s.minerDiscoveryService.Discover(discoveryCtx, ipAddress, port)
+	discoveredDevice, err := s.discoverer.Discover(discoveryCtx, ipAddress, port)
 	if err != nil {
 		// Only log non-timeout errors at debug level; timeouts are expected for non-miner hosts
 		if !errors.Is(err, context.DeadlineExceeded) {

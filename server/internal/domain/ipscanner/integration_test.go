@@ -14,8 +14,6 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner/mocks"
-	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
@@ -23,12 +21,7 @@ import (
 
 // mockDiscoverer implements minerdiscovery.Discoverer for testing
 type mockDiscoverer struct {
-	minerType   miner.Type
 	devicesByIP map[string]*discoverymodels.DiscoveredDevice
-}
-
-func (m *mockDiscoverer) GetMinerType() miner.Type {
-	return m.minerType
 }
 
 func (m *mockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
@@ -58,7 +51,6 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 
 	// Set up mock discoverer to find both devices at new IPs
 	mockDisc := &mockDiscoverer{
-		minerType: miner.TypeProto,
 		devicesByIP: map[string]*discoverymodels.DiscoveredDevice{
 			"192.168.1.150:50051": {
 				Device: pb.Device{
@@ -102,10 +94,6 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 		}).
 		AnyTimes()
 
-	// Create discovery service with mock discoverer
-	discoveryService, err := minerdiscovery.NewService(mockDisc)
-	require.NoError(t, err)
-
 	// Configure service with short intervals for testing
 	config := ipscanner.Config{
 		Enabled:                       true,
@@ -118,13 +106,13 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 
 	logger := slog.Default()
 
-	// Create and start the service
-	service := ipscanner.NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
+	// Create and start the service with mock discoverer
+	service := ipscanner.NewIPScannerService(config, deviceStore, discoveredDeviceStore, mockDisc, deviceIDCheckService, logger)
 
 	testCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	err = service.Start(testCtx)
+	err := service.Start(testCtx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, service.Stop())

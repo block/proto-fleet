@@ -16,7 +16,7 @@ type Service struct {
 	config                Config
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
-	discoveryService      *minerdiscovery.Service
+	discoverer            minerdiscovery.Discoverer
 	deviceIDCheckService  DeviceIdentityCheckService
 	scanner               *NetworkScanner
 	logger                *slog.Logger
@@ -34,7 +34,7 @@ func NewIPScannerService(
 	config Config,
 	deviceStore stores.DeviceStore,
 	discoveredDeviceStore stores.DiscoveredDeviceStore,
-	discoveryService *minerdiscovery.Service,
+	discoverer minerdiscovery.Discoverer,
 	deviceIDCheckService DeviceIdentityCheckService,
 	logger *slog.Logger,
 ) *Service {
@@ -42,9 +42,9 @@ func NewIPScannerService(
 		config:                config,
 		deviceStore:           deviceStore,
 		discoveredDeviceStore: discoveredDeviceStore,
-		discoveryService:      discoveryService,
+		discoverer:            discoverer,
 		deviceIDCheckService:  deviceIDCheckService,
-		scanner:               NewNetworkScanner(discoveryService, deviceIDCheckService, config.MaxConcurrentIPScansPerSubnet, logger),
+		scanner:               NewNetworkScanner(discoverer, deviceIDCheckService, config.MaxConcurrentIPScansPerSubnet, logger),
 		logger:                logger.With("component", "ipscanner"),
 		tasks:                 make(chan SubnetScanTask, config.MaxConcurrentSubnetScans),
 		results:               make(chan SubnetScanResult, config.MaxConcurrentSubnetScans),

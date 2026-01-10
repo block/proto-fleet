@@ -12,60 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewDiscoverer(t *testing.T) {
-	manager := NewManager(&Config{})
-	minerType := models.TypeAntminer
-
-	discoverer := NewDiscoverer(manager, minerType)
-
-	assert.NotNil(t, discoverer)
-	assert.Equal(t, manager, discoverer.manager)
-	assert.Equal(t, minerType, discoverer.minerType)
-}
-
-func TestDiscoverer_GetMinerType(t *testing.T) {
-	manager := NewManager(&Config{})
-	minerType := models.TypeAntminer
-
-	discoverer := NewDiscoverer(manager, minerType)
-
-	assert.Equal(t, minerType, discoverer.GetMinerType())
-}
-
-func TestDiscoverer_Discover_NoPlugin(t *testing.T) {
-	manager := NewManager(&Config{})
-	discoverer := NewDiscoverer(manager, models.TypeAntminer)
-
-	ctx := t.Context()
-	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
-
-	assert.Nil(t, device)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no plugin available for miner type")
-}
-
-func TestDiscoverer_Discover_PluginNoDiscoveryCapability(t *testing.T) {
-	manager := NewManager(&Config{})
-
-	// Add mock plugin without discovery capability
-	mockPlugin := &LoadedPlugin{
-		Name: "test-plugin",
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true, // Has pairing but not discovery
-		},
-	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
-
-	discoverer := NewDiscoverer(manager, models.TypeAntminer)
-
-	ctx := t.Context()
-	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
-
-	assert.Nil(t, device)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support discovery")
-}
-
 func TestNewMultiTypeDiscoverer(t *testing.T) {
 	manager := NewManager(&Config{})
 
@@ -73,13 +19,6 @@ func TestNewMultiTypeDiscoverer(t *testing.T) {
 
 	assert.NotNil(t, discoverer)
 	assert.Equal(t, manager, discoverer.manager)
-}
-
-func TestMultiTypeDiscoverer_GetMinerType(t *testing.T) {
-	manager := NewManager(&Config{})
-	discoverer := NewMultiTypeDiscoverer(manager)
-
-	assert.Equal(t, models.TypeUnknown, discoverer.GetMinerType())
 }
 
 func TestMultiTypeDiscoverer_Discover_NoPlugins(t *testing.T) {
@@ -118,14 +57,15 @@ func TestMultiTypeDiscoverer_Discover_NoDiscoveryCapablePlugins(t *testing.T) {
 }
 
 func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
-	// Test different device types and manufacturers to ensure private functions work correctly
+	// Test different device types and manufacturers to ensure type determination works correctly
 	testCases := []struct {
 		name         string
 		deviceInfo   sdk.DeviceInfo
 		expectedType string
 	}{
 		{
-			name: "ASIC device with explicit type",
+			// Plugin's MinerType takes precedence over SDK device type
+			name: "ASIC device discovered by Antminer plugin",
 			deviceInfo: sdk.DeviceInfo{
 				Type:         sdk.DeviceTypeASIC,
 				SerialNumber: "TEST123",
@@ -134,7 +74,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				URLScheme:    "http",
 				MacAddress:   "00-11-22-33-44-55",
 			},
-			expectedType: DeviceTypeASIC,
+			expectedType: DeviceTypeAntminer,
 		},
 		{
 			name: "Unspecified type with Bitmain manufacturer",
@@ -161,7 +101,8 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			expectedType: DeviceTypeAntminer,
 		},
 		{
-			name: "Unknown manufacturer and model fallback",
+			// Plugin's MinerType takes precedence even when device info is unclear
+			name: "Unknown device info uses plugin MinerType",
 			deviceInfo: sdk.DeviceInfo{
 				Type:         sdk.DeviceTypeUnspecified,
 				SerialNumber: "UNKNOWN123",
@@ -170,7 +111,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				URLScheme:    "http",
 				MacAddress:   "00-11-22-33-44-99",
 			},
-			expectedType: DeviceTypeUnknown,
+			expectedType: DeviceTypeAntminer,
 		},
 	}
 

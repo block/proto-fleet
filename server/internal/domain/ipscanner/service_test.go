@@ -1,6 +1,7 @@
 package ipscanner
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -8,9 +9,16 @@ import (
 	"github.com/golang/mock/gomock"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	storemocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
+
+// noopDiscoverer is a discoverer that returns nil for all discovery requests
+type noopDiscoverer struct{}
+
+func (n *noopDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
+	return nil, nil
+}
 
 func TestNewIPScannerService(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -27,11 +35,11 @@ func TestNewIPScannerService(t *testing.T) {
 
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	discoveryService := &minerdiscovery.Service{}
+	discoverer := &noopDiscoverer{}
 	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoverer, deviceIDCheckService, logger)
 
 	if service == nil {
 		t.Fatal("NewIPScannerService returned nil")
@@ -53,7 +61,7 @@ func TestIPScannerService_StartStop(t *testing.T) {
 
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	discoveryService := &minerdiscovery.Service{}
+	discoverer := &noopDiscoverer{}
 	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
@@ -63,7 +71,7 @@ func TestIPScannerService_StartStop(t *testing.T) {
 		Return(nil, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoverer, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -96,11 +104,11 @@ func TestIPScannerService_DisabledService(t *testing.T) {
 
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	discoveryService := &minerdiscovery.Service{}
+	discoverer := &noopDiscoverer{}
 	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoverer, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -127,7 +135,7 @@ func TestIPScannerService_PreventMultipleInstances(t *testing.T) {
 
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	discoveryService := &minerdiscovery.Service{}
+	discoverer := &noopDiscoverer{}
 	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
@@ -138,7 +146,7 @@ func TestIPScannerService_PreventMultipleInstances(t *testing.T) {
 		Return(nil, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoverer, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 

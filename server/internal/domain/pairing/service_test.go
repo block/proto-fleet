@@ -44,27 +44,12 @@ func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port st
 	return device, nil
 }
 
-func (m *MockDiscoverer) GetMinerType() miner.Type {
-	args := m.Called()
-	minerType, ok := args.Get(0).(miner.Type)
-	if !ok {
-		panic(fmt.Sprintf("unexpected type for miner type: %T", args.Get(0)))
-	}
-	return minerType
-}
-
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, additionalPairers []pairing.Pairer, mockDiscoverers ...*MockDiscoverer) (*pairing.Service, context.Context) {
-	discoverers := make([]minerdiscovery.Discoverer, len(mockDiscoverers))
-	for i, m := range mockDiscoverers {
-		discoverers[i] = m
-	}
-
+func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, additionalPairers []pairing.Pairer, mockDiscoverer *MockDiscoverer) (*pairing.Service, context.Context) {
 	tokenService := testContext.ServiceProvider.TokenService
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
-	discoveryService, _ := minerdiscovery.NewService(discoverers...)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
@@ -85,7 +70,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		deviceStore,
 		transactor,
 		tokenService,
-		discoveryService,
+		mockDiscoverer,
 		pluginService,
 		mockListener,
 		pairers...,
@@ -120,8 +105,6 @@ func TestDiscoverWithIPList(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
 		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeAntminer.String())
 
@@ -170,8 +153,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(3)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
 		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
 		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
@@ -225,8 +206,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(6)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
 		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
 		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
@@ -298,8 +277,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Run(func(_ mock.Arguments) {
@@ -355,8 +332,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice := createMockDevice("192.168.1.20", "80", miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
@@ -407,8 +382,6 @@ func TestPairDevices(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice := createMockDevice(host, portStr, miner.TypeAntminer.String())
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
@@ -465,8 +438,6 @@ func TestPairDevices(t *testing.T) {
 		host, portStr := setUpMockMinerServer(t)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
@@ -519,7 +490,7 @@ func TestPairDevices(t *testing.T) {
 
 		// Create a service with no pairers registered
 		tokenService := testContext.ServiceProvider.TokenService
-		discoveryService, _ := minerdiscovery.NewService()
+		mockDiscoverer := &MockDiscoverer{}
 		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
@@ -530,7 +501,7 @@ func TestPairDevices(t *testing.T) {
 			deviceStore,
 			transactor,
 			tokenService,
-			discoveryService,
+			mockDiscoverer,
 			pluginService,
 			nil,
 			// No pairers registered
@@ -551,7 +522,6 @@ func TestPairDevices(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
 
@@ -572,8 +542,6 @@ func TestPairDevices(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
-
 		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 

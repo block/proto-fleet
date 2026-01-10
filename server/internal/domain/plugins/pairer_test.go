@@ -453,7 +453,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	assert.Equal(t, "TEST123", result.SerialNumber)
 	assert.Equal(t, "S19 Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
-	assert.Equal(t, "asic", result.Type)
+	assert.Equal(t, "antminer", result.Type)
 	assert.Equal(t, "00-11-22-33-44-55", result.MacAddress)
 }
 

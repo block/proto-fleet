@@ -9,7 +9,6 @@ import (
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -67,37 +66,6 @@ type PluginInfo struct {
 	APIVersion   string
 	Capabilities sdk.Capabilities
 	MinerTypes   []models.Type
-}
-
-// TryDiscoverWithPlugin attempts to discover a device using plugins
-func (s *Service) TryDiscoverWithPlugin(ctx context.Context, ipAddress, port string, preferredType *models.Type) (*discoverymodels.DiscoveredDevice, error) {
-	var preferredTypeError error
-	if preferredType != nil {
-		if s.manager.HasPluginForMinerType(*preferredType) {
-			discoverer := NewDiscoverer(s.manager, *preferredType)
-			device, preferredTypeError := discoverer.Discover(ctx, ipAddress, port)
-			if preferredTypeError == nil {
-				return device, nil
-			}
-			slog.Debug("Plugin discovery failed for preferred type",
-				"type", *preferredType,
-				"error", preferredTypeError)
-		}
-	}
-
-	multiDiscoverer := NewMultiTypeDiscoverer(s.manager)
-	device, err := multiDiscoverer.Discover(ctx, ipAddress, port)
-	if err != nil {
-		if preferredTypeError != nil {
-			slog.Debug("Both preferred type and multi-type plugin discovery failed",
-				"preferred_type_error", preferredTypeError,
-				"multi_type_error", err)
-			return nil, fleeterror.NewInternalErrorf("preferred type discovery error: %v; multi-type discovery error: %v", preferredTypeError, err)
-		}
-		return nil, err
-	}
-
-	return device, nil
 }
 
 // GetPluginCapabilities returns the capabilities of a plugin for a given miner type
@@ -201,20 +169,9 @@ func (s *Service) GetSupportedMinerTypes() []models.Type {
 	return result
 }
 
-// CreateDiscoverers creates plugin-based discoverers for all supported miner types
-func (s *Service) CreateDiscoverers() []minerdiscovery.Discoverer {
-	supportedTypes := s.GetSupportedMinerTypes()
-	discoverers := make([]minerdiscovery.Discoverer, 0, len(supportedTypes)+1)
-
-	for _, minerType := range supportedTypes {
-		discoverer := NewDiscoverer(s.manager, minerType)
-		discoverers = append(discoverers, discoverer)
-	}
-
-	multiDiscoverer := NewMultiTypeDiscoverer(s.manager)
-	discoverers = append(discoverers, multiDiscoverer)
-
-	return discoverers
+// CreateDiscoverer creates a plugin-based discoverer that tries all available plugins.
+func (s *Service) CreateDiscoverer() minerdiscovery.Discoverer {
+	return NewMultiTypeDiscoverer(s.manager)
 }
 
 // Shutdown gracefully shuts down the plugin service

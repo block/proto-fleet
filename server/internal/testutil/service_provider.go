@@ -11,7 +11,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -104,9 +103,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	// Note: This mock won't actually discover devices - tests requiring discovery
 	// should set up EXPECT() calls with appropriate return values.
 	// TODO(DASH-887): Replace with plugin-based test infrastructure when available.
-	protoDiscoverer := NewMockProtoDiscoverer(ctrl)
-	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
-	assert.NoError(t, err)
+	discoverer := NewMockProtoDiscoverer(ctrl)
 
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(db)
 
@@ -126,7 +123,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	pluginManager := plugins.NewManager(pluginConfig)
 	pluginService := plugins.NewService(pluginManager)
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, pluginService, listenerMock, protoPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, discoverer, pluginService, listenerMock, protoPairer)
 
 	commandConfig := &command.Config{
 		MaxWorkers:                       testMaxWorkers,
