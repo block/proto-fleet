@@ -1,4 +1,4 @@
-import { CSSProperties, MutableRefObject, useEffect, useLayoutEffect, useState } from "react";
+import { CSSProperties, MutableRefObject, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { minimalMargin } from "@/shared/components/Popover/constants";
 import { Position, positions } from "@/shared/constants";
 import useMeasure, { UseMeasureRect } from "@/shared/hooks/useMeasure";
@@ -78,14 +78,48 @@ const usePopoverPosition = (
   const [popoverRef, , popoverRect] = useMeasure<HTMLDivElement>();
   const [triggerRect, setTriggerRect] = useState<UseMeasureRect | null>(null);
   const [initialPageOffset, setInitialPageOffset] = useState<number>(0);
+  // Track actual visible viewport dimensions (changes with zoom)
+  const [visibleViewport, setVisibleViewport] = useState({ width: viewportWidth, height: viewportHeight });
 
-  useEffect(() => {
+  const updateMeasurements = useCallback(() => {
     if (triggerRef.current) {
-      const { x, y, width, height, top, left, bottom, right } = triggerRef.current.getBoundingClientRect();
+      const rect = triggerRef.current.getBoundingClientRect();
+      const vv = window.visualViewport;
+      const currentViewportHeight = vv?.height ?? viewportHeight;
+
+      // Only update if the trigger is visible in the viewport.
+      // When scrolled out of view, getBoundingClientRect returns off-screen coordinates
+      // which cause incorrect overflow detection and position flipping.
+      const isInViewport = rect.bottom > 0 && rect.top < currentViewportHeight;
+      if (!isInViewport) {
+        return;
+      }
+
+      const { x, y, width, height, top, left, bottom, right } = rect;
       setTriggerRect({ x, y, width, height, top, left, bottom, right });
       setInitialPageOffset(window.scrollY);
+
+      // Use visualViewport dimensions when available (reflects actual visible area after zoom)
+      setVisibleViewport({
+        width: vv?.width ?? viewportWidth,
+        height: currentViewportHeight,
+      });
     }
   }, [triggerRef, viewportWidth, viewportHeight]);
+
+  useEffect(() => {
+    updateMeasurements();
+  }, [updateMeasurements]);
+
+  // Listen for visualViewport resize events to detect zoom changes.
+  // Browser zoom doesn't change window.innerWidth/Height, but visualViewport.resize fires reliably.
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    if (!visualViewport) return;
+
+    visualViewport.addEventListener("resize", updateMeasurements);
+    return () => visualViewport.removeEventListener("resize", updateMeasurements);
+  }, [updateMeasurements]);
 
   const flipPosition = (position?: Position): Position | undefined => {
     if (!position) {
@@ -123,7 +157,7 @@ const usePopoverPosition = (
 
       // handle overflow on bottom
       // top position on page + height of popover is greater than viewport height minus some margin
-      if (top + triggerRect.bottom + popoverRect.height > viewportHeight - minimalMargin) {
+      if (top + triggerRect.bottom + popoverRect.height > visibleViewport.height - minimalMargin) {
         // flip position from bottom to top
         finalPosition = flipPosition(finalPosition);
         ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
@@ -140,11 +174,11 @@ const usePopoverPosition = (
 
       // handle overflow on the right side
       // left position on page + width of popover is greater than viewport width minus some margin
-      if (left + triggerRect.left + popoverRect.width > viewportWidth - minimalMargin) {
+      if (left + triggerRect.left + popoverRect.width > visibleViewport.width - minimalMargin) {
         // width of popover exceeding trigger on the right
         const rightTriggerOverflow = popoverRect.width - triggerRect.width + left;
         // how much of popover is visible on the right side of the trigger
-        const notOverflowing = viewportWidth - triggerRect.width - triggerRect.left;
+        const notOverflowing = visibleViewport.width - triggerRect.width - triggerRect.left;
         // subtract notOverflowing - how much is not overflowing on the right
         left -= rightTriggerOverflow - notOverflowing + minimalMargin;
       }
@@ -182,8 +216,7 @@ const usePopoverPosition = (
     xOffset,
     yOffset,
     initialPageOffset,
-    viewportWidth,
-    viewportHeight,
+    visibleViewport,
   ]);
 
   return { popoverAnimation, popoverStyle, popoverRef };
