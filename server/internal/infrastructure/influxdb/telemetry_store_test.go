@@ -2,6 +2,7 @@ package influxdb
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"testing"
@@ -3058,4 +3059,251 @@ func TestInfluxTelemetryStore_Fallback_WhenNoDeviceMetrics(t *testing.T) {
 	for _, result := range results {
 		assert.Equal(t, deviceID, result.Tags["device_id"], "Device ID should match")
 	}
+}
+
+// TestInfluxTelemetryStore_GetCombinedMetrics_Chunking tests that large time range queries
+// are automatically split into smaller chunks and executed in parallel for better performance.
+func TestInfluxTelemetryStore_GetCombinedMetrics_Chunking(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Store data spanning more than 4 hours (the chunking threshold)
+	// We'll create 3 days of data to ensure chunking kicks in
+	baseTime := time.Now()
+	daysOfData := 3
+
+	// Create data points spread across 3 days
+	for day := range daysOfData {
+		for hour := 0; hour < 24; hour += 4 { // Every 4 hours
+			dataTime := baseTime.Add(time.Duration(-daysOfData+day) * 24 * time.Hour).Add(time.Duration(hour) * time.Hour)
+			metrics := modelsV2.DeviceMetrics{
+				DeviceID:  fmt.Sprintf("chunking-device-%d", day),
+				Timestamp: dataTime,
+				Health:    modelsV2.HealthHealthyActive,
+				HashrateHS: &modelsV2.MetricValue{
+					Value: float64(1000000 * (day + 1)), // 1, 2, 3 MH/s
+					Kind:  modelsV2.MetricKindGauge,
+				},
+				TempC: &modelsV2.MetricValue{
+					Value: float64(50 + day*5), // 50, 55, 60 C
+					Kind:  modelsV2.MetricKindGauge,
+				},
+			}
+			require.NoError(t, store.StoreDeviceMetrics(ctx, metrics))
+		}
+	}
+
+	// Wait for data to be written
+	time.Sleep(300 * time.Millisecond)
+
+	// Query for more than 4 hours of data (this should trigger chunking)
+	startTime := baseTime.Add(-time.Duration(daysOfData) * 24 * time.Hour)
+	endTime := baseTime
+
+	query := models.CombinedMetricsQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			"chunking-device-0",
+			"chunking-device-1",
+			"chunking-device-2",
+		},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypeTemperature,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+		SlideInterval: durationPtr(6 * time.Hour), // 6-hour buckets
+		PageSize:      1000,
+	}
+
+	// Execute the query - this should use chunking internally
+	result, err := store.GetCombinedMetrics(ctx, query)
+	require.NoError(t, err, "GetCombinedMetrics with chunking should succeed")
+
+	// Verify we got results
+	require.NotEmpty(t, result.Metrics, "Should have combined metrics from chunked query")
+
+	t.Logf("Retrieved %d metrics from chunked query spanning %d days", len(result.Metrics), daysOfData)
+
+	// Verify metrics are properly sorted by time (ascending)
+	for i := 1; i < len(result.Metrics); i++ {
+		sameType := result.Metrics[i].MeasurementType == result.Metrics[i-1].MeasurementType
+		if sameType {
+			assert.True(t,
+				result.Metrics[i].OpenTime.After(result.Metrics[i-1].OpenTime) ||
+					result.Metrics[i].OpenTime.Equal(result.Metrics[i-1].OpenTime),
+				"Metrics should be sorted by OpenTime")
+		}
+	}
+
+	// Count metrics by type
+	hashrateCount := 0
+	tempCount := 0
+	for _, m := range result.Metrics {
+		switch m.MeasurementType {
+		case models.MeasurementTypeHashrate:
+			hashrateCount++
+		case models.MeasurementTypeTemperature:
+			tempCount++
+		case models.MeasurementTypeUnknown,
+			models.MeasurementTypePower,
+			models.MeasurementTypeEfficiency,
+			models.MeasurementTypeFanSpeed,
+			models.MeasurementTypeVoltage,
+			models.MeasurementTypeCurrent,
+			models.MeasurementTypeUptime,
+			models.MeasurementTypeErrorRate:
+			// Not counting other measurement types in this test
+		}
+	}
+
+	t.Logf("  - Hashrate metrics: %d", hashrateCount)
+	t.Logf("  - Temperature metrics: %d", tempCount)
+	t.Log("✓ Chunked query completed successfully")
+}
+
+// TestSplitTimeRange tests the time range splitting helper function
+func TestSplitTimeRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		startTime     time.Time
+		endTime       time.Time
+		chunkSize     time.Duration
+		expectedCount int
+	}{
+		{
+			name:          "exact multiple of chunk size",
+			startTime:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC),
+			chunkSize:     24 * time.Hour,
+			expectedCount: 2,
+		},
+		{
+			name:          "partial last chunk",
+			startTime:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC),
+			chunkSize:     24 * time.Hour,
+			expectedCount: 3,
+		},
+		{
+			name:          "smaller than chunk size",
+			startTime:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+			chunkSize:     24 * time.Hour,
+			expectedCount: 1,
+		},
+		{
+			name:          "5 days with 24h chunks",
+			startTime:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			endTime:       time.Date(2025, 1, 6, 0, 0, 0, 0, time.UTC),
+			chunkSize:     24 * time.Hour,
+			expectedCount: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			chunks := splitTimeRange(tt.startTime, tt.endTime, tt.chunkSize)
+
+			assert.Len(t, chunks, tt.expectedCount, "Should have expected number of chunks")
+
+			// Verify first chunk starts at start time
+			if len(chunks) > 0 {
+				assert.Equal(t, tt.startTime, chunks[0].StartTime, "First chunk should start at start time")
+			}
+
+			// Verify last chunk ends at end time
+			if len(chunks) > 0 {
+				assert.Equal(t, tt.endTime, chunks[len(chunks)-1].EndTime, "Last chunk should end at end time")
+			}
+
+			// Verify chunks are non-overlapping with exactly 1ns gap between them
+			// This prevents duplicate data when SQL queries use inclusive bounds (>= and <=)
+			for i := 1; i < len(chunks); i++ {
+				expectedStart := chunks[i-1].EndTime.Add(time.Nanosecond)
+				assert.Equal(t, expectedStart, chunks[i].StartTime,
+					"Chunk %d should start 1ns after chunk %d ends to prevent overlap", i, i-1)
+
+				// Verify no overlap: current chunk starts strictly after previous chunk ends
+				assert.True(t, chunks[i].StartTime.After(chunks[i-1].EndTime),
+					"Chunk %d should not overlap with chunk %d", i, i-1)
+			}
+		})
+	}
+}
+
+// TestNeedsChunking tests the helper function that determines if chunking is needed
+func TestNeedsChunking(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	tests := []struct {
+		name     string
+		start    *time.Time
+		end      *time.Time
+		expected bool
+	}{
+		{
+			name:     "nil start time",
+			start:    nil,
+			end:      &now,
+			expected: false,
+		},
+		{
+			name:     "nil end time",
+			start:    &now,
+			end:      nil,
+			expected: false,
+		},
+		{
+			name:     "both nil",
+			start:    nil,
+			end:      nil,
+			expected: false,
+		},
+		{
+			name:     "less than threshold (2h)",
+			start:    timePtr(now.Add(-2 * time.Hour)),
+			end:      &now,
+			expected: false,
+		},
+		{
+			name:     "exactly at threshold (4h)",
+			start:    timePtr(now.Add(-4 * time.Hour)),
+			end:      &now,
+			expected: false, // Not greater than, equal to threshold
+		},
+		{
+			name:     "greater than threshold (5h)",
+			start:    timePtr(now.Add(-5 * time.Hour)),
+			end:      &now,
+			expected: true,
+		},
+		{
+			name:     "5 days",
+			start:    timePtr(now.Add(-5 * 24 * time.Hour)),
+			end:      &now,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := needsChunking(tt.start, tt.end)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
 }

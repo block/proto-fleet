@@ -97,12 +97,12 @@ export const createDashboardSlice: StateCreator<FleetStore, [["zustand/immer", n
 
   appendStreamingMetrics: (newMetrics) =>
     set((state) => {
-      // If metrics are undefined, initialize with new metrics
+      // Don't initialize from streaming data - wait for historical data to load first
+      // This prevents "No Data" flash when streaming arrives before historical
       if (state.dashboard.metrics === undefined) {
-        state.dashboard.metrics = newMetrics;
-      } else {
-        state.dashboard.metrics = mergeByTimestamp(state.dashboard.metrics, newMetrics);
+        return;
       }
+      state.dashboard.metrics = mergeByTimestamp(state.dashboard.metrics, newMetrics);
     }),
 
   // Actions - Temperature Status Counts
@@ -113,6 +113,10 @@ export const createDashboardSlice: StateCreator<FleetStore, [["zustand/immer", n
 
   appendStreamingTemperatureCounts: (newCounts) =>
     set((state) => {
+      // Don't initialize from streaming data - wait for historical data to load first
+      if (state.dashboard.temperatureStatusCounts === undefined) {
+        return;
+      }
       state.dashboard.temperatureStatusCounts = mergeStatusCounts(state.dashboard.temperatureStatusCounts, newCounts);
     }),
 
@@ -124,6 +128,10 @@ export const createDashboardSlice: StateCreator<FleetStore, [["zustand/immer", n
 
   appendStreamingUptimeCounts: (newCounts) =>
     set((state) => {
+      // Don't initialize from streaming data - wait for historical data to load first
+      if (state.dashboard.uptimeStatusCounts === undefined) {
+        return;
+      }
       state.dashboard.uptimeStatusCounts = mergeStatusCounts(state.dashboard.uptimeStatusCounts, newCounts);
     }),
 

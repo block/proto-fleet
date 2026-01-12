@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
@@ -29,7 +30,105 @@ const (
 	defaultBufferSize     = 100
 	defaultWindowDuration = 2 * time.Minute
 	defaultSlideInterval  = 10 * time.Second
+
+	// Query chunking configuration for large time ranges
+	// Queries spanning more than this duration will be split into chunks
+	queryChunkThreshold = 4 * time.Hour
+	// Size of each chunk when splitting large queries
+	queryChunkSize = 4 * time.Hour
+	// Maximum number of concurrent chunk queries
+	maxConcurrentChunkQueries = 16
 )
+
+// timeChunk represents a single time range chunk for parallel query execution
+type timeChunk struct {
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// chunkResult holds the result of a single chunk query along with any error
+type chunkResult struct {
+	Metrics                 []models.Metric
+	TemperatureStatusCounts []models.TemperatureStatusCount
+	UptimeStatusCounts      []models.UptimeStatusCount
+	Error                   error
+}
+
+// splitTimeRange divides a large time range into smaller chunks for parallel querying.
+// Returns a slice of timeChunks that together cover the entire original range.
+//
+// The chunks use non-overlapping boundaries to prevent duplicate data when the SQL
+// queries use inclusive bounds (>= and <=). Each chunk after the first starts 1
+// nanosecond after the previous chunk's end time, ensuring data at boundary
+// timestamps is included in exactly one chunk.
+//
+// Example with 4-hour chunks from 0h to 10h:
+//   - Chunk 1: [0h, 4h]
+//   - Chunk 2: [4h + 1ns, 8h]
+//   - Chunk 3: [8h + 1ns, 10h]
+func splitTimeRange(startTime, endTime time.Time, chunkSize time.Duration) []timeChunk {
+	var chunks []timeChunk
+	current := startTime
+
+	for current.Before(endTime) {
+		chunkEnd := current.Add(chunkSize)
+		if chunkEnd.After(endTime) {
+			chunkEnd = endTime
+		}
+		chunks = append(chunks, timeChunk{
+			StartTime: current,
+			EndTime:   chunkEnd,
+		})
+		// Offset the next chunk's start by 1 nanosecond to prevent overlap
+		// since SQL queries use inclusive bounds (>= and <=)
+		current = chunkEnd.Add(time.Nanosecond)
+	}
+
+	return chunks
+}
+
+// needsChunking determines if a query time range should be split into chunks
+func needsChunking(startTime, endTime *time.Time) bool {
+	if startTime == nil || endTime == nil {
+		return false
+	}
+	duration := endTime.Sub(*startTime)
+	return duration > queryChunkThreshold
+}
+
+// mergeChunkResults combines results from multiple chunk queries into a single result
+func mergeChunkResults(results []chunkResult) ([]models.Metric, []models.TemperatureStatusCount, []models.UptimeStatusCount, error) {
+	var allMetrics []models.Metric
+	var allTempCounts []models.TemperatureStatusCount
+	var allUptimeCounts []models.UptimeStatusCount
+
+	for _, result := range results {
+		if result.Error != nil {
+			// Return the first error encountered
+			return nil, nil, nil, result.Error
+		}
+		allMetrics = append(allMetrics, result.Metrics...)
+		allTempCounts = append(allTempCounts, result.TemperatureStatusCounts...)
+		allUptimeCounts = append(allUptimeCounts, result.UptimeStatusCounts...)
+	}
+
+	// Sort metrics by OpenTime
+	sort.Slice(allMetrics, func(i, j int) bool {
+		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
+	})
+
+	// Sort temperature counts by Timestamp
+	sort.Slice(allTempCounts, func(i, j int) bool {
+		return allTempCounts[i].Timestamp.Before(allTempCounts[j].Timestamp)
+	})
+
+	// Sort uptime counts by Timestamp
+	sort.Slice(allUptimeCounts, func(i, j int) bool {
+		return allUptimeCounts[i].Timestamp.Before(allUptimeCounts[j].Timestamp)
+	})
+
+	return allMetrics, allTempCounts, allUptimeCounts, nil
+}
 
 var _ telemetry.TelemetryDataStore = &InfluxTelemetryStore{}
 
@@ -940,7 +1039,114 @@ func isCumulativeMetric(measurementType models.MeasurementType) bool {
 }
 
 func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	// Check if the query needs to be chunked for large time ranges
+	if needsChunking(query.TimeRange.StartTime, query.TimeRange.EndTime) {
+		return s.getCombinedMetricsChunked(ctx, query)
+	}
 	return s.getCombinedMetricsFromDeviceMetrics(ctx, query)
+}
+
+// getCombinedMetricsChunked splits a large time range query into smaller chunks,
+// executes them in parallel, and merges the results
+func (s *InfluxTelemetryStore) getCombinedMetricsChunked(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	chunks := splitTimeRange(*query.TimeRange.StartTime, *query.TimeRange.EndTime, queryChunkSize)
+
+	s.logger.Info("splitting combined metrics query into chunks",
+		slog.Int("chunk_count", len(chunks)),
+		slog.Duration("total_duration", query.TimeRange.EndTime.Sub(*query.TimeRange.StartTime)),
+		slog.Duration("chunk_size", queryChunkSize))
+
+	// Create a channel to collect results and a semaphore for concurrency control
+	resultsChan := make(chan chunkResult, len(chunks))
+	sem := make(chan struct{}, maxConcurrentChunkQueries)
+
+	var wg sync.WaitGroup
+
+	for _, chunk := range chunks {
+		wg.Add(1)
+		go func(c timeChunk) {
+			defer wg.Done()
+
+			// Check context cancellation before acquiring semaphore
+			select {
+			case <-ctx.Done():
+				resultsChan <- chunkResult{Error: ctx.Err()}
+				return
+			default:
+			}
+
+			// Acquire semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Check context cancellation after acquiring semaphore
+			select {
+			case <-ctx.Done():
+				resultsChan <- chunkResult{Error: ctx.Err()}
+				return
+			default:
+			}
+
+			// Create a sub-query for this chunk
+			chunkQuery := query
+			chunkQuery.TimeRange = models.TimeRange{
+				StartTime: &c.StartTime,
+				EndTime:   &c.EndTime,
+			}
+
+			// Execute the chunk query
+			result, err := s.getCombinedMetricsFromDeviceMetrics(ctx, chunkQuery)
+			if err != nil {
+				// "no combined metrics found" is expected for chunks with no data
+				// This should not fail the entire query - just return empty results for this chunk
+				if strings.Contains(err.Error(), "no combined metrics found") {
+					s.logger.Debug("chunk has no data",
+						slog.Time("start", c.StartTime),
+						slog.Time("end", c.EndTime))
+					resultsChan <- chunkResult{} // Empty result, no error
+					return
+				}
+				resultsChan <- chunkResult{Error: fmt.Errorf("chunk query failed for range %v-%v: %w", c.StartTime, c.EndTime, err)}
+				return
+			}
+
+			resultsChan <- chunkResult{
+				Metrics:                 result.Metrics,
+				TemperatureStatusCounts: result.TemperatureStatusCounts,
+				UptimeStatusCounts:      result.UptimeStatusCounts,
+			}
+		}(chunk)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect all results
+	var results []chunkResult
+	for result := range resultsChan {
+		results = append(results, result)
+	}
+
+	// Merge results
+	allMetrics, allTempCounts, allUptimeCounts, err := mergeChunkResults(results)
+	if err != nil {
+		return models.CombinedMetric{}, err
+	}
+
+	// Check if we have any data across all chunks
+	if len(allMetrics) == 0 && len(allTempCounts) == 0 && len(allUptimeCounts) == 0 {
+		return models.CombinedMetric{}, fmt.Errorf("no combined metrics found in device_metrics")
+	}
+
+	return models.CombinedMetric{
+		Metrics:                 allMetrics,
+		TemperatureStatusCounts: allTempCounts,
+		UptimeStatusCounts:      allUptimeCounts,
+		NextPageToken:           "",
+	}, nil
 }
 
 func (s *InfluxTelemetryStore) getCombinedMetricsFromDeviceMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
@@ -1201,28 +1407,21 @@ LIMIT 1000
 		// Query to get temperature status counts grouped by time buckets
 		// Use DATE_BIN to create regular time buckets (without gap filling)
 		// Categorize temperatures using CASE statement from device_metrics table
-		// Use window function to get the latest reading per device per bucket to avoid duplicate counting
+		// Use last_value aggregation (more efficient than ROW_NUMBER window function)
+		// to get the latest reading per device per bucket
 		// Temperature thresholds use the domain layer constants for consistency
 		temperatureStatusQuery := fmt.Sprintf(`
-		WITH ranked_readings AS (
+		WITH latest_per_device AS (
 			SELECT
-				device_id,
 				DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) AS bucket_time,
-				temp_c,
-				ROW_NUMBER() OVER (PARTITION BY device_id, DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) ORDER BY time DESC) as rn
+				device_id,
+				last_value(temp_c ORDER BY time) as temp_c
 			FROM device_metrics
 			WHERE time >= $start_time
 			AND time <= $end_time
 			AND temp_c IS NOT NULL
 			%s
-		),
-		latest_per_device AS (
-			SELECT
-				device_id,
-				bucket_time,
-				temp_c
-			FROM ranked_readings
-			WHERE rn = 1
+			GROUP BY bucket_time, device_id
 		)
 		SELECT
 			bucket_time,
@@ -1236,7 +1435,7 @@ LIMIT 1000
 		FROM latest_per_device
 		GROUP BY bucket_time, temperature_status
 		ORDER BY bucket_time ASC
-		`, int(slideInterval.Seconds()), int(slideInterval.Seconds()), deviceIDsStr,
+		`, int(slideInterval.Seconds()), deviceIDsStr,
 			telemetry.TempColdMaxC,                     // < 0 = cold
 			telemetry.TempOkMinC, telemetry.TempOkMaxC, // 0-70 = ok
 			telemetry.TempOkMaxC, telemetry.TempHotMaxC, // 70-90 = hot
@@ -1346,27 +1545,20 @@ LIMIT 1000
 		// Query to get uptime/hashing status counts grouped by time buckets
 		// Use DATE_BIN to create regular time buckets (without gap filling)
 		// Categorize health: health_healthy_active = hashing, all others = not hashing
-		// Use window function to get the latest reading per device per bucket
+		// Use last_value aggregation (more efficient than ROW_NUMBER window function)
+		// to get the latest reading per device per bucket
 		uptimeStatusQuery := fmt.Sprintf(`
-	WITH ranked_readings AS (
+	WITH latest_per_device AS (
 		SELECT
-			device_id,
 			DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) AS bucket_time,
-			health,
-			ROW_NUMBER() OVER (PARTITION BY device_id, DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) ORDER BY time DESC) as rn
+			device_id,
+			last_value(health ORDER BY time) as health
 		FROM device_metrics
 		WHERE time >= $start_time
 		AND time <= $end_time
 		AND health IS NOT NULL
 		%s
-	),
-	latest_per_device AS (
-		SELECT
-			device_id,
-			bucket_time,
-			health
-		FROM ranked_readings
-		WHERE rn = 1
+		GROUP BY bucket_time, device_id
 	)
 	SELECT
 		bucket_time,
@@ -1378,7 +1570,7 @@ LIMIT 1000
 	FROM latest_per_device
 	GROUP BY bucket_time, uptime_status
 	ORDER BY bucket_time ASC
-		`, int(slideInterval.Seconds()), int(slideInterval.Seconds()), deviceIDsStr)
+		`, int(slideInterval.Seconds()), deviceIDsStr)
 
 		// Use the same parameter logic as metrics queries
 		params := s.getCombinedMetricsParams(query)
