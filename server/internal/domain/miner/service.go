@@ -64,7 +64,7 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByID(ctx, deviceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("device not found: %d", deviceID)
+			return nil, fleeterror.NewNotFoundErrorf("device not found: %d", deviceID)
 		}
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
@@ -92,7 +92,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("device not found: %s", deviceID)
+			return nil, fleeterror.NewNotFoundErrorf("device not found: %s", deviceID)
 		}
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}

@@ -92,3 +92,12 @@ func (h *Handler) GetBatchMinerTelemetry(ctx context.Context, r *connect.Request
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Request[pb.GetMinerPoolAssignmentsRequest]) (*connect.Response[pb.GetMinerPoolAssignmentsResponse], error) {
+	result, err := h.fleetMgmtSvc.GetMinerPoolAssignments(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

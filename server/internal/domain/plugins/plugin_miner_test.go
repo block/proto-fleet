@@ -158,6 +158,10 @@ func (m *mockSDKDevice) TryGetTimeSeriesData(ctx context.Context, _ []string, _,
 	return nil, "", false, nil
 }
 
+func (m *mockSDKDevice) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	return nil, nil
+}
+
 const testOrgID = int64(1)
 
 func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {

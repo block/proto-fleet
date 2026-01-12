@@ -299,6 +299,24 @@ func (p *PluginMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceEr
 	return mappers.SDKDeviceErrorsToFleetDeviceErrors(sdkErrors), nil
 }
 
+// GetMiningPools implements interfaces.Miner
+func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	sdkPools, err := p.sdkDevice.GetMiningPools(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get mining pools: %v", err)
+	}
+
+	pools := make([]interfaces.MinerConfiguredPool, len(sdkPools))
+	for i, pool := range sdkPools {
+		pools[i] = interfaces.MinerConfiguredPool{
+			Priority: pool.Priority,
+			URL:      pool.URL,
+			Username: pool.Username,
+		}
+	}
+	return pools, nil
+}
+
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.
 // It ensures the priority value fits within int32 range before conversion.
 func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.MiningPoolConfig, error) {

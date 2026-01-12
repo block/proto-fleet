@@ -23,6 +23,7 @@ import (
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	poolspb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	telemetrypb "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 )
 
@@ -73,6 +74,7 @@ type Service struct {
 	minerService          *miner.Service
 	capabilitiesProvider  CapabilitiesProvider
 	capabilitiesCache     sync.Map
+	poolStore             interfaces.PoolStore
 }
 
 func NewService(
@@ -81,6 +83,7 @@ func NewService(
 	t TelemetryCollector,
 	minerService *miner.Service,
 	capabilitiesProvider CapabilitiesProvider,
+	poolStore interfaces.PoolStore,
 ) *Service {
 	return &Service{
 		deviceStore:           deviceStore,
@@ -88,6 +91,7 @@ func NewService(
 		telemetry:             t,
 		minerService:          minerService,
 		capabilitiesProvider:  capabilitiesProvider,
+		poolStore:             poolStore,
 	}
 }
 
@@ -821,4 +825,91 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 	}
 
 	return snapshot
+}
+
+// Pool priority constants for mining pool configuration
+const (
+	poolPriorityDefault = 0
+	poolPriorityBackup1 = 1
+	poolPriorityBackup2 = 2
+)
+
+// GetMinerPoolAssignments retrieves the currently configured pools from a miner
+// and matches them with fleet pool definitions to return pool IDs
+func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the miner by device identifier
+	minerDevice, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(req.DeviceIdentifier))
+	if err != nil {
+		if isMinerNotFoundError(err) {
+			return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get miner: %v", err)
+	}
+
+	// Verify the miner belongs to the user's organization
+	if minerDevice.GetOrgID() != info.OrganizationID {
+		return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
+	}
+
+	// Get currently configured pools from the miner
+	configuredPools, err := minerDevice.GetMiningPools(ctx)
+	if err != nil {
+		slog.Error("failed to get mining pools from miner", "deviceID", req.DeviceIdentifier, "error", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get mining pools from miner: %v", err)
+	}
+
+	// If no pools configured, return empty response
+	if len(configuredPools) == 0 {
+		return &pb.GetMinerPoolAssignmentsResponse{}, nil
+	}
+
+	// Get all fleet pools for matching
+	fleetPools, err := s.poolStore.ListPools(ctx, info.OrganizationID)
+	if err != nil {
+		slog.Error("failed to list fleet pools", "orgID", info.OrganizationID, "error", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list fleet pools: %v", err)
+	}
+
+	// Match configured pools with fleet pools by URL and username
+	response := &pb.GetMinerPoolAssignmentsResponse{}
+	for _, configuredPool := range configuredPools {
+		poolID := findMatchingFleetPoolID(configuredPool.URL, configuredPool.Username, fleetPools)
+		if poolID == nil {
+			continue
+		}
+
+		switch configuredPool.Priority {
+		case poolPriorityDefault:
+			response.DefaultPoolId = poolID
+		case poolPriorityBackup1:
+			response.Backup_1PoolId = poolID
+		case poolPriorityBackup2:
+			response.Backup_2PoolId = poolID
+		}
+	}
+
+	return response, nil
+}
+
+// findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.
+// Username matching extracts the base username (before the first ".") since miners
+// append device identifiers to worker names (e.g., "pool_user" becomes "pool_user.device123").
+func findMatchingFleetPoolID(url, username string, fleetPools []*poolspb.Pool) *int64 {
+	baseUsername, _, _ := strings.Cut(username, ".")
+	for _, pool := range fleetPools {
+		if pool.Url == url && baseUsername == pool.Username {
+			return &pool.PoolId
+		}
+	}
+	return nil
+}
+
+// isMinerNotFoundError checks if an error from the miner service indicates the device was not found.
+func isMinerNotFoundError(err error) bool {
+	return fleeterror.IsNotFoundError(err)
 }

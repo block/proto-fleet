@@ -12,6 +12,7 @@ import (
 
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
+	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	models2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -262,6 +263,21 @@ func (m *MockMiner) GetID() models0.DeviceIdentifier {
 func (mr *MockMinerMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMiner)(nil).GetID))
+}
+
+// GetMiningPools mocks base method.
+func (m *MockMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMiningPools", ctx)
+	ret0, _ := ret[0].([]interfaces.MinerConfiguredPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMiningPools indicates an expected call of GetMiningPools.
+func (mr *MockMinerMockRecorder) GetMiningPools(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiningPools", reflect.TypeOf((*MockMiner)(nil).GetMiningPools), ctx)
 }
 
 // GetOrgID mocks base method.

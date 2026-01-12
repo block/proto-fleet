@@ -655,12 +655,14 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
+		poolStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -763,12 +765,14 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 
 	// Create service with mock capabilities provider
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
+		poolStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -836,12 +840,14 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
+		poolStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)

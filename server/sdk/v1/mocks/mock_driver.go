@@ -197,6 +197,21 @@ func (m *MockDeviceConfiguration) EXPECT() *MockDeviceConfigurationMockRecorder 
 	return m.recorder
 }
 
+// GetMiningPools mocks base method.
+func (m *MockDeviceConfiguration) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMiningPools", ctx)
+	ret0, _ := ret[0].([]sdk.ConfiguredPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMiningPools indicates an expected call of GetMiningPools.
+func (mr *MockDeviceConfigurationMockRecorder) GetMiningPools(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiningPools", reflect.TypeOf((*MockDeviceConfiguration)(nil).GetMiningPools), ctx)
+}
+
 // SetCoolingMode mocks base method.
 func (m *MockDeviceConfiguration) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error {
 	m.ctrl.T.Helper()
@@ -542,6 +557,21 @@ func (m *MockDevice) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 func (mr *MockDeviceMockRecorder) GetErrors(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrors", reflect.TypeOf((*MockDevice)(nil).GetErrors), ctx)
+}
+
+// GetMiningPools mocks base method.
+func (m *MockDevice) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMiningPools", ctx)
+	ret0, _ := ret[0].([]sdk.ConfiguredPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMiningPools indicates an expected call of GetMiningPools.
+func (mr *MockDeviceMockRecorder) GetMiningPools(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiningPools", reflect.TypeOf((*MockDevice)(nil).GetMiningPools), ctx)
 }
 
 // ID mocks base method.

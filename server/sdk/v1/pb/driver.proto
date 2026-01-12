@@ -313,6 +313,21 @@ message UpdateMiningPoolsRequest {
   repeated MiningPool pools = 2;
 }
 
+// ConfiguredPool represents a pool currently configured on a device
+message ConfiguredPool {
+  int32 priority = 1;        // Pool priority (0 = default, 1 = backup1, 2 = backup2)
+  string url = 2;            // Pool URL (e.g., stratum+tcp://pool.example:3333)
+  string username = 3;       // Worker name or username configured on the miner
+}
+
+message GetMiningPoolsRequest {
+  DeviceRef ref = 1;
+}
+
+message GetMiningPoolsResponse {
+  repeated ConfiguredPool pools = 1;
+}
+
 message DownloadLogsRequest {
   DeviceRef ref = 1;
   google.protobuf.Timestamp since = 2; // optional: only logs since this time
@@ -543,6 +558,7 @@ service Driver {
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
   rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
+  rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
   rpc Unpair(DeviceRef) returns (google.protobuf.Empty);

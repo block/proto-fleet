@@ -522,6 +522,12 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 	return nil
 }
 
+// GetMiningPools implements the SDK Device interface.
+func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	slog.Debug("Getting mining pools", "deviceID", d.id)
+	return d.client.GetPools(ctx)
+}
+
 // BlinkLED implements the SDK Device interface.
 //
 // This method triggers LED identification on the device.

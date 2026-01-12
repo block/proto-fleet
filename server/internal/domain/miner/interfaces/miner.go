@@ -56,4 +56,14 @@ type Miner interface {
 
 	// Diagnostics operations
 	GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error)
+
+	// Pool configuration
+	GetMiningPools(ctx context.Context) ([]MinerConfiguredPool, error)
+}
+
+// MinerConfiguredPool represents a pool currently configured on a miner device
+type MinerConfiguredPool struct {
+	Priority int32
+	URL      string
+	Username string
 }

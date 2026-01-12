@@ -34,6 +34,7 @@ const (
 	Driver_SetCoolingMode_FullMethodName      = "/sdk.v1.Driver/SetCoolingMode"
 	Driver_SetPowerTarget_FullMethodName      = "/sdk.v1.Driver/SetPowerTarget"
 	Driver_UpdateMiningPools_FullMethodName   = "/sdk.v1.Driver/UpdateMiningPools"
+	Driver_GetMiningPools_FullMethodName      = "/sdk.v1.Driver/GetMiningPools"
 	Driver_DownloadLogs_FullMethodName        = "/sdk.v1.Driver/DownloadLogs"
 	Driver_UpdateFirmware_FullMethodName      = "/sdk.v1.Driver/UpdateFirmware"
 	Driver_Unpair_FullMethodName              = "/sdk.v1.Driver/Unpair"
@@ -68,6 +69,7 @@ type DriverClient interface {
 	SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	SetPowerTarget(ctx context.Context, in *SetPowerTargetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMiningPools(ctx context.Context, in *UpdateMiningPoolsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error)
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -218,6 +220,15 @@ func (c *driverClient) UpdateMiningPools(ctx context.Context, in *UpdateMiningPo
 	return out, nil
 }
 
+func (c *driverClient) GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error) {
+	out := new(GetMiningPoolsResponse)
+	err := c.cc.Invoke(ctx, Driver_GetMiningPools_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error) {
 	out := new(DownloadLogsResponse)
 	err := c.cc.Invoke(ctx, Driver_DownloadLogs_FullMethodName, in, out, opts...)
@@ -345,6 +356,7 @@ type DriverServer interface {
 	SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error)
 	SetPowerTarget(context.Context, *SetPowerTargetRequest) (*emptypb.Empty, error)
 	UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error)
+	GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error)
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error)
@@ -407,6 +419,9 @@ func (UnimplementedDriverServer) SetPowerTarget(context.Context, *SetPowerTarget
 }
 func (UnimplementedDriverServer) UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateMiningPools not implemented")
+}
+func (UnimplementedDriverServer) GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMiningPools not implemented")
 }
 func (UnimplementedDriverServer) DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DownloadLogs not implemented")
@@ -700,6 +715,24 @@ func _Driver_UpdateMiningPools_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_GetMiningPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMiningPoolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetMiningPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetMiningPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetMiningPools(ctx, req.(*GetMiningPoolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_DownloadLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DownloadLogsRequest)
 	if err := dec(in); err != nil {
@@ -927,6 +960,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateMiningPools",
 			Handler:    _Driver_UpdateMiningPools_Handler,
+		},
+		{
+			MethodName: "GetMiningPools",
+			Handler:    _Driver_GetMiningPools_Handler,
 		},
 		{
 			MethodName: "DownloadLogs",

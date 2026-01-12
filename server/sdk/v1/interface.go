@@ -286,11 +286,19 @@ type SecretBundle struct {
 	TTL     *time.Duration
 }
 
-// MiningPoolConfig represents a mining pool configuration
+// MiningPoolConfig represents a mining pool configuration for setting pools on a device
 type MiningPoolConfig struct {
 	Priority   int32
 	URL        string
 	WorkerName string
+}
+
+// ConfiguredPool represents a pool currently configured on a device
+// This is returned by GetMiningPools to show the miner's actual pool configuration
+type ConfiguredPool struct {
+	Priority int32
+	URL      string
+	Username string // Worker name / username configured on the miner
 }
 
 // NewDeviceResult contains the result of creating a new device
@@ -374,6 +382,8 @@ type DeviceConfiguration interface {
 	SetCoolingMode(ctx context.Context, mode CoolingMode) error
 	SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error
 	UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error
+	// GetMiningPools returns the currently configured pools on the device
+	GetMiningPools(ctx context.Context) ([]ConfiguredPool, error)
 }
 
 // DeviceMaintenance represents device maintenance operations

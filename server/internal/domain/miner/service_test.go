@@ -7,6 +7,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 
@@ -63,7 +64,7 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
-	assert.Contains(t, err.Error(), "device not found")
+	assert.True(t, fleeterror.IsNotFoundError(err), "expected a not found error, got: %v", err)
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t *testing.T) {
@@ -239,7 +240,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
-	assert.Contains(t, err.Error(), "device not found")
+	assert.True(t, fleeterror.IsNotFoundError(err), "expected a not found error, got: %v", err)
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_ShouldReturnError(t *testing.T) {

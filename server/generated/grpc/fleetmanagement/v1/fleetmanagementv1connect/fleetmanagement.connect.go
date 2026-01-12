@@ -49,6 +49,9 @@ const (
 	// FleetManagementServiceGetBatchMinerTelemetryProcedure is the fully-qualified name of the
 	// FleetManagementService's GetBatchMinerTelemetry RPC.
 	FleetManagementServiceGetBatchMinerTelemetryProcedure = "/fleetmanagement.v1.FleetManagementService/GetBatchMinerTelemetry"
+	// FleetManagementServiceGetMinerPoolAssignmentsProcedure is the fully-qualified name of the
+	// FleetManagementService's GetMinerPoolAssignments RPC.
+	FleetManagementServiceGetMinerPoolAssignmentsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -71,6 +74,10 @@ type FleetManagementServiceClient interface {
 	// This is optimized for fetching telemetry for multiple miners in a single request
 	// Use this after initial metadata-only list load to populate telemetry for visible rows
 	GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error)
+	// Get the current pool assignments for a specific miner
+	// Returns the fleet pool IDs that match the miner's currently configured pools
+	// Used to pre-populate the pool selection UI when editing a miner's pools
+	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -108,6 +115,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceGetBatchMinerTelemetryProcedure,
 			opts...,
 		),
+		getMinerPoolAssignments: connect.NewClient[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse](
+			httpClient,
+			baseURL+FleetManagementServiceGetMinerPoolAssignmentsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -118,6 +130,7 @@ type fleetManagementServiceClient struct {
 	streamMinerListUpdates  *connect.Client[v1.StreamMinerListUpdatesRequest, v1.StreamMinerListUpdatesResponse]
 	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
 	getBatchMinerTelemetry  *connect.Client[v1.GetBatchMinerTelemetryRequest, v1.GetBatchMinerTelemetryResponse]
+	getMinerPoolAssignments *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -145,6 +158,11 @@ func (c *fleetManagementServiceClient) GetBatchMinerTelemetry(ctx context.Contex
 	return c.getBatchMinerTelemetry.CallUnary(ctx, req)
 }
 
+// GetMinerPoolAssignments calls fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments.
+func (c *fleetManagementServiceClient) GetMinerPoolAssignments(ctx context.Context, req *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error) {
+	return c.getMinerPoolAssignments.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -165,6 +183,10 @@ type FleetManagementServiceHandler interface {
 	// This is optimized for fetching telemetry for multiple miners in a single request
 	// Use this after initial metadata-only list load to populate telemetry for visible rows
 	GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error)
+	// Get the current pool assignments for a specific miner
+	// Returns the fleet pool IDs that match the miner's currently configured pools
+	// Used to pre-populate the pool selection UI when editing a miner's pools
+	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -198,6 +220,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.GetBatchMinerTelemetry,
 		opts...,
 	)
+	fleetManagementServiceGetMinerPoolAssignmentsHandler := connect.NewUnaryHandler(
+		FleetManagementServiceGetMinerPoolAssignmentsProcedure,
+		svc.GetMinerPoolAssignments,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
@@ -210,6 +237,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceGetMinerStateCountsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetBatchMinerTelemetryProcedure:
 			fleetManagementServiceGetBatchMinerTelemetryHandler.ServeHTTP(w, r)
+		case FleetManagementServiceGetMinerPoolAssignmentsProcedure:
+			fleetManagementServiceGetMinerPoolAssignmentsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -237,4 +266,8 @@ func (UnimplementedFleetManagementServiceHandler) GetMinerStateCounts(context.Co
 
 func (UnimplementedFleetManagementServiceHandler) GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetBatchMinerTelemetry is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments is not implemented"))
 }

@@ -386,6 +386,32 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMiningPoolsRequest) (*pb.GetMiningPoolsResponse, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	pools, err := device.GetMiningPools(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pbPools := make([]*pb.ConfiguredPool, len(pools))
+	for i, pool := range pools {
+		pbPools[i] = &pb.ConfiguredPool{
+			Priority: pool.Priority,
+			Url:      pool.URL,
+			Username: pool.Username,
+		}
+	}
+
+	return &pb.GetMiningPoolsResponse{Pools: pbPools}, nil
+}
+
 func (s *DriverGRPCServer) BlinkLED(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.DeviceId]
@@ -790,6 +816,26 @@ func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []Mining
 		Pools: pbPools,
 	})
 	return err
+}
+
+func (d *DeviceGRPCClient) GetMiningPools(ctx context.Context) ([]ConfiguredPool, error) {
+	resp, err := d.client.GetMiningPools(ctx, &pb.GetMiningPoolsRequest{
+		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pools := make([]ConfiguredPool, len(resp.Pools))
+	for i, pool := range resp.Pools {
+		pools[i] = ConfiguredPool{
+			Priority: pool.Priority,
+			URL:      pool.Url,
+			Username: pool.Username,
+		}
+	}
+
+	return pools, nil
 }
 
 func (d *DeviceGRPCClient) BlinkLED(ctx context.Context) error {

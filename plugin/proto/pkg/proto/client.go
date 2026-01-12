@@ -32,7 +32,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/sdk/v1"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"golang.org/x/net/http2"
 )
 
@@ -406,6 +406,31 @@ func (c *Client) checkNeedsMiningPool(ctx context.Context) (bool, error) {
 
 	// All pools have empty URLs - effectively no pools configured
 	return true, nil
+}
+
+// GetPools retrieves the currently configured pools from the miner.
+func (c *Client) GetPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	ctx = c.withAuth(ctx)
+
+	poolsResp, err := c.dataClient.GetPools(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pools: %w", err)
+	}
+
+	pools := make([]sdk.ConfiguredPool, 0, len(poolsResp.Msg.Pools))
+	for _, pool := range poolsResp.Msg.Pools {
+		// Only include pools that have a URL configured
+		if pool.Url != "" {
+			pools = append(pools, sdk.ConfiguredPool{
+				// #nosec G115 -- Pool priorities are protocol-bounded (0-2 for default/backup1/backup2)
+				Priority: int32(pool.Priority),
+				URL:      pool.Url,
+				Username: pool.Username,
+			})
+		}
+	}
+
+	return pools, nil
 }
 
 // GetTelemetryValues retrieves comprehensive telemetry data from the miner.

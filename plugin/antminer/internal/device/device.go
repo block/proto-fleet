@@ -409,6 +409,32 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 	return d.client.UpdatePools(ctx, antminerPools)
 }
 
+// GetMiningPools implements the SDK Device interface.
+// Retrieves the currently configured mining pools from the Antminer via RPC.
+func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	slog.Debug("Getting mining pools", "deviceID", d.id)
+
+	poolsResp, err := d.client.GetPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mining pools: %w", err)
+	}
+
+	pools := make([]sdk.ConfiguredPool, 0, len(poolsResp.Pools))
+	for _, pool := range poolsResp.Pools {
+		// Only include pools that have a URL configured
+		if pool.URL != "" {
+			pools = append(pools, sdk.ConfiguredPool{
+				// #nosec G115 -- Pool priorities are protocol-bounded (0-2 for default/backup1/backup2)
+				Priority: int32(pool.Priority),
+				URL:      pool.URL,
+				Username: pool.User,
+			})
+		}
+	}
+
+	return pools, nil
+}
+
 // BlinkLED implements the SDK Device interface.
 func (d *Device) BlinkLED(ctx context.Context) error {
 	return d.client.BlinkLED(ctx, blinkLEDDuration)
