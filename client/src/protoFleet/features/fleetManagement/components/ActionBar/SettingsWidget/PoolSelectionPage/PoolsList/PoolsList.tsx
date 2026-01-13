@@ -50,7 +50,10 @@ const PoolsList = ({
 
   // Derive effective state: if parent's selectedPoolId doesn't match our poolState's poolId, treat as idle
   const isStateValid = poolState.status !== "idle" && poolState.poolId === selectedPoolId;
-  const selectedPool = isStateValid ? poolState.pool : null;
+
+  // Get the selected pool - either from our local state (during validation) or from the pools list (for pre-populated selections)
+  const selectedPool = isStateValid ? poolState.pool : selectedPoolId ? (findPoolById(selectedPoolId) ?? null) : null;
+
   const isTestingConnection = isStateValid && poolState.status === "validating";
   const poolError = isStateValid && poolState.status === "error" ? poolState.error : null;
   const hasPoolConflict = selectedPool && excludedPoolIds.some((id) => id === selectedPool.poolId);
@@ -101,8 +104,6 @@ const PoolsList = ({
     setShowSelectionModal(true);
   };
 
-  const displaySubtitle = selectedPool ? selectedPool.name || selectedPool.poolUrl : subtitle;
-
   return (
     <>
       <div
@@ -121,7 +122,14 @@ const PoolsList = ({
           <div className="flex-1">
             <h3 className="text-heading-300 text-text-primary">{title}</h3>
             <div className="mt-1 h-10">
-              {displaySubtitle ? <p className="text-body-300 text-text-secondary">{displaySubtitle}</p> : null}
+              {selectedPool ? (
+                <p className="text-body-300 text-text-secondary">
+                  <span className="text-text-primary">Configured pool:</span>{" "}
+                  {selectedPool.name || selectedPool.poolUrl}
+                </p>
+              ) : subtitle ? (
+                <p className="text-body-300 text-text-secondary">{subtitle}</p>
+              ) : null}
               {displayError ? <p className="text-300 text-intent-critical-fill">{displayError}</p> : null}
             </div>
           </div>

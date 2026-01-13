@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PoolsList from "./PoolsList/PoolsList";
+import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
 import { Dismiss } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface PoolSelectionPageProps {
   deviceIdentifiers: string[];
@@ -21,6 +23,49 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
     undefined,
     undefined,
   ]);
+  const { fetchPoolAssignments, isLoading: isLoadingAssignments } = useMinerPoolAssignments();
+
+  // Track which device we've loaded assignments for to handle device changes
+  const loadedDeviceRef = useRef<string | null>(null);
+
+  // When editing a single miner, fetch and pre-populate current pool assignments
+  // Also handles resetting state when device selection changes
+  useEffect(() => {
+    const currentDevice = deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null;
+
+    // Skip if we've already loaded for this device
+    if (loadedDeviceRef.current === currentDevice) {
+      return;
+    }
+
+    const isDeviceChange = loadedDeviceRef.current !== null;
+
+    const loadExistingPoolAssignments = async () => {
+      // Reset selections when switching devices (but not on initial mount)
+      if (isDeviceChange) {
+        setSelectedDefaultPool(undefined);
+        setSelectedBackupPools([undefined, undefined]);
+      }
+
+      if (!currentDevice) {
+        loadedDeviceRef.current = currentDevice;
+        return;
+      }
+
+      const assignments = await fetchPoolAssignments(currentDevice);
+      if (assignments) {
+        if (assignments.defaultPoolId !== undefined) {
+          setSelectedDefaultPool(assignments.defaultPoolId.toString());
+        }
+        const backup1 = assignments.backup1PoolId !== undefined ? assignments.backup1PoolId.toString() : undefined;
+        const backup2 = assignments.backup2PoolId !== undefined ? assignments.backup2PoolId.toString() : undefined;
+        setSelectedBackupPools([backup1, backup2]);
+      }
+      loadedDeviceRef.current = currentDevice;
+    };
+
+    loadExistingPoolAssignments();
+  }, [deviceIdentifiers, fetchPoolAssignments]);
 
   const poolAssignments: Record<string, string> = {};
   if (selectedDefaultPool) {
@@ -63,6 +108,8 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
 
   const numberOfMiners = deviceIdentifiers.length;
   const buttonText = `Assign to ${numberOfMiners} miner${numberOfMiners === 1 ? "" : "s"}`;
+  const isSingleMinerEdit = numberOfMiners === 1;
+  const isLoadingInitialState = isSingleMinerEdit && isLoadingAssignments;
 
   return (
     <PageOverlay show>
@@ -80,7 +127,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
               text: buttonText,
               variant: variants.primary,
               onClick: handleAssignPoolsClick,
-              disabled: !selectedDefaultPool,
+              disabled: !selectedDefaultPool || isLoadingInitialState,
             },
           ]}
         />
@@ -97,46 +144,53 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
             </div>
 
             {/* Cards container */}
-            <div className="flex flex-col gap-4">
-              {/* Default pool - full width */}
-              <PoolsList
-                title="Default pool"
-                subtitle=""
-                onSelect={handleSelectDefaultPool}
-                createNewLabel="Add pool"
-                excludedPoolIds={selectedBackupPools}
-                testId="default-pool"
-                selectedPoolId={selectedDefaultPool}
-                poolAssignments={poolAssignments}
-              />
-
-              {/* Backup pools - side by side */}
-              <div className="flex gap-4">
-                {[0, 1].map((index) => {
-                  const otherBackupIndex = index === 0 ? 1 : 0;
-                  const excludedPools = [selectedDefaultPool, selectedBackupPools[otherBackupIndex]];
-                  const isDisabled =
-                    index === 0 ? !selectedDefaultPool : !selectedDefaultPool || !selectedBackupPools[0];
-
-                  return (
-                    <div key={index} className="flex-1">
-                      <PoolsList
-                        title={`Backup pool #${index + 1}`}
-                        subtitle="Optional"
-                        onSelect={(poolId) => handleSelectBackupPool(poolId, index)}
-                        createNewLabel="Add pool"
-                        poolNumber={index + 1}
-                        excludedPoolIds={excludedPools}
-                        testId={`backup-pool-${index + 1}`}
-                        disabled={isDisabled}
-                        selectedPoolId={selectedBackupPools[index]}
-                        poolAssignments={poolAssignments}
-                      />
-                    </div>
-                  );
-                })}
+            {isLoadingInitialState ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-16">
+                <ProgressCircular size={32} indeterminate />
+                <span className="text-body-300 text-text-secondary">Loading pool configuration...</span>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Default pool - full width */}
+                <PoolsList
+                  title="Default pool"
+                  subtitle=""
+                  onSelect={handleSelectDefaultPool}
+                  createNewLabel="Add pool"
+                  excludedPoolIds={selectedBackupPools}
+                  testId="default-pool"
+                  selectedPoolId={selectedDefaultPool}
+                  poolAssignments={poolAssignments}
+                />
+
+                {/* Backup pools - side by side */}
+                <div className="flex gap-4">
+                  {[0, 1].map((index) => {
+                    const otherBackupIndex = index === 0 ? 1 : 0;
+                    const excludedPools = [selectedDefaultPool, selectedBackupPools[otherBackupIndex]];
+                    const isDisabled =
+                      index === 0 ? !selectedDefaultPool : !selectedDefaultPool || !selectedBackupPools[0];
+
+                    return (
+                      <div key={index} className="flex-1">
+                        <PoolsList
+                          title={`Backup pool #${index + 1}`}
+                          subtitle="Optional"
+                          onSelect={(poolId) => handleSelectBackupPool(poolId, index)}
+                          createNewLabel="Add pool"
+                          poolNumber={index + 1}
+                          excludedPoolIds={excludedPools}
+                          testId={`backup-pool-${index + 1}`}
+                          disabled={isDisabled}
+                          selectedPoolId={selectedBackupPools[index]}
+                          poolAssignments={poolAssignments}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
