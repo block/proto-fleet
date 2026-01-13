@@ -102,8 +102,10 @@ const baseStickyClassList = "tablet:sticky laptop:sticky desktop:sticky z-1";
 const tdClassList = "text-left text-300";
 const tdPaddingClassList = "px-2 py-4";
 // use after element for shadow (hidden on phone since column isn't sticky)
-const columnShadowClassList =
-  "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)] phone:after:content-none";
+// after pseudo-element is always present with opacity-0, transitions to visible when stuck
+const columnShadowBaseClassList =
+  "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)] after:opacity-0 after:transition-opacity after:duration-500 phone:after:content-none";
+const columnShadowVisibleClassList = "after:opacity-100";
 
 const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
   activeCols,
@@ -418,9 +420,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
               <table className="mb-6 min-w-full table-fixed border-collapse">
                 <thead data-testid="list-header">
                   <tr
-                    className={clsx("sticky top-0 z-2", stickyBgColor, {
-                      "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]": stickyState.vertical.isStuck,
-                    })}
+                    className={clsx(
+                      "sticky top-0 z-2 transition-shadow duration-500",
+                      stickyBgColor,
+                      stickyState.vertical.isStuck
+                        ? "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]"
+                        : "shadow-[0_0_6px_6px_rgba(0,0,0,0)]",
+                    )}
                   >
                     {itemSelectable && (
                       <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
@@ -445,7 +451,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                           "pl-2",
                           thClassList,
                           idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                          idx === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
+                          idx === 0 && columnShadowBaseClassList,
+                          idx === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
                         )}
                         key={idx}
                         style={paddingCssVariables}
@@ -497,7 +504,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                             className={clsx(
                               tdClassList,
                               j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                              j === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
+                              j === 0 && columnShadowBaseClassList,
+                              j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
                             )}
                             key={j}
                             style={paddingCssVariables}
