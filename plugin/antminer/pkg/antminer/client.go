@@ -244,19 +244,12 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 
 	summary := summaryResp.Summary[0]
 
-	// Determine state based on hashrate and errors
+	// Determine state based on hashrate (not cumulative HardwareErrors counter).
 	var state sdk.HealthStatus
 	if summary.GHS5s > 0 {
 		state = sdk.HealthHealthyActive
 	} else {
 		state = sdk.HealthHealthyInactive
-	}
-
-	// Check for errors
-	errorMessage := ""
-	if summary.HardwareErrors > 0 {
-		state = sdk.HealthCritical
-		errorMessage = fmt.Sprintf("Hardware errors: %d", summary.HardwareErrors)
 	}
 
 	// Get firmware version
@@ -268,7 +261,7 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 
 	return &Status{
 		State:           state,
-		ErrorMessage:    errorMessage,
+		ErrorMessage:    "",
 		FirmwareVersion: firmwareVersion,
 	}, nil
 }

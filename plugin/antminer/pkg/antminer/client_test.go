@@ -289,8 +289,10 @@ func TestClient_GetStatus(t *testing.T) {
 	assert.Equal(t, "", status.ErrorMessage)
 	assert.Equal(t, "1.0.0", status.FirmwareVersion)
 
-	// Test with hardware errors
-	mockSummaryWithErrors := &rpc.SummaryResponse{
+	// Test with zero hashrate (inactive).
+	// Note: HardwareErrors is a cumulative counter and should NOT affect health status.
+	// A device with accumulated errors but zero hashrate is simply inactive, not critical.
+	mockSummaryInactive := &rpc.SummaryResponse{
 		Summary: []rpc.SummaryInfo{
 			{
 				GHS5s:          0,
@@ -300,7 +302,7 @@ func TestClient_GetStatus(t *testing.T) {
 	}
 	mockRPCClient.EXPECT().
 		GetSummary(gomock.Any(), gomock.Any()).
-		Return(mockSummaryWithErrors, nil)
+		Return(mockSummaryInactive, nil)
 
 	mockRPCClient.EXPECT().
 		GetVersion(gomock.Any(), gomock.Any()).
@@ -308,8 +310,30 @@ func TestClient_GetStatus(t *testing.T) {
 
 	status, err = client.GetStatus(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, sdk.HealthCritical, status.State)
-	assert.Contains(t, status.ErrorMessage, "Hardware errors: 5")
+	assert.Equal(t, sdk.HealthHealthyInactive, status.State)
+	assert.Empty(t, status.ErrorMessage)
+
+	// Test with hardware errors but active hashrate (device is healthy despite accumulated errors)
+	mockSummaryActiveWithErrors := &rpc.SummaryResponse{
+		Summary: []rpc.SummaryInfo{
+			{
+				GHS5s:          150.0,
+				HardwareErrors: 100,
+			},
+		},
+	}
+	mockRPCClient.EXPECT().
+		GetSummary(gomock.Any(), gomock.Any()).
+		Return(mockSummaryActiveWithErrors, nil)
+
+	mockRPCClient.EXPECT().
+		GetVersion(gomock.Any(), gomock.Any()).
+		Return(mockVersionResponse, nil)
+
+	status, err = client.GetStatus(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.HealthHealthyActive, status.State)
+	assert.Empty(t, status.ErrorMessage)
 }
 
 func TestClient_GetTelemetry(t *testing.T) {
