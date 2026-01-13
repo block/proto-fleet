@@ -267,6 +267,17 @@ func TestPairDevice_Success(t *testing.T) {
 		}, nil)
 
 	mockClient.EXPECT().
+		GetVersion(gomock.Any()).
+		Return(&rpc.VersionResponse{
+			Version: []rpc.VersionInfo{
+				{
+					BMMiner: "2.0.0",
+					Miner:   "1.0.0",
+				},
+			},
+		}, nil)
+
+	mockClient.EXPECT().
 		SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"}).
 		Return(nil)
 
@@ -296,6 +307,7 @@ func TestPairDevice_Success(t *testing.T) {
 	assert.Equal(t, "S19j Pro", result.Model)
 	assert.Equal(t, "ABC123456789", result.SerialNumber)
 	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
+	assert.Equal(t, "2.0.0", result.FirmwareVersion)
 	assert.Equal(t, deviceInfo.Host, result.Host)
 	assert.Equal(t, deviceInfo.Port, result.Port)
 }

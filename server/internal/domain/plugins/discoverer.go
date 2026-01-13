@@ -128,6 +128,7 @@ func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, por
 		Manufacturer:     deviceInfo.Manufacturer,
 		Type:             deviceType,
 		MacAddress:       macAddress,
+		FirmwareVersion:  deviceInfo.FirmwareVersion,
 		Capabilities:     nil,
 	}
 }

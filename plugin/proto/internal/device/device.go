@@ -156,6 +156,16 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityPoolConfig:  true, // This device supports pool configuration
 	}
 
+	// Get firmware version if not already set (requires authentication, so we do it here)
+	if d.deviceInfo.FirmwareVersion == "" {
+		swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+		if err != nil {
+			slog.Debug("failed to get software info during DescribeDevice", "error", err)
+		} else if swInfoResp.Msg.SwInfo != nil {
+			d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+		}
+	}
+
 	return d.deviceInfo, capabilities, nil
 }
 

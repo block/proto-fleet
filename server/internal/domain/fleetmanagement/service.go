@@ -284,6 +284,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		if row.Manufacturer.Valid {
 			snapshot.Manufacturer = row.Manufacturer.String
 		}
+		if row.FirmwareVersion.Valid {
+			snapshot.FirmwareVersion = row.FirmwareVersion.String
+		}
 
 		switch row.PairingStatus {
 		case "PAIRED":

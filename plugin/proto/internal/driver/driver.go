@@ -214,15 +214,25 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 		return sdk.DeviceInfo{}, err
 	}
 
+	// Get firmware version during discovery
+	firmwareVersion := ""
+	swInfoResp, err := client.GetSoftwareInfo(ctx)
+	if err != nil {
+		slog.Debug("failed to get software info during discovery", "error", err)
+	} else if swInfoResp.Msg.SwInfo != nil {
+		firmwareVersion = swInfoResp.Msg.SwInfo.Version
+	}
+
 	return sdk.DeviceInfo{
-		Host:         ipAddress,
-		Port:         port,
-		URLScheme:    scheme,
-		SerialNumber: info.SerialNumber,
-		Model:        info.Model,
-		Manufacturer: info.Manufacturer,
-		Type:         sdk.DeviceTypeASIC,
-		MacAddress:   info.MacAddress,
+		Host:            ipAddress,
+		Port:            port,
+		URLScheme:       scheme,
+		SerialNumber:    info.SerialNumber,
+		Model:           info.Model,
+		Manufacturer:    info.Manufacturer,
+		Type:            sdk.DeviceTypeASIC,
+		MacAddress:      info.MacAddress,
+		FirmwareVersion: firmwareVersion,
 	}, nil
 }
 

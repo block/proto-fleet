@@ -308,6 +308,12 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// GetSoftwareInfo retrieves software/firmware version information.
+func (c *Client) GetSoftwareInfo(ctx context.Context) (*connect.Response[miner_data_api.SoftwareInfoResponse], error) {
+	ctx = c.withAuth(ctx)
+	return c.dataClient.GetSoftwareInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+}
+
 // GetDeviceInfo retrieves basic device information.
 //
 // This method demonstrates:
@@ -377,10 +383,19 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		}
 	}
 
+	// Get firmware version from software info API
+	firmwareVersion := ""
+	swInfoResp, err := c.dataClient.GetSoftwareInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		slog.Debug("failed to get software info", "error", err)
+	} else if swInfoResp.Msg.SwInfo != nil {
+		firmwareVersion = swInfoResp.Msg.SwInfo.Version
+	}
+
 	return &Status{
 		State:           state,
 		ErrorMessage:    "", // TODO: Extract from API when available
-		FirmwareVersion: "", // TODO: Get from API when available
+		FirmwareVersion: firmwareVersion,
 	}, nil
 }
 

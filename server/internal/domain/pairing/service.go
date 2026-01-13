@@ -777,5 +777,22 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
 	}
 
+	// Get device info with authentication to fetch firmware version and other details
+	updatedDeviceInfo, err := pairer.GetDeviceInfo(ctx, discoveredDevice, credentials)
+	if err != nil {
+		slog.Warn("failed to get device info after pairing, continuing without firmware version",
+			"device_identifier", discoveredDevice.DeviceIdentifier,
+			"error", err)
+	} else {
+		// Update firmware version from authenticated device info
+		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+	}
+
+	// Save updated device info (firmware version, serial number, MAC address) back to discovered_device table
+	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error saving updated device info after pairing: %v", err)
+	}
+
 	return nil
 }

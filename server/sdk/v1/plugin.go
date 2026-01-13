@@ -1449,14 +1449,15 @@ func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 	}
 
 	return &pb.DeviceInfo{
-		Host:         d.Host,
-		Port:         d.Port,
-		UrlScheme:    d.URLScheme,
-		SerialNumber: d.SerialNumber,
-		Model:        d.Model,
-		Manufacturer: d.Manufacturer,
-		Type:         deviceType,
-		MacAddress:   d.MacAddress,
+		Host:            d.Host,
+		Port:            d.Port,
+		UrlScheme:       d.URLScheme,
+		SerialNumber:    d.SerialNumber,
+		Model:           d.Model,
+		Manufacturer:    d.Manufacturer,
+		Type:            deviceType,
+		MacAddress:      d.MacAddress,
+		FirmwareVersion: d.FirmwareVersion,
 	}
 }
 
@@ -1477,14 +1478,15 @@ func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 	}
 
 	return DeviceInfo{
-		Host:         p.Host,
-		Port:         p.Port,
-		URLScheme:    p.UrlScheme,
-		SerialNumber: p.SerialNumber,
-		Model:        p.Model,
-		Manufacturer: p.Manufacturer,
-		Type:         deviceType,
-		MacAddress:   p.MacAddress,
+		Host:            p.Host,
+		Port:            p.Port,
+		URLScheme:       p.UrlScheme,
+		SerialNumber:    p.SerialNumber,
+		Model:           p.Model,
+		Manufacturer:    p.Manufacturer,
+		Type:            deviceType,
+		MacAddress:      p.MacAddress,
+		FirmwareVersion: p.FirmwareVersion,
 	}
 }
 

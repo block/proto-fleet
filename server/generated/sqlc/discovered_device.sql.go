@@ -29,7 +29,7 @@ func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgI
 
 const getActiveUnpairedDiscoveredDevices = `-- name: GetActiveUnpairedDiscoveredDevices :many
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.type, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
+       dd.type, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
@@ -60,6 +60,7 @@ type GetActiveUnpairedDiscoveredDevicesRow struct {
 	Model             sql.NullString
 	Manufacturer      sql.NullString
 	Type              string
+	FirmwareVersion   sql.NullString
 	IpAddress         string
 	Port              string
 	UrlScheme         string
@@ -93,6 +94,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 			&i.Model,
 			&i.Manufacturer,
 			&i.Type,
+			&i.FirmwareVersion,
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
@@ -118,7 +120,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active
+SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
 FROM discovered_device
 WHERE device_identifier = ?
     AND org_id = ?
@@ -151,12 +153,13 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsActive,
+		&i.FirmwareVersion,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active
+SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
 FROM discovered_device
 WHERE id = ?
     AND org_id = ?
@@ -189,12 +192,13 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsActive,
+		&i.FirmwareVersion,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active
+SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
 FROM discovered_device
 WHERE org_id = ?
     AND ip_address = ?
@@ -229,6 +233,7 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsActive,
+		&i.FirmwareVersion,
 	)
 	return i, err
 }
@@ -240,11 +245,13 @@ INSERT INTO discovered_device (
     model,
     manufacturer,
     type,
+    firmware_version,
     ip_address,
     port,
     url_scheme,
     is_active
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -259,6 +266,7 @@ ON DUPLICATE KEY UPDATE
     ip_address = VALUES(ip_address),
     port = VALUES(port),
     url_scheme = VALUES(url_scheme),
+    firmware_version = VALUES(firmware_version),
     last_seen = CURRENT_TIMESTAMP(6),
     id = LAST_INSERT_ID(id)
 `
@@ -269,6 +277,7 @@ type UpsertDiscoveredDeviceParams struct {
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	Type             string
+	FirmwareVersion  sql.NullString
 	IpAddress        string
 	Port             string
 	UrlScheme        string
@@ -282,6 +291,7 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.Model,
 		arg.Manufacturer,
 		arg.Type,
+		arg.FirmwareVersion,
 		arg.IpAddress,
 		arg.Port,
 		arg.UrlScheme,

@@ -35,6 +35,9 @@ message Device {
 
   // Capabilities of the device
   capabilities.v1.MinerCapabilities capabilities = 10;
+
+  // Firmware version (available after discovery/pairing)
+  string firmware_version = 11;
 }
 
 // Represents login credentials used for device pairing

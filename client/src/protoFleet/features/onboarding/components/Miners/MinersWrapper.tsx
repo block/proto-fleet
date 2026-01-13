@@ -204,7 +204,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
     });
     pair({
       pairRequest: pairRequest,
-      onSuccess: (failedDeviceIds) => {
+      onSuccess: async (failedDeviceIds) => {
         // Clear loading toasts before showing result
         clearLoadingToasts();
 
@@ -232,7 +232,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
           });
         }
 
-        refetch();
+        // Wait for fleet data to refresh with updated firmware versions before navigating
+        await refetch();
         refetchFleet();
         if (mode === "onboarding") {
           navigate("/");

@@ -302,6 +302,7 @@ type DiscoveredDevice struct {
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
 	IsActive          bool
+	FirmwareVersion   sql.NullString
 }
 
 type Error struct {

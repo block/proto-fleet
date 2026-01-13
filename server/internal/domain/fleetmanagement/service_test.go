@@ -875,3 +875,110 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 	assert.True(t, resp2.Miners[0].Capabilities.Telemetry.PowerUsageReported)
 	assert.True(t, resp2.Miners[1].Capabilities.Telemetry.EfficiencyReported)
 }
+
+func TestService_ListMinerStateSnapshots_IncludesFirmwareVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	t.Run("includes firmware version in response when available", func(t *testing.T) {
+		// Arrange
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+
+		// Create device with firmware version
+		deviceIdentifier := "device-with-firmware"
+		expectedFirmwareVersion := "1.2.3"
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "M100S",
+				Manufacturer:     "Proto",
+				Type:             minermodels.TypeProto.String(),
+				IpAddress:        "192.168.1.100",
+				Port:             "2121",
+				UrlScheme:        "https",
+				FirmwareVersion:  expectedFirmwareVersion,
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+
+		ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+		service := testContext.ServiceProvider.FleetManagementService
+
+		req := &pb.ListMinerStateSnapshotsRequest{
+			PageSize: 10,
+		}
+
+		// Act
+		resp, err := service.ListMinerStateSnapshots(ctx, req)
+
+		// Assert
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Miners, 1)
+
+		// Verify firmware version is included in response
+		miner := resp.Miners[0]
+		assert.Equal(t, expectedFirmwareVersion, miner.FirmwareVersion, "firmware version should be included in MinerStateSnapshot")
+	})
+
+	t.Run("handles missing firmware version gracefully", func(t *testing.T) {
+		// Arrange
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+
+		// Create device without firmware version
+		deviceIdentifier := "device-without-firmware"
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "S19 Pro",
+				Manufacturer:     "Bitmain",
+				Type:             minermodels.TypeAntminer.String(),
+				IpAddress:        "192.168.1.101",
+				Port:             "4028",
+				UrlScheme:        "http",
+				// FirmwareVersion intentionally not set
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+
+		ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+		service := testContext.ServiceProvider.FleetManagementService
+
+		req := &pb.ListMinerStateSnapshotsRequest{
+			PageSize: 10,
+		}
+
+		// Act
+		resp, err := service.ListMinerStateSnapshots(ctx, req)
+
+		// Assert
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Miners, 1)
+
+		// Firmware version should be empty string when not set
+		miner := resp.Miners[0]
+		assert.Empty(t, miner.FirmwareVersion, "firmware version should be empty when not set in database")
+	})
+}

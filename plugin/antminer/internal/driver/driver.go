@@ -181,15 +181,22 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		model = "Unknown Antminer"
 	}
 
+	// Extract firmware version from version info
+	firmwareVersion := versionInfo.BMMiner
+	if firmwareVersion == "" {
+		firmwareVersion = versionInfo.Miner
+	}
+
 	return sdk.DeviceInfo{
-		Host:         ipAddress,
-		Port:         webPort,
-		URLScheme:    "http",
-		SerialNumber: "",
-		Model:        model,
-		Manufacturer: manufacturer,
-		Type:         sdk.DeviceTypeASIC,
-		MacAddress:   "",
+		Host:            ipAddress,
+		Port:            webPort,
+		URLScheme:       "http",
+		SerialNumber:    "",
+		Model:           model,
+		Manufacturer:    manufacturer,
+		Type:            sdk.DeviceTypeASIC,
+		MacAddress:      "",
+		FirmwareVersion: firmwareVersion,
 	}, nil
 }
 
@@ -233,11 +240,23 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	deviceInfo.SerialNumber = deviceInfoResp.SerialNumber
 	deviceInfo.MacAddress = deviceInfoResp.MacAddress
 
+	// Get firmware version during pairing
+	versionResp, err := client.GetVersion(ctx)
+	if err != nil {
+		slog.Debug("failed to get version during pairing", "error", err)
+	} else if len(versionResp.Version) > 0 {
+		deviceInfo.FirmwareVersion = versionResp.Version[0].BMMiner
+		if deviceInfo.FirmwareVersion == "" {
+			deviceInfo.FirmwareVersion = versionResp.Version[0].Miner
+		}
+	}
+
 	slog.Debug("Device paired successfully, returning device info",
 		"host", deviceInfo.Host,
 		"model", deviceInfo.Model,
 		"serial", deviceInfo.SerialNumber,
 		"mac", deviceInfo.MacAddress,
+		"firmware_version", deviceInfo.FirmwareVersion,
 		"username", credentials.Username)
 
 	return deviceInfo, nil

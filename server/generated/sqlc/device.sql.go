@@ -818,6 +818,7 @@ SELECT DISTINCT
     model,
     manufacturer,
     type,
+    firmware_version,
     device_status,
     status_timestamp,
     status_details,
@@ -835,6 +836,7 @@ FROM (
         dd.model,
         dd.manufacturer,
         dd.type,
+        dd.firmware_version,
         ds.status as device_status,
         ds.status_timestamp,
         ds.status_details,
@@ -952,6 +954,7 @@ type ListMinerStateSnapshotsRow struct {
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	Type             string
+	FirmwareVersion  sql.NullString
 	DeviceStatus     NullDeviceStatusStatus
 	StatusTimestamp  sql.NullTime
 	StatusDetails    sql.NullString
@@ -1029,6 +1032,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStat
 			&i.Model,
 			&i.Manufacturer,
 			&i.Type,
+			&i.FirmwareVersion,
 			&i.DeviceStatus,
 			&i.StatusTimestamp,
 			&i.StatusDetails,

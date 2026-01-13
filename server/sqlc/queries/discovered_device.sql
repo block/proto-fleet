@@ -30,11 +30,13 @@ INSERT INTO discovered_device (
     model,
     manufacturer,
     type,
+    firmware_version,
     ip_address,
     port,
     url_scheme,
     is_active
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -49,12 +51,13 @@ ON DUPLICATE KEY UPDATE
     ip_address = VALUES(ip_address),
     port = VALUES(port),
     url_scheme = VALUES(url_scheme),
+    firmware_version = VALUES(firmware_version),
     last_seen = CURRENT_TIMESTAMP(6),
     id = LAST_INSERT_ID(id);
 
 -- name: GetActiveUnpairedDiscoveredDevices :many
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.type, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
+       dd.type, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd

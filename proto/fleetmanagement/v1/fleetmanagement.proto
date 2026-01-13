@@ -108,6 +108,9 @@ message MinerStateSnapshot {
   // Temperature status based on current temperature value
   telemetry.v1.TemperatureStatus temperature_status = 18;
 
+  // Firmware version installed on the device
+  string firmware_version = 19;
+
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

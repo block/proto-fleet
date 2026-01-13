@@ -608,3 +608,138 @@ func stripIdentifier(m map[string]*pb.Device) map[string]*pb.Device {
 	}
 	return out
 }
+
+func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
+	t.Run("saves firmware version after successful pairing", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		host := "192.168.1.100"
+		portStr := "80"
+		expectedFirmwareVersion := "1.2.3"
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
+
+		// Create mock pairer that returns successful pairing
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
+		mockProtoPairer.EXPECT().GetMinerType().Return(miner.TypeProto).AnyTimes()
+
+		// Mock successful PairDevice call
+		mockProtoPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(nil)
+		// Mock GetDeviceInfo call that returns device info with firmware version
+		mockProtoPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials any) (*pb.Device, error) {
+				// Return device with firmware version set
+				return &pb.Device{
+					DeviceIdentifier: discoveredDevice.DeviceIdentifier,
+					FirmwareVersion:  expectedFirmwareVersion,
+				}, nil
+			})
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockProtoPairer}, mockDiscoverer)
+
+		// First discover the device
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{host},
+			Ports:       []string{portStr},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		// Now pair the device
+		pairRequest := &pb.PairRequest{
+			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
+		}
+
+		_, err = pairingService.PairDevices(ctx, pairRequest)
+		require.NoError(t, err)
+
+		// Verify firmware version was saved to discovered_device table
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+		assert.True(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be set")
+		assert.Equal(t, expectedFirmwareVersion, discoveredDevice.FirmwareVersion.String, "firmware version should match")
+	})
+
+	t.Run("handles missing firmware version gracefully", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		host := "192.168.1.101"
+		portStr := "80"
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
+
+		// Create mock pairer that returns successful pairing but no firmware
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
+		mockProtoPairer.EXPECT().GetMinerType().Return(miner.TypeProto).AnyTimes()
+
+		mockProtoPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(nil)
+
+		// Mock GetDeviceInfo that returns error (firmware unavailable)
+		mockProtoPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, fmt.Errorf("failed to get device info"))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockProtoPairer}, mockDiscoverer)
+
+		// Discover the device
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{host},
+			Ports:       []string{portStr},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		// Pair the device
+		pairRequest := &pb.PairRequest{
+			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
+		}
+
+		// Pairing should still succeed even if GetDeviceInfo fails
+		_, err = pairingService.PairDevices(ctx, pairRequest)
+		require.NoError(t, err)
+
+		// Verify device was paired successfully but firmware_version is NULL
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
+	})
+}

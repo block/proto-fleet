@@ -105,6 +105,7 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 	discoveredDevice.MacAddress = updatedDeviceInfo.MacAddress
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
+	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 
 	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
@@ -240,14 +241,15 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 	}
 
 	return sdk.DeviceInfo{
-		Host:         device.IpAddress,
-		Port:         port,
-		URLScheme:    device.UrlScheme,
-		SerialNumber: device.SerialNumber,
-		Model:        device.Model,
-		Manufacturer: device.Manufacturer,
-		Type:         deviceType,
-		MacAddress:   device.MacAddress,
+		Host:            device.IpAddress,
+		Port:            port,
+		URLScheme:       device.UrlScheme,
+		SerialNumber:    device.SerialNumber,
+		Model:           device.Model,
+		Manufacturer:    device.Manufacturer,
+		Type:            deviceType,
+		MacAddress:      device.MacAddress,
+		FirmwareVersion: device.FirmwareVersion,
 	}
 }
 

@@ -348,6 +348,7 @@ message DeviceInfo {
   string manufacturer = 6;  // e.g., "Bitmain"
   DeviceType type = 7;          // e.g., "ASIC", "GPU"
   string mac_address = 8; // e.g., "00:1A:2B:3C:4D:5E"
+  string firmware_version = 9; // e.g., "1.0.0", "mcdd-v1.2.3"
 }
 
 enum DeviceType {

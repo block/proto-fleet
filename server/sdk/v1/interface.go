@@ -322,14 +322,15 @@ const (
 
 // DeviceInfo represents information about a discovered device
 type DeviceInfo struct {
-	Host         string     // e.g., "192.168.1.100" (maps to proto 'host')
-	Port         int32      // e.g., 4028 (maps to proto 'port')
-	URLScheme    string     // e.g., "http", "https", "ssh" (maps to proto 'url_scheme')
-	SerialNumber string     // e.g., "SN123456789" (maps to proto 'serial_number')
-	Model        string     // e.g., "Antminer S19" (maps to proto 'model')
-	Manufacturer string     // e.g., "Bitmain" (maps to proto 'manufacturer')
-	Type         DeviceType // Device type enum (maps to proto 'type')
-	MacAddress   string     // e.g., "00:1A:2B:3C:4D:5E" (maps to proto 'mac_address')
+	Host            string     // e.g., "192.168.1.100" (maps to proto 'host')
+	Port            int32      // e.g., 4028 (maps to proto 'port')
+	URLScheme       string     // e.g., "http", "https", "ssh" (maps to proto 'url_scheme')
+	SerialNumber    string     // e.g., "SN123456789" (maps to proto 'serial_number')
+	Model           string     // e.g., "Antminer S19" (maps to proto 'model')
+	Manufacturer    string     // e.g., "Bitmain" (maps to proto 'manufacturer')
+	Type            DeviceType // Device type enum (maps to proto 'type')
+	MacAddress      string     // e.g., "00:1A:2B:3C:4D:5E" (maps to proto 'mac_address')
+	FirmwareVersion string     // e.g., "1.2.3" (maps to proto 'firmware_version')
 }
 
 // HealthStatus represents the health status of a device
