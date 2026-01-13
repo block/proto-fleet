@@ -30,13 +30,13 @@ const (
 	jhToJthConversionFactor   = 1e12
 
 	// Default intervals
-	defaultStatusUpdateInterval     = 1 * time.Second
-	defaultDeviceStatusPollInterval = 10 * time.Second
-	defaultFetchInterval            = 10 * time.Second
-	defaultDevicePollInterval       = 10 * time.Minute
-	defaultHeartbeatInterval        = 30 * time.Second
-	defaultBroadcasterPollInterval  = 5 * time.Second
-	componentStatusStreamInterval   = 5 * time.Second
+	defaultStatusUpdateInterval    = 1 * time.Second
+	defaultFetchInterval           = 10 * time.Second
+	defaultDevicePollInterval      = 10 * time.Minute
+	defaultHeartbeatInterval       = 30 * time.Second
+	defaultBroadcasterPollInterval = 5 * time.Second
+	componentStatusStreamInterval  = 5 * time.Second
+	defaultStatusPollingInterval   = 10 * time.Second
 
 	// Channel buffer sizes
 	streamResponseChannelBuffer = 100
@@ -151,6 +151,14 @@ type MinerGetter interface {
 	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
 }
 
+type deviceResult struct {
+	device       models.Device
+	telemetry    []models.Telemetry
+	metrics      modelsV2.DeviceMetrics
+	telemetryErr error
+	metricsErr   error
+}
+
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
@@ -159,12 +167,19 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	mux                sync.Mutex
-	tasks              chan models.Device
-	statusTasks        chan models.Device
-	cancelFunc         context.CancelFunc
-	lookBackDuration   time.Duration
-	trackedDevices     sync.Map
-	broadcasters       sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
+	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
+	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
+	tasks chan models.Device
+	// statusTasks queues devices for status-only checks (no telemetry fetch).
+	// Used by statusPollingRoutine to check failed devices for recovery.
+	statusTasks      chan models.Device
+	cancelFunc       context.CancelFunc
+	lookBackDuration time.Duration
+	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
+	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
+	// continue to be polled for status so they can recover when they come back online.
+	devicesForStatusPolling sync.Map
+	broadcasters            sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
@@ -175,10 +190,9 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		updateScheduler:    scheduler,
 		deviceStore:        deviceStore,
 		errorPoller:        errorPoller,
-		// channel for tasks to process telemetry data, it is set so that there is at least 1 queued task for every worker.
-		tasks:            make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:      make(chan models.Device, config.ConcurrencyLimit),
-		lookBackDuration: -1 * (config.StalenessThreshold - config.FetchInterval),
+		tasks:              make(chan models.Device, config.ConcurrencyLimit),
+		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
+		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 }
 
@@ -188,7 +202,7 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	}
 	for _, id := range deviceID {
 		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
-		s.trackedDevices.Store(id, struct{}{})
+		s.devicesForStatusPolling.Store(id, struct{}{})
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
@@ -198,7 +212,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		return nil
 	}
 	for _, id := range deviceIDs {
-		s.trackedDevices.Delete(id)
+		s.devicesForStatusPolling.Delete(id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
 }
@@ -209,7 +223,7 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 
 	go s.gatherMetricsRoutine(ctx)
 	go s.devicePollingRoutine(ctx)
-	go s.gatherDeviceStatusRoutine(ctx)
+	go s.statusPollingRoutine(ctx)
 	return nil
 }
 
@@ -260,31 +274,6 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 	}
 
 	return broadcaster, nil
-}
-
-func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
-	interval := s.config.DeviceStatusPollInterval
-	if interval <= 0 {
-		interval = defaultDeviceStatusPollInterval
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Fetch device statuses
-			s.trackedDevices.Range(func(key, _ any) bool {
-				if id, ok := key.(models.DeviceIdentifier); ok {
-					s.statusTasks <- models.Device{ID: id}
-				}
-				return true
-			})
-		}
-	}
 }
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
@@ -362,52 +351,95 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 	return nil
 }
 
+// statusPollingRoutine sends all paired devices to the statusTasks channel at regular intervals.
+// This is essential for recovering failed devices: when a device exceeds MaxConsecutiveFailures,
+// the scheduler stops including it in telemetry fetches. This routine ensures we continue
+// checking status so devices can be restored when they come back online.
+// Status tasks are processed by workers in parallel, enabling efficient handling of large fleets.
+func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
+	interval := s.config.DeviceStatusPollInterval
+	if interval <= 0 {
+		interval = defaultStatusPollingInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.devicesForStatusPolling.Range(func(key, _ any) bool {
+				deviceID, ok := key.(models.DeviceIdentifier)
+				if !ok {
+					return true
+				}
+
+				select {
+				case s.statusTasks <- models.Device{ID: deviceID}:
+				case <-ctx.Done():
+					return false
+				}
+				return true
+			})
+		}
+	}
+}
+
 func (s *TelemetryService) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case device := <-s.tasks:
-			if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
-				slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
-
-				// Check if this is an authentication error and update pairing status
-				if fleeterror.IsAuthenticationError(err) {
-					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-							"deviceID", device.ID, "error", updateErr)
-					}
-				}
-
-				if err := s.updateScheduler.AddFailedDevices(ctx, device); err != nil {
-					slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
-				}
-			}
-			if err := s.GetStatusForDevice(ctx, device); err != nil {
-				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
-
-				// Check if this is an authentication error and update pairing status
-				if fleeterror.IsAuthenticationError(err) {
-					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-							"deviceID", device.ID, "error", updateErr)
-					}
-				}
-			}
-
-			s.pollErrorsForDevice(ctx, device)
-
+			s.processFullTelemetry(ctx, device)
 		case device := <-s.statusTasks:
-			if err := s.GetStatusForDevice(ctx, device); err != nil {
-				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+			s.processStatusOnly(ctx, device)
+		}
+	}
+}
 
-				// Check if this is an authentication error and update pairing status
-				if fleeterror.IsAuthenticationError(err) {
-					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-							"deviceID", device.ID, "error", updateErr)
-					}
-				}
+// processFullTelemetry fetches telemetry, status, and errors from a device.
+// Used for devices that need full telemetry collection from the scheduler.
+func (s *TelemetryService) processFullTelemetry(ctx context.Context, device models.Device) {
+	if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
+		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
+
+		if fleeterror.IsAuthenticationError(err) {
+			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+					"deviceID", device.ID, "error", updateErr)
+			}
+		}
+
+		if err := s.updateScheduler.AddFailedDevices(ctx, device); err != nil {
+			slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
+		}
+	}
+	if err := s.GetStatusForDevice(ctx, device); err != nil {
+		slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+
+		if fleeterror.IsAuthenticationError(err) {
+			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+					"deviceID", device.ID, "error", updateErr)
+			}
+		}
+	}
+
+	s.pollErrorsForDevice(ctx, device)
+}
+
+// processStatusOnly fetches only the status for a device.
+// Used by the status polling routine to check if failed devices have recovered.
+func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device) {
+	if err := s.GetStatusForDevice(ctx, device); err != nil {
+		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", err)
+
+		if fleeterror.IsAuthenticationError(err) {
+			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+					"deviceID", device.ID, "error", updateErr)
 			}
 		}
 	}
@@ -445,6 +477,18 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 			"upsertsFailed", result.UpsertsFailed,
 			"errorsUpserted", result.ErrorsUpserted)
 	}
+}
+
+func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &deviceResult{device: device}
+	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
+	result.telemetry, result.telemetryErr = miner.GetTelemetry(ctx, device.LastUpdatedAt)
+	return result, nil
 }
 
 func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {
@@ -514,41 +558,37 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 	return nil
 }
 
-// GetTelemetryFromDevice fetches telemetry data from a specific device,
-// and stores it in the telemetry data store
+// GetTelemetryFromDevice fetches telemetry data from a device and stores it.
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) error {
 	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
-	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+
+	result, err := s.fetchTelemetryFromMiner(ctx, device)
 	if err != nil {
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
-	deviceMetrics, err := miner.GetDeviceMetrics(ctx)
-	if err == nil {
-		err = s.telemetryDataStore.StoreDeviceMetrics(ctx, deviceMetrics)
-		if err != nil {
+	if result.metricsErr == nil {
+		if err := s.telemetryDataStore.StoreDeviceMetrics(ctx, result.metrics); err != nil {
 			slog.Error("Failed to store device metrics",
 				"device_id", device.ID,
 				"error", err)
 		}
 	}
 
-	telemetry, err := miner.GetTelemetry(ctx, device.LastUpdatedAt)
-	if err != nil {
-		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, err)
+	if result.telemetryErr != nil {
+		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, result.telemetryErr)
 	}
-	err = s.telemetryDataStore.Store(ctx, telemetry...)
-	if err != nil {
+
+	if err := s.telemetryDataStore.Store(ctx, result.telemetry...); err != nil {
 		slog.Error("failed to store telemetry data", "deviceID", device.ID, "error", err)
 		return fmt.Errorf("failed to store telemetry data for device %s: %w", device.ID, err)
 	}
 
-	err = s.updateScheduler.AddDevices(ctx, models.Device{
+	if err := s.updateScheduler.AddDevices(ctx, models.Device{
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
 	}
 	return nil
