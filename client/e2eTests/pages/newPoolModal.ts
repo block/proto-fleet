@@ -34,7 +34,7 @@ export class NewPoolModalPage extends BasePage {
     ).toBeVisible();
   }
 
-  async clickSavePool() {
+  async clickSaveNewPool() {
     await this.page.getByTestId("pool-save-button").click();
   }
 }

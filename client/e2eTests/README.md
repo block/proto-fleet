@@ -249,23 +249,13 @@ test.describe("Feature Name", () => {
 });
 ```
 
-### Serial Test Execution
-
-Some test suites use serial execution when tests depend on previous test state:
-
-```typescript
-test.describe.serial("Dependent Tests", () => {
-  // Tests run in order, sharing state
-});
-```
-
 ## Best Practices
 
 ### Test Organization
 
 - Group related tests using `test.describe()`
 - Use descriptive test names that explain the scenario
-- Keep tests independent and idempotent (except when using `.serial()`)
+- Keep tests independent and idempotent
 - Use `beforeEach` for common setup
 - Use `test.step()` to organize test logic into readable sections
 - Leverage `commonSteps` helper for frequently used workflows

@@ -173,7 +173,7 @@ export class MinersPage extends BasePage {
   }
 
   async validateAllMinersStatus(status: string, expected: boolean = true) {
-    await this.waitForMinersListToLoad();
+    await this.waitForColumnValuesToLoad("status");
     // To avoid miner actions hiding some valuable data in screenshots
     await this.uncheckSelectAllCheckbox();
     const rows = this.page.getByTestId("list-body").locator("tr");
@@ -198,8 +198,12 @@ export class MinersPage extends BasePage {
     await this.validateAllMinersStatus(status, false);
   }
 
+  async getMinerStatus(ipAddress: string): Promise<string> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    return await minerRow.locator(`//td[@data-testid='status']`).innerText();
+  }
+
   async validateMinerStatus(ipAddress: string, expectedStatus: string) {
-    await this.waitForMinersListToLoad();
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await expect(minerRow.locator(`//td[@data-testid='status']`)).toHaveText(expectedStatus, {
       timeout: PROLONGED_TIMEOUT,
@@ -207,7 +211,6 @@ export class MinersPage extends BasePage {
   }
 
   private async waitForColumnValuesToLoad(columnTestId: string) {
-    await this.waitForMinersListToLoad();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
     // Start from last row to avoid extremely long tests due to lazy loading
@@ -235,7 +238,7 @@ export class MinersPage extends BasePage {
       // Get temperature text
       const temperatureText = await rows.nth(i).locator(`//td[@data-testid='temperature']`).innerText();
       const parts = temperatureText.split(" ");
-      expect(parts.length).toBe(2);
+      expect(parts.length, `Expected temperature text to value and unit, but got: "${temperatureText}"`).toBe(2);
 
       // Validate unit - C/F
       const unit = parts[1];

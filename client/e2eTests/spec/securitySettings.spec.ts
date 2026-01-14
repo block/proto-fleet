@@ -4,8 +4,6 @@ import { test } from "../fixtures/pageFixtures";
 import { generateRandomText, generateRandomUsername } from "../helpers/testDataHelper";
 
 test.describe("Proto Fleet - Security Settings", () => {
-  test.describe.configure({ mode: "default" });
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

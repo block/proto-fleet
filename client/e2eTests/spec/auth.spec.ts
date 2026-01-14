@@ -3,8 +3,6 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Proto Fleet - Authentication", () => {
-  test.describe.configure({ mode: "default" });
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

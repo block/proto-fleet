@@ -8,9 +8,9 @@ test.describe("Mining Pools @setup", () => {
   });
   const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
   const validPoolUrl = "stratum+tcp://stratum.slushpool.com:3333";
+  const settingsPoolName = generateRandomText("PoolName");
 
   test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
-    const poolName = generateRandomText("PoolName");
     const poolUsername = "test";
     await commonSteps.loginAsAdmin();
 
@@ -22,7 +22,7 @@ test.describe("Mining Pools @setup", () => {
     await test.step("Configure mining pool with invalid URL", async () => {
       await settingsPoolsPage.clickAddPool();
       await newPoolModal.validatePoolModalOpened();
-      await newPoolModal.inputPoolName(poolName);
+      await newPoolModal.inputPoolName(settingsPoolName);
       await newPoolModal.inputPoolUrl(invalidPoolUrl);
       await newPoolModal.inputPoolUsername(poolUsername);
     });
@@ -42,8 +42,8 @@ test.describe("Mining Pools @setup", () => {
     });
 
     await test.step("Save and validate pool URL", async () => {
-      await newPoolModal.clickSavePool();
-      await settingsPoolsPage.validatePoolEntryByUniqueName(poolName, validPoolUrl, poolUsername);
+      await newPoolModal.clickSaveNewPool();
+      await settingsPoolsPage.validatePoolEntryByUniqueName(settingsPoolName, validPoolUrl, poolUsername);
     });
   });
 
@@ -51,7 +51,6 @@ test.describe("Mining Pools @setup", () => {
     const poolName = generateRandomText("PoolName");
     const poolUsername = "pool";
     await commonSteps.loginAsAdmin();
-
     await commonSteps.goToMinersPage();
 
     let amountOfMiners: number;
@@ -70,12 +69,37 @@ test.describe("Mining Pools @setup", () => {
       await newPoolModal.inputPoolUsername(poolUsername);
       await newPoolModal.clickTestConnection();
       await newPoolModal.validateConnectionSuccessful();
-      await newPoolModal.clickSavePool();
+      await newPoolModal.clickSaveNewPool();
       await editPoolPage.clickAssignToXMiners(amountOfMiners);
     });
 
     await test.step("Validate the pool has been assigned", async () => {
       await minersPage.validateNoMinerWithStatus("Needs mining pool");
+    });
+  });
+
+  test("Add to first miner backup pool created from settings", async ({ minersPage, editPoolPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let minerIp: string;
+    let minerStatus: string;
+    await test.step("Open pool editor for first miner", async () => {
+      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      minerStatus = await minersPage.getMinerStatus(minerIp);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickEditMiningPoolButton();
+    });
+
+    await test.step("Select backup mining pool", async () => {
+      await editPoolPage.clickAddBackupPoolOne();
+      await editPoolPage.clickPoolRowByName(settingsPoolName);
+      await editPoolPage.clickSavePoolChoice();
+      await editPoolPage.clickAssignToXMiners(1);
+    });
+
+    await test.step("Validate miner's status did not change", async () => {
+      await minersPage.validateMinerStatus(minerIp, minerStatus);
     });
   });
 });

@@ -2,7 +2,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
-test.describe.serial("Navigation", () => {
+test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

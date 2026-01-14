@@ -3,8 +3,6 @@ import { test } from "../fixtures/pageFixtures";
 import { generateRandomUsername } from "../helpers/testDataHelper";
 
 test.describe("Proto Fleet - Team Accounts", () => {
-  test.describe.configure({ mode: "default" });
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

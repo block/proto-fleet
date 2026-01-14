@@ -2,7 +2,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
-test.describe.serial("Miners", () => {
+test.describe("Miners", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
@@ -52,124 +52,6 @@ test.describe.serial("Miners", () => {
 
     await test.step("Validate none of the miners are sleeping", async () => {
       await minersPage.validateNoMinerWithStatus("Sleeping");
-    });
-  });
-
-  test("UNPAIR a single miner", async ({ minersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
-
-    let minerCount: number;
-    let minerIp: string;
-    await test.step("Select a miner and unpair it", async () => {
-      minerCount = await minersPage.getMinersCount();
-      minerIp = await minersPage.getMinerIpAddressByIndex(0);
-      await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.clickUnpairButton();
-      await minersPage.clickUnpairConfirm();
-    });
-
-    await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
-    });
-
-    await test.step("Validate miner was unpaired", async () => {
-      await minersPage.validateMinerNotPresent(minerIp);
-      await minersPage.validateAmountOfMiners(minerCount - 1);
-    });
-  });
-
-  test("UNPAIR multiple miners", async ({ minersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
-
-    let minerCount: number;
-    let minerIp1: string;
-    let minerIp2: string;
-    let minerIp3: string;
-    await test.step("Select multiple miners and unpair them", async () => {
-      minerCount = await minersPage.getMinersCount();
-      minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
-      minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
-      minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
-      await minersPage.clickMinerCheckbox(minerIp1);
-      await minersPage.validateActionBarMinerCount(1);
-      await minersPage.clickMinerCheckbox(minerIp2);
-      await minersPage.validateActionBarMinerCount(2);
-      await minersPage.clickMinerCheckbox(minerIp3);
-      await minersPage.validateActionBarMinerCount(3);
-      await minersPage.clickActionsMenuButton();
-      await minersPage.clickUnpairButton();
-      await minersPage.clickUnpairConfirm();
-    });
-
-    await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
-    });
-
-    await test.step("Validate miners were unpaired", async () => {
-      await minersPage.validateMinerNotPresent(minerIp1);
-      await minersPage.validateMinerNotPresent(minerIp2);
-      await minersPage.validateMinerNotPresent(minerIp3);
-      await minersPage.validateAmountOfMiners(minerCount - 3);
-    });
-  });
-
-  test("ADD a single miner", async ({ minersPage, addMinersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
-
-    let minerIp: string;
-    let minerCount: number;
-    await test.step("Add a single miner", async () => {
-      minerCount = await minersPage.getMinersCount();
-      await minersPage.clickAddMinersButton();
-      await addMinersPage.clickFindMiners();
-      await addMinersPage.clickChooseMiners();
-      await addMinersPage.clickSelectNone();
-      minerIp = await addMinersPage.getMinerIpAddressByIndex(0);
-      await addMinersPage.clickMinerCheckbox(minerIp);
-      await addMinersPage.clickDone();
-      await addMinersPage.clickContinueWithXMiners(1);
-    });
-
-    await test.step("Validate miner was added", async () => {
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-      await minersPage.validateMinerInList(minerIp);
-      await minersPage.validateAmountOfMiners(minerCount + 1);
-    });
-  });
-
-  test("ADD multiple miners", async ({ minersPage, addMinersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
-
-    let minerIp1: string;
-    let minerIp2: string;
-    let minerCount: number;
-    await test.step("Add multiple miners", async () => {
-      minerCount = await minersPage.getMinersCount();
-      await minersPage.clickAddMinersButton();
-      await addMinersPage.clickFindMiners();
-      await addMinersPage.clickChooseMiners();
-      await addMinersPage.clickSelectNone();
-      minerIp1 = await addMinersPage.getMinerIpAddressByIndex(0);
-      minerIp2 = await addMinersPage.getMinerIpAddressByIndex(1);
-      await addMinersPage.clickMinerCheckbox(minerIp1);
-      await addMinersPage.clickMinerCheckbox(minerIp2);
-      await addMinersPage.clickDone();
-      await addMinersPage.clickContinueWithXMiners(2);
-    });
-
-    await test.step("Validate miners were added", async () => {
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-      await minersPage.validateMinerInList(minerIp1);
-      await minersPage.validateMinerInList(minerIp2);
-      await minersPage.validateAmountOfMiners(minerCount + 2);
     });
   });
 
@@ -377,6 +259,124 @@ test.describe.serial("Miners", () => {
       test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
       test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
       test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("UNPAIR a single miner", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let minerCount: number;
+    let minerIp: string;
+    await test.step("Select a miner and unpair it", async () => {
+      minerCount = await minersPage.getMinersCount();
+      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate miner was unpaired", async () => {
+      await minersPage.validateMinerNotPresent(minerIp);
+      await minersPage.validateAmountOfMiners(minerCount - 1);
+    });
+  });
+
+  test("UNPAIR multiple miners", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let minerCount: number;
+    let minerIp1: string;
+    let minerIp2: string;
+    let minerIp3: string;
+    await test.step("Select multiple miners and unpair them", async () => {
+      minerCount = await minersPage.getMinersCount();
+      minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.validateActionBarMinerCount(1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.validateActionBarMinerCount(2);
+      await minersPage.clickMinerCheckbox(minerIp3);
+      await minersPage.validateActionBarMinerCount(3);
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate miners were unpaired", async () => {
+      await minersPage.validateMinerNotPresent(minerIp1);
+      await minersPage.validateMinerNotPresent(minerIp2);
+      await minersPage.validateMinerNotPresent(minerIp3);
+      await minersPage.validateAmountOfMiners(minerCount - 3);
+    });
+  });
+
+  test("ADD a single miner", async ({ minersPage, addMinersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let minerIp: string;
+    let minerCount: number;
+    await test.step("Add a single miner", async () => {
+      minerCount = await minersPage.getMinersCount();
+      await minersPage.clickAddMinersButton();
+      await addMinersPage.clickFindMiners();
+      await addMinersPage.clickChooseMiners();
+      await addMinersPage.clickSelectNone();
+      minerIp = await addMinersPage.getMinerIpAddressByIndex(0);
+      await addMinersPage.clickMinerCheckbox(minerIp);
+      await addMinersPage.clickDone();
+      await addMinersPage.clickContinueWithXMiners(1);
+    });
+
+    await test.step("Validate miner was added", async () => {
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.validateMinerInList(minerIp);
+      await minersPage.validateAmountOfMiners(minerCount + 1);
+    });
+  });
+
+  test("ADD multiple miners", async ({ minersPage, addMinersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let minerIp1: string;
+    let minerIp2: string;
+    let minerCount: number;
+    await test.step("Add multiple miners", async () => {
+      minerCount = await minersPage.getMinersCount();
+      await minersPage.clickAddMinersButton();
+      await addMinersPage.clickFindMiners();
+      await addMinersPage.clickChooseMiners();
+      await addMinersPage.clickSelectNone();
+      minerIp1 = await addMinersPage.getMinerIpAddressByIndex(0);
+      minerIp2 = await addMinersPage.getMinerIpAddressByIndex(1);
+      await addMinersPage.clickMinerCheckbox(minerIp1);
+      await addMinersPage.clickMinerCheckbox(minerIp2);
+      await addMinersPage.clickDone();
+      await addMinersPage.clickContinueWithXMiners(2);
+    });
+
+    await test.step("Validate miners were added", async () => {
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.validateMinerInList(minerIp1);
+      await minersPage.validateMinerInList(minerIp2);
+      await minersPage.validateAmountOfMiners(minerCount + 2);
     });
   });
 

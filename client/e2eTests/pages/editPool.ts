@@ -5,6 +5,18 @@ export class EditPoolPage extends BasePage {
     await this.clickIn("Add pool", "default-pool");
   }
 
+  async clickAddBackupPoolOne() {
+    await this.clickIn("Add pool", "backup-pool-1");
+  }
+
+  async clickPoolRowByName(name: string) {
+    await this.page.getByText(name).click();
+  }
+
+  async clickSavePoolChoice() {
+    await this.clickIn("Save", "modal");
+  }
+
   async clickAddNewPool() {
     await this.clickIn("Add new pool", "modal");
   }

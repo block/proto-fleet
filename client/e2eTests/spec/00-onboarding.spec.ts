@@ -3,8 +3,6 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Proto Fleet - Onboarding @setup", () => {
-  test.describe.configure({ mode: "serial" });
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

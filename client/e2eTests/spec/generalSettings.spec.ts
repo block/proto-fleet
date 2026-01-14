@@ -20,25 +20,28 @@ test.describe("General Settings", () => {
       await settingsPage.validateTemperatureFormatFahrenheit();
     });
 
-    await test.step("Navigate to miners page and verify Fahrenheit", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.validateMinersPageOpened();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Verify miner temperature is displayed in Fahrenheit", async () => {
       // Workaround: proto rig miners don't have temperature displayed atm
       await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitFahrenheit();
     });
 
-    await test.step("Navigate back to settings and change to Celsius", async () => {
+    await test.step("Navigate back to settings", async () => {
       await authPage.navigateToSettingsPage();
+    });
+
+    await test.step("Change temperature format to Celsius", async () => {
       await settingsPage.clickTemperatureButton();
       await settingsPage.selectCelsius();
       await settingsPage.clickDoneButton();
       await settingsPage.validateTemperatureFormatCelsius();
     });
 
-    await test.step("Navigate to miners page and verify Celsius", async () => {
-      await authPage.navigateToMinersPage();
-      await minersPage.validateMinersPageOpened();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Verify miner temperature is displayed in Celsius", async () => {
       // Workaround: proto rig miners don't have temperature displayed atm
       await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitCelsius();
