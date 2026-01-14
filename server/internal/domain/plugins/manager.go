@@ -15,6 +15,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 )
 
@@ -158,10 +159,11 @@ func (m *Manager) LoadPlugins(ctx context.Context) error {
 func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 	cmd := exec.Command(path)
 
-	// Set environment variables for plugin configuration
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("PLUGIN_LOG_LEVEL=%s", m.config.LogLevel),
-	)
+	// Configure hclog level for the go-plugin framework
+	hclogLevel := hclog.LevelFromString(m.config.LogLevel)
+	if hclogLevel == hclog.NoLevel {
+		hclogLevel = hclog.Info
+	}
 
 	clientConfig := &plugin.ClientConfig{
 		HandshakeConfig:  sdk.HandshakeConfig,
@@ -169,6 +171,7 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		Cmd:              cmd,
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 		StartTimeout:     time.Duration(m.config.MaxStartupTimeSeconds) * time.Second,
+		Logger:           hclog.New(&hclog.LoggerOptions{Name: "plugin." + name, Level: hclogLevel}),
 	}
 
 	client := plugin.NewClient(clientConfig)
