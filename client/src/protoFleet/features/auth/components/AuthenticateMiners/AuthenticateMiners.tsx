@@ -370,6 +370,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           text: "Authenticate",
           dismissModalOnClick: false,
           loading: authenticateLoading,
+          disabled: selectedMiners.length === 0,
           onClick: authenticateMiners,
         },
       ]}

@@ -369,6 +369,42 @@ describe("AuthenticateMiners", () => {
     expect(getByText("3 miners remaining")).toBeInTheDocument();
   });
 
+  it("disables authenticate button when no miners are selected", () => {
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.click(getByText(showMinersLabel));
+    fireEvent.click(getByText("Select none"));
+
+    const authenticateButton = getByText("Authenticate").closest("button");
+    expect(authenticateButton).toBeDisabled();
+  });
+
+  it("enables authenticate button when miners are selected", () => {
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.click(getByText(showMinersLabel));
+
+    // By default all miners are selected
+    const authenticateButton = getByText("Authenticate").closest("button");
+    expect(authenticateButton).not.toBeDisabled();
+  });
+
+  it("re-enables authenticate button after selecting miners", () => {
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.click(getByText(showMinersLabel));
+
+    // Deselect all
+    fireEvent.click(getByText("Select none"));
+    let authenticateButton = getByText("Authenticate").closest("button");
+    expect(authenticateButton).toBeDisabled();
+
+    // Select all again
+    fireEvent.click(getByText("Select all"));
+    authenticateButton = getByText("Authenticate").closest("button");
+    expect(authenticateButton).not.toBeDisabled();
+  });
+
   describe("selection persistence", () => {
     it("preserves empty selection when user deselects all miners", async () => {
       const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
