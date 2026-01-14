@@ -16,6 +16,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -1353,193 +1354,6 @@ func TestPollErrorsForDevice_WithUpsertFailures_ShouldComplete(t *testing.T) {
 	service.pollErrorsForDevice(t.Context(), device)
 }
 
-func TestGetStatusForDevice_ConnectionError_ShouldSetStatusOffline(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-
-	deviceID := models.DeviceIdentifier("test-device-123")
-
-	// Test connection refused error wrapped in ConnectionError
-	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
-	mockMinerGetter.EXPECT().
-		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
-		Return(nil, connErr)
-
-	// Expect device status to be updated to offline
-	mockDeviceStore.EXPECT().
-		UpsertDeviceStatus(gomock.Any(), deviceID, gomock.Any(), "").
-		Do(func(_ context.Context, _ models.DeviceIdentifier, status mm.MinerStatus, _ string) {
-			assert.Equal(t, mm.MinerStatusOffline, status)
-		}).
-		Return(nil)
-
-	config := Config{
-		StalenessThreshold: 1 * time.Minute,
-		FetchInterval:      10 * time.Second,
-		ConcurrencyLimit:   5,
-	}
-
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	device := models.Device{ID: deviceID}
-	err := service.GetStatusForDevice(t.Context(), device)
-
-	// Should still return an error, but status should be updated
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get miner from device ID")
-}
-
-func TestGetStatusForDevice_GetDeviceStatusConnectionError_ShouldSetStatusOffline(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-	mockMiner := minerMocks.NewMockMiner(ctrl)
-
-	deviceID := models.DeviceIdentifier("test-device-456")
-
-	// Miner lookup succeeds
-	mockMinerGetter.EXPECT().
-		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
-		Return(mockMiner, nil)
-
-	// GetDeviceStatusForDeviceIdentifiers succeeds
-	mockDeviceStore.EXPECT().
-		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{deviceID}).
-		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil)
-
-	// GetDeviceStatus fails with connection error
-	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("dial tcp: connection refused"))
-	mockMiner.EXPECT().
-		GetDeviceStatus(gomock.Any()).
-		Return(mm.MinerStatusUnknown, connErr)
-
-	// Expect device status to be updated to offline
-	mockDeviceStore.EXPECT().
-		UpsertDeviceStatus(gomock.Any(), deviceID, gomock.Any(), "").
-		Do(func(_ context.Context, _ models.DeviceIdentifier, status mm.MinerStatus, _ string) {
-			assert.Equal(t, mm.MinerStatusOffline, status)
-		}).
-		Return(nil)
-
-	config := Config{
-		StalenessThreshold: 1 * time.Minute,
-		FetchInterval:      10 * time.Second,
-		ConcurrencyLimit:   5,
-	}
-
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	device := models.Device{ID: deviceID}
-	err := service.GetStatusForDevice(t.Context(), device)
-
-	// Should complete successfully even with GetDeviceStatus error
-	require.NoError(t, err)
-}
-
-func TestGetStatusForDevice_NonConnectionError_ShouldNotSetStatusOffline(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-
-	deviceID := models.DeviceIdentifier("test-device-789")
-
-	// Test non-connection error (e.g., authentication error)
-	mockMinerGetter.EXPECT().
-		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
-		Return(nil, errors.New("authentication failed"))
-
-	// Device status should NOT be updated for non-connection errors
-	// No expectation for UpsertDeviceStatus
-
-	config := Config{
-		StalenessThreshold: 1 * time.Minute,
-		FetchInterval:      10 * time.Second,
-		ConcurrencyLimit:   5,
-	}
-
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	device := models.Device{ID: deviceID}
-	err := service.GetStatusForDevice(t.Context(), device)
-
-	// Should return error
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get miner from device ID")
-}
-
-func TestGetStatusForDevice_GetDeviceStatusConnectionError_UpsertFails(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-	mockMiner := minerMocks.NewMockMiner(ctrl)
-
-	deviceID := models.DeviceIdentifier("test-device-789")
-
-	// Miner lookup succeeds
-	mockMinerGetter.EXPECT().
-		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
-		Return(mockMiner, nil)
-
-	// GetDeviceStatusForDeviceIdentifiers succeeds
-	mockDeviceStore.EXPECT().
-		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{deviceID}).
-		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil)
-
-	// GetDeviceStatus fails with connection error
-	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("dial tcp: connection refused"))
-	mockMiner.EXPECT().
-		GetDeviceStatus(gomock.Any()).
-		Return(mm.MinerStatusUnknown, connErr)
-
-	// UpsertDeviceStatus also fails
-	upsertErr := errors.New("database error")
-	mockDeviceStore.EXPECT().
-		UpsertDeviceStatus(gomock.Any(), deviceID, gomock.Any(), "").
-		Do(func(_ context.Context, _ models.DeviceIdentifier, status mm.MinerStatus, _ string) {
-			assert.Equal(t, mm.MinerStatusOffline, status)
-		}).
-		Return(upsertErr)
-
-	config := Config{
-		StalenessThreshold: 1 * time.Minute,
-		FetchInterval:      10 * time.Second,
-		ConcurrencyLimit:   5,
-	}
-
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	device := models.Device{ID: deviceID}
-	err := service.GetStatusForDevice(t.Context(), device)
-
-	// Should return error that includes both errors
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to upsert device status")
-	assert.Contains(t, err.Error(), "status error")
-	assert.Contains(t, err.Error(), "connection refused")
-	assert.Contains(t, err.Error(), "database error")
-}
-
 func TestIsConnectionError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1583,5 +1397,407 @@ func TestIsConnectionError(t *testing.T) {
 			result := fleeterror.IsConnectionError(tt.err)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+// Tests for statusWriterRoutine batch operations
+
+func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("test-device-1")
+
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
+			require.Len(t, updates, 1)
+			assert.Equal(t, deviceID, updates[0].DeviceIdentifier)
+			assert.Equal(t, mm.MinerStatusActive, updates[0].Status)
+			return nil
+		}).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Act
+	go service.statusWriterRoutine(ctx)
+	service.statusResults <- statusResult{
+		deviceIdentifier: deviceID,
+		status:           mm.MinerStatusActive,
+	}
+
+	// Assert - wait for flush interval to trigger (mock expectations verify the batch write)
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("test-device-1")
+
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	// Pre-populate in-memory state with OFFLINE so change to ACTIVE triggers broadcast
+	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusOffline)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Act
+	go service.statusWriterRoutine(ctx)
+	service.statusResults <- statusResult{
+		deviceIdentifier: deviceID,
+		status:           mm.MinerStatusActive,
+	}
+
+	// Assert - wait for flush interval to trigger broadcast
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("test-device-1")
+
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
+			require.Len(t, updates, 1)
+			assert.Equal(t, deviceID, updates[0].DeviceIdentifier)
+			return nil
+		}).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 10 * time.Second, // Long interval so flush happens on cancel
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		service.statusWriterRoutine(ctx)
+		close(done)
+	}()
+
+	// Act
+	service.statusResults <- statusResult{
+		deviceIdentifier: deviceID,
+		status:           mm.MinerStatusActive,
+	}
+	time.Sleep(20 * time.Millisecond) // Ensure result is received
+	cancel()                          // Trigger final flush
+
+	// Assert
+	select {
+	case <-done:
+		// Success - routine finished and flushed
+	case <-time.After(1 * time.Second):
+		t.Fatal("statusWriterRoutine did not finish after context cancel")
+	}
+}
+
+// Tests for processStatusOnly failed device recovery
+
+func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("failed-device-123")
+	failedAt := time.Now().Add(-5 * time.Minute)
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusActive, nil)
+
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), deviceID).
+		Return(true, failedAt, nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, devices ...models.Device) error {
+			require.Len(t, devices, 1)
+			assert.Equal(t, deviceID, devices[0].ID)
+			assert.Equal(t, failedAt, devices[0].LastUpdatedAt)
+			return nil
+		}).
+		Return(nil)
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	// Drain the status results channel
+	go func() {
+		select {
+		case <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processStatusOnly(ctx, device)
+
+	// Assert - mock expectations verify AddDevices was called with recovered device
+}
+
+func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("normal-device-123")
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusActive, nil)
+
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), deviceID).
+		Return(false, time.Time{}, nil)
+
+	// NOTE: AddDevices should NOT be called since device was not failed
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	// Drain the status results channel
+	go func() {
+		select {
+		case <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processStatusOnly(ctx, device)
+
+	// Assert - mock expectations verify AddDevices was NOT called
+}
+
+func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("offline-device-123")
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusUnknown, fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused")))
+
+	// Note: IsFailedDevice is NOT called because offline devices skip recovery.
+	// This prevents re-adding unreachable devices to the scheduler where they'd just fail again.
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	var receivedResult statusResult
+	go func() {
+		select {
+		case receivedResult = <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processStatusOnly(ctx, device)
+	time.Sleep(50 * time.Millisecond)
+
+	// Assert - status is still written to DB for UI visibility
+	assert.Equal(t, deviceID, receivedResult.deviceIdentifier)
+	assert.Equal(t, mm.MinerStatusOffline, receivedResult.status)
+}
+
+// Tests for non-blocking channel sends
+
+func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
+
+	deviceID := models.DeviceIdentifier("test-device")
+	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil).
+		Times(3) // Telemetry, status, and error polling
+
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{}, errors.New("not implemented"))
+
+	mockMiner.EXPECT().
+		GetTelemetry(gomock.Any(), gomock.Any()).
+		Return([]models.Telemetry{}, nil)
+
+	mockDataStore.EXPECT().
+		Store(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusActive, nil)
+
+	mockErrorPoller.EXPECT().
+		PollErrors(gomock.Any(), mockMiner).
+		Return(diagnostics.PollResult{})
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   1,
+		MetricTimeout:      5 * time.Second,
+	}
+
+	service := &TelemetryService{
+		config:             config,
+		telemetryDataStore: mockDataStore,
+		minerManager:       mockMinerGetter,
+		updateScheduler:    mockScheduler,
+		deviceStore:        mockDeviceStore,
+		errorPoller:        mockErrorPoller,
+		tasks:              make(chan models.Device, 1),
+		statusTasks:        make(chan models.Device, 1),
+		statusResults:      make(chan statusResult, 1), // Small buffer to test non-blocking
+		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
+	}
+
+	// Fill the channel to force non-blocking send path
+	service.statusResults <- statusResult{deviceIdentifier: "blocker", status: mm.MinerStatusActive}
+
+	ctx := t.Context()
+
+	done := make(chan struct{})
+	go func() {
+		service.processDevice(ctx, device)
+		close(done)
+	}()
+
+	// Act & Assert - processDevice should complete without blocking
+	select {
+	case <-done:
+		// Success - processDevice completed without blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("processDevice blocked on full channel - non-blocking send not working")
 	}
 }

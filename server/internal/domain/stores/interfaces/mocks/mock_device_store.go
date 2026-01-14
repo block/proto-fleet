@@ -294,6 +294,20 @@ func (mr *MockDeviceStoreMockRecorder) UpsertDeviceStatus(ctx, deviceIdentifier,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceStatus", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDeviceStatus), ctx, deviceIdentifier, status, details)
 }
 
+// UpsertDeviceStatuses mocks base method.
+func (m *MockDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []interfaces.DeviceStatusUpdate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDeviceStatuses", ctx, updates)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDeviceStatuses indicates an expected call of UpsertDeviceStatuses.
+func (mr *MockDeviceStoreMockRecorder) UpsertDeviceStatuses(ctx, updates interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceStatuses", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDeviceStatuses), ctx, updates)
+}
+
 // UpsertMinerCredentials mocks base method.
 func (m *MockDeviceStore) UpsertMinerCredentials(ctx context.Context, device *pairingv1.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error {
 	m.ctrl.T.Helper()

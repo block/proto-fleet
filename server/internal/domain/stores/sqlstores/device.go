@@ -421,6 +421,99 @@ func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifie
 	return nil
 }
 
+// UpsertDeviceStatuses upserts multiple device statuses in a single bulk query.
+func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []stores.DeviceStatusUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	// Batch lookup: get device IDs for all identifiers
+	identifiers := make([]string, len(updates))
+	for i, u := range updates {
+		identifiers[i] = u.DeviceIdentifier.String()
+	}
+
+	rows, err := s.getQueries(ctx).GetDeviceIDsWithIdentifiers(ctx, identifiers)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get device IDs for status update: %v", err)
+	}
+
+	idMap := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		idMap[row.DeviceIdentifier] = row.ID
+	}
+
+	// Build bulk upsert args: (device_id, status, timestamp, details) per row.
+	now := time.Now()
+	args := make([]any, 0, len(updates)*4)
+	var rowCount int
+	for _, u := range updates {
+		deviceID, found := idMap[u.DeviceIdentifier.String()]
+		if !found {
+			continue
+		}
+		args = append(args, deviceID, toDeviceStatus(u.Status), now, "")
+		rowCount++
+	}
+
+	notFoundCount := len(updates) - rowCount
+	if notFoundCount > 0 {
+		slog.Warn("some devices not found for status update",
+			"not_found", notFoundCount,
+			"total", len(updates),
+			"succeeded", rowCount)
+	}
+
+	if rowCount == 0 {
+		return fleeterror.NewInternalErrorf("all %d devices not found for status update", len(updates))
+	}
+
+	query := buildDeviceStatusBulkUpsert(rowCount)
+	_, err = s.conn.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("bulk status upsert failed: %v", err)
+	}
+	return nil
+}
+
+// buildDeviceStatusBulkUpsert builds a bulk INSERT ... ON DUPLICATE KEY UPDATE query.
+//
+// We use a manual query instead of:
+//   - N individual queries in a transaction: Creates long-running transactions that hold
+//     locks and exhaust DB connections under load.
+//   - sqlc :copyfrom: Uses LOAD DATA which doesn't support ON DUPLICATE KEY UPDATE,
+//     requiring DELETE+INSERT which is slower and not atomic.
+//
+// A single bulk INSERT with ON DUPLICATE KEY UPDATE is both fast (1 round-trip) and atomic.
+func buildDeviceStatusBulkUpsert(rowCount int) string {
+	const (
+		table       = "device_status"
+		columns     = "device_id, status, status_timestamp, status_details"
+		placeholder = "(?, ?, ?, ?)"
+	)
+
+	var b strings.Builder
+	b.WriteString("INSERT INTO ")
+	b.WriteString(table)
+	b.WriteString(" (")
+	b.WriteString(columns)
+	b.WriteString(") VALUES ")
+
+	for i := range rowCount {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(placeholder)
+	}
+
+	b.WriteString(" AS new_vals ON DUPLICATE KEY UPDATE ")
+	b.WriteString("status = new_vals.status, ")
+	b.WriteString("status_timestamp = new_vals.status_timestamp, ")
+	b.WriteString("status_details = new_vals.status_details")
+
+	return b.String()
+}
+
 func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusStatus {
 	//nolint:exhaustive // We handle all known statuses, but we may not handle all possible statuses.
 	switch status {

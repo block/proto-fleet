@@ -138,11 +138,9 @@ func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, 
 const (
 	// Stream channel buffer sizes
 	streamMeasurementsChannelBuffer = 100
-	streamStatusChannelBuffer       = 100
 
 	// Mock stream intervals
 	mockMeasurementInterval = 1 * time.Second
-	mockStatusInterval      = 5 * time.Second
 )
 
 func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {

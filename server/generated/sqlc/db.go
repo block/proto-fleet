@@ -111,6 +111,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIDsByDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsByDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsByDeviceIdentifiers: %w", err)
 	}
+	if q.getDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsWithIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIDsWithIdentifiers: %w", err)
+	}
 	if q.getDeviceIdentifierByIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifierByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifierByID: %w", err)
 	}
@@ -505,6 +508,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceIDsByDeviceIdentifiersStmt != nil {
 		if cerr := q.getDeviceIDsByDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIDsByDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceIDsWithIdentifiersStmt != nil {
+		if cerr := q.getDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIDsWithIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceIdentifierByIDStmt != nil {
@@ -985,6 +993,7 @@ type Queries struct {
 	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
 	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
+	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDeviceStatusStmt                                 *sql.Stmt
@@ -1102,6 +1111,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
 		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
+		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,

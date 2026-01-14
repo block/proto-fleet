@@ -131,6 +131,12 @@ SELECT id
 FROM device
 WHERE device_identifier IN (sqlc.slice('device_identifiers'));
 
+-- name: GetDeviceIDsWithIdentifiers :many
+-- Returns device IDs mapped to their identifiers for batch operations.
+SELECT id, device_identifier
+FROM device
+WHERE device_identifier IN (sqlc.slice('device_identifiers'));
+
 -- name: AllDevicesBelongToOrg :one
 -- Returns true if all provided device identifiers belong to the specified organization.
 -- Used for authorization checks - fails fast if any device is not owned by the org.

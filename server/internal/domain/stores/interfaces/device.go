@@ -25,6 +25,12 @@ type MinerFilter struct {
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 }
 
+// DeviceStatusUpdate represents a status update for batch operations.
+type DeviceStatusUpdate struct {
+	DeviceIdentifier models.DeviceIdentifier
+	Status           mm.MinerStatus
+}
+
 // OfflineDeviceInfo contains information about an offline device needed for IP scanning
 type OfflineDeviceInfo struct {
 	DeviceID                   int64
@@ -54,6 +60,7 @@ type DeviceStore interface {
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]mm.Type, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
+	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)

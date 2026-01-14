@@ -1,3 +1,74 @@
+/*
+Package telemetry collects and stores metrics from mining devices.
+
+# Architecture Overview
+
+The telemetry system uses a producer-consumer pattern with three main components:
+
+	┌─────────────────────┐
+	│ gatherMetricsRoutine│ (producer)
+	│ - Polls scheduler   │
+	│ - Sends to tasks    │
+	└─────────┬───────────┘
+	          │
+	          ▼
+	   ┌──────────────┐
+	   │ tasks channel│
+	   └──────┬───────┘
+	          │
+	          ▼
+	┌─────────────────────┐
+	│ workers (N parallel)│ (consumer/producer)
+	│ - Fetch from miner  │
+	│ - Send to results   │
+	└─────────┬───────────┘
+	          │
+	          ▼
+	  ┌───────────────┐
+	  │ statusResults │
+	  │    channel    │
+	  └───────┬───────┘
+	          │
+	          ▼
+	┌─────────────────────┐
+	│ statusWriterRoutine │ (consumer)
+	│ - Batches updates   │
+	│ - Writes to DB      │
+	│ - Broadcasts changes│
+	└─────────────────────┘
+
+# Component Details
+
+gatherMetricsRoutine: Periodically queries the scheduler for stale devices
+(those needing telemetry refresh) and dispatches them to workers via the
+tasks channel. Also handles new device polling to discover recently paired
+devices.
+
+workers: A pool of goroutines (sized by ConcurrencyLimit) that fetch
+telemetry and status from individual miners. Each worker pulls a device
+from the tasks channel, makes network calls to the miner, stores telemetry
+in InfluxDB, and sends the status result to statusResults. Workers are
+simple and stateless - no batching logic.
+
+statusWriterRoutine: A single goroutine that collects status updates from
+all workers and batches them for efficient DB writes. It flushes on a
+configurable interval (StatusFlushInterval) or when the context is
+cancelled. After writing, it broadcasts status changes to connected
+clients using in-memory state for change detection.
+
+statusPollingRoutine: A separate routine that periodically checks failed
+devices (those removed from the main scheduler after too many failures).
+This allows devices to recover and rejoin the telemetry collection when
+they come back online.
+
+# Design Rationale
+
+The architecture separates network I/O (inherently per-device) from DB
+writes (benefits from batching). This avoids the "too many connections"
+problem that occurs when each worker maintains its own DB connection for
+individual writes. Instead, all DB writes flow through a single routine
+that batches them efficiently.
+*/
 package telemetry
 
 import (
@@ -35,13 +106,32 @@ const (
 	defaultDevicePollInterval      = 10 * time.Minute
 	defaultHeartbeatInterval       = 30 * time.Second
 	defaultBroadcasterPollInterval = 5 * time.Second
-	componentStatusStreamInterval  = 5 * time.Second
 	defaultStatusPollingInterval   = 10 * time.Second
 
-	// Channel buffer sizes
+	// Channel buffer sizes - prevent blocking on temporary consumer delays while limiting memory.
+
+	// streamResponseChannelBuffer: gRPC streaming responses to clients.
+	// Allows clients to lag briefly (network hiccups) without blocking the sender goroutine.
 	streamResponseChannelBuffer = 100
-	statusUpdateChannelBuffer   = 100
-	subscriberChannelBuffer     = 100
+
+	// statusUpdateChannelBuffer: miner state count updates for streaming.
+	// Provides buffer for consumer processing delays at the configured update interval.
+	statusUpdateChannelBuffer = 100
+
+	// subscriberChannelBuffer: telemetry updates per subscriber.
+	// Allows asynchronous processing without dropping updates during brief delays.
+	subscriberChannelBuffer = 100
+
+	// resultsChannelBuffer: status results from workers before batch DB writes.
+	// Larger than others because all workers (ConcurrencyLimit) write here concurrently,
+	// requiring headroom to avoid blocking workers while statusWriterRoutine flushes to DB.
+	resultsChannelBuffer = 5000
+
+	// Batch limits
+	maxStatusBatchSize = 500 // Flush early if batch reaches this size
+
+	// Default status flush interval if not configured.
+	defaultStatusFlushInterval = 1 * time.Second
 )
 
 // convertHashrateToThs converts hashrate from MH/s to TH/s
@@ -119,7 +209,6 @@ func parseTimeSeriesConfig(config *commonpb.TimeSeriesConfig) models.TimeRange {
 
 const (
 	defaultUpdateInterval = 1 * time.Minute
-	defaultGranularity    = 1 * time.Minute
 
 	// Page size for combined metrics query
 	defaultCombinedMetricsPageSize = 100
@@ -159,6 +248,12 @@ type deviceResult struct {
 	metricsErr   error
 }
 
+// statusResult represents a status update result from a worker.
+type statusResult struct {
+	deviceIdentifier models.DeviceIdentifier
+	status           mm.MinerStatus
+}
+
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
@@ -172,7 +267,9 @@ type TelemetryService struct {
 	tasks chan models.Device
 	// statusTasks queues devices for status-only checks (no telemetry fetch).
 	// Used by statusPollingRoutine to check failed devices for recovery.
-	statusTasks      chan models.Device
+	statusTasks chan models.Device
+	// statusResults receives status updates from workers for batch DB writes.
+	statusResults    chan statusResult
 	cancelFunc       context.CancelFunc
 	lookBackDuration time.Duration
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
@@ -180,6 +277,10 @@ type TelemetryService struct {
 	// continue to be polled for status so they can recover when they come back online.
 	devicesForStatusPolling sync.Map
 	broadcasters            sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
+	// lastKnownStatuses tracks the most recent status written to DB for each device.
+	// Used for change detection when broadcasting status updates. Using in-memory state
+	// avoids a race condition between reading old statuses and writing new ones.
+	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
@@ -192,6 +293,7 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		errorPoller:        errorPoller,
 		tasks:              make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
+		statusResults:      make(chan statusResult, resultsChannelBuffer),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 }
@@ -231,6 +333,7 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 	s.cancelFunc()
 	defer close(s.tasks)
 	defer close(s.statusTasks)
+	defer close(s.statusResults)
 
 	s.broadcasters.Range(func(_, value interface{}) bool {
 		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
@@ -282,9 +385,13 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 	}
 	defer s.mux.Unlock()
 
+	// Start workers that fetch telemetry/status from miners
 	for range s.config.ConcurrencyLimit {
 		go s.worker(ctx)
 	}
+
+	// Start routine that collects status results and periodically writes to DB
+	go s.statusWriterRoutine(ctx)
 
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
@@ -386,22 +493,35 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 	}
 }
 
+// worker processes devices from task channels one at a time.
+// It fetches telemetry/status from miners and sends results to the statusResults channel
+// for periodic DB writes by statusWriterRoutine.
 func (s *TelemetryService) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
+
 		case device := <-s.tasks:
-			s.processFullTelemetry(ctx, device)
+			s.processDevice(ctx, device)
+
 		case device := <-s.statusTasks:
 			s.processStatusOnly(ctx, device)
 		}
 	}
 }
 
-// processFullTelemetry fetches telemetry, status, and errors from a device.
-// Used for devices that need full telemetry collection from the scheduler.
-func (s *TelemetryService) processFullTelemetry(ctx context.Context, device models.Device) {
+// processDevice handles full telemetry collection for a device.
+//
+// Flow:
+//  1. Telemetry fetch - continues on failure (we still want status updates)
+//  2. Status fetch - returns early on non-connection errors (can't reliably poll errors)
+//  3. Error polling - only runs if status fetch succeeded
+//
+// Connection errors during status fetch are converted to MinerStatusOffline (not errors),
+// so the flow continues. Only auth failures and other non-connection errors cause early return.
+func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
+	// Telemetry failure doesn't block status/error polling - we still want to track online state
 	if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
 		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
 
@@ -412,35 +532,178 @@ func (s *TelemetryService) processFullTelemetry(ctx context.Context, device mode
 			}
 		}
 
-		if err := s.updateScheduler.AddFailedDevices(ctx, device); err != nil {
-			slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
+		if addErr := s.updateScheduler.AddFailedDevices(ctx, device); addErr != nil {
+			slog.Warn("failed to add failed device to scheduler", "deviceID", device.ID, "error", addErr)
 		}
 	}
-	if err := s.GetStatusForDevice(ctx, device); err != nil {
-		slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
 
-		if fleeterror.IsAuthenticationError(err) {
+	// Fetch status from miner (connection errors return MinerStatusOffline, nil).
+	// Non-connection errors (auth failures, etc.) cause early return since we can't
+	// reliably poll errors from a device we can't authenticate with.
+	status, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
+	if statusErr != nil {
+		slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
+
+		if fleeterror.IsAuthenticationError(statusErr) {
 			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"deviceID", device.ID, "error", updateErr)
 			}
 		}
+		return
+	}
+
+	// Send status result to writer (non-blocking to prevent worker stalls)
+	select {
+	case s.statusResults <- statusResult{deviceIdentifier: device.ID, status: status}:
+	case <-ctx.Done():
+		return
+	default:
+		slog.Error("status results channel full, dropping update", "deviceID", device.ID)
 	}
 
 	s.pollErrorsForDevice(ctx, device)
 }
 
-// processStatusOnly fetches only the status for a device.
-// Used by the status polling routine to check if failed devices have recovered.
+// processStatusOnly handles status-only checks for a device.
+//
+// This function is the recovery mechanism for failed devices. When a device exceeds
+// MaxConsecutiveFailures in the main telemetry loop, the scheduler marks it as "failed"
+// and stops including it in regular telemetry fetches. However, statusPollingRoutine
+// continues to send ALL paired devices here for status checks.
+//
+// Recovery logic:
+//   - A device is considered "recovered" when it returns a healthy status (not offline/error).
+//   - If the device was marked as failed in the scheduler and now reports healthy, we re-add
+//     it to the scheduler with its original failedAt timestamp. This ensures the scheduler
+//     prioritizes it for immediate telemetry collection.
+//   - Devices that remain offline/error stay in the failed state. They continue to be polled
+//     here but aren't re-added to the scheduler until they report a healthy status.
+//
+// This design ensures devices can automatically rejoin telemetry collection when they
+// come back online, without manual intervention.
 func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device) {
-	if err := s.GetStatusForDevice(ctx, device); err != nil {
-		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", err)
+	status, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
+	if statusErr != nil {
+		// Non-connection errors (e.g., auth failures) - device stays in failed state.
+		// Connection errors don't reach here; they return (MinerStatusOffline, nil).
+		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", statusErr)
 
-		if fleeterror.IsAuthenticationError(err) {
+		if fleeterror.IsAuthenticationError(statusErr) {
 			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"deviceID", device.ID, "error", updateErr)
 			}
+		}
+		return
+	}
+
+	// Only attempt recovery if device reports a healthy status.
+	// Offline/error devices should not be re-added to the scheduler - they'll just fail again.
+	if status != mm.MinerStatusOffline && status != mm.MinerStatusError {
+		failed, failedAt, err := s.updateScheduler.IsFailedDevice(ctx, device.ID)
+		if err != nil {
+			slog.Warn("failed to check if device is failed", "deviceID", device.ID, "error", err)
+		} else if failed {
+			// Re-add with original failedAt timestamp so scheduler prioritizes it
+			// for immediate telemetry collection (stale devices are fetched first).
+			err := s.updateScheduler.AddDevices(ctx, models.Device{
+				ID:            device.ID,
+				LastUpdatedAt: failedAt,
+			})
+			if err != nil {
+				slog.Warn("failed to re-add recovered device to scheduler", "deviceID", device.ID, "error", err)
+			} else {
+				slog.Info("device recovered, re-added to scheduler", "deviceID", device.ID)
+			}
+		}
+	}
+
+	// Always send status to DB for UI visibility (even for offline devices)
+	select {
+	case s.statusResults <- statusResult{deviceIdentifier: device.ID, status: status}:
+	case <-ctx.Done():
+		return
+	default:
+		slog.Error("status results channel full, dropping update", "deviceID", device.ID)
+	}
+}
+
+// statusWriterRoutine collects status results from workers and writes them to DB periodically.
+// This centralizes DB writes to reduce connection usage and improve throughput.
+func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
+	flushInterval := s.config.StatusFlushInterval
+	if flushInterval <= 0 {
+		flushInterval = defaultStatusFlushInterval
+	}
+
+	pendingUpdates := make(map[models.DeviceIdentifier]mm.MinerStatus)
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	flush := func(flushCtx context.Context) {
+		if len(pendingUpdates) == 0 {
+			return
+		}
+
+		// Convert map to slice for batch DB write
+		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
+		for deviceID, status := range pendingUpdates {
+			statusUpdates = append(statusUpdates, stores.DeviceStatusUpdate{
+				DeviceIdentifier: deviceID,
+				Status:           status,
+			})
+		}
+
+		// Write new statuses to DB in a single bulk INSERT.
+		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB,
+		// well under MySQL's default 64MB max_allowed_packet.
+		if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
+			slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
+			clear(pendingUpdates)
+			return
+		}
+
+		// Broadcast status changes using in-memory state for change detection.
+		for _, u := range statusUpdates {
+			oldStatus, hadOldStatus := s.lastKnownStatuses.Load(u.DeviceIdentifier)
+			oldStatusTyped, validType := oldStatus.(mm.MinerStatus)
+			statusChanged := !hadOldStatus || !validType || oldStatusTyped != u.Status
+
+			if statusChanged {
+				// Store BEFORE broadcasting to ensure in-memory state is current
+				// before any broadcast handlers execute.
+				s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
+				s.broadcasters.Range(func(_, value interface{}) bool {
+					if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
+						broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
+					}
+					return true
+				})
+			}
+		}
+
+		clear(pendingUpdates)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Use a fresh context with timeout for final flush to ensure pending
+			// updates are written even after the parent context is cancelled.
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			flush(shutdownCtx)
+			cancel()
+			return
+
+		case result := <-s.statusResults:
+			pendingUpdates[result.deviceIdentifier] = result.status
+			if len(pendingUpdates) >= maxStatusBatchSize {
+				flush(ctx)
+			}
+
+		case <-ticker.C:
+			flush(ctx)
 		}
 	}
 }
@@ -491,71 +754,25 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 	return result, nil
 }
 
-func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {
-	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+// fetchStatusFromMiner gets the status from a miner device.
+// Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, nil).
+// Only non-connection errors (e.g., authentication failures) return an error.
+func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, error) {
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
-			if updateErr := s.deviceStore.UpsertDeviceStatus(ctx, device.ID, mm.MinerStatusOffline, ""); updateErr != nil {
-				// Log the update failure but still return the original connection error
-				slog.Error("failed to update device status to offline",
-					"device_id", device.ID,
-					"error", updateErr)
-			}
+			return mm.MinerStatusOffline, nil
 		}
-		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, err
 	}
-
-	oldStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []models.DeviceIdentifier{device.ID})
+	status, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
-		slog.Warn("failed to get old device status", "deviceID", device.ID, "error", err)
-	}
-	oldStatus, hadOldStatus := oldStatuses[device.ID]
-
-	newStatus, statusErr := miner.GetDeviceStatus(ctx)
-	if statusErr != nil {
-		slog.Error("Telemetry service failed to get device status",
-			"device_id", device.ID,
-			"error", statusErr)
-		if fleeterror.IsConnectionError(statusErr) {
-			newStatus = mm.MinerStatusOffline
+		if fleeterror.IsConnectionError(err) {
+			return mm.MinerStatusOffline, nil
 		}
+		return mm.MinerStatusUnknown, err
 	}
-
-	if err := s.deviceStore.UpsertDeviceStatus(ctx, device.ID, newStatus, ""); err != nil {
-		if statusErr != nil {
-			return fmt.Errorf("failed to upsert device status (status error: %v): %w", statusErr, err)
-		}
-		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
-	}
-
-	if hadOldStatus && oldStatus != newStatus {
-		s.broadcasters.Range(func(_, value interface{}) bool {
-			if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-				broadcaster.PublishStatusChange(device.ID, newStatus)
-			}
-			return true
-		})
-	}
-
-	if newStatus == mm.MinerStatusError || newStatus == mm.MinerStatusOffline {
-		return nil
-	}
-
-	failed, failedAt, err := s.updateScheduler.IsFailedDevice(ctx, device.ID)
-	if err != nil {
-		return fmt.Errorf("failed to check if device %s is failed: %w", device.ID, err)
-	}
-	if failed {
-		err := s.updateScheduler.AddDevices(ctx, models.Device{
-			ID:            device.ID,
-			LastUpdatedAt: failedAt,
-		})
-		if err != nil {
-			slog.Warn("failed to add failed device back into scheduler", "deviceID", device.ID, "error", err)
-		}
-	}
-
-	return nil
+	return status, nil
 }
 
 // GetTelemetryFromDevice fetches telemetry data from a device and stores it.
@@ -1194,119 +1411,6 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 
 	return responseChan, nil
 }
-
-// StreamComponentStatus removed - component status tracking now done via errors API
-// This method has been removed as component status is now tracked via the errors API instead of telemetry.
-// Use the errors service to stream component-level status information.
-/*
-func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	responseChan := make(chan *pb.StreamMinerUpdatesResponse, streamResponseChannelBuffer)
-
-	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
-	for i, id := range deviceIDs {
-		internalDeviceIDs[i] = models.DeviceIdentifier(id)
-	}
-
-	streamQuery := models.StreamQuery{
-		DeviceIDs:        internalDeviceIDs,
-		MeasurementTypes: []models.MeasurementType{},
-		IncludeHeartbeat: true,
-	}
-
-	updateChan, err := s.telemetryDataStore.StreamTelemetryUpdates(ctx, streamQuery)
-	if err != nil {
-		close(responseChan)
-		return nil, fmt.Errorf("failed to start component status stream: %w", err)
-	}
-
-	go func() {
-		defer close(responseChan)
-
-		ticker := time.NewTicker(componentStatusStreamInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				for _, deviceID := range deviceIDs {
-					status, err := s.GetMinerComponentStatus(ctx, deviceID)
-					if err != nil {
-						slog.Warn("failed to get component status for streaming", "deviceID", deviceID, "error", err)
-						continue
-					}
-
-					components := []struct {
-						component pb.ComponentStatusUpdate_Component
-						status    pb.ComponentStatus
-					}{
-						{pb.ComponentStatusUpdate_COMPONENT_CONTROL_BOARD, status.ControlBoard},
-						{pb.ComponentStatusUpdate_COMPONENT_FANS, status.Fans},
-						{pb.ComponentStatusUpdate_COMPONENT_HASH_BOARDS, status.HashBoards},
-						{pb.ComponentStatusUpdate_COMPONENT_PSU, status.Psu},
-					}
-
-					for _, comp := range components {
-						response := &pb.StreamMinerUpdatesResponse{
-							Timestamp:        timestamppb.Now(),
-							DeviceIdentifier: deviceID,
-							Update: &pb.StreamMinerUpdatesResponse_Status{
-								Status: &pb.ComponentStatusUpdate{
-									Component: comp.component,
-									Status:    comp.status,
-								},
-							},
-						}
-
-						select {
-						case responseChan <- response:
-						case <-ctx.Done():
-							return
-						}
-					}
-				}
-			case update, ok := <-updateChan:
-				if !ok {
-					return
-				}
-
-				if update.Type == models.UpdateTypeDeviceStatus && update.Status != nil {
-					pbStatus := internalComponentStatusToPb(*update.Status)
-
-					components := []pb.ComponentStatusUpdate_Component{
-						pb.ComponentStatusUpdate_COMPONENT_CONTROL_BOARD,
-						pb.ComponentStatusUpdate_COMPONENT_FANS,
-						pb.ComponentStatusUpdate_COMPONENT_HASH_BOARDS,
-						pb.ComponentStatusUpdate_COMPONENT_PSU,
-					}
-
-					for _, component := range components {
-						response := &pb.StreamMinerUpdatesResponse{
-							Timestamp:        timestamppb.New(update.Timestamp),
-							DeviceIdentifier: string(update.DeviceID),
-							Update: &pb.StreamMinerUpdatesResponse_Status{
-								Status: &pb.ComponentStatusUpdate{
-									Component: component,
-									Status:    pbStatus,
-								},
-							},
-						}
-
-						select {
-						case responseChan <- response:
-						case <-ctx.Done():
-							return
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	return responseChan, nil
-}
-*/
 
 // SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
 // This allows consumers to receive telemetry events without the conversion to protobuf responses

@@ -735,3 +735,257 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 	`, errorID, orgID, deviceID, severity, now, now, closedAt)
 	require.NoError(t, err)
 }
+
+// =============================================================================
+// UpsertDeviceStatuses Tests - Bulk Status Update
+// =============================================================================
+
+// TestUpsertDeviceStatuses_SuccessfulBulkUpsert verifies bulk upsert of multiple devices
+func TestUpsertDeviceStatuses_SuccessfulBulkUpsert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	setupUpsertDeviceStatusesTestData(t, conn, []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 3, identifier: "device-003", status: "OFFLINE", pairingStatus: "PAIRED"},
+	})
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusOffline},
+		{DeviceIdentifier: "device-002", Status: minermodels.MinerStatusMaintenance},
+		{DeviceIdentifier: "device-003", Status: minermodels.MinerStatusActive},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "OFFLINE", getDeviceStatusFromDB(t, conn, 1))
+	require.Equal(t, "MAINTENANCE", getDeviceStatusFromDB(t, conn, 2))
+	require.Equal(t, "ACTIVE", getDeviceStatusFromDB(t, conn, 3))
+}
+
+// TestUpsertDeviceStatuses_AllDevicesNotFound verifies error when all devices are unknown
+func TestUpsertDeviceStatuses_AllDevicesNotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "nonexistent-device-1", Status: minermodels.MinerStatusActive},
+		{DeviceIdentifier: "nonexistent-device-2", Status: minermodels.MinerStatusOffline},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
+}
+
+// TestUpsertDeviceStatuses_PartialDevicesFound verifies partial success when some devices exist
+func TestUpsertDeviceStatuses_PartialDevicesFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	setupUpsertDeviceStatusesTestData(t, conn, []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"},
+	})
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusOffline},
+		{DeviceIdentifier: "nonexistent-device", Status: minermodels.MinerStatusActive},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "OFFLINE", getDeviceStatusFromDB(t, conn, 1))
+}
+
+// TestUpsertDeviceStatuses_DuplicateDeviceIdentifiers verifies last-write-wins for duplicates
+func TestUpsertDeviceStatuses_DuplicateDeviceIdentifiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	setupUpsertDeviceStatusesTestData(t, conn, []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"},
+	})
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusOffline},
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusMaintenance},
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusActive},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "ACTIVE", getDeviceStatusFromDB(t, conn, 1))
+}
+
+// TestUpsertDeviceStatuses_Insert verifies the insert path when no status exists
+func TestUpsertDeviceStatuses_Insert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	setupUpsertDeviceStatusesTestDataNoStatus(t, conn, []testDevice{
+		{id: 1, identifier: "device-001", pairingStatus: "PAIRED"},
+		{id: 2, identifier: "device-002", pairingStatus: "PAIRED"},
+	})
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusActive},
+		{DeviceIdentifier: "device-002", Status: minermodels.MinerStatusOffline},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "ACTIVE", getDeviceStatusFromDB(t, conn, 1))
+	require.Equal(t, "OFFLINE", getDeviceStatusFromDB(t, conn, 2))
+}
+
+// TestUpsertDeviceStatuses_Update verifies the update path when status already exists
+func TestUpsertDeviceStatuses_Update(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	setupUpsertDeviceStatusesTestData(t, conn, []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},
+	})
+	store := sqlstores.NewSQLDeviceStore(conn)
+	updates := []interfaces.DeviceStatusUpdate{
+		{DeviceIdentifier: "device-001", Status: minermodels.MinerStatusOffline},
+		{DeviceIdentifier: "device-002", Status: minermodels.MinerStatusMaintenance},
+	}
+
+	// Act
+	err := store.UpsertDeviceStatuses(ctx, updates)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "OFFLINE", getDeviceStatusFromDB(t, conn, 1))
+	require.Equal(t, "MAINTENANCE", getDeviceStatusFromDB(t, conn, 2))
+}
+
+// =============================================================================
+// Test Helpers for UpsertDeviceStatuses
+// =============================================================================
+
+// setupUpsertDeviceStatusesTestData seeds database with test data including device status
+func setupUpsertDeviceStatusesTestData(t *testing.T, conn *sql.DB, devices []testDevice) {
+	t.Helper()
+
+	// Insert organization
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+	`)
+	require.NoError(t, err)
+
+	// Insert discovered devices and devices
+	for i, device := range devices {
+		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+		`, device.id, device.identifier, ipAddress)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+		`, device.id, device.id, device.identifier)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES (?, ?, NOW())
+		`, device.id, device.pairingStatus)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_status (device_id, status, status_timestamp)
+			VALUES (?, ?, NOW())
+		`, device.id, device.status)
+		require.NoError(t, err)
+	}
+}
+
+// setupUpsertDeviceStatusesTestDataNoStatus seeds database without initial device status
+func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devices []testDevice) {
+	t.Helper()
+
+	// Insert organization
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+	`)
+	require.NoError(t, err)
+
+	// Insert discovered devices and devices (no status)
+	for i, device := range devices {
+		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+		`, device.id, device.identifier, ipAddress)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+		`, device.id, device.id, device.identifier)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES (?, ?, NOW())
+		`, device.id, device.pairingStatus)
+		require.NoError(t, err)
+	}
+}
+
+// getDeviceStatusFromDB retrieves device status directly from database for test verification
+func getDeviceStatusFromDB(t *testing.T, conn *sql.DB, deviceID int64) string {
+	t.Helper()
+	var status string
+	err := conn.QueryRow(`SELECT status FROM device_status WHERE device_id = ?`, deviceID).Scan(&status)
+	require.NoError(t, err)
+	return status
+}

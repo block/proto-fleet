@@ -364,6 +364,51 @@ func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIde
 	return items, nil
 }
 
+const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
+SELECT id, device_identifier
+FROM device
+WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
+`
+
+type GetDeviceIDsWithIdentifiersRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+// Returns device IDs mapped to their identifiers for batch operations.
+func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceIDsWithIdentifiersRow, error) {
+	query := getDeviceIDsWithIdentifiers
+	var queryParams []interface{}
+	if len(deviceIdentifiers) > 0 {
+		for _, v := range deviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceIDsWithIdentifiersRow
+	for rows.Next() {
+		var i GetDeviceIDsWithIdentifiersRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device
