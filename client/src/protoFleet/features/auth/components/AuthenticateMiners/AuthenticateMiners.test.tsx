@@ -368,4 +368,107 @@ describe("AuthenticateMiners", () => {
 
     expect(getByText("3 miners remaining")).toBeInTheDocument();
   });
+
+  describe("selection persistence", () => {
+    it("preserves empty selection when user deselects all miners", async () => {
+      const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      fireEvent.click(getByText(showMinersLabel));
+
+      // Initially all miners selected
+      expect(getByText("3 miners selected")).toBeInTheDocument();
+
+      // User deselects all
+      fireEvent.click(getByText("Select none"));
+      expect(getByText("0 miners selected")).toBeInTheDocument();
+
+      // Selection should remain empty (not auto-select all again)
+      await vi.waitFor(
+        () => {
+          expect(getByText("0 miners selected")).toBeInTheDocument();
+        },
+        { timeout: 500 },
+      );
+    });
+
+    it("does not reset selection to all when miner list updates", async () => {
+      const mockRefetch = vi.fn();
+      const { getByText, rerender } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      fireEvent.click(getByText(showMinersLabel));
+
+      // Initially all 3 miners selected
+      expect(getByText("3 miners selected")).toBeInTheDocument();
+
+      // User deselects all
+      fireEvent.click(getByText("Select none"));
+      expect(getByText("0 miners selected")).toBeInTheDocument();
+
+      // Simulate miner list update (e.g., after authentication removes some miners)
+      const remainingMiners = {
+        miner3: mockUnpairedMiners.miner3,
+      };
+
+      vi.mocked(useAuthNeededMiners).mockReturnValue({
+        minerIds: ["miner3"],
+        miners: remainingMiners,
+        totalMiners: 1,
+        hasMore: false,
+        isLoading: false,
+        hasInitialLoadCompleted: true,
+        setFilter: vi.fn(),
+        loadMore: vi.fn(),
+        refetch: mockRefetch,
+      });
+
+      // Trigger re-render with updated miner list
+      rerender(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      // Selection should NOT reset to "all miners" - should remain empty
+      // Before the fix, this would show "1 miner selected"
+      await vi.waitFor(() => {
+        const selectionText = getByText(/miners selected/);
+        expect(selectionText.textContent).toBe("0 miners selected");
+      });
+    });
+
+    it("initializes with all miners selected on first load", () => {
+      vi.mocked(useAuthNeededMiners).mockReturnValue({
+        minerIds: [],
+        miners: {},
+        totalMiners: 0,
+        hasMore: false,
+        isLoading: true,
+        hasInitialLoadCompleted: false,
+        setFilter: vi.fn(),
+        loadMore: vi.fn(),
+        refetch: vi.fn(),
+      });
+
+      const { getByText, rerender } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      // No miners loaded yet - should show 0
+      expect(getByText("0 miners remaining")).toBeInTheDocument();
+
+      // Miners load
+      vi.mocked(useAuthNeededMiners).mockReturnValue({
+        minerIds: ["miner1", "miner2", "miner3"],
+        miners: mockUnpairedMiners,
+        totalMiners: 3,
+        hasMore: false,
+        isLoading: false,
+        hasInitialLoadCompleted: true,
+        setFilter: vi.fn(),
+        loadMore: vi.fn(),
+        refetch: vi.fn(),
+      });
+
+      rerender(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      fireEvent.click(getByText(showMinersLabel));
+
+      // Should auto-select all miners on initial load
+      expect(getByText("3 miners selected")).toBeInTheDocument();
+    });
+  });
 });

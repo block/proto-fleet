@@ -120,9 +120,17 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
   }, [minersByIdentifier]);
 
   const [selectedMiners, setSelectedMiners] = useState<string[]>([]);
-  // select all miners by default
+  // Track if we've initialized selection to prevent unwanted resets
+  const hasInitializedSelectionRef = useRef(false);
+
+  // Initialize selection to all miners only on first data load
+  // After initial load, preserve user selection even when miner list updates
   useEffect(() => {
-    setSelectedMiners(Object.keys(minersByIdentifier));
+    const minerIds = Object.keys(minersByIdentifier);
+    if (!hasInitializedSelectionRef.current && minerIds.length > 0) {
+      setSelectedMiners(minerIds);
+      hasInitializedSelectionRef.current = true;
+    }
   }, [minersByIdentifier]);
 
   const models = useMemo(() => {
