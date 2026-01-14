@@ -1,12 +1,14 @@
 import { minerCols, type MinerColumn } from "./constants";
 import Hashrate from "./Hashrate";
 import MinerEfficiency from "./MinerEfficiency";
+import MinerFirmware from "./MinerFirmware";
 import MinerIpAddress from "./MinerIpAddress";
 import MinerMacAddress from "./MinerMacAddress";
 import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
 import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
+import MinerType from "./MinerType";
 import { type DeviceListItem } from "./types";
 import { type ColConfig } from "@/shared/components/List/types";
 
@@ -14,6 +16,10 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
   [minerCols.name]: {
     component: (device: DeviceListItem) => <MinerName deviceIdentifier={device.deviceIdentifier} />,
     width: "min-w-20",
+  },
+  [minerCols.type]: {
+    component: (device: DeviceListItem) => <MinerType deviceIdentifier={device.deviceIdentifier} />,
+    width: "min-w-28",
   },
   [minerCols.macAddress]: {
     component: (device: DeviceListItem) => <MinerMacAddress deviceIdentifier={device.deviceIdentifier} />,
@@ -44,6 +50,10 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
   [minerCols.temperature]: {
     component: (device: DeviceListItem) => <MinerTemperature deviceIdentifier={device.deviceIdentifier} />,
     width: "min-w-20",
+  },
+  [minerCols.firmware]: {
+    component: (device: DeviceListItem) => <MinerFirmware deviceIdentifier={device.deviceIdentifier} />,
+    width: "min-w-28",
   },
 };
 

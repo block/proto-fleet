@@ -2,6 +2,7 @@ import { ColTitles } from "@/shared/components/List/types";
 
 export const minerCols = {
   name: "name",
+  type: "type",
   macAddress: "macAddress",
   ipAddress: "ipAddress",
   status: "status",
@@ -9,12 +10,14 @@ export const minerCols = {
   efficiency: "efficiency",
   powerUsage: "powerUsage",
   temperature: "temperature",
+  firmware: "firmware",
 } as const;
 
 export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
 
 export const minerColTitles: ColTitles<MinerColumn> = {
   name: "Name",
+  type: "Type",
   macAddress: "MAC Address",
   ipAddress: "IP Address",
   status: "Status",
@@ -22,6 +25,7 @@ export const minerColTitles: ColTitles<MinerColumn> = {
   efficiency: "Efficiency",
   powerUsage: "Power",
   temperature: "Temp",
+  firmware: "Firmware",
 };
 
 export const deviceStatusFilterStates = {

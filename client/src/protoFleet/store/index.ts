@@ -58,6 +58,8 @@ export {
   useMinerName,
   useMinerMacAddress,
   useMinerIpAddress,
+  useMinerModel,
+  useMinerFirmwareVersion,
   useMinerDeviceStatus,
   useMinerHashrate,
   useMinerEfficiency,

@@ -79,6 +79,7 @@ type MinerListProps = {
 // implement row customization
 const activeCols: MinerColumn[] = [
   minerCols.name,
+  minerCols.type,
   minerCols.macAddress,
   minerCols.ipAddress,
   minerCols.status,
@@ -86,6 +87,7 @@ const activeCols: MinerColumn[] = [
   minerCols.efficiency,
   minerCols.powerUsage,
   minerCols.temperature,
+  minerCols.firmware,
 ];
 
 const MinerList = ({

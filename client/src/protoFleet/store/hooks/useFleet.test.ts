@@ -4,7 +4,14 @@ import { create } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { MinerStateSnapshot } from "../slices/fleetSlice";
 import { useFleetStore } from "../useFleetStore";
-import { useMinerEfficiency, useMinerHashrate, useMinerPowerUsage, useMinerTemperature } from "./useFleet";
+import {
+  useMinerEfficiency,
+  useMinerFirmwareVersion,
+  useMinerHashrate,
+  useMinerModel,
+  useMinerPowerUsage,
+  useMinerTemperature,
+} from "./useFleet";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { DeviceStatus, MinerStateCountsSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -46,6 +53,8 @@ describe("useFleet measurement selectors", () => {
       temperature: [],
       errors: [],
       url: "",
+      model: "",
+      firmwareVersion: "",
       ...overrides,
     } as MinerStateSnapshot;
   };
@@ -447,6 +456,132 @@ describe("useFleet measurement selectors", () => {
       // MAINTENANCE status is not OFFLINE or INACTIVE, so should show skeleton
       const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
       expect(result.current).toBeUndefined();
+    });
+  });
+
+  describe("useMinerModel", () => {
+    it("returns the correct model when miner exists", () => {
+      const miner = createMinerSnapshot({
+        model: "Proto Rig",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerModel(miner.deviceIdentifier));
+      expect(result.current).toBe("Proto Rig");
+    });
+
+    it("returns undefined when miner doesn't exist", () => {
+      const { result } = renderHook(() => useMinerModel("non-existent-id"));
+      expect(result.current).toBeUndefined();
+    });
+
+    it("handles empty string model", () => {
+      const miner = createMinerSnapshot({
+        model: "",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerModel(miner.deviceIdentifier));
+      expect(result.current).toBe("");
+    });
+
+    it("returns correct model for Bitmain miners", () => {
+      const miner = createMinerSnapshot({
+        model: "Antminer S19",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerModel(miner.deviceIdentifier));
+      expect(result.current).toBe("Antminer S19");
+    });
+  });
+
+  describe("useMinerFirmwareVersion", () => {
+    it("returns the correct firmware version when miner exists", () => {
+      const miner = createMinerSnapshot({
+        firmwareVersion: "1.2.3",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerFirmwareVersion(miner.deviceIdentifier));
+      expect(result.current).toBe("1.2.3");
+    });
+
+    it("returns undefined when miner doesn't exist", () => {
+      const { result } = renderHook(() => useMinerFirmwareVersion("non-existent-id"));
+      expect(result.current).toBeUndefined();
+    });
+
+    it("handles empty string firmware version", () => {
+      const miner = createMinerSnapshot({
+        firmwareVersion: "",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerFirmwareVersion(miner.deviceIdentifier));
+      expect(result.current).toBe("");
+    });
+
+    it("handles date-based version format", () => {
+      const miner = createMinerSnapshot({
+        firmwareVersion: "2024.01.15",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerFirmwareVersion(miner.deviceIdentifier));
+      expect(result.current).toBe("2024.01.15");
+    });
+
+    it("handles semantic version with pre-release tag", () => {
+      const miner = createMinerSnapshot({
+        firmwareVersion: "v1.0.0-beta",
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerFirmwareVersion(miner.deviceIdentifier));
+      expect(result.current).toBe("v1.0.0-beta");
     });
   });
 });
