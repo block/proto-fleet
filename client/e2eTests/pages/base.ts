@@ -24,27 +24,35 @@ export class BasePage {
   }
 
   async validateTitle(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()='${expectedTitle}']`);
+    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleInModal(expectedTitle: string) {
     const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
+      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()="${expectedTitle}"]`,
     );
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()='${expectedTitle}']`);
+    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
     await expect(titleLocator).toBeHidden();
   }
 
   async validateTitleInModalNotVisible(expectedTitle: string) {
     const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
+      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()="${expectedTitle}"]`,
     );
     await expect(titleLocator).toBeHidden();
+  }
+
+  async validateTextIsVisible(text: string) {
+    await expect(this.page.getByText(text)).toBeVisible();
+  }
+
+  async validateButtonIsVisible(text: string) {
+    await expect(this.page.getByRole("button", { name: text })).toBeVisible();
   }
 
   async clickNavigationMenuIfMobile() {

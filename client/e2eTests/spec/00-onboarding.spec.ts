@@ -2,12 +2,12 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
-test.describe("Proto Fleet - Onboarding @setup", () => {
+test.describe("Proto Fleet - Onboarding", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
 
-  test("Onboard the admin user", async ({ authPage }) => {
+  test("Onboard the admin user @setup", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);
@@ -19,7 +19,31 @@ test.describe("Proto Fleet - Onboarding @setup", () => {
     });
   });
 
-  test("Add all scanned miners", async ({ authPage, minersPage, commonSteps }) => {
+  test("Validate null states", async ({ homePage, commonSteps, minersPage, settingsPoolsPage }) => {
+    await commonSteps.loginAsAdmin();
+
+    await test.step("Validate Home screen null state due to no miners added", async () => {
+      await homePage.validateTextIsVisible("Let's setup your fleet.");
+      await homePage.validateTextIsVisible("Add miners to your fleet to get started.");
+      await homePage.validateButtonIsVisible("Get Started");
+    });
+
+    await test.step("Validate Miners screen null state due to no miners added", async () => {
+      await homePage.navigateToMinersPage();
+      await minersPage.validateTextIsVisible("You haven't paired any miners");
+      await minersPage.validateTextIsVisible("Add miners to your fleet to get started.");
+      await minersPage.validateButtonIsVisible("Get Started");
+    });
+
+    await test.step("Validate Pools screen null state due to no pools added", async () => {
+      await minersPage.navigateToMiningPoolsSettings();
+      await settingsPoolsPage.validateTitle("Pools");
+      await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
+      await settingsPoolsPage.validateButtonIsVisible("Add pool");
+    });
+  });
+
+  test("Add all scanned miners @setup", async ({ authPage, minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Get started with onboarding", async () => {
@@ -38,7 +62,7 @@ test.describe("Proto Fleet - Onboarding @setup", () => {
     });
   });
 
-  test("Authenticate miners", async ({ homePage, commonSteps }) => {
+  test("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Authenticate miners", async () => {
