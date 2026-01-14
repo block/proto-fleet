@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -443,32 +444,47 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 		idMap[row.DeviceIdentifier] = row.ID
 	}
 
-	// Build bulk upsert args: (device_id, status, timestamp, details) per row.
-	now := time.Now()
-	args := make([]any, 0, len(updates)*4)
-	var rowCount int
+	// Collect valid updates with their device IDs for sorting
+	type deviceStatusUpdateWithID struct {
+		deviceID int64
+		update   stores.DeviceStatusUpdate
+	}
+	validUpdates := make([]deviceStatusUpdateWithID, 0, len(updates))
 	for _, u := range updates {
 		deviceID, found := idMap[u.DeviceIdentifier.String()]
 		if !found {
 			continue
 		}
-		args = append(args, deviceID, toDeviceStatus(u.Status), now, "")
-		rowCount++
+		validUpdates = append(validUpdates, deviceStatusUpdateWithID{deviceID: deviceID, update: u})
 	}
 
-	notFoundCount := len(updates) - rowCount
+	notFoundCount := len(updates) - len(validUpdates)
 	if notFoundCount > 0 {
 		slog.Warn("some devices not found for status update",
 			"not_found", notFoundCount,
 			"total", len(updates),
-			"succeeded", rowCount)
+			"succeeded", len(validUpdates))
 	}
 
-	if rowCount == 0 {
+	if len(validUpdates) == 0 {
 		return fleeterror.NewInternalErrorf("all %d devices not found for status update", len(updates))
 	}
 
-	query := buildDeviceStatusBulkUpsert(rowCount)
+	// Sort by device_id for consistent lock ordering. This prevents deadlocks
+	// with queries that scan device_status in index order (e.g., CloseStaleErrors
+	// EXISTS subquery which acquires shared locks during its scan).
+	sort.Slice(validUpdates, func(i, j int) bool {
+		return validUpdates[i].deviceID < validUpdates[j].deviceID
+	})
+
+	// Build args in sorted order
+	now := time.Now()
+	args := make([]any, 0, len(validUpdates)*4)
+	for _, v := range validUpdates {
+		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), now, "")
+	}
+
+	query := buildDeviceStatusBulkUpsert(len(validUpdates))
 	_, err = s.conn.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("bulk status upsert failed: %v", err)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
 // txContextKey is the key type for storing *sqlc.Queries in context
@@ -12,11 +13,11 @@ import (
 type txContextKey struct{}
 
 type SQLConnectionManager struct {
-	conn *sql.DB
+	conn *db.RetryDB
 }
 
 func NewSQLConnectionManager(conn *sql.DB) SQLConnectionManager {
-	return SQLConnectionManager{conn: conn}
+	return SQLConnectionManager{conn: db.NewRetryDB(conn)}
 }
 
 // GetQueries retrieves or creates a sqlc.Queries instance based on the context
