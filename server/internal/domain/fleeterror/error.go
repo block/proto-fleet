@@ -1,6 +1,7 @@
 package fleeterror
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -291,6 +292,30 @@ func IsInvalidArgumentError(err error) bool {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		return connectErr.Code() == connect.CodeInvalidArgument
+	}
+
+	return false
+}
+
+// IsCanceledError checks if an error is a cancellation error (e.g., client disconnect)
+func IsCanceledError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for context.Canceled
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeCanceled
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeCanceled
 	}
 
 	return false

@@ -1,10 +1,12 @@
 package fleeterror
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -114,4 +116,80 @@ func TestConnectionErrorWithErrorsAs(t *testing.T) {
 		var connErr ConnectionError
 		assert.False(t, errors.As(genericErr, &connErr))
 	})
+}
+
+func TestIsCanceledError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "context.Canceled",
+			err:      context.Canceled,
+			expected: true,
+		},
+		{
+			name:     "wrapped context.Canceled",
+			err:      fmt.Errorf("operation failed: %w", context.Canceled),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeCanceled",
+			err:      NewCanceledError(),
+			expected: true,
+		},
+		{
+			name:     "wrapped FleetError with CodeCanceled",
+			err:      fmt.Errorf("stream error: %w", NewCanceledError()),
+			expected: true,
+		},
+		{
+			name:     "connect.Error with CodeCanceled",
+			err:      connect.NewError(connect.CodeCanceled, errors.New("canceled")),
+			expected: true,
+		},
+		{
+			name:     "wrapped connect.Error with CodeCanceled",
+			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeCanceled, errors.New("canceled"))),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeInternal is not canceled",
+			err:      NewInternalError("internal error"),
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeNotFound is not canceled",
+			err:      NewNotFoundError("not found"),
+			expected: false,
+		},
+		{
+			name:     "connect.Error with CodeInternal is not canceled",
+			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
+			expected: false,
+		},
+		{
+			name:     "generic error is not canceled",
+			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+		{
+			name:     "context.DeadlineExceeded is not canceled",
+			err:      context.DeadlineExceeded,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsCanceledError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

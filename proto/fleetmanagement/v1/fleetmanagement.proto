@@ -381,6 +381,14 @@ message StreamMinerListUpdatesRequest {
 
   // Heartbeat interval in seconds (0 means no heartbeats)
   int32 heartbeat_interval_seconds = 5;
+
+  // Unique identifier for this browser tab/connection.
+  // Used for stream deduplication: when a new stream request arrives with the same
+  // session + connection_id, the previous stream is cancelled. This prevents
+  // connection exhaustion from rapid scrolling while allowing multiple tabs to
+  // maintain independent streams.
+  // Client should generate a UUID once per tab lifecycle and reuse it for all requests.
+  string connection_id = 6;
 }
 
 // Response containing incremental updates to the filtered miner list

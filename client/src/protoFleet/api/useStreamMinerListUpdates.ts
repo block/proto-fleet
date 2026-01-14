@@ -9,6 +9,7 @@ import {
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
+import { getConnectionId } from "@/protoFleet/utils/connectionId";
 import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 type UseStreamMinerListUpdatesOptions = {
@@ -77,6 +78,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         filter: currentFilter,
         dataMode: DataMode.METADATA,
         heartbeatIntervalSeconds: 30,
+        connectionId: getConnectionId(),
         measurementConfigs: [
           {
             measurementType: MeasurementConfig_MeasurementType.HASHRATE,

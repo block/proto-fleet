@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
 type RequestLoggingInterceptor struct {
@@ -109,6 +110,15 @@ func (e *RequestLoggingInterceptor) logStreamingRequestStarted(requestID int64, 
 
 func (e *RequestLoggingInterceptor) logStreamingRequestEnded(err error, requestID int64, procedure string, duration time.Duration) {
 	if err != nil {
+		// Check if this is a cancellation error (client disconnect) - log at INFO level since it's expected
+		if fleeterror.IsCanceledError(err) {
+			slog.Info("incoming streaming request ended (client disconnected)",
+				"request_id", requestID,
+				"procedure", procedure,
+				"duration", duration,
+			)
+			return
+		}
 		slog.Error("incoming streaming request failed",
 			"request_id", requestID,
 			"procedure", procedure,

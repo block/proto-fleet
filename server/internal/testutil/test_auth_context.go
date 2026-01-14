@@ -17,3 +17,14 @@ func MockAuthContextForTesting(ctx context.Context, userID, orgID int64) context
 	}
 	return authn.SetInfo(ctx, info)
 }
+
+// MockAuthContextWithSessionID creates a context with a custom session ID for testing.
+// Use this when testing session-specific behavior like stream deduplication.
+func MockAuthContextWithSessionID(ctx context.Context, sessionID string, userID, orgID int64) context.Context {
+	info := &session.Info{
+		SessionID:      sessionID,
+		UserID:         userID,
+		OrganizationID: orgID,
+	}
+	return authn.SetInfo(ctx, info)
+}

@@ -15,6 +15,7 @@ import {
   UpdateType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
+import { getConnectionId } from "@/protoFleet/utils/connectionId";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type UseFleetOptions = {
@@ -191,6 +192,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
               seconds: BigInt(30),
               nanos: 0,
             },
+            connectionId: getConnectionId(),
           });
 
           for await (const response of telemetryClient.streamUpdates(request, {

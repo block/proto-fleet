@@ -263,6 +263,10 @@ message StreamUpdatesRequest {
     lte: { seconds: 600 } // 10 minutes
   }];
   map<string, string> tags = 5;
+
+  // Unique identifier for this browser tab/connection.
+  // Used for stream deduplication to allow multiple tabs to maintain independent streams.
+  string connection_id = 6;
 }
 
 message StreamUpdatesResponse {
@@ -335,6 +339,10 @@ message StreamCombinedMetricUpdatesRequest {
     }];
     // default update interval is granularity
     google.protobuf.Duration update_interval = 5;
+
+    // Unique identifier for this browser tab/connection.
+    // Used for stream deduplication to allow multiple tabs to maintain independent streams.
+    string connection_id = 6;
 }
 
 message StreamCombinedMetricUpdatesResponse {

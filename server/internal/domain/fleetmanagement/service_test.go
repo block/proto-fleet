@@ -3,6 +3,7 @@ package fleetmanagement_test
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -981,4 +982,246 @@ func TestService_ListMinerStateSnapshots_IncludesFirmwareVersion(t *testing.T) {
 		miner := resp.Miners[0]
 		assert.Empty(t, miner.FirmwareVersion, "firmware version should be empty when not set in database")
 	})
+}
+
+func TestService_StreamMinerListUpdates_DeduplicatesStreamsPerSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+	// Arrange
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+		poolStore,
+	)
+
+	sessionID := "test-session-for-dedup"
+	ctx := testutil.MockAuthContextWithSessionID(t.Context(), sessionID, testUser.DatabaseID, testUser.OrganizationID)
+
+	req := &pb.StreamMinerListUpdatesRequest{
+		HeartbeatIntervalSeconds: 60,            // Long interval to avoid heartbeat interference
+		ConnectionId:             "test-conn-1", // Same connection ID for deduplication test
+	}
+
+	// Act: Start first stream
+	stream1Chan, err := service.StreamMinerListUpdates(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, stream1Chan)
+
+	// Act: Start second stream with same session ID - should cancel first stream
+	stream2Chan, err := service.StreamMinerListUpdates(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, stream2Chan)
+
+	// Assert: First stream's channel should be closed due to cancellation
+	// We use a select with timeout to avoid hanging if the test fails
+	select {
+	case _, ok := <-stream1Chan:
+		// Channel should be closed (ok == false) or receive a message then close
+		// Either way, we're checking that the first stream was affected
+		if ok {
+			// If we receive a message, drain the channel until it's closed
+			for range stream1Chan {
+			}
+		}
+		// Channel is now closed, which is expected
+	case <-time.After(2 * time.Second):
+		t.Fatal("First stream was not cancelled within timeout - stream deduplication is not working")
+	}
+
+	// Assert: Second stream should still be functional (not closed)
+	// Verify by checking that the channel is still open after a brief wait
+	select {
+	case _, ok := <-stream2Chan:
+		if !ok {
+			t.Fatal("Second stream was unexpectedly closed - deduplication should not affect the new stream")
+		}
+		// Received a message, stream2 is working correctly
+	case <-time.After(500 * time.Millisecond):
+		// Timeout is acceptable - stream2 is still open and waiting for data
+		// This confirms the channel wasn't closed by the deduplication logic
+	}
+}
+
+func TestService_StreamMinerListUpdates_DifferentSessionsRunConcurrently(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+		poolStore,
+	)
+
+	// Create two different session contexts
+	ctx1 := testutil.MockAuthContextWithSessionID(t.Context(), "session-1", testUser.DatabaseID, testUser.OrganizationID)
+	ctx2 := testutil.MockAuthContextWithSessionID(t.Context(), "session-2", testUser.DatabaseID, testUser.OrganizationID)
+
+	req1 := &pb.StreamMinerListUpdatesRequest{
+		HeartbeatIntervalSeconds: 1, // Short interval to verify both streams are active
+		ConnectionId:             "conn-sess1",
+	}
+	req2 := &pb.StreamMinerListUpdatesRequest{
+		HeartbeatIntervalSeconds: 1,
+		ConnectionId:             "conn-sess2",
+	}
+
+	// Act: Start streams with different session IDs
+	stream1Chan, err := service.StreamMinerListUpdates(ctx1, req1)
+	require.NoError(t, err)
+	require.NotNil(t, stream1Chan)
+
+	stream2Chan, err := service.StreamMinerListUpdates(ctx2, req2)
+	require.NoError(t, err)
+	require.NotNil(t, stream2Chan)
+
+	// Assert: Both streams should receive heartbeats (both are running concurrently)
+	var stream1Active atomic.Bool
+	var stream2Active atomic.Bool
+
+	done := make(chan struct{})
+
+	go func() {
+		select {
+		case msg, ok := <-stream1Chan:
+			if ok && msg != nil {
+				stream1Active.Store(true)
+			}
+		case <-time.After(3 * time.Second):
+		}
+		done <- struct{}{}
+	}()
+
+	go func() {
+		select {
+		case msg, ok := <-stream2Chan:
+			if ok && msg != nil {
+				stream2Active.Store(true)
+			}
+		case <-time.After(3 * time.Second):
+		}
+		done <- struct{}{}
+	}()
+
+	// Wait for both goroutines to complete
+	<-done
+	<-done
+
+	assert.True(t, stream1Active.Load(), "Stream 1 should be active (received heartbeat)")
+	assert.True(t, stream2Active.Load(), "Stream 2 should be active (received heartbeat)")
+}
+
+func TestService_StreamMinerListUpdates_SameSessionDifferentConnectionIDsRunConcurrently(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		discoveredDeviceStore,
+		fleetmanagement.NewMockTelemetryCollector(),
+		testContext.ServiceProvider.MinerService,
+		mockCapabilities,
+		poolStore,
+	)
+
+	// Same session but different connection IDs (simulating multiple browser tabs)
+	sessionID := "test-session-multi-tab"
+	ctx := testutil.MockAuthContextWithSessionID(t.Context(), sessionID, testUser.DatabaseID, testUser.OrganizationID)
+
+	req1 := &pb.StreamMinerListUpdatesRequest{
+		HeartbeatIntervalSeconds: 1,       // Short interval to verify both streams are active
+		ConnectionId:             "tab-1", // First browser tab
+	}
+	req2 := &pb.StreamMinerListUpdatesRequest{
+		HeartbeatIntervalSeconds: 1,
+		ConnectionId:             "tab-2", // Second browser tab
+	}
+
+	// Act: Start streams with same session but different connection IDs
+	stream1Chan, err := service.StreamMinerListUpdates(ctx, req1)
+	require.NoError(t, err)
+	require.NotNil(t, stream1Chan)
+
+	stream2Chan, err := service.StreamMinerListUpdates(ctx, req2)
+	require.NoError(t, err)
+	require.NotNil(t, stream2Chan)
+
+	// Assert: Both streams should receive heartbeats (both are running concurrently)
+	// because they have different connection IDs even though they share the same session
+	var stream1Active atomic.Bool
+	var stream2Active atomic.Bool
+
+	done := make(chan struct{})
+
+	go func() {
+		select {
+		case msg, ok := <-stream1Chan:
+			if ok && msg != nil {
+				stream1Active.Store(true)
+			}
+		case <-time.After(3 * time.Second):
+		}
+		done <- struct{}{}
+	}()
+
+	go func() {
+		select {
+		case msg, ok := <-stream2Chan:
+			if ok && msg != nil {
+				stream2Active.Store(true)
+			}
+		case <-time.After(3 * time.Second):
+		}
+		done <- struct{}{}
+	}()
+
+	// Wait for both goroutines to complete
+	<-done
+	<-done
+
+	assert.True(t, stream1Active.Load(), "Tab 1 stream should be active (received heartbeat)")
+	assert.True(t, stream2Active.Load(), "Tab 2 stream should be active (received heartbeat)")
 }

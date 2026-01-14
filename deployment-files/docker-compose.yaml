@@ -11,7 +11,7 @@ services:
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
     environment:
-      LOG_LEVEL: "info"
+      LOG_LEVEL: "INFO"
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"

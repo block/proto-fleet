@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
@@ -45,6 +46,13 @@ const (
 	// Standard HTTP ports
 	defaultHTTPPort  = "80"
 	defaultHTTPSPort = "443"
+
+	// defaultQueryTimeout is the maximum time allowed for expensive database queries.
+	// Set to 5 seconds as a balance between:
+	// - Allowing sufficient time for complex queries on large fleets (100s of miners)
+	// - Preventing slow queries from holding DB connections during rapid user interactions
+	// - Being short enough that cancelled requests release connections quickly
+	defaultQueryTimeout = 5 * time.Second
 )
 
 // constructWebViewURL builds a web view URL
@@ -75,7 +83,22 @@ type Service struct {
 	capabilitiesProvider  CapabilitiesProvider
 	capabilitiesCache     sync.Map
 	poolStore             interfaces.PoolStore
+
+	// Stream deduplication: ensures only one active StreamMinerListUpdates per session.
+	// When a new stream request arrives for a session, the previous stream is cancelled
+	// to prevent connection exhaustion from rapid scrolling.
+	activeStreams   map[string]*activeStream
+	activeStreamsMu sync.Mutex
 }
+
+// activeStream tracks an active streaming goroutine with its cancel function and unique ID.
+type activeStream struct {
+	cancel func()
+	id     uint64
+}
+
+// minerListStreamIDCounter generates unique IDs for active streams.
+var minerListStreamIDCounter uint64
 
 func NewService(
 	deviceStore interfaces.DeviceStore,
@@ -92,6 +115,7 @@ func NewService(
 		minerService:          minerService,
 		capabilitiesProvider:  capabilitiesProvider,
 		poolStore:             poolStore,
+		activeStreams:         make(map[string]*activeStream),
 	}
 }
 
@@ -565,13 +589,40 @@ func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
 	}
 }
 
-// StreamMinerListUpdates streams incremental updates (additions/removals) for filtered miner list
-// Only sends changes when miners enter/exit filter criteriafleetmanagement.test
+// StreamMinerListUpdates streams incremental updates (additions/removals) for filtered miner list.
+// Only sends changes when miners enter/exit filter criteria.
+//
+// Stream deduplication: Only one active stream is allowed per session+connection. When a new stream
+// request arrives with the same session and connection_id, the previous stream is cancelled.
+// This prevents connection exhaustion from rapid scrolling while allowing multiple browser tabs
+// to maintain independent streams.
 func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMinerListUpdatesRequest) (<-chan *pb.StreamMinerListUpdatesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	// Build deduplication key from session ID and connection ID
+	// This allows multiple tabs (different connection IDs) to have independent streams
+	// while still deduplicating rapid requests within the same tab
+	dedupeKey := info.SessionID
+	if req.ConnectionId != "" {
+		dedupeKey = info.SessionID + ":" + req.ConnectionId
+	}
+
+	// Cancel any existing stream for this session+connection to prevent connection exhaustion
+	s.activeStreamsMu.Lock()
+	if existing, exists := s.activeStreams[dedupeKey]; exists {
+		existing.cancel()
+		slog.Debug("cancelled existing stream", "dedupeKey", dedupeKey)
+	}
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	streamID := atomic.AddUint64(&minerListStreamIDCounter, 1)
+	s.activeStreams[dedupeKey] = &activeStream{
+		cancel: cancelStream,
+		id:     streamID,
+	}
+	s.activeStreamsMu.Unlock()
 
 	responseChan := make(chan *pb.StreamMinerListUpdatesResponse, listUpdatesChannelBuffer)
 
@@ -581,7 +632,20 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 	}
 
 	go func() {
-		defer close(responseChan)
+		defer func() {
+			// Cancel the stream context to ensure all child operations are cleaned up
+			cancelStream()
+			// Clean up the active stream entry
+			s.activeStreamsMu.Lock()
+			// Only delete if this stream is still the active one
+			// (avoids deleting a newer stream's entry)
+			if existing, exists := s.activeStreams[dedupeKey]; exists && existing.id == streamID {
+				delete(s.activeStreams, dedupeKey)
+				slog.Debug("cleaned up miner list update stream", "dedupeKey", dedupeKey, "streamID", streamID)
+			}
+			s.activeStreamsMu.Unlock()
+			close(responseChan)
+		}()
 
 		currentMatchingDevices := make(map[string]bool)
 		sortedDeviceIDs := []string{}
@@ -589,7 +653,11 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		// Build initial tracking state of ALL miners matching the filter
 		// This is not sent to the client - they use ListMinerStateSnapshots for initial display
 		buildInitialTrackingState := func() error {
-			snapshot, err := s.buildSnapshot(ctx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter)
+			// Use timeout context to prevent slow queries from holding connections
+			queryCtx, cancel := context.WithTimeout(streamCtx, defaultQueryTimeout)
+			defer cancel()
+
+			snapshot, err := s.buildSnapshot(queryCtx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter)
 			if err != nil {
 				return err
 			}
@@ -614,7 +682,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		// Subscribe to device status change events for ALL devices in org
 		// We need to monitor all devices to detect when they enter/exit filter criteria
 		telemetryUpdateChan, unsubscribe, err := s.telemetry.SubscribeToTelemetryUpdates(
-			ctx,
+			streamCtx,
 			info.OrganizationID,
 			nil, // All devices in org
 			[]telemetryModels.UpdateType{telemetryModels.UpdateTypeDeviceStatus},
@@ -636,7 +704,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 
 			case update, ok := <-telemetryUpdateChan:
@@ -644,9 +712,16 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					return
 				}
 
+				// Check context before expensive DB query
+				select {
+				case <-streamCtx.Done():
+					return
+				default:
+				}
+
 				deviceID := string(update.DeviceID)
 
-				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, info.OrganizationID)
+				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(streamCtx, deviceID, info.OrganizationID)
 				if err != nil {
 					slog.Error("failed to get device", "deviceID", deviceID, "error", err)
 					continue
@@ -658,12 +733,26 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				if nowMatches && !wasMatching {
 					currentMatchingDevices[deviceID] = true
 
-					snapshot := s.buildMinerSnapshotWithTelemetry(ctx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+					// Check context before expensive operation
+					select {
+					case <-streamCtx.Done():
+						return
+					default:
+					}
+
+					snapshot := s.buildMinerSnapshotWithTelemetry(streamCtx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 
 					position := len(sortedDeviceIDs)
 					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
 
-					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
+					// Check context before expensive DB query
+					select {
+					case <-streamCtx.Done():
+						return
+					default:
+					}
+
+					total, err := s.deviceStore.GetTotalPairedDevices(streamCtx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
 						total = int64(len(currentMatchingDevices))
@@ -685,7 +774,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					}
 
 					select {
-					case <-ctx.Done():
+					case <-streamCtx.Done():
 						return
 					case responseChan <- deltaResp:
 					}
@@ -700,7 +789,14 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 						}
 					}
 
-					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
+					// Check context before expensive DB query
+					select {
+					case <-streamCtx.Done():
+						return
+					default:
+					}
+
+					total, err := s.deviceStore.GetTotalPairedDevices(streamCtx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
 						total = int64(len(currentMatchingDevices))
@@ -717,7 +813,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					}
 
 					select {
-					case <-ctx.Done():
+					case <-streamCtx.Done():
 						return
 					case responseChan <- deltaResp:
 					}
@@ -732,7 +828,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				}
 
 				select {
-				case <-ctx.Done():
+				case <-streamCtx.Done():
 					return
 				case responseChan <- resp:
 				}
