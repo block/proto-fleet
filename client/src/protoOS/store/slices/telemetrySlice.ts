@@ -73,6 +73,7 @@ export interface TelemetrySlice {
   asics: Map<string, AsicTelemetryData>;
   psus: Map<number, PsuTelemetryData>;
   fans: Map<number, FanTelemetryData>;
+  coolingMode: string | null; // Current cooling mode (e.g., "COOLING_MODE_AUTO", "COOLING_MODE_OFF")
   lastApiResponse: any | null; // Store the API response
   lastUpdated: number;
   intervalMs: number; // sampling interval from API
@@ -95,6 +96,9 @@ export interface TelemetrySlice {
   updatePsuTelemetry: (psuId: number, telemetryData: Partial<PsuTelemetryData>) => void;
   updateFanTelemetry: (fanSlot: number, telemetryData: Partial<FanTelemetryData>) => void;
 
+  // Cooling Mode Actions
+  updateCoolingMode: (mode: string) => void;
+
   // Utility Actions
   clearOldData: (olderThanTimestamp: number) => void;
   clearTimeSeriesData: () => void;
@@ -115,6 +119,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
   asics: new Map(),
   psus: new Map(),
   fans: new Map(),
+  coolingMode: null,
   lastApiResponse: null,
   lastUpdated: Date.now(),
   intervalMs: 900000, // Default 15 minutes
@@ -665,6 +670,12 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
           (fan as any)[key] = value;
         }
       });
+    }),
+
+  // Update cooling mode
+  updateCoolingMode: (mode) =>
+    set((state) => {
+      state.telemetry.coolingMode = mode;
     }),
 
   // Clear all telemetry data (useful when duration changes)

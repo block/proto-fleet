@@ -27,7 +27,7 @@ const InfoModal = ({ onDismiss, buttons }: InfoModalProps) => {
           {immersionModeInstructionSteps.map((step, index) => (
             <Row key={index} divider={false} prefixIcon={<SlotNumber number={index + 1} />}>
               <div className="text-emphasis-300 text-text-primary">{step.title}</div>
-              <div className="text-300 text-text-primary">{step.subtitle}</div>
+              <div className="text-200 text-text-primary-70">{step.subtitle}</div>
             </Row>
           ))}
         </div>

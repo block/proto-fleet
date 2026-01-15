@@ -60,6 +60,7 @@ export {
   usePsuTelemetry,
   useFansTelemetry,
   useFanTelemetry,
+  useCoolingMode,
   useIntervalMs,
 } from "./hooks/useTelemetry";
 

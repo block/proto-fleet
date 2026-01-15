@@ -5,8 +5,8 @@ import FansDetectedDialog from "./FansDetectedDialog";
 export const Default = () => {
   return (
     <FansDetectedDialog
-      onRetry={action("confirmed immersion cooling")}
-      onCancel={action("switched to air cooled")}
+      onContinue={action("onContinue")}
+      onSwitchToAirCooled={action("onSwitchToAirCooled")}
       show={true}
     />
   );
@@ -15,8 +15,8 @@ export const Default = () => {
 export const Loading = () => {
   return (
     <FansDetectedDialog
-      onRetry={action("confirmed immersion cooling")}
-      onCancel={action("switched to air cooled")}
+      onContinue={action("onContinue")}
+      onSwitchToAirCooled={action("onSwitchToAirCooled")}
       isLoading={true}
       show={true}
     />

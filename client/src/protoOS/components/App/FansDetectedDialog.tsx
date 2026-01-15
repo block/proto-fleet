@@ -4,19 +4,19 @@ import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 interface FansDetectedDialogProps {
-  onRetry: () => void;
-  onCancel: () => void;
+  onContinue: () => void;
+  onSwitchToAirCooled: () => void;
   show: boolean;
   isLoading?: boolean;
 }
 
-const FansDetectedDialog = ({ onRetry, onCancel, show, isLoading = false }: FansDetectedDialogProps) => {
+const FansDetectedDialog = ({ onContinue, onSwitchToAirCooled, show, isLoading = false }: FansDetectedDialogProps) => {
   return (
     <Dialog
       show={show}
-      title="Fans detected"
-      titleSize="text-heading-200"
-      subtitle="Fans are detected for this miner. Remove fans to continue in immersion mode, or switch back to air cooled mode."
+      title="Fans are disabled"
+      titleSize="text-heading-300"
+      subtitle="While in immersion mode, fans and fan errors will be disabled. To use fans to cool this miner, switch to air cooling mode."
       subtitleSize="text-300"
       icon={
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
@@ -25,17 +25,17 @@ const FansDetectedDialog = ({ onRetry, onCancel, show, isLoading = false }: Fans
       }
       buttons={[
         {
-          text: "Use air cooled mode",
+          text: "Switch to air cooling",
           variant: variants.secondary,
-          onClick: onCancel,
-          disabled: isLoading,
-        },
-        {
-          text: "Try again",
-          variant: variants.secondary,
-          onClick: onRetry,
+          onClick: onSwitchToAirCooled,
           disabled: isLoading,
           loading: isLoading,
+        },
+        {
+          text: "Continue",
+          variant: variants.secondary,
+          onClick: onContinue,
+          disabled: isLoading,
         },
       ]}
     />

@@ -74,6 +74,9 @@ const Callout = ({
 
   let iconColor = "text-intent-info-fill"; // default value
   switch (intent) {
+    case "default":
+      iconColor = "text-text-primary";
+      break;
     case "danger":
       iconColor = "text-intent-critical-fill";
       break;

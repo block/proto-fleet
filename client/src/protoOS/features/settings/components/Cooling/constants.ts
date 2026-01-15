@@ -5,7 +5,7 @@ export const immersionModeInstructionSteps = [
   },
   {
     title: "Remove the fans",
-    subtitle: "Fans must be removed before submersion.",
+    subtitle: "Remove fans before submersion.",
   },
   {
     title: "Submerge the miner",
@@ -13,6 +13,6 @@ export const immersionModeInstructionSteps = [
   },
   {
     title: "Plug in and power on the miner",
-    subtitle: "Once powered up, Rig is ready to hash.",
+    subtitle: "While in immersion mode, fan errors will be turned off.",
   },
 ];

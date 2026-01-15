@@ -3,11 +3,13 @@ import clsx from "clsx";
 import InfoModal from "./InfoModal";
 import { useCoolingStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/generatedApi";
-import { useIsSleeping } from "@/protoOS/store";
-import { Fan } from "@/shared/assets/icons";
+import { EnteringSleepDialog } from "@/protoOS/components/Power";
+import { useCoolingMode, useFansTelemetry, useIsSleeping } from "@/protoOS/store";
+import { areFansDetectedInImmersionMode } from "@/protoOS/store/utils/coolingUtils";
+import { Alert, Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
 import Button from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Callout, { intents } from "@/shared/components/Callout";
 import SelectRow from "@/shared/components/SelectRow";
 import { selectTypes } from "@/shared/constants";
 import { pushToast, updateToast } from "@/shared/features/toaster";
@@ -74,9 +76,11 @@ const isSelected = (
 };
 
 const Cooling = () => {
-  const { data: coolingStatus, pending, setCooling } = useCoolingStatus({ poll: true });
+  const { pending, setCooling } = useCoolingStatus({ poll: true });
   const [coolingMode, setCoolingMode] = useState<CoolingMode>();
   const isSleeping = useIsSleeping();
+  const storeCoolingMode = useCoolingMode();
+  const fans = useFansTelemetry();
 
   const [userSelectedCoolingMode, setUserSelectedCoolingMode] = useState<CoolingMode>();
   const [loading, setLoading] = useState<boolean>(true);
@@ -85,18 +89,19 @@ const Cooling = () => {
   const [showSleepDialog, setShowSleepDialog] = useState<boolean>(false);
 
   useEffect(() => {
-    if (coolingStatus) {
+    // Read from store instead of local hook state for immediate updates
+    if (storeCoolingMode) {
       /* eslint-disable react-hooks/set-state-in-effect */
-      if (isAirCooledMode(coolingStatus.fan_mode)) {
+      if (isAirCooledMode(storeCoolingMode)) {
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
-      } else if (isImmersionMode(coolingStatus.fan_mode)) {
+      } else if (isImmersionMode(storeCoolingMode)) {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [coolingStatus]);
+  }, [storeCoolingMode]);
 
   useEffect(() => {
     if (isSleeping) {
@@ -108,8 +113,8 @@ const Cooling = () => {
   const handleChange = useCallback(
     (id: string, confirmed = false) => {
       const isCurrentMode =
-        (id === COOLING_MODES.air && isAirCooledMode(coolingStatus?.fan_mode)) ||
-        (id === COOLING_MODES.immersion && isImmersionMode(coolingStatus?.fan_mode));
+        (id === COOLING_MODES.air && isAirCooledMode(storeCoolingMode ?? undefined)) ||
+        (id === COOLING_MODES.immersion && isImmersionMode(storeCoolingMode ?? undefined));
       if (isCurrentMode) {
         return;
       }
@@ -151,7 +156,7 @@ const Cooling = () => {
         },
       });
     },
-    [coolingStatus?.fan_mode, setCooling],
+    [storeCoolingMode, setCooling],
   );
 
   const handleImmersionConfirm = useCallback(() => {
@@ -168,8 +173,21 @@ const Cooling = () => {
     setShowLearnMoreModal(true);
   };
 
+  // Check if fans are detected in immersion mode
+  const showFansDetectedCallout = areFansDetectedInImmersionMode(fans, storeCoolingMode) && !loading;
+
   return (
     <>
+      {showFansDetectedCallout && (
+        <div className="mb-10">
+          <Callout
+            intent={intents.danger}
+            prefixIcon={<Alert />}
+            title="Fans detected"
+            subtitle="Fans will not turn on while in immersion mode."
+          />
+        </div>
+      )}
       <h2 className="mb-10 text-heading-300">Cooling</h2>
       <div className="mb-10 flex flex-col gap-4">
         <SelectRow
@@ -242,12 +260,7 @@ const Cooling = () => {
 
       {showLearnMoreModal && <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />}
 
-      <Dialog
-        title="Entering sleep mode"
-        subtitle="Your mminer is entering sleep mode. This may take a few seconds."
-        loading
-        show={showSleepDialog}
-      />
+      <EnteringSleepDialog show={showSleepDialog} />
     </>
   );
 };

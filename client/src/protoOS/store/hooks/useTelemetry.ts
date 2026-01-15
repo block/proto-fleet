@@ -25,4 +25,6 @@ export const useFansTelemetry = () => useMinerStore(useShallow((state) => Array.
 
 export const useFanTelemetry = (id: number) => useMinerStore((state) => state.telemetry.fans.get(id));
 
+export const useCoolingMode = () => useMinerStore((state) => state.telemetry.coolingMode);
+
 export const useIntervalMs = () => useMinerStore((state) => state.telemetry.intervalMs);

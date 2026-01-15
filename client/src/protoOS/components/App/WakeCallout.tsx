@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import FansDetectedDialog from "./FansDetectedDialog";
 import { useCoolingStatus } from "@/protoOS/api";
 
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
-import { useIsSleeping } from "@/protoOS/store";
+import { useCoolingMode, useFansTelemetry, useIsSleeping } from "@/protoOS/store";
+import { areFansDetectedInImmersionMode } from "@/protoOS/store/utils/coolingUtils";
 import { Power } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
 
@@ -18,31 +19,29 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
     afterWake,
     onSuccess: onWake,
   });
-  const { data: coolingStatus, setCooling } = useCoolingStatus({ poll: false });
+  const [isUpdatingCooling, setIsUpdatingCooling] = useState(false);
+  const { setCooling } = useCoolingStatus();
+  const coolingMode = useCoolingMode();
+  const fans = useFansTelemetry();
   const isSleeping = useIsSleeping();
   const [showFansDetectedDialog, setShowFansDetectedDialog] = useState(false);
-  const [isUpdatingCooling, setIsUpdatingCooling] = useState(false);
+  const previousIsSleepingRef = useRef(isSleeping);
 
-  const handleWake = () => {
-    // Workaround: backend returns protobuf enum names instead of OpenAPI spec values
-    const hasFansRunning = coolingStatus?.fans?.some((fan) => fan && (fan.rpm ?? 0) > 0);
-    const fanMode = coolingStatus?.fan_mode as string | undefined;
-    const isImmersionMode = fanMode === "Off" || fanMode === "COOLING_MODE_OFF";
-
-    if (hasFansRunning && isImmersionMode) {
-      setShowFansDetectedDialog(true);
-    } else {
-      setShowFansDetectedDialog(false);
-      wakeMiner();
+  // Show dialog after miner wakes up if in immersion mode with fans running
+  useEffect(() => {
+    // Detect when miner wakes up (isSleeping goes from true to false)
+    if (previousIsSleepingRef.current && !isSleeping) {
+      if (areFansDetectedInImmersionMode(fans, coolingMode)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Show dialog on wake completion (isSleeping: true → false transition)
+        setShowFansDetectedDialog(true);
+      }
     }
-  };
 
-  const handleConfirmImmersion = async () => {
-    setIsUpdatingCooling(true);
-    // Add synthetic delay to show loading state
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setIsUpdatingCooling(false);
-    handleWake();
+    previousIsSleepingRef.current = isSleeping;
+  }, [isSleeping, shouldWake, fans, coolingMode]);
+
+  const handleContinue = () => {
+    setShowFansDetectedDialog(false);
   };
 
   const handleSwitchToAirCooled = () => {
@@ -52,7 +51,6 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
       onSuccess: () => {
         setIsUpdatingCooling(false);
         setShowFansDetectedDialog(false);
-        wakeMiner();
       },
       onError: () => {
         setIsUpdatingCooling(false);
@@ -65,7 +63,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
       {isSleeping && (
         <div className="mb-10">
           <Callout
-            buttonOnClick={handleWake}
+            buttonOnClick={wakeMiner}
             buttonText="Wake up miner"
             intent={intents.information}
             prefixIcon={<Power />}
@@ -76,8 +74,8 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
       <WakingDialog show={shouldWake} />
 
       <FansDetectedDialog
-        onRetry={handleConfirmImmersion}
-        onCancel={handleSwitchToAirCooled}
+        onContinue={handleContinue}
+        onSwitchToAirCooled={handleSwitchToAirCooled}
         isLoading={isUpdatingCooling}
         show={showFansDetectedDialog}
       />

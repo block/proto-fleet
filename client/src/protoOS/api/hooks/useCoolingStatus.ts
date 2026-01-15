@@ -58,6 +58,11 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
               ...coolingData,
               fans: allFans,
             });
+
+            // Update cooling mode in store
+            if (coolingData.fan_mode) {
+              useMinerStore.getState().telemetry.updateCoolingMode(coolingData.fan_mode);
+            }
           } else {
             setData(coolingData);
           }
@@ -123,13 +128,28 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
 
       const performSetCooling = async () => {
         setPending(true);
+
         await api
           .setCoolingMode({ mode }, authHeader)
           .then(async (res) => {
-            const data = await res.json();
-            setData(data.mode);
+            const responseData = await res.json();
             setPending(false);
-            onSuccess?.(data);
+
+            // Update local state immediately with new fan_mode
+            if (mode !== undefined && mode !== null) {
+              setData((prevData) => {
+                if (!prevData) return prevData;
+                return {
+                  ...prevData,
+                  fan_mode: mode,
+                } as CoolingStatusWithNullableFans;
+              });
+
+              // Update store immediately so other components reflect the change
+              useMinerStore.getState().telemetry.updateCoolingMode(mode);
+            }
+
+            onSuccess?.(responseData);
           })
           .catch((error) => {
             handleAuthErrors({

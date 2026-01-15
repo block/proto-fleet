@@ -1,7 +1,10 @@
 import { getControlBoardGeneration } from "./utility";
-import { useHardware } from "@/protoOS/api";
+import { useCoolingStatus, useHardware } from "@/protoOS/api";
 import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "@/protoOS/api/constants";
-import { FanIndicator, HashboardIndicator, PsuIndicator } from "@/shared/assets/icons";
+import { useCoolingMode } from "@/protoOS/store";
+import { areAllFansDisconnected } from "@/protoOS/store/utils/coolingUtils";
+import { FanIndicator, HashboardIndicator, Info, PsuIndicator } from "@/shared/assets/icons";
+import Callout, { intents } from "@/shared/components/Callout";
 import { DataNullState } from "@/shared/components/DataNullState";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -12,8 +15,16 @@ const Hardware = () => {
   // TODO: [STORE_REFACTOR] Remove this useHardware call once we update this page to read directly from the store
   // Hardware data is now populated by useHardware in AppWrapper.tsx
   const { hashboardsInfo, controlBoardInfo, fansInfo, psusInfo, pending, error } = useHardware();
+  const coolingMode = useCoolingMode();
+
+  // Use cooling API for reliable fan detection (hardware API has null placeholders from unimplemented fan calibration)
+  const { data: coolingData } = useCoolingStatus();
 
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
+
+  const noFansConnected = areAllFansDisconnected(coolingData?.fans);
+  const isImmersionMode = coolingMode === "Off" || coolingMode === "COOLING_MODE_OFF";
+  const showNoFansCallout = noFansConnected && isImmersionMode;
 
   if (pending) {
     return (
@@ -85,26 +96,37 @@ const Hardware = () => {
       </div>
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Fans</h3>
-        <Row className="flex" attributes={{ role: "row" }}>
-          <h4 className="w-46 text-emphasis-300">Position</h4>
-          <h4 className="w-46 text-emphasis-300">Fan</h4>
-        </Row>
-        {fansInfo?.map((fan, idx) => {
-          const fanPosition = idx + 1;
-          return (
-            <Row className="flex items-center" key={idx} attributes={{ role: "row" }}>
-              <div className="flex w-46 items-center gap-2 text-300">
-                <SlotNumber number={fanPosition} />
-                <FanIndicator fanPosition={fanPosition} numFans={TOTAL_FAN_SLOTS} />
-              </div>
-              {fan ? (
-                <div className="w-46 text-300">Fan {fan.slot}</div>
-              ) : (
-                <div className="w-46 text-300 text-text-primary-70">No component found</div>
-              )}
+        {showNoFansCallout ? (
+          <Callout
+            intent={intents.default}
+            prefixIcon={<Info />}
+            title="No fans connected"
+            subtitle="This miner is set to immersion cooling"
+          />
+        ) : (
+          <>
+            <Row className="flex" attributes={{ role: "row" }}>
+              <h4 className="w-46 text-emphasis-300">Position</h4>
+              <h4 className="w-46 text-emphasis-300">Fan</h4>
             </Row>
-          );
-        })}
+            {fansInfo?.map((fan, idx) => {
+              const fanPosition = idx + 1;
+              return (
+                <Row className="flex items-center" key={idx} attributes={{ role: "row" }}>
+                  <div className="flex w-46 items-center gap-2 text-300">
+                    <SlotNumber number={fanPosition} />
+                    <FanIndicator fanPosition={fanPosition} numFans={TOTAL_FAN_SLOTS} />
+                  </div>
+                  {fan ? (
+                    <div className="w-46 text-300">Fan {fan.slot}</div>
+                  ) : (
+                    <div className="w-46 text-300 text-text-primary-70">No component found</div>
+                  )}
+                </Row>
+              );
+            })}
+          </>
+        )}
       </div>
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Power supply</h3>

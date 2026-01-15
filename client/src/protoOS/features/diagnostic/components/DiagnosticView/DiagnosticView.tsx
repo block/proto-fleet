@@ -7,39 +7,64 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
-import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useTelemetry } from "@/protoOS/api";
+import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useTelemetry } from "@/protoOS/api";
 // import { useErrors, useTelemetry } from "@/protoOS/api";
 // import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
 import {
   useBayCount,
   useControlBoard,
+  useCoolingMode,
   useFanIds,
   useHashboardSerialsByBay,
   usePsuIds,
   useSlotsPerBay,
 } from "@/protoOS/store";
+import { areAllFansDisconnected } from "@/protoOS/store/utils/coolingUtils";
 // import ComponentStatusModal from "@/shared/components/ComponentStatusModal";
+import Immersion from "@/shared/assets/icons/Immersion";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 
 interface DiagnosticViewProps {
   className?: string;
 }
 
+const NoFansEmptyState = () => (
+  <div className="flex flex-col items-center justify-center rounded-3xl bg-surface-5 px-20 py-10">
+    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-core-primary-5">
+      <Immersion />
+    </div>
+    <div className="text-heading-200">No fans to display</div>
+    <div className="text-400 text-text-primary-70">This miner is set to immersion cooling.</div>
+  </div>
+);
+
+const FansGrid = ({ occupiedSlots }: { occupiedSlots: Set<number> }) => (
+  <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+    {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
+      const slot = i + 1;
+      if (occupiedSlots.has(slot)) {
+        return <FanStatusCard key={slot} fanId={slot} />;
+      }
+      return <EmptySlotCard key={`fan-empty-${slot}`} type="fan" position={slot} title={`Fan ${slot}`} />;
+    })}
+  </div>
+);
+
 const FansSection = () => {
   const fanIds = useFanIds();
+  const coolingMode = useCoolingMode();
   const occupiedSlots = new Set(fanIds);
+
+  // Use cooling API for reliable fan detection (hardware API has null placeholders from unimplemented fan calibration)
+  const { data: coolingData } = useCoolingStatus();
+
+  const noFansConnected = areAllFansDisconnected(coolingData?.fans);
+  const isImmersionMode = coolingMode === "Off" || coolingMode === "COOLING_MODE_OFF";
+  const showNoFansState = noFansConnected && isImmersionMode;
 
   return (
     <ComponentSection title="Fans">
-      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
-          const slot = i + 1;
-          if (occupiedSlots.has(slot)) {
-            return <FanStatusCard key={slot} fanId={slot} />;
-          }
-          return <EmptySlotCard key={`fan-empty-${slot}`} type="fan" position={slot} title={`Fan ${slot}`} />;
-        })}
-      </div>
+      {showNoFansState ? <NoFansEmptyState /> : <FansGrid occupiedSlots={occupiedSlots} />}
     </ComponentSection>
   );
 };

@@ -70,7 +70,7 @@ const Dialog = ({
         <PageOverlay zIndex="z-40" shouldPreventScroll={preventScroll} show={show} animate={animate} position="top">
           <div
             className={clsx(
-              "mt-16 h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
+              "mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
               {
                 "animate-sliding-up": animate && show,
                 "animate-sliding-down": animate && !show,
@@ -81,7 +81,12 @@ const Dialog = ({
           >
             <div className="p-6">
               <div className="flex flex-col gap-3">
-                {loading ? <ProgressCircular indeterminate className="text-core-accent-fill" /> : icon ? icon : null}
+                {loading && (
+                  <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
+                    <ProgressCircular indeterminate className="text-text-primary" />
+                  </div>
+                )}
+                {!loading && icon}
                 <Header
                   className={headerClassName}
                   subtitleClassName={subtitleClassName}
