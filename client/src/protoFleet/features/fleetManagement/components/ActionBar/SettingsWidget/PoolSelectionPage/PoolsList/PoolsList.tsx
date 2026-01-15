@@ -56,9 +56,8 @@ const PoolsList = ({
 
   const isTestingConnection = isStateValid && poolState.status === "validating";
   const poolError = isStateValid && poolState.status === "error" ? poolState.error : null;
-  const hasPoolConflict = selectedPool && excludedPoolIds.some((id) => id === selectedPool.poolId);
 
-  const displayError = poolError || (hasPoolConflict ? "Duplicate pool selected" : null);
+  const displayError = poolError;
 
   const handlePoolSelect = (newPoolId: string, newPool?: MiningPool) => {
     // Use newPool if provided (e.g., from pool creation flow) to avoid race condition.

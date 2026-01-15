@@ -228,7 +228,7 @@ describe("Pool selection page", () => {
     expect(backupPool2.querySelector("button")).not.toBeDisabled();
   });
 
-  test("shows already selected pools as greyed out with assignment label in backup pool modal", async () => {
+  test("shows already selected pools as greyed out when slot is empty (swap only allowed when both have pools)", async () => {
     const { getAllByText, getByText, queryAllByText, getByTestId } = render(
       <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
@@ -250,19 +250,24 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
+    // Open backup #1 modal (which is currently empty)
     fireEvent.click(getAllByText("Add pool")[0]);
 
     await waitFor(() => {
       expect(queryAllByText("Select pool").length).toBeGreaterThan(0);
     });
 
+    // Pool A1 (assigned to Default) should show label but be disabled
+    // because backup #1 is empty and swap would clear the default
     expect(queryAllByText("Client pool A1").length).toBe(2);
-    expect(getByTestId("pool-row-Client pool A1")).toHaveAttribute("aria-disabled", "true");
     expect(getByText("Default")).toBeInTheDocument();
-    expect(getByTestId("pool-row-Client pool A2")).toHaveAttribute("aria-disabled", "false");
+
+    const pool1Row = getByTestId("pool-row-Client pool A1");
+    expect(pool1Row).toHaveAttribute("aria-disabled", "true");
+    expect(pool1Row.querySelector('input[type="radio"]')).toBeDisabled();
   });
 
-  test("clears backup pool when same pool is selected as default", async () => {
+  test("swaps backup pool with default when same pool is selected as default", async () => {
     const { getAllByText, getByText, getByTestId, queryAllByText } = render(
       <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
@@ -274,6 +279,7 @@ describe("Pool selection page", () => {
       expect(getByText("Select pool")).toBeInTheDocument();
     });
 
+    // Select Client pool A1 as default
     fireEvent.click(getByTestId("pool-row-Client pool A1"));
     fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
 
@@ -284,6 +290,7 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
+    // Select Client pool A2 as backup #1
     addPoolButtons = getAllByText("Add pool");
     fireEvent.click(addPoolButtons[0]);
 
@@ -301,7 +308,8 @@ describe("Pool selection page", () => {
       { timeout: 2000 },
     );
 
-    // Change default to same pool as backup #1
+    // Now change default to Client pool A2 (which is currently backup #1)
+    // This should swap the pools
     fireEvent.click(getByTestId("default-pool").querySelector("button")!);
 
     await waitFor(() => {
@@ -311,11 +319,22 @@ describe("Pool selection page", () => {
     fireEvent.click(getByTestId("pool-row-Client pool A2"));
     fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
 
+    // Wait for the swap to complete - default pool should now show A2
     await waitFor(
       () => {
-        expect(queryAllByText("Duplicate pool selected").length).toBe(0);
+        const defaultPoolCard = getByTestId("default-pool");
+        expect(defaultPoolCard).toHaveTextContent("Client pool A2");
       },
-      { timeout: 2000 },
+      { timeout: 3000 },
+    );
+
+    // Verify backup #1 shows A1 (the old default, now swapped)
+    await waitFor(
+      () => {
+        const backupPool1Card = getByTestId("backup-pool-1");
+        expect(backupPool1Card).toHaveTextContent("Client pool A1");
+      },
+      { timeout: 3000 },
     );
   });
 });

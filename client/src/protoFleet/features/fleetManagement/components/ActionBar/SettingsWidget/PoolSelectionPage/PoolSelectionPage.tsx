@@ -79,23 +79,41 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
   }
 
   const handleSelectDefaultPool = (poolId: string) => {
-    setSelectedDefaultPool(poolId);
-    // Clear conflicting backup pools (and #2 if #1 is cleared since #2 depends on #1)
+    const previousDefaultPool = selectedDefaultPool;
+
     setSelectedBackupPools((prev) => {
-      const backup1Cleared = prev[0] === poolId;
-      const newBackup1 = backup1Cleared ? undefined : prev[0];
-      const newBackup2 = backup1Cleared || prev[1] === poolId ? undefined : prev[1];
-      return [newBackup1, newBackup2];
+      if (prev[0] === poolId) {
+        return [previousDefaultPool, prev[1]];
+      }
+      if (prev[1] === poolId) {
+        return [prev[0], previousDefaultPool];
+      }
+      return prev;
     });
+
+    setSelectedDefaultPool(poolId);
   };
 
   const handleSelectBackupPool = (poolId: string, poolIndex: number) => {
-    setSelectedBackupPools((prev) => {
-      if (poolIndex === 0) {
-        return [poolId, prev[1] === poolId ? undefined : prev[1]];
+    const currentBackup = selectedBackupPools[poolIndex];
+
+    if (poolId === selectedDefaultPool) {
+      if (currentBackup !== undefined) {
+        setSelectedDefaultPool(currentBackup);
+        setSelectedBackupPools((prev) => (poolIndex === 0 ? [poolId, prev[1]] : [prev[0], poolId]));
       }
-      return [prev[0], poolId];
-    });
+      return;
+    }
+
+    const otherBackupIndex = poolIndex === 0 ? 1 : 0;
+    if (poolId === selectedBackupPools[otherBackupIndex]) {
+      if (currentBackup !== undefined) {
+        setSelectedBackupPools((prev) => (poolIndex === 0 ? [poolId, prev[poolIndex]] : [prev[poolIndex], poolId]));
+      }
+      return;
+    }
+
+    setSelectedBackupPools((prev) => (poolIndex === 0 ? [poolId, prev[1]] : [prev[0], poolId]));
   };
 
   const handleAssignPoolsClick = async () => {
@@ -157,7 +175,6 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
                   subtitle=""
                   onSelect={handleSelectDefaultPool}
                   createNewLabel="Add pool"
-                  excludedPoolIds={selectedBackupPools}
                   testId="default-pool"
                   selectedPoolId={selectedDefaultPool}
                   poolAssignments={poolAssignments}
@@ -166,10 +183,12 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
                 {/* Backup pools - side by side */}
                 <div className="flex gap-4">
                   {[0, 1].map((index) => {
-                    const otherBackupIndex = index === 0 ? 1 : 0;
-                    const excludedPools = [selectedDefaultPool, selectedBackupPools[otherBackupIndex]];
                     const isDisabled =
                       index === 0 ? !selectedDefaultPool : !selectedDefaultPool || !selectedBackupPools[0];
+                    const otherBackupIndex = index === 0 ? 1 : 0;
+                    const excludedPools = selectedBackupPools[index]
+                      ? []
+                      : [selectedDefaultPool, selectedBackupPools[otherBackupIndex]];
 
                     return (
                       <div key={index} className="flex-1">

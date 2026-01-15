@@ -198,15 +198,10 @@ describe("PoolSelectionModal", () => {
     expect(getByText("Foundry USA")).toBeInTheDocument();
   });
 
-  test("shows excluded pools as greyed out with assignment labels", () => {
+  test("shows pools with assignment labels but allows selection for swapping", () => {
     const poolAssignments = { "1": "Default", "2": "Backup #1" };
     const { getByText, getByTestId } = render(
-      <PoolSelectionModal
-        onDismiss={onDismiss}
-        onSave={onSave}
-        excludedPoolIds={["1", "2"]}
-        poolAssignments={poolAssignments}
-      />,
+      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
     );
 
     expect(getByText("Ocean Pool")).toBeInTheDocument();
@@ -216,13 +211,20 @@ describe("PoolSelectionModal", () => {
     expect(getByText("Default")).toBeInTheDocument();
     expect(getByText("Backup #1")).toBeInTheDocument();
 
+    // All pools should be selectable (no aria-disabled)
     const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
     const braiinsPoolRow = getByTestId("pool-row-Braiins Pool");
-    expect(oceanPoolRow).toHaveAttribute("aria-disabled", "true");
-    expect(braiinsPoolRow).toHaveAttribute("aria-disabled", "true");
-
     const foundryPoolRow = getByTestId("pool-row-Foundry USA");
-    expect(foundryPoolRow).toHaveAttribute("aria-disabled", "false");
+
+    // Verify pools with assignments can be clicked and selected
+    fireEvent.click(oceanPoolRow);
+    expect(oceanPoolRow.querySelector('input[type="radio"]')).toBeChecked();
+
+    fireEvent.click(braiinsPoolRow);
+    expect(braiinsPoolRow.querySelector('input[type="radio"]')).toBeChecked();
+
+    fireEvent.click(foundryPoolRow);
+    expect(foundryPoolRow.querySelector('input[type="radio"]')).toBeChecked();
   });
 
   test("renders Assigned to column header", () => {
@@ -230,34 +232,22 @@ describe("PoolSelectionModal", () => {
     expect(getByText("Assigned to")).toBeInTheDocument();
   });
 
-  test("prevents selecting excluded pools", () => {
+  test("allows selecting any pool for swap functionality", () => {
+    const poolAssignments = { "1": "Default" };
     const { getByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} excludedPoolIds={["1"]} />,
+      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
     );
 
+    // Even pools already assigned should be selectable
     const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
     fireEvent.click(oceanPoolRow);
 
     const radio = oceanPoolRow.querySelector('input[type="radio"]');
-    expect(radio).not.toBeChecked();
-  });
-
-  test("allows selecting non-excluded pools", () => {
-    const { getByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} excludedPoolIds={["1"]} />,
-    );
-
-    const foundryPoolRow = getByTestId("pool-row-Foundry USA");
-    fireEvent.click(foundryPoolRow);
-
-    const radio = foundryPoolRow.querySelector('input[type="radio"]');
     expect(radio).toBeChecked();
   });
 
-  test("shows all pools when excludedPoolIds is empty", () => {
-    const { getByText, queryAllByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} excludedPoolIds={[]} />,
-    );
+  test("shows unassigned pools with dash in assignment column", () => {
+    const { getByText, queryAllByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
 
     expect(getByText("Ocean Pool")).toBeInTheDocument();
     expect(getByText("Braiins Pool")).toBeInTheDocument();
@@ -269,24 +259,22 @@ describe("PoolSelectionModal", () => {
     });
   });
 
-  test("handles undefined values in excludedPoolIds", () => {
+  test("displays assignment labels correctly", () => {
     const poolAssignments = { "1": "Default" };
     const { getByText, getByTestId } = render(
-      <PoolSelectionModal
-        onDismiss={onDismiss}
-        onSave={onSave}
-        excludedPoolIds={[undefined, "1", undefined]}
-        poolAssignments={poolAssignments}
-      />,
+      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
     );
 
     expect(getByText("Ocean Pool")).toBeInTheDocument();
     expect(getByText("Braiins Pool")).toBeInTheDocument();
     expect(getByText("Foundry USA")).toBeInTheDocument();
 
-    const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
-    expect(oceanPoolRow).toHaveAttribute("aria-disabled", "true");
-
+    // Pool with assignment shows label
     expect(getByText("Default")).toBeInTheDocument();
+
+    // Pool can still be selected
+    const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
+    fireEvent.click(oceanPoolRow);
+    expect(oceanPoolRow.querySelector('input[type="radio"]')).toBeChecked();
   });
 });
