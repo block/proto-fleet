@@ -233,10 +233,11 @@ export class MinersPage extends BasePage {
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
     for (let i = 0; i < rowCount; i++) {
-      await rows.nth(i).scrollIntoViewIfNeeded();
+      const temperatureLocator = rows.nth(i).locator(`//td[@data-testid='temperature']`);
+      await temperatureLocator.scrollIntoViewIfNeeded();
 
       // Get temperature text
-      const temperatureText = await rows.nth(i).locator(`//td[@data-testid='temperature']`).innerText();
+      const temperatureText = await temperatureLocator.innerText();
       const parts = temperatureText.split(" ");
       expect(parts.length, `Expected temperature text to value and unit, but got: "${temperatureText}"`).toBe(2);
 

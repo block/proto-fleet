@@ -202,7 +202,10 @@ const Miners = ({
                   inline
                 />
 
-                <div className="my-6 flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6">
+                <div
+                  className="my-6 flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
+                  data-testid="section-scan-network"
+                >
                   <Header
                     inline
                     title="Scan your network"
@@ -224,7 +227,10 @@ const Miners = ({
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6">
+                <div
+                  className="flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
+                  data-testid="section-search-by-ip"
+                >
                   <Header
                     inline
                     title="Enter network info manually"

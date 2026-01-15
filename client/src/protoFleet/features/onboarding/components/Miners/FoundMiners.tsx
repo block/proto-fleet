@@ -98,11 +98,11 @@ const FoundMiners = ({ miners, deselectedMiners, className }: FoundMinersProps) 
           }
         />
       </div>
-      <div className="rounded-3xl border-1 border-core-primary-5 p-6">
+      <div className="rounded-3xl border-1 border-core-primary-5 p-6" data-testid="found-miners-list">
         <div>
           {Object.values(minersByModel).map((model, index) => (
             <Fragment key={index}>
-              <Row divider={false} className="flex items-center justify-between">
+              <Row divider={false} className="flex items-center justify-between" testId="miner-model-row">
                 <div className="flex gap-4">
                   {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
                   <div>

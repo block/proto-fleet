@@ -324,6 +324,23 @@ test.describe("Miners", () => {
     });
   });
 
+  // // Test inactive due to network limitations - remote miners are not available in CI/CD
+  // test("Find remote miner by IP", async ({ minersPage, addMinersPage, commonSteps }) => {
+  //   const validMinerIP = "172.16.21.232";
+  //   await commonSteps.loginAsAdmin();
+  //   await commonSteps.goToMinersPage();
+
+  //   await test.step("Search for remote miner by IP", async () => {
+  //     await minersPage.clickAddMinersButton();
+  //     await addMinersPage.inputMinerIp(validMinerIP);
+  //     await addMinersPage.clickFindMinersByIp();
+  //   });
+
+  //   await test.step("Validate one remote miner was found by IP", async () => {
+  //     await addMinersPage.validateOneMinerWasFoundByIp();
+  //   });
+  // });
+
   test("ADD a single miner", async ({ minersPage, addMinersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
@@ -333,7 +350,7 @@ test.describe("Miners", () => {
     await test.step("Add a single miner", async () => {
       minerCount = await minersPage.getMinersCount();
       await minersPage.clickAddMinersButton();
-      await addMinersPage.clickFindMiners();
+      await addMinersPage.clickFindMinersInNetwork();
       await addMinersPage.clickChooseMiners();
       await addMinersPage.clickSelectNone();
       minerIp = await addMinersPage.getMinerIpAddressByIndex(0);
@@ -360,7 +377,7 @@ test.describe("Miners", () => {
     await test.step("Add multiple miners", async () => {
       minerCount = await minersPage.getMinersCount();
       await minersPage.clickAddMinersButton();
-      await addMinersPage.clickFindMiners();
+      await addMinersPage.clickFindMinersInNetwork();
       await addMinersPage.clickChooseMiners();
       await addMinersPage.clickSelectNone();
       minerIp1 = await addMinersPage.getMinerIpAddressByIndex(0);

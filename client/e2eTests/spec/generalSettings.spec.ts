@@ -23,8 +23,6 @@ test.describe("General Settings", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Verify miner temperature is displayed in Fahrenheit", async () => {
-      // Workaround: proto rig miners don't have temperature displayed atm
-      await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitFahrenheit();
     });
 
@@ -42,8 +40,6 @@ test.describe("General Settings", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Verify miner temperature is displayed in Celsius", async () => {
-      // Workaround: proto rig miners don't have temperature displayed atm
-      await minersPage.filterBitmainMiners();
       await minersPage.validateTemperatureUnitCelsius();
     });
   });
