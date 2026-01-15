@@ -164,7 +164,8 @@ func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
 
 // executeWithFallback has been removed - we now only use device_metrics table
 
-// queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics
+// queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics.
+// Performance optimized: pre-allocated slice, batched error logging, minimal allocations in hot path.
 func (s *InfluxTelemetryStore) queryDeviceMetrics(
 	ctx context.Context,
 	queryTemplate string,
@@ -186,30 +187,52 @@ func (s *InfluxTelemetryStore) queryDeviceMetrics(
 		return nil, fmt.Errorf("device_metrics query failed: %w", err)
 	}
 
-	var results []modelsV2.DeviceMetrics
+	// Pre-allocate results slice based on expected size (1 result per device typical)
+	estimatedSize := len(deviceIDs)
+	if estimatedSize == 0 {
+		estimatedSize = 100 // Default for queries without explicit device list
+	}
+	results := make([]modelsV2.DeviceMetrics, 0, estimatedSize)
+
+	// Batch error counting to avoid per-iteration logging overhead
+	var readErrors, conversionErrors int
+
 	for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 		if err != nil {
-			s.logger.Debug(fmt.Sprintf("error reading point in %s", methodName),
-				slog.Any("error", err))
+			readErrors++
 			continue
 		}
 
 		deviceMetrics, err := influxModels.ToDeviceMetrics(point)
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("error converting point to DeviceMetrics in %s", methodName),
-				slog.Any("error", err))
+			conversionErrors++
 			continue
 		}
 
 		results = append(results, deviceMetrics)
 	}
 
+	// Log errors once after loop completes (avoids hot path logging overhead)
+	if readErrors > 0 || conversionErrors > 0 {
+		s.logger.Warn("errors during device metrics query",
+			slog.String("method", methodName),
+			slog.Int("read_errors", readErrors),
+			slog.Int("conversion_errors", conversionErrors),
+			slog.Int("successful_results", len(results)))
+	}
+
 	return results, nil
 }
 
-// filterLatestByDevice keeps only the most recent DeviceMetrics per device
+// filterLatestByDevice keeps only the most recent DeviceMetrics per device.
+// Pre-allocates map and result slice based on input size for efficiency.
 func filterLatestByDevice(metrics []modelsV2.DeviceMetrics) []modelsV2.DeviceMetrics {
-	latestMetricsByDevice := make(map[models.DeviceIdentifier]modelsV2.DeviceMetrics)
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	// Pre-allocate map with estimated unique device count
+	latestMetricsByDevice := make(map[models.DeviceIdentifier]modelsV2.DeviceMetrics, len(metrics))
 
 	for _, deviceMetrics := range metrics {
 		deviceID := models.DeviceIdentifier(deviceMetrics.DeviceID)
@@ -218,9 +241,10 @@ func filterLatestByDevice(metrics []modelsV2.DeviceMetrics) []modelsV2.DeviceMet
 		}
 	}
 
-	var results []modelsV2.DeviceMetrics
-	for _, metrics := range latestMetricsByDevice {
-		results = append(results, metrics)
+	// Pre-allocate results slice with exact size needed
+	results := make([]modelsV2.DeviceMetrics, 0, len(latestMetricsByDevice))
+	for _, m := range latestMetricsByDevice {
+		results = append(results, m)
 	}
 
 	return results
@@ -433,12 +457,19 @@ func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context
 		return nil, fmt.Errorf("device_metrics metadata query failed: %w", err)
 	}
 
-	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata)
+	// Pre-allocate map based on expected device count
+	estimatedSize := len(query.DeviceIDs)
+	if estimatedSize == 0 {
+		estimatedSize = 100
+	}
+	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata, estimatedSize)
+
+	// Batch error counting
+	var readErrors int
 
 	for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 		if err != nil {
-			s.logger.Debug("error reading point in getTelemetryMetadataFromDeviceMetrics",
-				slog.Any("error", err))
+			readErrors++
 			continue
 		}
 
@@ -471,13 +502,21 @@ func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context
 		}
 	}
 
-	var allResults []models.DeviceMetadata
-	for _, metadata := range deviceMetadataMap {
-		allResults = append(allResults, *metadata)
+	// Log errors once after loop
+	if readErrors > 0 {
+		s.logger.Warn("errors reading metadata points",
+			slog.Int("read_errors", readErrors),
+			slog.Int("successful_devices", len(deviceMetadataMap)))
 	}
 
-	if len(allResults) == 0 {
+	if len(deviceMetadataMap) == 0 {
 		return nil, fmt.Errorf("no metadata found in device_metrics")
+	}
+
+	// Pre-allocate results slice with exact size
+	allResults := make([]models.DeviceMetadata, 0, len(deviceMetadataMap))
+	for _, metadata := range deviceMetadataMap {
+		allResults = append(allResults, *metadata)
 	}
 
 	sort.Slice(allResults, func(i, j int) bool {
@@ -533,23 +572,25 @@ func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Co
 				iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
 				if err != nil {
 					s.logger.Debug("device_metrics stream query error",
-						slog.Any("error", err))
+						slog.String("error", err.Error()))
 					updateChan <- models.TelemetryUpdate{
 						Type:      models.UpdateTypeError,
 						Timestamp: time.Now(),
 						Error:     stringPtr(fmt.Sprintf("query error: %v", err)),
 					}
 				} else {
-					// Process device_metrics results
+					// Process device_metrics results with batched error tracking
+					var readErrors, conversionErrors int
+
 					for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 						if err != nil {
-							s.logger.Debug("error reading device_metrics stream point", slog.Any("error", err))
+							readErrors++
 							continue
 						}
 
 						deviceMetrics, err := influxModels.ToDeviceMetrics(point)
 						if err != nil {
-							s.logger.Debug("error converting point to DeviceMetrics", slog.Any("error", err))
+							conversionErrors++
 							continue
 						}
 
@@ -568,6 +609,13 @@ func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Co
 							}
 							hasNewData = true
 						}
+					}
+
+					// Log errors once per poll cycle instead of per-point
+					if readErrors > 0 || conversionErrors > 0 {
+						s.logger.Debug("errors during stream poll",
+							slog.Int("read_errors", readErrors),
+							slog.Int("conversion_errors", conversionErrors))
 					}
 				}
 
@@ -730,12 +778,20 @@ func (s *InfluxTelemetryStore) buildDeviceIDsString(deviceIDs []models.DeviceIde
 		return "''"
 	}
 
-	var parts []string
-	for _, id := range deviceIDs {
-		escapedID := strings.ReplaceAll(string(id), "'", "''")
-		parts = append(parts, fmt.Sprintf("'%s'", escapedID))
+	// Pre-allocate builder capacity: ~40 chars per device ID (UUID + quotes + comma)
+	var sb strings.Builder
+	sb.Grow(len(deviceIDs) * 40)
+
+	for i, id := range deviceIDs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteByte('\'')
+		// Escape single quotes by doubling them
+		sb.WriteString(strings.ReplaceAll(string(id), "'", "''"))
+		sb.WriteByte('\'')
 	}
-	return strings.Join(parts, ", ")
+	return sb.String()
 }
 
 func measurementTypesToStrings(types []models.MeasurementType) []string {
