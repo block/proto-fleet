@@ -420,6 +420,86 @@ describe("List", () => {
       expect(renderActionBar).toHaveBeenCalled();
       expect(getByTestId("selection-mode").textContent).toBe("all");
     });
+
+    it("resets mode to 'none' when customSelectedItems is externally set to empty", () => {
+      const onSelectionModeChange = vi.fn();
+      let selectedItems: TestItemKey[] = [];
+      const customSetSelectedItems = (items: TestItemKey[]) => {
+        selectedItems = items;
+      };
+
+      const { getByTestId, rerender } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+          customSelectedItems={selectedItems}
+          customSetSelectedItems={customSetSelectedItems}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+
+      // Click Select All to set internal selectionMode to "all"
+      fireEvent.click(selectAllCheckbox);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
+
+      // Rerender with the selected items to sync state
+      rerender(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+          customSelectedItems={selectedItems}
+          customSetSelectedItems={customSetSelectedItems}
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Verify all items are now selected
+      expect(selectAllCheckbox.checked).toBe(true);
+      expect(selectItemCheckboxes.every((c) => c.checked)).toBe(true);
+
+      // Clear the mock to track new calls
+      onSelectionModeChange.mockClear();
+
+      // Simulate external "Select none" by setting customSelectedItems to empty array
+      // This is what happens when ModalSelectAllFooter's "Select none" is clicked
+      rerender(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+          customSelectedItems={[]}
+          customSetSelectedItems={customSetSelectedItems}
+        />,
+      );
+
+      // Verify all items are now deselected
+      expect(selectAllCheckbox.checked).toBe(false);
+      expect(selectItemCheckboxes.every((c) => !c.checked)).toBe(true);
+
+      // Verify selection mode was reset to 'none'
+      expect(onSelectionModeChange).toHaveBeenCalledWith("none");
+    });
   });
 
   describe("Shift+click range selection", () => {

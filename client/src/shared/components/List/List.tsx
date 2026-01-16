@@ -156,6 +156,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
+  const prevCustomSelectedLengthRef = useRef<number | undefined>(undefined);
 
   // Helper to get selectable items (excludes disabled rows)
   const getSelectableItems = useCallback(
@@ -198,6 +199,22 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       lastClickedIndexRef.current = null;
     }
   }, [selectionMode]);
+
+  // Reset selectionMode when customSelectedItems is externally changed from non-empty to empty
+  // This handles "Select none" from external controls like ModalSelectAllFooter
+  useEffect(() => {
+    const prevLength = prevCustomSelectedLengthRef.current;
+    const currentLength = customSelectedItems?.length;
+
+    // Only reset when selection changed from non-empty to empty
+    if (prevLength !== undefined && prevLength > 0 && currentLength === 0 && selectionMode !== "none") {
+      setSelectionMode("none");
+      onSelectionModeChange?.("none");
+    }
+
+    // Update ref for next render
+    prevCustomSelectedLengthRef.current = currentLength;
+  }, [customSelectedItems?.length, selectionMode, onSelectionModeChange]);
 
   const selectRange = (anchorIndex: number, targetIndex: number, currentSelected: ItemKeyValueType[]) => {
     const start = Math.min(anchorIndex, targetIndex);
