@@ -12,6 +12,7 @@ const COMPONENT_DISPLAY_NAMES: Record<StatusComponentType, { singular: string; c
   psu: { singular: "PSU", capitalized: "PSU" },
   fan: { singular: "fan", capitalized: "Fan" },
   controlBoard: { singular: "control board", capitalized: "Control board" },
+  other: { singular: "needs attention", capitalized: "Needs attention" },
 };
 
 /**
@@ -66,6 +67,12 @@ export function computeComponentStatusTitle(
 
   // Multiple errors
   const displayName = getComponentDisplayName(componentType, slot);
+
+  // "other" type uses "Needs attention" without "has multiple failures" suffix
+  if (componentType === "other") {
+    return displayName;
+  }
+
   return `${displayName} has multiple failures`;
 }
 

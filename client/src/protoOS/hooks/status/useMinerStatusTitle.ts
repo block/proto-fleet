@@ -33,6 +33,7 @@ export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
         componentType: "controlBoard",
         slot: e.slot,
       })),
+      other: [],
     }),
     [groupedErrors],
   );

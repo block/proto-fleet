@@ -194,6 +194,12 @@ function computeErrorTitle(
   // Single component type has errors
   const { type, errors } = componentTypesWithErrors[0];
 
+  // "other" type shows "1 issue" / "N issues" instead of component name
+  if (type === "other") {
+    const count = errors.length;
+    return count === 1 ? "1 issue" : `${count} issues`;
+  }
+
   // Multiple errors on this component type
   if (errors.length > 1) {
     const singularName = getComponentSingularName(type);

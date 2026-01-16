@@ -58,6 +58,7 @@ export type GroupedFleetErrors = {
   psu: ErrorMessage[];
   fan: ErrorMessage[];
   controlBoard: ErrorMessage[];
+  other: ErrorMessage[];
 };
 
 /**
@@ -66,6 +67,10 @@ export type GroupedFleetErrors = {
 export function transformFleetErrorsToShared(groupedErrors: GroupedFleetErrors): GroupedStatusErrors {
   const transformErrors = (errors: ErrorMessage[], componentType: StatusComponentType) =>
     errors.map((e) => {
+      // For "other" errors, don't include slot - componentId may be a pool index or other identifier
+      if (componentType === "other") {
+        return { componentType, slot: undefined };
+      }
       const parsed = e.componentId ? parseInt(e.componentId, 10) : NaN;
       // componentId is already 1-based slot from firmware
       return {
@@ -79,6 +84,7 @@ export function transformFleetErrorsToShared(groupedErrors: GroupedFleetErrors):
     psu: transformErrors(groupedErrors.psu, "psu"),
     fan: transformErrors(groupedErrors.fan, "fan"),
     controlBoard: transformErrors(groupedErrors.controlBoard, "controlBoard"),
+    other: transformErrors(groupedErrors.other, "other"),
   };
 }
 
@@ -109,7 +115,7 @@ export function transformErrorsForModal(
     let componentName = "Unknown Component";
     let componentClickHandler: (() => void) | undefined;
 
-    // Check if error has componentType (required for proper display)
+    // Check if error has a supported componentType
     if (error.componentType && SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
       const sharedType = mapErrorComponentTypeToShared(error.componentType);
 
@@ -133,9 +139,9 @@ export function transformErrorsForModal(
           // No onClick handler since we can't navigate without componentId
         }
       }
-    } else if (!error.componentType || !SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
-      // Skip unsupported component types (EEPROM, IO_MODULE)
-      return;
+    } else {
+      // Handle unsupported or missing component types as "other"
+      componentName = getComponentName("other");
     }
 
     // Handle timestamp conversion - convert to seconds for shared formatters

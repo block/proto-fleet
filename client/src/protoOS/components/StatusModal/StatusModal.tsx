@@ -11,7 +11,7 @@ import { useErrors, useGroupedErrors, useIsSleeping } from "@/protoOS/store";
 import type { ErrorSource } from "@/protoOS/store/types";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
-import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
+import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/components/StatusModal/types";
 
 /**
  * ProtoOS-specific StatusModal wrapper that integrates with the store
@@ -80,6 +80,7 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
       psu: transformErrorsForModal(groupedErrors.psu || [], onClickHandler),
       fan: transformErrorsForModal(groupedErrors.fan || [], onClickHandler),
       controlBoard: transformErrorsForModal(groupedErrors.system || [], onClickHandler),
+      other: [] as ErrorData[],
     };
 
     // Build buttons

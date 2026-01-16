@@ -20,6 +20,7 @@ export const SHARED_TO_ERROR_COMPONENT: Record<ComponentType, ErrorComponentType
   psu: ErrorComponentType.PSU,
   fan: ErrorComponentType.FAN,
   controlBoard: ErrorComponentType.CONTROL_BOARD,
+  other: ErrorComponentType.UNSPECIFIED,
 };
 
 /**
@@ -30,6 +31,7 @@ export const COMPONENT_TITLES: Record<ComponentType, string> = {
   hashboard: "Hashboard status",
   psu: "PSU status",
   controlBoard: "Control board status",
+  other: "Needs attention",
 };
 
 /**
@@ -40,6 +42,7 @@ export const COMPONENT_NAMES: Record<ComponentType, string> = {
   hashboard: "Hashboard",
   psu: "PSU",
   controlBoard: "Control board",
+  other: "Needs attention",
 };
 
 /**

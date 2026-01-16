@@ -45,8 +45,8 @@ type PoolStatus struct {
 	LastShare      int     `json:"last_share"`
 	Difficulty     float64 `json:"difficulty"`
 	Diff1Share     int     `json:"diff1_share"`
-	GetFailures    int64   `json:"get_failures"`
-	RemoteFailures int64   `json:"remote_failures"`
+	GetFailures    int64   `json:"Get Failures"`
+	RemoteFailures int64   `json:"Remote Failures"`
 }
 
 type DeviceInfo struct {

@@ -124,6 +124,7 @@ const ProtoFleetStatusModal = ({
       psu: transformErrorsForModal(groupedErrors.psu || [], deviceId, onClickHandler),
       fan: transformErrorsForModal(groupedErrors.fan || [], deviceId, onClickHandler),
       controlBoard: transformErrorsForModal(groupedErrors.controlBoard || [], deviceId, onClickHandler),
+      other: transformErrorsForModal(groupedErrors.other || [], deviceId, onClickHandler),
     };
 
     // Check if miner is sleeping (offline state in fleet context)

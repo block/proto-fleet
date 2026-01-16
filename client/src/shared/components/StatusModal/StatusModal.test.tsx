@@ -52,6 +52,7 @@ describe("StatusModal", () => {
         psu: [],
         fan: [],
         controlBoard: [],
+        other: [],
       },
       isSleeping: false,
     },

@@ -8,7 +8,7 @@
 /**
  * Component types supported for status computation
  */
-export type StatusComponentType = "hashboard" | "psu" | "fan" | "controlBoard";
+export type StatusComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "other";
 
 /**
  * Normalized error for status computation
@@ -27,6 +27,7 @@ export interface GroupedStatusErrors {
   psu: StatusError[];
   fan: StatusError[];
   controlBoard: StatusError[];
+  other: StatusError[];
 }
 
 /**

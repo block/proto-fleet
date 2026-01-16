@@ -33,6 +33,7 @@ export const useMinerStatusSummary = (): string => {
         componentType: "controlBoard",
         slot: e.slot,
       })),
+      other: [],
     }),
     [groupedErrors],
   );

@@ -33,6 +33,7 @@ const mockMinerStatusData: MinerStatusData = {
       psu: [],
       fan: [],
       controlBoard: [],
+      other: [],
     },
     isSleeping: false,
   },
@@ -78,6 +79,7 @@ const mockMinerStatusWithErrors: MinerStatusData = {
         },
       ],
       controlBoard: [],
+      other: [],
     },
     isSleeping: false,
   },
@@ -102,6 +104,7 @@ const mockSleepingMinerStatus: MinerStatusData = {
       psu: [],
       fan: [],
       controlBoard: [],
+      other: [],
     },
     isSleeping: true,
   },
@@ -256,6 +259,14 @@ const InteractiveStatusModal = ({
         onClick: () =>
           setComponent({
             source: "SYSTEM" as const,
+            componentIndex: idx,
+          }),
+      })),
+      other: data.props.errors.other.map((error, idx) => ({
+        ...error,
+        onClick: () =>
+          setComponent({
+            source: "OTHER" as const,
             componentIndex: idx,
           }),
       })),

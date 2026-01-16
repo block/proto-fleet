@@ -44,12 +44,12 @@ export function useGroupedErrors(deviceId: string) {
       psu: [] as ErrorMessage[],
       fan: [] as ErrorMessage[],
       controlBoard: [] as ErrorMessage[],
+      other: [] as ErrorMessage[],
     };
 
     if (!errors || errors.length === 0) return grouped;
 
     errors.forEach((error) => {
-      // Use componentType directly from error
       switch (error.componentType) {
         case ErrorComponentType.HASH_BOARD:
           grouped.hashboard.push(error);
@@ -62,6 +62,9 @@ export function useGroupedErrors(deviceId: string) {
           break;
         case ErrorComponentType.CONTROL_BOARD:
           grouped.controlBoard.push(error);
+          break;
+        default:
+          grouped.other.push(error);
           break;
       }
     });

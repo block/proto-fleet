@@ -10,6 +10,7 @@ const emptyErrors: GroupedStatusErrors = {
   psu: [],
   fan: [],
   controlBoard: [],
+  other: [],
 };
 
 describe("getComponentDisplayName", () => {
@@ -246,6 +247,7 @@ describe("useMinerStatusSummary", () => {
         psu: [{ componentType: "psu", slot: 1 }],
         fan: [{ componentType: "fan", slot: 1 }],
         controlBoard: [{ componentType: "controlBoard" }],
+        other: [],
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors));
       expect(result.current.condensed).toBe("Multiple failures");

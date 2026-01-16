@@ -10,6 +10,7 @@ const componentIcons = {
   hashboard: <Hashboard width={iconSizes.medium} className="text-text-primary-70" />,
   controlBoard: <ControlBoard width={iconSizes.medium} className="text-text-primary-70" />,
   psu: <LightningAlt width={iconSizes.medium} className="text-text-primary-70" />,
+  other: <Alert width={iconSizes.medium} className="text-text-primary-70" />,
 };
 
 const MINER_ASLEEP_TITLE = "Miner is asleep";

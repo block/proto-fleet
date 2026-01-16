@@ -27,6 +27,7 @@ export type MinerStatusModalProps = {
     psu: ErrorData[];
     fan: ErrorData[];
     controlBoard: ErrorData[];
+    other: ErrorData[];
   };
   isSleeping?: boolean;
   isMining?: boolean;
@@ -38,7 +39,7 @@ export type MinerStatusModalProps = {
 /**
  * Types for ComponentStatusModalContent
  */
-export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard";
+export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "other";
 
 // Component details for displaying metrics, visualization, and metadata
 export interface ComponentMetric {
