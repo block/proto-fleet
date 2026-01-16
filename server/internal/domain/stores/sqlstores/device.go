@@ -502,19 +502,9 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 //
 // A single bulk INSERT with ON DUPLICATE KEY UPDATE is both fast (1 round-trip) and atomic.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
-	const (
-		table       = "device_status"
-		columns     = "device_id, status, status_timestamp, status_details"
-		placeholder = "(?, ?, ?, ?)"
-	)
+	const placeholder = "(?, ?, ?, ?)"
 
 	var b strings.Builder
-	b.WriteString("INSERT INTO ")
-	b.WriteString(table)
-	b.WriteString(" (")
-	b.WriteString(columns)
-	b.WriteString(") VALUES ")
-
 	for i := range rowCount {
 		if i > 0 {
 			b.WriteString(", ")
@@ -522,12 +512,14 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 		b.WriteString(placeholder)
 	}
 
-	b.WriteString(" AS new_vals ON DUPLICATE KEY UPDATE ")
-	b.WriteString("status = new_vals.status, ")
-	b.WriteString("status_timestamp = new_vals.status_timestamp, ")
-	b.WriteString("status_details = new_vals.status_details")
-
-	return b.String()
+	return fmt.Sprintf(
+		"INSERT INTO device_status (device_id, status, status_timestamp, status_details) VALUES %s "+
+			"AS new_vals ON DUPLICATE KEY UPDATE "+
+			"status = new_vals.status, "+
+			"status_timestamp = new_vals.status_timestamp, "+
+			"status_details = new_vals.status_details",
+		b.String(),
+	)
 }
 
 func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusStatus {

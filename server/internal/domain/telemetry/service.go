@@ -1056,11 +1056,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	totalAggregateValues := 0
-	for _, metric := range combinedMetrics.Metrics {
-		totalAggregateValues += len(metric.AggregatedValues)
-	}
-
 	select {
 	case updateChan <- combinedMetrics:
 		return nil
@@ -1331,19 +1326,6 @@ func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, d
 	return result, nil
 }
 
-// GetMinerComponentStatus removed - component status tracking now done via errors API
-// This method has been removed as component status is now tracked via the errors API instead of telemetry.
-/*
-func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string) (*pb.MinerComponentStatus, error) {
-	return &pb.MinerComponentStatus{
-		ControlBoard: pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
-		Fans:         pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
-		HashBoards:   pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
-		Psu:          pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
-	}, nil
-}
-*/
-
 func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1477,28 +1459,6 @@ func internalMeasurementTypeToPb(internalType models.MeasurementType) pb.Measure
 		return pb.MeasurementConfig_MEASUREMENT_TYPE_UNSPECIFIED
 	}
 }
-
-// internalComponentStatusToPb removed - component status tracking now done via errors API
-// This conversion function has been removed as component status is now tracked via the errors API instead of telemetry.
-/*
-func internalComponentStatusToPb(internalStatus models.ComponentStatus) pb.ComponentStatus {
-	//nolint:exhaustive // there are only a few status to match at this time
-	switch internalStatus {
-	case models.ComponentStatusHealthy:
-		return pb.ComponentStatus_COMPONENT_STATUS_OK
-	case models.ComponentStatusWarning:
-		return pb.ComponentStatus_COMPONENT_STATUS_WARNING
-	case models.ComponentStatusCritical:
-		return pb.ComponentStatus_COMPONENT_STATUS_ERROR
-	case models.ComponentStatusOffline:
-		return pb.ComponentStatus_COMPONENT_STATUS_ERROR
-	case models.ComponentStatusUnknown:
-		fallthrough
-	default:
-		return pb.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED
-	}
-}
-*/
 
 // getLatestMeasurements retrieves the latest measurements for a device and measurement type
 func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID string, measurementType models.MeasurementType) ([]*commonpb.Measurement, error) {
