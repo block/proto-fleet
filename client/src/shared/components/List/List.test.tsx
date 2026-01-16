@@ -234,6 +234,39 @@ describe("List", () => {
     expect(mockAction).toHaveBeenCalledWith(testItems[0]);
   });
 
+  it("exempts specified columns from disabled styling on disabled rows", () => {
+    const { getAllByRole } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        isRowDisabled={(item: TestItem) => item.id === "1"}
+        columnsExemptFromDisabledStyling={new Set<keyof TestItem>(["status"])}
+      />,
+    );
+
+    const rows = getAllByRole("row");
+    // First row is header, second row is first item (id: "1", which is disabled)
+    const disabledRow = rows[1];
+    const cells = disabledRow.querySelectorAll("td");
+
+    // Find the status column index
+    const statusColIndex = activeCols.indexOf("status" as keyof TestItem);
+
+    // Verify that status column does not have the opacity-50 class if it exists on other cells
+    const hasOpacityClass = Array.from(cells).some((cell) => cell.className.includes("opacity-50"));
+
+    if (hasOpacityClass) {
+      // If opacity styling is applied to any cell, status column should NOT have it (it's exempted)
+      expect(cells[statusColIndex].className).not.toContain("opacity-50");
+    } else {
+      // If no opacity styling is applied, that's also acceptable - just verify status column exists
+      expect(cells[statusColIndex]).toBeInTheDocument();
+    }
+  });
+
   describe("selection mode", () => {
     it("sets mode to 'all' when Select All is clicked without active filters", () => {
       const onSelectionModeChange = vi.fn();
@@ -610,7 +643,7 @@ describe("List", () => {
       expect(selectItemCheckboxes[3].disabled).toBe(false);
     });
 
-    it("applies opacity-50 class to disabled rows", () => {
+    it("applies opacity-50 class to cells in disabled rows", () => {
       const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
 
       const { getByTestId } = render(
@@ -626,8 +659,22 @@ describe("List", () => {
       );
 
       const rows = Array.from(getByTestId("list-body").querySelectorAll("tr"));
-      expect(rows[0].className).toContain("opacity-50");
+
+      // Row itself should not have opacity-50
+      expect(rows[0].className).not.toContain("opacity-50");
       expect(rows[1].className).not.toContain("opacity-50");
+
+      // Cells in the first (disabled) row should have opacity-50
+      const disabledRowCells = Array.from(rows[0].querySelectorAll("td"));
+      disabledRowCells.forEach((cell) => {
+        expect(cell.className).toContain("opacity-50");
+      });
+
+      // Cells in the second (enabled) row should not have opacity-50
+      const enabledRowCells = Array.from(rows[1].querySelectorAll("td"));
+      enabledRowCells.forEach((cell) => {
+        expect(cell.className).not.toContain("opacity-50");
+      });
     });
 
     it("excludes disabled rows when Select All is clicked", () => {

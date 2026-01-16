@@ -1,4 +1,5 @@
 import React, { ComponentType } from "react";
+import { MemoryRouter } from "react-router-dom";
 import type { Preview } from "@storybook/react-vite";
 import "../src/shared/styles/index.css";
 
@@ -11,7 +12,11 @@ export const beforeEach = () => {
 
 export const decorators = [
   (Story: ComponentType) => {
-    return <Story />;
+    return (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    );
   },
 ];
 

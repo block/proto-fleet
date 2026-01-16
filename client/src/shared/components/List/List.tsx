@@ -93,6 +93,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * @returns true if the row should be disabled
    */
   isRowDisabled?: (item: ListItem) => boolean;
+  /**
+   * Optional set of column keys that should NOT be affected by disabled row styling.
+   * These columns will maintain full opacity even when the row is disabled.
+   */
+  columnsExemptFromDisabledStyling?: Set<ColKey>;
 };
 
 const cellClassList = "text-left";
@@ -141,6 +146,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   hasMore = false,
   isLoadingMore = false,
   isRowDisabled,
+  columnsExemptFromDisabledStyling,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -473,14 +479,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                     return (
                       <tr
                         key={i}
-                        className={clsx(rowClassList, {
-                          "opacity-50": rowDisabled,
-                        })}
+                        className={rowClassList}
                         ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}
                       >
                         {itemSelectable && (
                           <td
-                            className={clsx(tdClassList, firstStickyClasses, "w-9")}
+                            className={clsx(tdClassList, firstStickyClasses, "w-9", {
+                              "opacity-50": rowDisabled,
+                            })}
                             style={paddingCssVariables}
                             data-testid="checkbox"
                           >
@@ -499,33 +505,44 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                           </td>
                         )}
 
-                        {activeCols.map((row, j) => (
-                          <td
-                            className={clsx(
-                              tdClassList,
-                              j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                              j === 0 && columnShadowBaseClassList,
-                              j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
-                            )}
-                            key={j}
-                            style={paddingCssVariables}
-                            data-testid={row}
-                          >
-                            <div
-                              className={clsx("truncate overflow-hidden", tdPaddingClassList, colConfig[row]?.width, {
-                                "text-core-primary-50": disabled,
-                              })}
+                        {activeCols.map((row, j) => {
+                          const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
+                          return (
+                            <td
+                              className={clsx(
+                                tdClassList,
+                                j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                                j === 0 && columnShadowBaseClassList,
+                                j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                                {
+                                  "opacity-50": rowDisabled && !isExempt,
+                                },
+                              )}
+                              key={j}
+                              style={paddingCssVariables}
+                              data-testid={row}
                             >
-                              {colConfig[row]?.component
-                                ? colConfig[row].component(item, selectedItems)
-                                : typeof item === "object" && item !== null && row in item
-                                  ? ((item as Record<string, unknown>)[row as string] as ReactNode)
-                                  : null}
-                            </div>
-                          </td>
-                        ))}
+                              <div
+                                className={clsx("truncate overflow-hidden", tdPaddingClassList, colConfig[row]?.width, {
+                                  "text-core-primary-50": disabled,
+                                })}
+                              >
+                                {colConfig[row]?.component
+                                  ? colConfig[row].component(item, selectedItems)
+                                  : typeof item === "object" && item !== null && row in item
+                                    ? ((item as Record<string, unknown>)[row as string] as ReactNode)
+                                    : null}
+                              </div>
+                            </td>
+                          );
+                        })}
                         {actions.length == 1 ? (
-                          <td className={tdClassList} data-testid="action">
+                          <td
+                            className={clsx(tdClassList, {
+                              "opacity-50": rowDisabled,
+                            })}
+                            data-testid="action"
+                          >
                             <div className={clsx("flex justify-end", tdPaddingClassList)}>
                               <Button
                                 variant={variants.secondary}
@@ -537,7 +554,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                             </div>
                           </td>
                         ) : actions.length > 1 ? (
-                          <td className={tdClassList} data-testid="action">
+                          <td
+                            className={clsx(tdClassList, {
+                              "opacity-50": rowDisabled,
+                            })}
+                            data-testid="action"
+                          >
                             <div className={clsx("w-11", tdPaddingClassList)}>
                               <PopoverProvider>
                                 <ListActions<ListItem> item={item} actions={actions} disabled={rowDisabled} />

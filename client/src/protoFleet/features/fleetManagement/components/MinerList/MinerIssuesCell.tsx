@@ -1,24 +1,23 @@
 import { useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
-import MinerStatus from "./MinerStatus";
+import MinerIssues from "./MinerIssues";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 
-type MinerStatusCellProps = {
+type MinerIssuesCellProps = {
   deviceIdentifier: string;
-  selectedItems?: string[];
 };
 
 /**
- * MinerStatusCell wraps the MinerStatus component and handles the modal state.
+ * MinerIssuesCell wraps the MinerIssues component and handles the modal state.
  * For miners that need authentication, shows the authenticate miners UI directly.
  * For miners that need a mining pool, shows the pool selection UI directly.
- * For other status issues, shows the status modal.
+ * For other issues (hardware errors), shows the status modal.
  */
-const MinerStatusCell = ({ deviceIdentifier, selectedItems }: MinerStatusCellProps) => {
+const MinerIssuesCell = ({ deviceIdentifier }: MinerIssuesCellProps) => {
   const [isModalOpen, setModalOpen] = useState(false);
   const miner = useMiner(deviceIdentifier);
   const deviceStatus = useMinerDeviceStatus(deviceIdentifier);
@@ -26,7 +25,7 @@ const MinerStatusCell = ({ deviceIdentifier, selectedItems }: MinerStatusCellPro
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-  const handleStatusClick = () => {
+  const handleIssuesClick = () => {
     setModalOpen(true);
   };
 
@@ -36,7 +35,7 @@ const MinerStatusCell = ({ deviceIdentifier, selectedItems }: MinerStatusCellPro
 
   return (
     <>
-      <MinerStatus deviceIdentifier={deviceIdentifier} selectedItems={selectedItems} onClick={handleStatusClick} />
+      <MinerIssues deviceIdentifier={deviceIdentifier} onClick={handleIssuesClick} />
       {isModalOpen && needsAuthentication && <AuthenticateMiners onClose={handleModalClose} />}
       {isModalOpen && !needsAuthentication && needsMiningPool && (
         <PoolSelectionPageWrapper
@@ -54,4 +53,4 @@ const MinerStatusCell = ({ deviceIdentifier, selectedItems }: MinerStatusCellPro
   );
 };
 
-export default MinerStatusCell;
+export default MinerIssuesCell;

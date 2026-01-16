@@ -83,6 +83,7 @@ const activeCols: MinerColumn[] = [
   minerCols.macAddress,
   minerCols.ipAddress,
   minerCols.status,
+  minerCols.issues,
   minerCols.hashrate,
   minerCols.efficiency,
   minerCols.powerUsage,
@@ -189,6 +190,7 @@ const MinerList = ({
               break;
             case deviceStatusFilterStates.needsAttention:
               minerFilter.deviceStatus.push(DeviceStatus.ERROR);
+              minerFilter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
               break;
             case deviceStatusFilterStates.offline:
               minerFilter.deviceStatus.push(DeviceStatus.OFFLINE);
@@ -315,6 +317,7 @@ const MinerList = ({
           hasMore={hasMore}
           isLoadingMore={isLoadingMore}
           isRowDisabled={isRowDisabled}
+          columnsExemptFromDisabledStyling={new Set([minerCols.status, minerCols.issues])}
         />
       )}
     </>

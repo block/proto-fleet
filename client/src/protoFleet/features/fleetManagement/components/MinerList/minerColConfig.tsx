@@ -3,6 +3,7 @@ import Hashrate from "./Hashrate";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerFirmware from "./MinerFirmware";
 import MinerIpAddress from "./MinerIpAddress";
+import MinerIssuesCell from "./MinerIssuesCell";
 import MinerMacAddress from "./MinerMacAddress";
 import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
@@ -33,7 +34,11 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
     component: (device: DeviceListItem, selectedItems: string[]) => (
       <MinerStatusCell deviceIdentifier={device.deviceIdentifier} selectedItems={selectedItems} />
     ),
-    width: "min-w-74",
+    width: "min-w-48",
+  },
+  [minerCols.issues]: {
+    component: (device: DeviceListItem) => <MinerIssuesCell deviceIdentifier={device.deviceIdentifier} />,
+    width: "min-w-48",
   },
   [minerCols.hashrate]: {
     component: (device: DeviceListItem) => <Hashrate deviceIdentifier={device.deviceIdentifier} />,

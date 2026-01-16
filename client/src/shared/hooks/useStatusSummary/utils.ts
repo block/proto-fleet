@@ -66,7 +66,7 @@ export function computeComponentStatusTitle(
 
   // Multiple errors
   const displayName = getComponentDisplayName(componentType, slot);
-  return `${displayName} has multiple issues`;
+  return `${displayName} has multiple failures`;
 }
 
 /**

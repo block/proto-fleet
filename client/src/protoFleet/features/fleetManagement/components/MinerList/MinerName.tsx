@@ -1,8 +1,14 @@
 import React, { useState } from "react";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
-import { useMiner, useMinerName, useMinerUrl } from "@/protoFleet/store";
+import { useFleetStore, useMiner, useMinerDeviceStatus, useMinerName, useMinerUrl } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
+import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 
 type MinerNameProps = {
   deviceIdentifier: string;
@@ -12,10 +18,18 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const name = useMinerName(deviceIdentifier) || deviceIdentifier;
   const url = useMinerUrl(deviceIdentifier);
   const miner = useMiner(deviceIdentifier);
+  const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
   const [isMinerFrameOpen, setIsMinerFrameOpen] = useState(false);
+  const [isStatusModalOpen, setStatusModalOpen] = useState(false);
 
-  // Don't show actions menu for miners requiring authentication (disabled rows)
+  // Get errors from normalized store
+  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
+  const errors = selectErrorsByDevice(deviceIdentifier);
+
+  // Compute if miner needs attention
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
+  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (url) {
@@ -29,6 +43,10 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
         console.error("Invalid URL:", error);
       }
     }
+  };
+
+  const handleAlertClick = () => {
+    setStatusModalOpen(true);
   };
 
   return (
@@ -47,7 +65,35 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
           <span>{name}</span>
         )}
       </div>
-      <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
+      <div className="flex items-center gap-2">
+        {needsAttention && !needsAuthentication && (
+          <button
+            onClick={handleAlertClick}
+            className="cursor-pointer transition-opacity hover:opacity-80"
+            aria-label="View issues"
+          >
+            <Alert width="w-4" className="text-red-500" />
+          </button>
+        )}
+        <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
+      </div>
+      {isStatusModalOpen && needsAuthentication && <AuthenticateMiners onClose={() => setStatusModalOpen(false)} />}
+      {isStatusModalOpen && !needsAuthentication && needsMiningPool && (
+        <PoolSelectionPageWrapper
+          selectedMiners={[{ deviceIdentifier, deviceStatus: deviceStatusFromStore }]}
+          selectionMode="subset"
+          onSuccess={() => setStatusModalOpen(false)}
+          onError={() => setStatusModalOpen(false)}
+          onDismiss={() => setStatusModalOpen(false)}
+        />
+      )}
+      {isStatusModalOpen && !needsAuthentication && !needsMiningPool && (
+        <ProtoFleetStatusModal
+          show={isStatusModalOpen}
+          onClose={() => setStatusModalOpen(false)}
+          deviceId={deviceIdentifier}
+        />
+      )}
     </div>
   );
 };

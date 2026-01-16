@@ -1,35 +1,16 @@
-import { ReactNode, useMemo } from "react";
-import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { useMemo } from "react";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { SUPPORTED_COMPONENT_TYPES } from "@/protoFleet/components/StatusModal/constants";
 import { useFleetStore, useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
-import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
-import type { GroupedStatusErrors } from "@/shared/hooks/useStatusSummary";
-import { useMinerStatusSummary } from "@/shared/hooks/useStatusSummary";
+import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
+import { useMinerStatus } from "@/shared/hooks/useStatusSummary";
 
 type MinerStatusProps = {
   deviceIdentifier: string;
   selectedItems?: string[];
   onClick?: () => void;
 };
-
-// Map error component type to icon
-function getComponentIcon(componentType: ErrorComponentType): ReactNode {
-  switch (componentType) {
-    case ErrorComponentType.CONTROL_BOARD:
-      return <ControlBoard width="w-4" />;
-    case ErrorComponentType.HASH_BOARD:
-      return <Hashboard width="w-4" />;
-    case ErrorComponentType.FAN:
-      return <Fan width="w-4" />;
-    case ErrorComponentType.PSU:
-      return <LightningAlt width="w-4" />;
-    default:
-      return <Alert width="w-4" />;
-  }
-}
 
 const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
@@ -40,86 +21,35 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const errors = selectErrorsByDevice(deviceIdentifier);
 
   // Compute status flags
-  const isSleeping = deviceStatusFromStore === DeviceStatus.INACTIVE;
-  const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
-  const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
+  // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
+  // (could be sleeping OR showing as inactive because we can't authenticate)
+  const isSleeping =
+    (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
+    !needsAuthentication;
+  const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
 
-  // Transform errors to shared format
-  const sharedErrors = useMemo((): GroupedStatusErrors => {
-    const result: GroupedStatusErrors = {
-      hashboard: [],
-      psu: [],
-      fan: [],
-      controlBoard: [],
-    };
+  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
 
-    if (!errors || errors.length === 0) return result;
+  // Compute status (Hashing, Offline, Sleeping, or Needs attention)
+  const status = useMinerStatus(isOffline, isSleeping, needsAttention);
 
-    errors.forEach((error) => {
-      if (!SUPPORTED_COMPONENT_TYPES.has(error.componentType)) return;
-
-      const parsed = error.componentId ? parseInt(error.componentId, 10) : NaN;
-      const slot = !isNaN(parsed) ? parsed : undefined;
-
-      switch (error.componentType) {
-        case ErrorComponentType.HASH_BOARD:
-          result.hashboard.push({ componentType: "hashboard", slot });
-          break;
-        case ErrorComponentType.PSU:
-          result.psu.push({ componentType: "psu", slot });
-          break;
-        case ErrorComponentType.FAN:
-          result.fan.push({ componentType: "fan", slot });
-          break;
-        case ErrorComponentType.CONTROL_BOARD:
-          result.controlBoard.push({ componentType: "controlBoard", slot });
-          break;
-      }
-    });
-
-    return result;
-  }, [errors]);
-
-  // Use shared hook for condensed text
-  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool);
-
-  // Determine icon based on error component types (UI-specific)
-  // Don't show error icon when miner is in a non-hashing state
-  const errorIcon = useMemo((): ReactNode | null => {
-    if (isOffline || isSleeping || needsAuthentication || needsMiningPool) {
-      return null;
-    }
-    if (!errors || errors.length === 0) return null;
-
-    const componentTypes = new Set<ErrorComponentType>();
-    errors.forEach((error) => {
-      if (SUPPORTED_COMPONENT_TYPES.has(error.componentType)) {
-        componentTypes.add(error.componentType);
-      }
-    });
-
-    if (componentTypes.size === 0) return null;
-    if (componentTypes.size === 1) {
-      return getComponentIcon(Array.from(componentTypes)[0]);
-    }
-    return <Alert width="w-4" />;
-  }, [errors, isOffline, isSleeping, needsAuthentication, needsMiningPool]);
-
-  // Determine StatusCircle status based on flags and errors
+  // Determine StatusCircle visual indicator based on flags
+  // Priority: (offline | sleeping) > needs attention > normal
+  // Note: isSleeping is already filtered to exclude auth-needed devices
   const circleStatus = useMemo(() => {
-    if (isOffline || isSleeping || needsAuthentication || needsMiningPool) {
-      return statuses.inactive;
+    if (isOffline || isSleeping) {
+      return statuses.sleeping;
     }
-    if (errorIcon) {
+    if (needsAttention) {
       return statuses.error;
     }
     return statuses.normal;
-  }, [isOffline, isSleeping, needsAuthentication, needsMiningPool, errorIcon]);
+  }, [isOffline, isSleeping, needsAttention]);
 
-  // Determine if the status should be clickable
-  // Status is NOT clickable when authentication is needed (disabled row)
-  const isClickable = onClick && !needsAuthentication;
+  // Status should always be clickable (even for disabled rows)
+  const isClickable = !!onClick;
 
   return (
     <div
@@ -127,8 +57,7 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
       onClick={isClickable ? onClick : undefined}
     >
       <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
-      {errorIcon}
-      {summary.condensed}
+      {status}
     </div>
   );
 };

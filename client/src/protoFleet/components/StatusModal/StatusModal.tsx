@@ -99,9 +99,13 @@ const ProtoFleetStatusModal = ({
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
   // Determine status flags from DeviceStatus and PairingStatus
-  const isSleeping = miner?.deviceStatus === DeviceStatus.INACTIVE;
-  const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
+  // When authentication is needed, we can't trust INACTIVE (or MAINTENANCE) status
+  // (could be sleeping OR showing as inactive/maintenance because we can't authenticate)
+  const isSleeping =
+    (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
+    !needsAuthentication;
   const needsMiningPool = miner?.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
   // Compute summary using shared hook (replaces API-provided summary)
@@ -123,7 +127,10 @@ const ProtoFleetStatusModal = ({
     };
 
     // Check if miner is sleeping (offline state in fleet context)
-    const isMinersleeping = miner?.deviceStatus === DeviceStatus.INACTIVE;
+    // Don't show wake button if authentication is needed (can't trust INACTIVE/MAINTENANCE status)
+    const isMinersleeping =
+      (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
+      !needsAuthentication;
 
     // Build buttons
     const buttons = [];
@@ -153,12 +160,24 @@ const ProtoFleetStatusModal = ({
         errors: errorsBySource,
         isSleeping: isMinersleeping,
         isOffline,
+        needsAuthentication,
+        needsMiningPool,
       },
-      title: `${miner?.name || deviceId} Status`,
+      title: `${miner?.name || deviceId} status`,
       buttons,
       onDismiss: onClose,
     };
-  }, [groupedErrors, summary, miner, deviceId, onClose, handleWakeMiner, isOffline]);
+  }, [
+    groupedErrors,
+    summary,
+    miner,
+    deviceId,
+    onClose,
+    handleWakeMiner,
+    isOffline,
+    needsAuthentication,
+    needsMiningPool,
+  ]);
 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(

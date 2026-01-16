@@ -46,68 +46,68 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
 
   // Encode device statuses
   if (filter.deviceStatus.length > 0) {
-    const statusValues: string[] = [];
+    const statusValues = new Set<string>();
     filter.deviceStatus.forEach((status) => {
       switch (status) {
         case DeviceStatus.ONLINE:
-          statusValues.push("hashing");
+          statusValues.add("hashing");
           break;
         case DeviceStatus.ERROR:
         case DeviceStatus.NEEDS_MINING_POOL:
-          statusValues.push("needs-attention");
+          statusValues.add("needs-attention");
           break;
         case DeviceStatus.OFFLINE:
-          statusValues.push("offline");
+          statusValues.add("offline");
           break;
         case DeviceStatus.INACTIVE:
-          statusValues.push("sleeping");
+          statusValues.add("sleeping");
           break;
       }
     });
-    if (statusValues.length > 0) {
-      params.set(URL_PARAMS.STATUS, statusValues.join(","));
+    if (statusValues.size > 0) {
+      params.set(URL_PARAMS.STATUS, Array.from(statusValues).sort().join(","));
     }
   }
 
   // Encode error component types (issues)
   if (filter.errorComponentTypes.length > 0) {
-    const issueValues: string[] = [];
+    const issueValues = new Set<string>();
     filter.errorComponentTypes.forEach((componentType) => {
       switch (componentType) {
         case ComponentType.CONTROL_BOARD:
-          issueValues.push(componentIssues.controlBoard);
+          issueValues.add(componentIssues.controlBoard);
           break;
         case ComponentType.FAN:
-          issueValues.push(componentIssues.fans);
+          issueValues.add(componentIssues.fans);
           break;
         case ComponentType.HASH_BOARD:
-          issueValues.push(componentIssues.hashBoards);
+          issueValues.add(componentIssues.hashBoards);
           break;
         case ComponentType.PSU:
-          issueValues.push(componentIssues.psu);
+          issueValues.add(componentIssues.psu);
           break;
       }
     });
-    if (issueValues.length > 0) {
-      params.set(URL_PARAMS.ISSUES, issueValues.join(","));
+    if (issueValues.size > 0) {
+      params.set(URL_PARAMS.ISSUES, Array.from(issueValues).sort().join(","));
     }
   }
 
   // Encode miner types
   if (filter.types.length > 0) {
-    const typeValues: string[] = [];
+    const typeValues = new Set<string>();
     filter.types.forEach((type) => {
       switch (type) {
         case MinerType.PROTO_RIG:
-          typeValues.push(minerTypes.protoRig);
+          typeValues.add(minerTypes.protoRig);
           break;
         case MinerType.BITMAIN:
-          typeValues.push(minerTypes.bitmain);
+          typeValues.add(minerTypes.bitmain);
           break;
       }
     });
-    if (typeValues.length > 0) {
-      params.set(URL_PARAMS.TYPE, typeValues.join(","));
+    if (typeValues.size > 0) {
+      params.set(URL_PARAMS.TYPE, Array.from(typeValues).sort().join(","));
     }
   }
 
@@ -208,8 +208,10 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
   if (statusParam) {
     const statusValues = statusParam.split(",");
     const mappedStatuses = statusValues.map((v) => URL_TO_STATUS[v]).filter(Boolean);
-    if (mappedStatuses.length > 0) {
-      activeFilters.dropdownFilters.status = mappedStatuses;
+    // Deduplicate to prevent infinite loops from duplicate URL params
+    const uniqueStatuses = Array.from(new Set(mappedStatuses));
+    if (uniqueStatuses.length > 0) {
+      activeFilters.dropdownFilters.status = uniqueStatuses;
     }
   }
 
@@ -217,14 +219,16 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
   const issuesParam = params.get(URL_PARAMS.ISSUES);
   if (issuesParam) {
     const issueValues = issuesParam.split(",");
-    activeFilters.dropdownFilters.issues = issueValues;
+    // Deduplicate to prevent infinite loops from duplicate URL params
+    activeFilters.dropdownFilters.issues = Array.from(new Set(issueValues));
   }
 
   // Parse type dropdown
   const typeParam = params.get(URL_PARAMS.TYPE);
   if (typeParam) {
     const typeValues = typeParam.split(",");
-    activeFilters.dropdownFilters.type = typeValues;
+    // Deduplicate to prevent infinite loops from duplicate URL params
+    activeFilters.dropdownFilters.type = Array.from(new Set(typeValues));
   }
 
   return activeFilters;
@@ -241,20 +245,20 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   if (statusFilters && statusFilters.length > 0) {
     const urlValues = statusFilters.map((s) => STATUS_TO_URL[s]).filter(Boolean);
     if (urlValues.length > 0) {
-      params.set(URL_PARAMS.STATUS, urlValues.join(","));
+      params.set(URL_PARAMS.STATUS, urlValues.sort().join(","));
     }
   }
 
   // Encode issues dropdown
   const issueFilters = filters.dropdownFilters.issues;
   if (issueFilters && issueFilters.length > 0) {
-    params.set(URL_PARAMS.ISSUES, issueFilters.join(","));
+    params.set(URL_PARAMS.ISSUES, issueFilters.sort().join(","));
   }
 
   // Encode type dropdown
   const typeFilters = filters.dropdownFilters.type;
   if (typeFilters && typeFilters.length > 0) {
-    params.set(URL_PARAMS.TYPE, typeFilters.join(","));
+    params.set(URL_PARAMS.TYPE, typeFilters.sort().join(","));
   }
 
   return params;
