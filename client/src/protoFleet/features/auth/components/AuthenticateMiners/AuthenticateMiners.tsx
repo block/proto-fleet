@@ -8,13 +8,14 @@ import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { ids } from "@/protoFleet/features/auth/components/AuthenticateMiners/constants";
 import { Credentials, UnauthenticatedMiner } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
 import { useFleetStore, useNotifyPairingCompleted } from "@/protoFleet/store";
+import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
 import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
-import { ActiveFilters, DropdownFilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 import { sizes as modalSizes } from "@/shared/components/Modal/constants";
 import Switch from "@/shared/components/Switch";
@@ -122,6 +123,10 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
   const [selectedMiners, setSelectedMiners] = useState<string[]>([]);
   // Track if we've initialized selection to prevent unwanted resets
   const hasInitializedSelectionRef = useRef(false);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
+    buttonFilters: [],
+    dropdownFilters: {},
+  });
 
   // Initialize selection to all miners only on first data load
   // After initial load, preserve user selection even when miner list updates
@@ -137,36 +142,11 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
     return Array.from(new Set(minerItems.map((miner) => miner.model)));
   }, [minerItems]);
 
-  const modelFilter = useMemo(() => {
-    const options = models.map((model) => ({
-      id: model,
-      label: model,
-    }));
+  const modelFilter = useMemo(() => createModelFilter(models), [models]);
 
-    return {
-      type: "dropdown",
-      title: "Model",
-      value: "model",
-      options: [...options],
-      defaultOptionIds: [...options.map((o) => o.id)],
-    } as DropdownFilterItem;
-  }, [models]);
-
-  const filterItem = useCallback((item: UnauthenticatedMiner, filters: ActiveFilters) => {
-    const modelFilters = filters.dropdownFilters?.["model"];
-
-    // If no model filter is applied (empty array or undefined), show all items
-    if (!modelFilters || modelFilters.length === 0) {
-      return true;
-    }
-
-    // If model filters are applied, only show items that match
-    if (!modelFilters.includes(item.model)) {
-      return false;
-    }
-
-    return true;
-  }, []);
+  const filteredMiners = useMemo(() => {
+    return minerItems.filter((miner) => filterByModel(miner, activeFilters));
+  }, [minerItems, activeFilters]);
 
   const colConfig = useMemo(() => {
     return {
@@ -441,7 +421,8 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           <div className="mt-2">
             <List<UnauthenticatedMiner, UnauthenticatedMiner["deviceIdentifier"]>
               filters={[modelFilter]}
-              filterItem={filterItem}
+              filterItem={filterByModel}
+              onFilterChange={setActiveFilters}
               filterSize={sizes.compact}
               headerControls={<Switch label="Show passwords" checked={showPasswords} setChecked={setShowPasswords} />}
               activeCols={activeCols}
@@ -458,7 +439,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           </div>
           <ModalSelectAllFooter
             label={selectedMiners.length + " miners selected"}
-            onSelectAll={() => setSelectedMiners(minerItems.map((miner) => miner.deviceIdentifier))}
+            onSelectAll={() => setSelectedMiners(filteredMiners.map((miner) => miner.deviceIdentifier))}
             onSelectNone={() => setSelectedMiners([])}
           />
         </>

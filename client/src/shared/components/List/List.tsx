@@ -66,6 +66,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   hasActiveFilters?: boolean;
   /**
+   * Callback when filters change.
+   * Called with the current active filters whenever the user modifies filters.
+   */
+  onFilterChange?: (filters: ActiveFilters) => void;
+  /**
    * Callback when selection mode changes.
    * Called with "all" when Select All is clicked with no filters,
    * "subset" for individual selections or Select All with filters,
@@ -141,6 +146,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   itemName = { singular: "item", plural: "items" },
   itemRef,
   hasActiveFilters = false,
+  onFilterChange,
   onSelectionModeChange,
   onLoadMore,
   hasMore = false,
@@ -182,10 +188,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const selectableItems = getSelectableItems(items);
+      // Select only filtered items (respects both client-side and server-side filters)
+      const selectableItems = getSelectableItems(filteredItems);
       const selection = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       customSetSelectedItems ? customSetSelectedItems(selection) : setSelectedItems(selection);
-      const newMode = hasActiveFilters ? "subset" : "all";
+      // If we're selecting filtered items, it's a subset (unless all items match the filter)
+      const allItemsMatchFilter = filteredItems.length === items.length;
+      const newMode = hasActiveFilters || !allItemsMatchFilter ? "subset" : "all";
       setSelectionMode(newMode);
       onSelectionModeChange?.(newMode);
     } else {
@@ -271,26 +280,32 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   };
 
   const allSelected = useMemo(() => {
-    const selectableItems = getSelectableItems(items);
+    // Check if all filtered items are selected (not all items)
+    const selectableItems = getSelectableItems(filteredItems);
     const selectableCount = selectableItems.length;
     if (selectableCount === 0) return false;
-    return customSelectedItems?.length === selectableCount || selectedItems.length === selectableCount;
-  }, [selectedItems, items, customSelectedItems, getSelectableItems]);
+    const currentSelected = customSelectedItems ?? selectedItems;
+    // Use Set for O(1) lookups instead of O(n) array.includes()
+    const selectedSet = new Set<ItemKeyValueType>(currentSelected);
+    return selectableItems.every((item) => selectedSet.has(item[itemKey] as ItemKeyValueType));
+  }, [selectedItems, filteredItems, customSelectedItems, getSelectableItems, itemKey]);
 
   const handleServerFiltering = useCallback(
     (activeFilters: ActiveFilters) => {
       if (isServerSideFiltering) {
         onServerFilter!(activeFilters);
       }
+      onFilterChange?.(activeFilters);
     },
-    [isServerSideFiltering, onServerFilter],
+    [isServerSideFiltering, onServerFilter, onFilterChange],
   );
 
   const handleClientFiltering = useCallback(
     (activeFilters: ActiveFilters) => {
       setFilteredItems(items.filter((item) => filterItem === undefined || filterItem(item, activeFilters)));
+      onFilterChange?.(activeFilters);
     },
-    [filterItem, items],
+    [filterItem, items, onFilterChange],
   );
 
   // Update filteredItems when items change (for server-side filtering)

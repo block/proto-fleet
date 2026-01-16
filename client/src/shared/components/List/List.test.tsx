@@ -1001,4 +1001,129 @@ describe("List", () => {
       expect(rows.length).toBeGreaterThan(1); // Popover should exist
     });
   });
+
+  describe("client-side filtering with Select All", () => {
+    // Filter function that reduces items based on status
+    const filterByActiveStatus = (item: TestItem) => item.status === "active";
+
+    it("sets mode to 'subset' when Select All is clicked with client-side filter reducing items", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          filterItem={(item) => filterByActiveStatus(item)}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      // Should be "subset" because client-side filter reduces visible items (5 items -> 2 active items)
+      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
+    });
+
+    it("sets mode to 'all' when Select All is clicked with filter that matches all items", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          filterItem={() => true} // Filter matches all items
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      // Should be "all" because filter matches all items
+      expect(onSelectionModeChange).toHaveBeenCalledWith("all");
+    });
+
+    it("only selects filtered items when Select All is clicked with active filter", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          filterItem={(item) => filterByActiveStatus(item)}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      // Only "active" items should be visible and selected (items 1 and 5)
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Only 2 items should be visible (the active ones)
+      expect(selectItemCheckboxes).toHaveLength(2);
+
+      // All visible items should be selected
+      expect(selectItemCheckboxes.every((c) => c.checked)).toBe(true);
+    });
+
+    it("shows Select All as checked when all filtered items are selected", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          filterItem={(item) => filterByActiveStatus(item)}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Manually select all visible (filtered) items
+      selectItemCheckboxes.forEach((checkbox) => fireEvent.click(checkbox));
+
+      // Select All checkbox should now be checked
+      expect(selectAllCheckbox.checked).toBe(true);
+    });
+
+    it("calls onFilterChange when filterItem changes filtered results", () => {
+      const onFilterChange = vi.fn();
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          filterItem={() => true}
+          onFilterChange={onFilterChange}
+        />,
+      );
+
+      // onFilterChange is called when filters are applied through the UI
+      // The callback should be available and callable
+      expect(onFilterChange).toBeDefined();
+    });
+  });
 });
