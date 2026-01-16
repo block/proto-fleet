@@ -37,6 +37,13 @@ const (
 )
 
 var _ sdk.Driver = (*Driver)(nil)
+var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
+
+// defaultCredentials contains well-known factory defaults for Bitmain Antminer devices.
+// These are publicly documented and tried in order during auto-authentication.
+var defaultCredentials = []sdk.UsernamePassword{
+	{Username: "root", Password: "root"},
+}
 
 // Driver implements the SDK Driver interface for Antminer devices.
 type Driver struct {
@@ -302,4 +309,10 @@ func (d *Driver) extractUsernamePassword(secret sdk.SecretBundle) (sdk.UsernameP
 	default:
 		return sdk.UsernamePassword{}, fmt.Errorf("unsupported secret bundle type for Antminer: %T (expected UsernamePassword)", secret.Kind)
 	}
+}
+
+// GetDefaultCredentials implements sdk.DefaultCredentialsProvider.
+// Returns known default credentials for Antminer devices to enable auto-authentication during pairing.
+func (d *Driver) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword {
+	return defaultCredentials
 }

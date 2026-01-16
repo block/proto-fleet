@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -82,23 +83,81 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		return err
 	}
 
-	// Check if credentials are required but not provided for non-Proto devices
-	// Proto devices use asymmetric key authentication, while others require username/password
-	if p.minerType != models.TypeProto && credentials == nil {
-		// Ensure error message is reliably detectable by downstream logic (see isCredentialsRequiredError in service.go)
-		return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+	// If no credentials provided, try default credentials if plugin provides them
+	if credentials == nil {
+		if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
+			defaultCreds := provider.GetDefaultCredentials(ctx)
+			if len(defaultCreds) > 0 {
+				return p.pairWithDefaultCredentials(ctx, plugin, discoveredDevice, defaultCreds)
+			}
+		}
+		// Devices that advertise CapabilityAsymmetricAuth (e.g. Proto devices) use public key
+		// based authentication managed by the plugin/SDK instead of username/password.
+		if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
+			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+		}
 	}
 
+	return p.executePairing(ctx, plugin, discoveredDevice, credentials)
+}
+
+// pairWithDefaultCredentials attempts pairing with plugin-provided default credentials.
+// It tries each credential combination in order, returning on first success.
+// If all attempts fail, it returns a "credentials required" error to trigger AUTHENTICATION_NEEDED.
+func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, defaultCreds []sdk.UsernamePassword) error {
+	for _, cred := range defaultCreds {
+		password := cred.Password
+		credentials := &pb.Credentials{
+			Username: cred.Username,
+			Password: &password,
+		}
+
+		err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials)
+		if err != nil {
+			if isAuthenticationFailure(err) {
+				continue
+			}
+			return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
+		}
+
+		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
+			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
+		}
+
+		// Fetch additional device info (firmware version, etc.) using the successful credentials
+		// This ensures auto-auth has the same effect as bulk authentication
+		if deviceInfo, err := p.GetDeviceInfo(ctx, discoveredDevice, credentials); err != nil {
+			slog.Warn("Failed to get device info after auto-auth pairing",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"error", err)
+		} else if deviceInfo.FirmwareVersion != "" {
+			discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
+		}
+
+		slog.Info("Device paired successfully with default credentials",
+			"device_identifier", discoveredDevice.DeviceIdentifier)
+		return nil
+	}
+
+	// All credential attempts failed - signal that user credentials are needed
+	slog.Debug("Default credentials not accepted, manual authentication required",
+		"device_identifier", discoveredDevice.DeviceIdentifier)
+	return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+}
+
+// callPluginPairDevice calls the plugin's PairDevice and updates discoveredDevice with the response.
+// Returns raw errors (not wrapped) so callers can inspect error types before wrapping.
+func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
 	secretBundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
+		return fmt.Errorf("failed to create secret bundle: %w", err)
 	}
 
 	updatedDeviceInfo, err := plugin.Driver.PairDevice(ctx, deviceInfo, secretBundle)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
+		return err
 	}
 
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
@@ -106,6 +165,15 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+
+	return nil
+}
+
+// executePairing performs the actual pairing operation with given credentials.
+func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+	if err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials); err != nil {
+		return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
+	}
 
 	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
@@ -271,6 +339,9 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 			Key: fleetPublicKey,
 		}
 	} else {
+		if credentials == nil {
+			return sdk.SecretBundle{}, fmt.Errorf("credentials required for %s secret bundle", p.minerType)
+		}
 		bundle.Kind = sdk.UsernamePassword{
 			Username: credentials.Username,
 			Password: *credentials.Password,
@@ -314,4 +385,22 @@ func (p *Pairer) createProtoBearerSecretBundle(ctx context.Context, device *disc
 			Token: jwtToken,
 		},
 	}, nil
+}
+
+// isAuthenticationFailure checks if an error indicates authentication failed.
+// This is distinct from "credentials required" - authentication failed means
+// credentials were provided but were rejected by the device.
+func isAuthenticationFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for SDK authentication error (typed error from plugins)
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
+		return true
+	}
+
+	// Check for fleet authentication error (gRPC unauthenticated code)
+	return fleeterror.IsAuthenticationError(err)
 }

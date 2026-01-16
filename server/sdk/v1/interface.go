@@ -436,6 +436,16 @@ type Driver interface {
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
 }
 
+// DefaultCredentialsProvider is an optional interface that drivers can implement
+// to provide default credentials for auto-authentication during pairing.
+// If a driver implements this interface and returns credentials, the server
+// will attempt pairing with each credential before requiring manual input.
+type DefaultCredentialsProvider interface {
+	// GetDefaultCredentials returns a list of credentials to try during pairing.
+	// Returns nil or empty slice if the driver doesn't support auto-authentication.
+	GetDefaultCredentials(ctx context.Context) []UsernamePassword
+}
+
 // Standard capability flags
 const (
 	// CoreV1 capabilities

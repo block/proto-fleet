@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -203,6 +204,28 @@ func (s *DriverGRPCServer) PairDevice(ctx context.Context, req *pb.PairDeviceReq
 
 	return &pb.PairDeviceResponse{
 		Device: deviceInfoToProto(updatedDeviceInfo),
+	}, nil
+}
+
+func (s *DriverGRPCServer) GetDefaultCredentials(ctx context.Context, _ *emptypb.Empty) (*pb.GetDefaultCredentialsResponse, error) {
+	// Check if the driver implements DefaultCredentialsProvider
+	provider, ok := s.Impl.(DefaultCredentialsProvider)
+	if !ok {
+		// Return empty credentials if not implemented
+		return &pb.GetDefaultCredentialsResponse{}, nil
+	}
+
+	creds := provider.GetDefaultCredentials(ctx)
+	pbCreds := make([]*pb.UsernamePassword, len(creds))
+	for i, c := range creds {
+		pbCreds[i] = &pb.UsernamePassword{
+			Username: c.Username,
+			Password: c.Password,
+		}
+	}
+
+	return &pb.GetDefaultCredentialsResponse{
+		Credentials: pbCreds,
 	}, nil
 }
 
@@ -636,6 +659,10 @@ type DriverGRPCClient struct {
 	client pb.DriverClient
 }
 
+// Compile-time interface checks
+var _ Driver = (*DriverGRPCClient)(nil)
+var _ DefaultCredentialsProvider = (*DriverGRPCClient)(nil)
+
 func (c *DriverGRPCClient) Handshake(ctx context.Context) (DriverIdentifier, error) {
 	resp, err := c.client.Handshake(ctx, &emptypb.Empty{})
 	if err != nil {
@@ -689,6 +716,36 @@ func (c *DriverGRPCClient) PairDevice(ctx context.Context, device DeviceInfo, ac
 	}
 
 	return deviceInfoFromProto(resp.Device), nil
+}
+
+// GetDefaultCredentials implements DefaultCredentialsProvider for the gRPC client.
+// This allows the server to get default credentials from plugins over gRPC.
+// Returns nil if the plugin doesn't implement the method (not an error condition).
+func (c *DriverGRPCClient) GetDefaultCredentials(ctx context.Context) []UsernamePassword {
+	resp, err := c.client.GetDefaultCredentials(ctx, &emptypb.Empty{})
+	if err != nil {
+		// If the plugin doesn't implement this method, return nil (not an error)
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+			return nil
+		}
+		// For other errors, log a warning but return nil to maintain backwards compatibility.
+		slog.Warn("Failed to get default credentials from plugin", "error", err)
+		return nil
+	}
+
+	if resp == nil || len(resp.Credentials) == 0 {
+		return nil
+	}
+
+	creds := make([]UsernamePassword, len(resp.Credentials))
+	for i, c := range resp.Credentials {
+		creds[i] = UsernamePassword{
+			Username: c.Username,
+			Password: c.Password,
+		}
+	}
+
+	return creds
 }
 
 func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {

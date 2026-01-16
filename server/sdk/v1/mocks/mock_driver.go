@@ -864,3 +864,40 @@ func (mr *MockDriverMockRecorder) PairDevice(ctx, device, access interface{}) *g
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairDevice", reflect.TypeOf((*MockDriver)(nil).PairDevice), ctx, device, access)
 }
+
+// MockDefaultCredentialsProvider is a mock of DefaultCredentialsProvider interface.
+type MockDefaultCredentialsProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockDefaultCredentialsProviderMockRecorder
+}
+
+// MockDefaultCredentialsProviderMockRecorder is the mock recorder for MockDefaultCredentialsProvider.
+type MockDefaultCredentialsProviderMockRecorder struct {
+	mock *MockDefaultCredentialsProvider
+}
+
+// NewMockDefaultCredentialsProvider creates a new mock instance.
+func NewMockDefaultCredentialsProvider(ctrl *gomock.Controller) *MockDefaultCredentialsProvider {
+	mock := &MockDefaultCredentialsProvider{ctrl: ctrl}
+	mock.recorder = &MockDefaultCredentialsProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDefaultCredentialsProvider) EXPECT() *MockDefaultCredentialsProviderMockRecorder {
+	return m.recorder
+}
+
+// GetDefaultCredentials mocks base method.
+func (m *MockDefaultCredentialsProvider) GetDefaultCredentials(ctx context.Context) []sdk.UsernamePassword {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDefaultCredentials", ctx)
+	ret0, _ := ret[0].([]sdk.UsernamePassword)
+	return ret0
+}
+
+// GetDefaultCredentials indicates an expected call of GetDefaultCredentials.
+func (mr *MockDefaultCredentialsProviderMockRecorder) GetDefaultCredentials(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultCredentials", reflect.TypeOf((*MockDefaultCredentialsProvider)(nil).GetDefaultCredentials), ctx)
+}

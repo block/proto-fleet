@@ -265,6 +265,9 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return sdk.NewErrorAuthenticationFailed(connInfo.GetURL().String())
+		}
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 

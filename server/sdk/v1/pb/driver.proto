@@ -376,6 +376,11 @@ message PairDeviceResponse {
   DeviceInfo device = 1; // Updated device info after pairing (includes serial number, MAC address, etc.)
 }
 
+// GetDefaultCredentialsResponse contains default credentials for auto-authentication
+message GetDefaultCredentialsResponse {
+  repeated UsernamePassword credentials = 1; // List of credentials to try in order
+}
+
 message GetDeviceWebViewURLResponse {
   string url = 1; // URL to access device web interface
 }
@@ -543,6 +548,9 @@ service Driver {
   /// CoreV1 - Device Pairing - Required methods
   rpc DiscoverDevice(DiscoverDeviceRequest) returns (DiscoverDeviceResponse);
   rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
+
+  // Optional - Returns default credentials for auto-authentication during pairing
+  rpc GetDefaultCredentials(google.protobuf.Empty) returns (GetDefaultCredentialsResponse);
   
   // CoreV1 - Device Management - Required methods
   rpc NewDevice(NewDeviceRequest) returns (NewDeviceResponse);
