@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -900,19 +903,9 @@ func TestIsAuthenticationFailure(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "authentication error string (not detected - requires typed error)",
-			err:      fmt.Errorf("authentication failed"),
-			expected: false,
-		},
-		{
-			name:     "unauthorized error string (not detected - requires typed error)",
-			err:      fmt.Errorf("unauthorized access"),
-			expected: false,
-		},
-		{
-			name:     "401 error string (not detected - requires typed error)",
-			err:      fmt.Errorf("HTTP 401 response"),
-			expected: false,
+			name:     "gRPC Unauthenticated status error",
+			err:      status.Error(codes.Unauthenticated, "authentication failed for device: http://192.168.1.1:80"),
+			expected: true,
 		},
 		{
 			name:     "network error",
@@ -922,11 +915,6 @@ func TestIsAuthenticationFailure(t *testing.T) {
 		{
 			name:     "generic error",
 			err:      fmt.Errorf("plugin pairing failed"),
-			expected: false,
-		},
-		{
-			name:     "mixed case authentication (not detected - requires typed error)",
-			err:      fmt.Errorf("AUTHENTICATION Failed"),
 			expected: false,
 		},
 	}

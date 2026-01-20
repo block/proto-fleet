@@ -199,7 +199,7 @@ func (s *DriverGRPCServer) PairDevice(ctx context.Context, req *pb.PairDeviceReq
 
 	updatedDeviceInfo, err := s.Impl.PairDevice(ctx, deviceInfo, access)
 	if err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 
 	return &pb.PairDeviceResponse{

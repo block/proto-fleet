@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -395,12 +398,17 @@ func isAuthenticationFailure(err error) bool {
 		return false
 	}
 
-	// Check for SDK authentication error (typed error from plugins)
-	var sdkErr sdk.SDKError
-	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
+	// Check for gRPC Unauthenticated status code (set by sdkErrorToGRPCStatus in plugin RPC layer)
+	if status.Code(err) == codes.Unauthenticated {
 		return true
 	}
 
-	// Check for fleet authentication error (gRPC unauthenticated code)
-	return fleeterror.IsAuthenticationError(err)
+	// Check for fleet authentication error (Connect protocol)
+	if fleeterror.IsAuthenticationError(err) {
+		return true
+	}
+
+	// Check for SDK authentication error (in-process plugins, no RPC boundary)
+	var sdkErr sdk.SDKError
+	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed
 }
