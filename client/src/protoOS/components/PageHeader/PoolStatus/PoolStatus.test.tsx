@@ -4,12 +4,15 @@ import { describe, expect, test, vi } from "vitest";
 import PoolStatus from "./PoolStatus";
 import { PopoverProvider } from "@/shared/components/Popover";
 
-vi.mock("react-router-dom", () => ({
-  ...vi.importActual("react-router-dom"),
-  useNavigate: () => ({
-    Navigation: vi.fn(),
-  }),
-}));
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => ({
+      Navigation: vi.fn(),
+    }),
+  };
+});
 
 describe("Pool Status", () => {
   const onClickViewPools = vi.fn();

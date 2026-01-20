@@ -144,6 +144,8 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
 
   const modelFilter = useMemo(() => createModelFilter(models), [models]);
 
+  const filters = useMemo(() => [modelFilter], [modelFilter]);
+
   const filteredMiners = useMemo(() => {
     return minerItems.filter((miner) => filterByModel(miner, activeFilters));
   }, [minerItems, activeFilters]);
@@ -420,7 +422,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
         <>
           <div className="mt-2">
             <List<UnauthenticatedMiner, UnauthenticatedMiner["deviceIdentifier"]>
-              filters={[modelFilter]}
+              filters={filters}
               filterItem={filterByModel}
               onFilterChange={setActiveFilters}
               filterSize={sizes.compact}

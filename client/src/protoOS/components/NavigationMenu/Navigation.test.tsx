@@ -4,16 +4,19 @@ import { describe, expect, test, vi } from "vitest";
 import { navigationMenuTypes } from "./constants";
 import Navigation from "./Navigation";
 
-vi.mock("react-router-dom", () => ({
-  ...vi.importActual("react-router-dom"),
-  Link: vi.fn().mockReturnValue(<div></div>),
-  useLocation: () => ({
-    pathname: "localhost:3000/example/path",
-  }),
-  useNavigate: () => ({
-    Navigation: vi.fn(),
-  }),
-}));
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return {
+    ...actual,
+    Link: vi.fn().mockReturnValue(<div></div>),
+    useLocation: () => ({
+      pathname: "localhost:3000/example/path",
+    }),
+    useNavigate: () => ({
+      Navigation: vi.fn(),
+    }),
+  };
+});
 
 describe("Navigation", () => {
   const macValue = "00:11:22:33:44:55";

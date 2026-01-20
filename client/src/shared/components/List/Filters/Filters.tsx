@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import ButtonFilter from "./ButtonFilter";
@@ -40,46 +40,24 @@ const Filters = <ItemType,>({
     },
   );
 
-  // Initialize all dropdown filters with empty arrays (no selections)
-  useEffect(() => {
-    const initialDropdownValues: { [key: string]: string[] } = {};
-
-    filterItems.forEach((filter) => {
-      if (filter.type === "dropdown") {
-        const filterKey = filter.value as string;
-        // Start with empty selection (no filtering)
-        initialDropdownValues[filterKey] = [];
-      }
-    });
-
-    if (Object.keys(initialDropdownValues).length > 0) {
-      setActiveFilters((prev) => {
-        const newDropdownFilters = { ...prev.dropdownFilters };
-        Object.entries(initialDropdownValues).forEach(([key, value]) => {
-          if (!prev.dropdownFilters[key]) {
-            newDropdownFilters[key] = value;
-          }
-        });
-
-        return {
-          ...prev,
-          dropdownFilters: newDropdownFilters,
-        };
-      });
-    }
-  }, [filterItems]);
+  // Store onFilter in a ref to avoid re-running effects when the callback reference changes.
+  // The callback changes when parent's items change (due to useCallback dependencies in List),
+  // but we only want to call onFilter when activeFilters actually changes.
+  const onFilterRef = useRef(onFilter);
+  useLayoutEffect(() => {
+    onFilterRef.current = onFilter;
+  }, [onFilter]);
 
   useEffect(() => {
-    onFilter(activeFilters);
-  }, [activeFilters, onFilter]);
+    onFilterRef.current(activeFilters);
+  }, [activeFilters]);
 
   // Ensure the client side filter is applied when items change
   useEffect(() => {
     if (!isServerSide) {
-      onFilter(activeFilters);
+      onFilterRef.current(activeFilters);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
+  }, [items, isServerSide, activeFilters]);
 
   const handleButtonFilterChange = (filter: string) => {
     setActiveFilters((prev) => {

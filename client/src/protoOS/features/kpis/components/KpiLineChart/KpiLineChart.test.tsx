@@ -20,8 +20,8 @@ vi.mock("@/shared/components/Chart/TimeXAxisTick", () => ({
 }));
 
 // Mock the recharts components
-vi.mock("recharts", () => {
-  const OriginalModule = vi.importActual("recharts");
+vi.mock("recharts", async () => {
+  const OriginalModule = await vi.importActual("recharts");
   return {
     ...OriginalModule,
     ResponsiveContainer: ({ children }: any) => <div data-testid="responsive-container">{children}</div>,
