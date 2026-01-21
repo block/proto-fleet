@@ -81,7 +81,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
             />
             <NavigationItem
               id={navigationItems.miningPools}
-              text="Mining Pools"
+              text="Pools"
               onClick={handleClick}
               pageName={pageName}
               isChildItem

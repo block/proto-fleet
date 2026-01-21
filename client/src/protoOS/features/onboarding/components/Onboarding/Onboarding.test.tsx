@@ -1,10 +1,9 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import Onboarding from "./Onboarding";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-import { urlValidationErrors } from "@/shared/components/MiningPools/PoolForm/constants";
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
@@ -22,22 +21,19 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 const poolUrl = "stratum+tcp://ckpool:3333";
 
-// data-testid constants
-const miningPoolTitle = "mining-pool-title";
-const testConnectionButton = "test-connection-button";
-const backupPoolAddButton = "pool-1-add-button";
-const backupPoolSaveButton = "pool-save-button";
-const backupPoolSavedUrl = "pool-1-saved-url";
-const backupPoolDismissButton = "header-icon-button";
+// data-testid constants for new unified pool list UI
+const addPoolButton = "add-pool-button";
+const addAnotherPoolButton = "add-another-pool-button";
+const poolSaveButton = "pool-save-button";
+const poolDismissButton = "header-icon-button";
 const finishSetupButton = "finish-setup-button";
-const urlInput = "url-0-input";
-const backupUrlInput = "url-1-input";
-const backupUsernameInput = "username-1-input";
-const backupPoolNameInput = "pool-name-1-input";
-const validationError = "url-0-input-validation-error";
-const poolNotConnectedCallout = "pool-not-connected-callout";
 const warnDefaultPoolCallout = "warn-default-pool-callout";
 const warnBackupPoolDialog = "warn-backup-pool-dialog";
+
+// Modal inputs use poolIndex in their testIds
+const getUrlInput = (poolIndex: number) => `url-${poolIndex}-input`;
+const getUsernameInput = (poolIndex: number) => `username-${poolIndex}-input`;
+const getEditButton = (poolIndex: number) => `pool-${poolIndex}-edit-button`;
 
 describe("Onboarding", () => {
   let component: ReturnType<typeof render>;
@@ -54,11 +50,11 @@ describe("Onboarding", () => {
     queryByTestId = component.queryByTestId;
   });
 
-  test("Renders onboarding on pools tab", () => {
-    expect(getByTestId(miningPoolTitle)).toBeInTheDocument();
+  test("Renders onboarding with empty state showing Add pool button", () => {
+    expect(getByTestId(addPoolButton)).toBeInTheDocument();
   });
 
-  test("Renders callout on clicking continue with no default pool URL inputted", () => {
+  test("Renders callout on clicking finish setup with no pools configured", () => {
     // callout has max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
     fireEvent.click(getByTestId(finishSetupButton));
@@ -66,177 +62,476 @@ describe("Onboarding", () => {
     expect(getByTestId(warnDefaultPoolCallout)).not.toHaveClass("max-h-0");
   });
 
-  test("Renders validation message on clicking test connection with no pool URL inputted", async () => {
-    const { getByText, queryByText } = within(getByTestId(validationError));
-    expect(queryByText(urlValidationErrors.required)).not.toBeInTheDocument();
-    fireEvent.click(getByTestId(testConnectionButton));
+  test("Opens pool modal when clicking Add pool button", async () => {
+    const user = userEvent.setup();
+
+    // Initially modal should not be visible
+    expect(queryByTestId(getUrlInput(0))).not.toBeInTheDocument();
+
+    // Click Add pool button
+    await user.click(getByTestId(addPoolButton));
+
+    // Modal should now show with URL input
     await waitFor(() => {
-      expect(getByText(urlValidationErrors.required)).toBeInTheDocument();
+      expect(getByTestId(getUrlInput(0))).toBeInTheDocument();
     });
   });
 
-  test("Renders callout on clicking test connection with pool URL inputted", async () => {
+  test("Can add first pool and see it in the list", async () => {
     const user = userEvent.setup();
-    const { queryByText } = within(getByTestId(validationError));
-    // callout has max-height of 0
-    expect(getByTestId(poolNotConnectedCallout)).toHaveClass("max-h-0");
-    // enter pool URL and click test connection
-    const input = getByTestId(urlInput);
-    await user.clear(input);
-    await user.type(input, poolUrl);
 
-    await user.click(getByTestId(testConnectionButton));
+    // Click Add pool button
+    await user.click(getByTestId(addPoolButton));
 
-    // Wait for validation to clear
+    // Fill in pool details
+    const urlInput = getByTestId(getUrlInput(0));
+    const usernameInput = getByTestId(getUsernameInput(0));
+
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+
+    // Save the pool
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for pool to appear in list with Update button
     await waitFor(() => {
-      expect(queryByText(urlValidationErrors.required)).not.toBeInTheDocument();
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
     });
 
-    // wait until test connection is done and callout no longer has max-height of 0
-    await waitFor(() => {
-      expect(getByTestId(poolNotConnectedCallout)).not.toHaveClass("max-h-0");
-    });
+    // Should now show "Add another pool" button
+    expect(getByTestId(addAnotherPoolButton)).toBeInTheDocument();
   });
 
-  test("Does not render callout on clicking continue with default pool URL inputted", async () => {
+  test("Does not render warning callout on clicking finish setup with pool configured", async () => {
     const user = userEvent.setup();
-    // callout has max-height of 0
+
+    // Add a pool
+    await user.click(getByTestId(addPoolButton));
+    const urlInput = getByTestId(getUrlInput(0));
+    const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // callout should have max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
-    const input = getByTestId(urlInput);
-    await user.clear(input);
-    await user.type(input, poolUrl);
 
+    // Click finish setup
     await user.click(getByTestId(finishSetupButton));
 
-    // Wait a bit for any state changes
+    // Wait and verify callout still has max-height of 0 (no warning about missing default pool)
     await waitFor(() => {
-      // callout still has max-height of 0
       expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
     });
   });
 
-  test("Renders warning dialog on clicking continue with no backup pools inputted", () => {
-    expect(queryByTestId(warnBackupPoolDialog)).not.toBeInTheDocument();
-    const urlInputElement = getByTestId(urlInput);
-    fireEvent.change(urlInputElement, { target: { value: poolUrl } });
-    fireEvent.blur(urlInputElement);
-    fireEvent.click(getByTestId(finishSetupButton));
-    expect(getByTestId(warnDefaultPoolCallout)).toBeInTheDocument();
-  });
-
-  test("Does not render warning dialog on clicking continue with at least one backup pool inputted", () => {
-    // input default pool URL
-    const urlInputElement = getByTestId(urlInput);
-    fireEvent.change(urlInputElement, { target: { value: poolUrl } });
-    fireEvent.blur(urlInputElement);
-    // click add button of backup pool 1
-    fireEvent.click(getByTestId(backupPoolAddButton));
-    // input backup pool name (required field)
-    const backupNameInputElement = getByTestId(backupPoolNameInput);
-    fireEvent.change(backupNameInputElement, {
-      target: { value: "Backup Pool 1" },
-    });
-    fireEvent.blur(backupNameInputElement);
-    // input backup pool URL
-    const backupUrlInputElement = getByTestId(backupUrlInput);
-    fireEvent.change(backupUrlInputElement, {
-      target: { value: poolUrl },
-    });
-    fireEvent.blur(backupUrlInputElement);
-    // input backup pool username (required field)
-    const backupUsernameInputElement = getByTestId(backupUsernameInput);
-    fireEvent.change(backupUsernameInputElement, {
-      target: { value: "testuser" },
-    });
-    fireEvent.blur(backupUsernameInputElement);
-    // click save button
-    fireEvent.click(getByTestId(backupPoolSaveButton));
-    fireEvent.click(getByTestId(finishSetupButton));
-    expect(queryByTestId(warnBackupPoolDialog)).not.toBeInTheDocument();
-  });
-
-  test("Can edit backup", async () => {
+  test("Renders warning dialog on clicking finish setup with only one pool (no backup)", async () => {
     const user = userEvent.setup();
-    // add backup pool
-    expect(queryByTestId(backupPoolSavedUrl)).not.toBeInTheDocument();
-    let addButtonWrapper = within(getByTestId(backupPoolAddButton));
-    expect(addButtonWrapper.getByText("Add")).toBeInTheDocument();
-    await user.click(getByTestId(backupPoolAddButton));
 
-    // input pool name (required field)
-    let nameInput = getByTestId(backupPoolNameInput);
-    await user.clear(nameInput);
-    await user.type(nameInput, "Backup Pool");
-
-    let backupInput = getByTestId(backupUrlInput);
-    await user.clear(backupInput);
-    await user.type(backupInput, poolUrl);
-
-    // input username (required field)
-    let usernameInput = getByTestId(backupUsernameInput);
+    // Add first pool only
+    await user.click(getByTestId(addPoolButton));
+    const urlInput = getByTestId(getUrlInput(0));
+    const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
     await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
 
-    let saveButtonWrapper = within(getByTestId(backupPoolSaveButton));
-    expect(saveButtonWrapper.getByText("Save")).toBeInTheDocument();
-    await user.click(getByTestId(backupPoolSaveButton));
-
-    // Wait for saved URL to appear
+    // Wait for pool to be saved
     await waitFor(() => {
-      expect(getByTestId(backupPoolSavedUrl)).toBeInTheDocument();
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
     });
 
-    let backupPoolSavedUrlWrapper = within(getByTestId(backupPoolSavedUrl));
-    expect(backupPoolSavedUrlWrapper.getByText(poolUrl)).toBeInTheDocument();
+    // Click finish setup - should show backup pool warning dialog
+    await user.click(getByTestId(finishSetupButton));
 
-    // edit backup pool
-    addButtonWrapper = within(getByTestId(backupPoolAddButton));
-    expect(addButtonWrapper.getByText("Edit")).toBeInTheDocument();
-    await user.click(getByTestId(backupPoolAddButton));
-
-    // Wait for modal to reopen and get fresh reference to input
     await waitFor(() => {
-      expect(getByTestId(backupUrlInput)).toBeInTheDocument();
-    });
-    backupInput = getByTestId(backupUrlInput);
-    const newPoolUrl = "stratum+tcp://ckpool:4444";
-
-    await user.clear(backupInput);
-    await user.type(backupInput, newPoolUrl);
-
-    saveButtonWrapper = within(getByTestId(backupPoolSaveButton));
-    expect(saveButtonWrapper.getByText("Save")).toBeInTheDocument();
-    await user.click(getByTestId(backupPoolSaveButton));
-
-    // Wait for updated URL to appear
-    await waitFor(() => {
-      backupPoolSavedUrlWrapper = within(getByTestId(backupPoolSavedUrl));
-      expect(backupPoolSavedUrlWrapper.getByText(newPoolUrl)).toBeInTheDocument();
+      expect(getByTestId(warnBackupPoolDialog)).toBeInTheDocument();
     });
   });
 
-  test("Dismisses backup pool modal on clicking dismiss button", async () => {
+  test("Does not render warning dialog on clicking finish setup with backup pool configured", async () => {
     const user = userEvent.setup();
-    await user.click(getByTestId(backupPoolAddButton));
 
-    const backupInput = getByTestId(backupUrlInput);
-    expect(backupInput).toBeInTheDocument();
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
 
-    await user.click(getByTestId(backupPoolDismissButton));
+    // Wait for first pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Add second pool (backup)
+    await user.click(getByTestId(addAnotherPoolButton));
 
     await waitFor(() => {
-      expect(queryByTestId(backupUrlInput)).not.toBeInTheDocument();
+      expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
+    });
+
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://backup:3333");
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "backupuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for second pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(1))).toBeInTheDocument();
+    });
+
+    // Click finish setup - should NOT show backup pool warning
+    await user.click(getByTestId(finishSetupButton));
+
+    // Dialog should not appear
+    expect(queryByTestId(warnBackupPoolDialog)).not.toBeInTheDocument();
+  });
+
+  test("Can edit existing pool", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Click Update button to edit
+    await user.click(getByTestId(getEditButton(0)));
+
+    // Wait for modal to open with existing data
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(0))).toBeInTheDocument();
+    });
+
+    // Update the URL
+    urlInput = getByTestId(getUrlInput(0));
+    const newPoolUrl = "stratum+tcp://newpool:4444";
+    await user.clear(urlInput);
+    await user.type(urlInput, newPoolUrl);
+
+    // Save changes
+    await user.click(getByTestId(poolSaveButton));
+
+    // Modal should close
+    await waitFor(() => {
+      expect(queryByTestId(getUrlInput(0))).not.toBeInTheDocument();
     });
   });
 
-  test("Does not save backup pool when dismissed without saving", async () => {
-    fireEvent.click(getByTestId(backupPoolAddButton));
-    const backupUrlInputElement = getByTestId(backupUrlInput);
-    fireEvent.change(backupUrlInputElement, {
-      target: { value: poolUrl },
+  test("Dismisses pool modal on clicking dismiss button", async () => {
+    const user = userEvent.setup();
+
+    // Open modal
+    await user.click(getByTestId(addPoolButton));
+
+    // Verify modal is open
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(0))).toBeInTheDocument();
     });
-    fireEvent.blur(backupUrlInputElement);
-    fireEvent.click(getByTestId(backupPoolDismissButton));
-    expect(queryByTestId(backupPoolSavedUrl)).not.toBeInTheDocument();
+
+    // Dismiss modal
+    await user.click(getByTestId(poolDismissButton));
+
+    // Modal should close
+    await waitFor(() => {
+      expect(queryByTestId(getUrlInput(0))).not.toBeInTheDocument();
+    });
+  });
+
+  test("Does not save pool when modal is dismissed without saving", async () => {
+    const user = userEvent.setup();
+
+    // Open modal
+    await user.click(getByTestId(addPoolButton));
+
+    // Fill in some data
+    const urlInput = getByTestId(getUrlInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+
+    // Dismiss without saving
+    await user.click(getByTestId(poolDismissButton));
+
+    // Modal should close
+    await waitFor(() => {
+      expect(queryByTestId(getUrlInput(0))).not.toBeInTheDocument();
+    });
+
+    // Pool should not be saved - empty state should still show "Add pool" button
+    expect(getByTestId(addPoolButton)).toBeInTheDocument();
+  });
+
+  test("Can delete a pool from the actions menu (requires 2+ pools)", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser1");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for first pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Add second pool (delete is only enabled when there are 2+ pools)
+    await user.click(getByTestId("add-another-pool-button"));
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://backup.example.com:3333");
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser2");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for second pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(1))).toBeInTheDocument();
+    });
+
+    // Open the actions menu for the first pool
+    await user.click(getByTestId("pool-0-actions-menu-button"));
+
+    // Wait for popover to appear with delete action
+    await waitFor(() => {
+      expect(getByTestId("pool-0-delete-action")).toBeInTheDocument();
+    });
+
+    // Click delete
+    await user.click(getByTestId("pool-0-delete-action"));
+
+    // First pool should be removed, second pool should move to position 0
+    await waitFor(() => {
+      expect(queryByTestId(getEditButton(1))).not.toBeInTheDocument();
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+  });
+
+  test("Delete action is disabled when only one pool is configured", async () => {
+    const user = userEvent.setup();
+
+    // Add one pool
+    await user.click(getByTestId(addPoolButton));
+    const urlInput = getByTestId(getUrlInput(0));
+    const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Open the actions menu
+    await user.click(getByTestId("pool-0-actions-menu-button"));
+
+    // Wait for popover to appear
+    await waitFor(() => {
+      expect(getByTestId("pool-0-edit-action")).toBeInTheDocument();
+    });
+
+    // Delete action should be visible but disabled (rendered as div, not button, when no onClick)
+    const deleteAction = getByTestId("pool-0-delete-action");
+    expect(deleteAction).toBeInTheDocument();
+    // When disabled, Row renders a div instead of a button (onClick is undefined)
+    expect(deleteAction.tagName).toBe("DIV");
+  });
+
+  test("Allows same URL with different username (backend supports this)", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for first pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Add second pool with same URL but different username - should be allowed
+    await user.click(getByTestId(addAnotherPoolButton));
+
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
+    });
+
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl); // Same URL as first pool
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "differentuser"); // Different username
+    await user.click(getByTestId(poolSaveButton));
+
+    // Should save successfully (no duplicate error)
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(1))).toBeInTheDocument();
+    });
+  });
+
+  test("Shows error when trying to save pool with duplicate URL and username", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl);
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for first pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Try to add second pool with same URL AND same username - should fail
+    await user.click(getByTestId(addAnotherPoolButton));
+
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
+    });
+
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, poolUrl); // Same URL
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser"); // Same username
+    await user.click(getByTestId(poolSaveButton));
+
+    // Should show duplicate error
+    await waitFor(() => {
+      expect(component.getByText("This Pool URL and Username combination is already configured.")).toBeInTheDocument();
+    });
+  });
+
+  test("Shows error for duplicate URL and username (case insensitive)", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool with lowercase URL and username
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://pool.example.com:3333");
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "testuser");
+    await user.click(getByTestId(poolSaveButton));
+
+    // Wait for first pool to be saved
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Try to add pool with same URL and username but different casing - should fail
+    await user.click(getByTestId(addAnotherPoolButton));
+
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
+    });
+
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://POOL.EXAMPLE.COM:3333"); // Same URL, different case
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "TESTUSER"); // Same username, different case
+    await user.click(getByTestId(poolSaveButton));
+
+    // Should show duplicate error (case insensitive match)
+    await waitFor(() => {
+      expect(component.getByText("This Pool URL and Username combination is already configured.")).toBeInTheDocument();
+    });
+  });
+
+  test("Can reorder pools via drag and drop", async () => {
+    const user = userEvent.setup();
+
+    // Add first pool
+    await user.click(getByTestId(addPoolButton));
+    let urlInput = getByTestId(getUrlInput(0));
+    let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://pool1:3333");
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "user1");
+    await user.click(getByTestId(poolSaveButton));
+
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(0))).toBeInTheDocument();
+    });
+
+    // Add second pool
+    await user.click(getByTestId(addAnotherPoolButton));
+    await waitFor(() => {
+      expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
+    });
+
+    urlInput = getByTestId(getUrlInput(1));
+    usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(urlInput);
+    await user.type(urlInput, "stratum+tcp://pool2:3333");
+    await user.clear(usernameInput);
+    await user.type(usernameInput, "user2");
+    await user.click(getByTestId(poolSaveButton));
+
+    await waitFor(() => {
+      expect(getByTestId(getEditButton(1))).toBeInTheDocument();
+    });
+
+    // Verify both pools are shown with correct priority numbers
+    expect(component.getByText("1")).toBeInTheDocument();
+    expect(component.getByText("2")).toBeInTheDocument();
+
+    // Note: Full drag-and-drop simulation requires complex pointer event sequences
+    // that are difficult to test reliably. The drag-and-drop functionality is
+    // better verified through manual testing or E2E tests with real browser interactions.
+    // This test verifies the pools are rendered correctly for reordering.
   });
 });

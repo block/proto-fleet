@@ -24,6 +24,10 @@ interface PoolModalProps {
   testConnection: (args: PoolConnectionTestProps) => void;
   onSave?: (pool: PoolInfo, isPasswordSet: boolean) => Promise<void>;
   mode?: "add" | "edit";
+  /** Called when delete is clicked in edit mode */
+  onDelete?: () => void;
+  /** Hide the pool name field (for backends that don't support pool names) */
+  hidePoolName?: boolean;
 }
 
 const PoolModal = ({
@@ -36,6 +40,8 @@ const PoolModal = ({
   testConnection,
   onSave,
   mode = "add",
+  onDelete,
+  hidePoolName = false,
 }: PoolModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
@@ -64,10 +70,10 @@ const PoolModal = ({
 
   const isSaveDisabled = useMemo(
     () =>
-      !draftPoolInfo[poolIndex]?.name?.trim() ||
+      (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
       !draftPoolInfo[poolIndex]?.username?.trim(),
-    [draftPoolInfo, poolIndex],
+    [draftPoolInfo, poolIndex, hidePoolName],
   );
 
   useEffect(() => {
@@ -119,7 +125,7 @@ const PoolModal = ({
     const pool = draftPoolInfo[poolIndex];
     let hasError = false;
 
-    if (!pool?.name?.trim()) {
+    if (!hidePoolName && !pool?.name?.trim()) {
       setPoolNameError(poolNameValidationErrors.required);
       hasError = true;
     }
@@ -132,6 +138,23 @@ const PoolModal = ({
     if (!pool?.username?.trim()) {
       setUsernameError(usernameValidationErrors.required);
       hasError = true;
+    }
+
+    // Check for duplicate (URL + username) combination in other pools
+    // Backend constraint: UNIQUE(org_id, url, username) - same URL with different username is allowed
+    const currentUrlLower = pool?.url?.trim().toLowerCase();
+    const currentUsernameLower = pool?.username?.trim().toLowerCase();
+    if (currentUrlLower && currentUsernameLower) {
+      const isDuplicate = draftPoolInfo.some(
+        (otherPool: PoolInfo, index: number) =>
+          index !== poolIndex &&
+          otherPool.url?.trim().toLowerCase() === currentUrlLower &&
+          otherPool.username?.trim().toLowerCase() === currentUsernameLower,
+      );
+      if (isDuplicate) {
+        setUrlError(urlValidationErrors.duplicate);
+        hasError = true;
+      }
     }
 
     if (hasError) {
@@ -155,7 +178,7 @@ const PoolModal = ({
     } else {
       onDismiss();
     }
-  }, [draftPoolInfo, onChangePools, onDismiss, onSave, poolIndex, isPasswordSet]);
+  }, [draftPoolInfo, onChangePools, onDismiss, onSave, poolIndex, isPasswordSet, hidePoolName]);
 
   const onTestConnection = useCallback(() => {
     if (!draftPoolInfo[poolIndex].url.trim()) {
@@ -180,26 +203,38 @@ const PoolModal = ({
     return null;
   }
 
+  const modalButtons = [
+    ...(mode === "edit" && onDelete
+      ? [
+          {
+            text: "Delete",
+            onClick: onDelete,
+            variant: variants.secondaryDanger,
+            testId: "pool-delete-button",
+          },
+        ]
+      : []),
+    {
+      text: "Test connection",
+      onClick: onTestConnection,
+      loading: isTestingConnection,
+      variant: variants.secondary,
+      className: "whitespace-nowrap overflow-clip",
+    },
+    {
+      text: "Save",
+      onClick: onSubmit,
+      loading: isSaving,
+      variant: variants.primary,
+      testId: "pool-save-button",
+      disabled: isSaveDisabled,
+      dismissModalOnClick: false,
+    },
+  ];
+
   return (
     <Modal
-      buttons={[
-        {
-          text: "Test connection",
-          onClick: onTestConnection,
-          loading: isTestingConnection,
-          variant: variants.secondary,
-          className: "whitespace-nowrap overflow-clip",
-        },
-        {
-          text: "Save",
-          onClick: onSubmit,
-          loading: isSaving,
-          variant: variants.primary,
-          testId: "pool-save-button",
-          disabled: isSaveDisabled,
-          dismissModalOnClick: false,
-        },
-      ]}
+      buttons={modalButtons}
       contentHeader={mode === "add" ? "Add pool" : "Edit pool"}
       onDismiss={onDismiss}
       divider={false}
@@ -231,14 +266,16 @@ const PoolModal = ({
         testId="pool-save-error-callout"
       />
       <div className="space-y-4">
-        <Input
-          id={`${poolInfoAttributes.name} ${poolIndex}`}
-          label="Pool Name"
-          onChange={onPoolChange}
-          initValue={draftPoolInfo[poolIndex].name || ""}
-          testId={`pool-name-${poolIndex}-input`}
-          error={poolNameError}
-        />
+        {!hidePoolName && (
+          <Input
+            id={`${poolInfoAttributes.name} ${poolIndex}`}
+            label="Pool Name"
+            onChange={onPoolChange}
+            initValue={draftPoolInfo[poolIndex].name || ""}
+            testId={`pool-name-${poolIndex}-input`}
+            error={poolNameError}
+          />
+        )}
         <Input
           id={`${poolInfoAttributes.url} ${poolIndex}`}
           label="Pool URL"

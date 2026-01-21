@@ -7,6 +7,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 export type ButtonVariant = keyof typeof variants;
 
 interface ButtonProps {
+  ariaLabel?: string;
   borderColor?: string;
   className?: string;
   children?: ReactNode;
@@ -23,6 +24,7 @@ interface ButtonProps {
 }
 
 const Button = ({
+  ariaLabel,
   borderColor = "border-core-accent-fill",
   className,
   children,
@@ -53,6 +55,7 @@ const Button = ({
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
       className={clsx(
         "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-0",
         {

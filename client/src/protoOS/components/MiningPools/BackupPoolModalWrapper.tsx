@@ -8,9 +8,19 @@ interface BackupPoolPropsWrapper {
   poolIndex: PoolIndex;
   pools: PoolInfo[];
   show: boolean;
+  mode?: "add" | "edit";
+  onDelete?: () => void;
 }
 
-const BackupPoolModalWrapper = ({ onChangePools, onDismiss, poolIndex, pools, show }: BackupPoolPropsWrapper) => {
+const BackupPoolModalWrapper = ({
+  onChangePools,
+  onDismiss,
+  poolIndex,
+  pools,
+  show,
+  mode = "add",
+  onDelete,
+}: BackupPoolPropsWrapper) => {
   const { testConnection, pending: isTestingConnection } = useTestConnection();
 
   return (
@@ -22,6 +32,9 @@ const BackupPoolModalWrapper = ({ onChangePools, onDismiss, poolIndex, pools, sh
       show={show}
       isTestingConnection={isTestingConnection}
       testConnection={testConnection}
+      mode={mode}
+      onDelete={onDelete}
+      hidePoolName
     />
   );
 };

@@ -4,6 +4,7 @@ export const poolNameValidationErrors = {
 
 export const urlValidationErrors = {
   required: "A Pool URL is required to connect to this pool.",
+  duplicate: "This Pool URL and Username combination is already configured.",
 } as const;
 
 export const usernameValidationErrors = {

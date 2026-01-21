@@ -12,12 +12,17 @@ import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout"
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, ToastStatusType } from "@/shared/features/toaster";
 import { debounce } from "@/shared/utils/utility";
 
+interface PoolChangeOptions {
+  isDelete?: boolean;
+}
+
 const SettingsMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [previousPools, setPreviousPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastStatus, setToastStatus] = useState<ToastStatusType | null>(null);
   const [isStalePools, setIsStalePools] = useState(false);
   const toastId = useRef<number | null>(null);
+  const skipSuccessToastRef = useRef(false);
 
   const { data: poolsInfo, pending: poolsInfoPending, error: poolsInfoError } = usePoolsInfo();
   const { createPools } = useCreatePools();
@@ -26,13 +31,17 @@ const SettingsMiningPools = () => {
 
   useEffect(() => {
     if (poolsInfo?.length) {
-      const newPools = [...Array(3)].map((_, index) => ({
-        name: "",
-        url: poolsInfo?.[index]?.url || "",
-        username: poolsInfo?.[index]?.user || "",
-        password: "",
-        priority: poolsInfo[index]?.priority || index,
-      }));
+      const newPools = [...Array(3)].map((_, index) => {
+        const pool = poolsInfo?.[index];
+        return {
+          // Forward compatible: use pool name if firmware provides it in the future
+          name: (pool as { name?: string })?.name || "",
+          url: pool?.url || "",
+          username: pool?.user || "",
+          password: "",
+          priority: pool?.priority || index,
+        };
+      });
       setPools(newPools);
       setPreviousPools(newPools);
     }
@@ -145,20 +154,31 @@ const SettingsMiningPools = () => {
         });
 
         setIsStalePools(false);
-      } else if (poolsInfo?.length) {
-        setToastStatus(TOAST_STATUSES.success);
-        removeToast(toastId.current);
-        toastId.current = pushToast({
-          message: STATUS_MESSAGES.success,
-          status: TOAST_STATUSES.success,
-        });
+        skipSuccessToastRef.current = false;
+      } else if (poolsInfo?.length !== undefined) {
+        // Skip success toast if this was a delete operation (already showed "Pool removed")
+        if (!skipSuccessToastRef.current) {
+          setToastStatus(TOAST_STATUSES.success);
+          removeToast(toastId.current);
+          toastId.current = pushToast({
+            message: STATUS_MESSAGES.success,
+            status: TOAST_STATUSES.success,
+          });
+        } else {
+          removeToast(toastId.current);
+          setToastStatus(null);
+        }
         setIsStalePools(false);
+        skipSuccessToastRef.current = false;
       }
     }
   }, [isStalePools, poolsInfo, poolsInfoPending, poolsInfoError, toastStatus]);
 
   const onChangePools = useCallback(
-    (newPools: PoolInfo[]) => {
+    (newPools: PoolInfo[], options?: PoolChangeOptions) => {
+      if (options?.isDelete) {
+        skipSuccessToastRef.current = true;
+      }
       setPools(newPools);
       debouncedSubmitPools(newPools);
     },
@@ -166,12 +186,7 @@ const SettingsMiningPools = () => {
   );
 
   return (
-    <MiningPools
-      title="Mining Pools"
-      onChange={onChangePools}
-      pools={pools}
-      loading={poolsInfoPending && !isStalePools}
-    >
+    <MiningPools title="Pools" onChange={onChangePools} pools={pools} loading={poolsInfoPending && !isStalePools}>
       <DismissibleCalloutWrapper
         className={clsx({
           "mb-10!": createPoolsError?.error?.message !== undefined,

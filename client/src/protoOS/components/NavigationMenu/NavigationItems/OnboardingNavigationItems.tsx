@@ -12,7 +12,7 @@ const OnboardingNavigationItems = ({ onClick, pageName }: OnboardingNavigationIt
     <>
       <div className="mb-1 text-heading-100 text-text-primary">Miner setup</div>
       <div className="mb-3 text-200 text-text-primary-70">Complete the steps below to set up your miner.</div>
-      <NavigationItem id={navigationItems.onboarding} text="Mining Pools" onClick={onClick} pageName={pageName} />
+      <NavigationItem id={navigationItems.onboarding} text="Pools" onClick={onClick} pageName={pageName} />
     </>
   );
 };
