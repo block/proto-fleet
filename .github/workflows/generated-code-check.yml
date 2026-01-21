@@ -28,6 +28,9 @@ jobs:
       - name: Activate hermit
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
       - name: Install dependencies
         run: just init
 

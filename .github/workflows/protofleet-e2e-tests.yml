@@ -52,15 +52,8 @@ jobs:
             ${{ runner.os }}-buildx-e2e-
             ${{ runner.os }}-buildx-
 
-      - name: Cache Go dependencies
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum', 'go.work') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
 
       - name: Cache Node modules
         uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
