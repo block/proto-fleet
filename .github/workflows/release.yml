@@ -228,16 +228,8 @@ jobs:
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
-          cp server/influx_config/entry_point.sh deployment/server/influx_config/
-          cp server/influx_config/manage_token.sh deployment/server/influx_config/
-          chmod +x deployment/run-fleet.sh
-
-          if [[ -f deployment-files/server/influx_config/entry_point.sh ]]; then
-            chmod +x deployment/server/influx_config/entry_point.sh
-          fi
-          if [[ -f deployment-files/server/influx_config/manage_token.sh ]]; then
-            chmod +x deployment/server/influx_config/manage_token.sh
-          fi
+          cp server/influx_config/*.sh deployment/server/influx_config/
+          chmod +x deployment/run-fleet.sh deployment/server/influx_config/*.sh
 
       - name: Create version file
         run: |
