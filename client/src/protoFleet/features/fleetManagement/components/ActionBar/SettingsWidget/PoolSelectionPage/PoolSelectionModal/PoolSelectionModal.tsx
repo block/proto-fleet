@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { MiningPool } from "../types";
 import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
-import { sizes, variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -11,18 +11,60 @@ import { PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
+const filterPoolsByQuery = (pools: MiningPool[], query: string): MiningPool[] => {
+  const lowerQuery = query.toLowerCase();
+  return pools.filter(
+    (pool) =>
+      pool.name.toLowerCase().includes(lowerQuery) ||
+      pool.poolUrl.toLowerCase().includes(lowerQuery) ||
+      pool.username.toLowerCase().includes(lowerQuery),
+  );
+};
+
+interface PoolSelectableRowProps {
+  pool: MiningPool;
+  isSelected: boolean;
+  isDisabled: boolean;
+  onSelect?: () => void;
+  testId: string;
+}
+
+const PoolSelectableRow = ({ pool, isSelected, isDisabled, onSelect, testId }: PoolSelectableRowProps) => (
+  <div
+    className={`flex items-center gap-4 border-b border-border-5 py-3 transition-colors ${
+      isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
+    }`}
+    onClick={() => !isDisabled && onSelect?.()}
+    data-testid={testId}
+    aria-disabled={isDisabled}
+  >
+    <div className="flex w-11 items-center justify-center">
+      <Radio selected={isSelected} disabled={isDisabled} />
+    </div>
+    <div className="flex flex-1 items-center truncate text-300 text-text-primary" data-testid="pool-name">
+      {pool.name}
+    </div>
+    <div className="flex flex-[2] items-center truncate text-300 text-text-primary" data-testid="pool-url">
+      {pool.poolUrl}
+    </div>
+    <div className="flex flex-1 items-center truncate text-300 text-text-primary" data-testid="pool-username">
+      {pool.username}
+    </div>
+  </div>
+);
+
 interface PoolSelectionModalProps {
   onDismiss: () => void;
   onSave: (selectedPoolId: string, poolData?: MiningPool) => void;
   excludedPoolIds?: (string | undefined)[];
-  poolAssignments?: Record<string, string>;
+  unknownPools?: MiningPool[];
 }
 
 const PoolSelectionModal = ({
   onDismiss,
   onSave,
   excludedPoolIds = [],
-  poolAssignments = {},
+  unknownPools = [],
 }: PoolSelectionModalProps) => {
   const [selectedPoolId, setSelectedPoolId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
@@ -32,26 +74,43 @@ const PoolSelectionModal = ({
 
   const { validatePool, createPool, miningPools } = usePools();
 
-  const filteredPools = miningPools.filter((pool) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      pool.name.toLowerCase().includes(query) ||
-      pool.poolUrl.toLowerCase().includes(query) ||
-      pool.username.toLowerCase().includes(query)
-    );
-  });
+  const filteredPools = useMemo(() => filterPoolsByQuery(miningPools, searchQuery), [miningPools, searchQuery]);
 
-  const isPoolExcluded = (poolId: string) => excludedPoolIds.some((id) => id === poolId);
+  const filteredUnknownPools = useMemo(
+    () => filterPoolsByQuery(unknownPools, searchQuery),
+    [unknownPools, searchQuery],
+  );
+
+  const isPoolExcluded = (poolId: string) => excludedPoolIds.includes(poolId);
 
   const handleSave = () => {
     if (selectedPoolId) {
       onSave(selectedPoolId);
-      onDismiss();
     }
   };
 
-  const handleAddNewPool = () => {
-    setShowAddPoolModal(true);
+  const handleTestSelectedConnection = () => {
+    if (!selectedPoolId) return;
+
+    const selectedPool = miningPools.find((p) => p.poolId === selectedPoolId);
+    if (!selectedPool) return;
+
+    setIsTestingConnection(true);
+    validatePool({
+      poolInfo: {
+        url: selectedPool.poolUrl,
+        username: selectedPool.username,
+      },
+      onSuccess: () => {
+        // Could add toast notification here
+      },
+      onError: () => {
+        // Could add toast notification here
+      },
+      onFinally: () => {
+        setIsTestingConnection(false);
+      },
+    });
   };
 
   const handleNewPoolSave = async (pool: PoolInfo, isPasswordSet: boolean) => {
@@ -141,10 +200,12 @@ const PoolSelectionModal = ({
       buttonSize={sizes.base}
       buttons={[
         {
-          text: "Add new pool",
+          text: "Test connection",
           variant: variants.secondary,
-          onClick: handleAddNewPool,
+          onClick: handleTestSelectedConnection,
           dismissModalOnClick: false,
+          disabled: !selectedPoolId || isTestingConnection,
+          loading: isTestingConnection,
         },
         {
           text: "Save",
@@ -170,69 +231,50 @@ const PoolSelectionModal = ({
           />
         </div>
 
+        {/* Add new pool button */}
+        <div className="flex">
+          <Button
+            text="Add new pool"
+            variant={variants.secondary}
+            size={sizes.base}
+            onClick={() => setShowAddPoolModal(true)}
+            testId="add-new-pool-button"
+          />
+        </div>
+
         <div className="flex flex-col">
           <div className="flex items-center gap-4 border-b border-border-10 py-2">
             <div className="w-11"></div>
             <div className="flex-1 text-emphasis-300 text-text-primary-50">Name</div>
             <div className="flex-[2] text-emphasis-300 text-text-primary-50">URL</div>
             <div className="flex-1 text-emphasis-300 text-text-primary-50">Username</div>
-            <div className="w-28 text-emphasis-300 text-text-primary-50">Assigned to</div>
           </div>
 
           <div className="flex max-h-[500px] flex-col overflow-y-auto">
-            {filteredPools.length === 0 ? (
+            {filteredPools.length === 0 && filteredUnknownPools.length === 0 && searchQuery ? (
               <div className="text-text-secondary py-8 text-center text-300">No pools found</div>
             ) : (
-              filteredPools.map((pool) => {
-                const isSelected = selectedPoolId === pool.poolId;
-                const isExcluded = isPoolExcluded(pool.poolId);
-                const assignmentLabel = poolAssignments[pool.poolId];
-
-                return (
-                  <div
+              <>
+                {filteredPools.map((pool) => (
+                  <PoolSelectableRow
                     key={pool.poolId}
-                    className={`flex items-center gap-4 border-b border-border-5 py-3 transition-colors ${
-                      isExcluded
-                        ? "cursor-not-allowed opacity-50"
-                        : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                    }`}
-                    onClick={() => !isExcluded && setSelectedPoolId(pool.poolId)}
-                    data-testid={`pool-row-${pool.name}`}
-                    aria-disabled={isExcluded}
-                  >
-                    <div className="flex w-11 items-center justify-center">
-                      <Radio selected={isSelected} disabled={isExcluded} />
-                    </div>
-                    <div
-                      className="flex flex-1 items-center truncate text-300 text-text-primary"
-                      data-testid="pool-name"
-                    >
-                      {pool.name}
-                    </div>
-                    <div
-                      className="flex flex-[2] items-center truncate text-300 text-text-primary"
-                      data-testid="pool-url"
-                    >
-                      {pool.poolUrl}
-                    </div>
-                    <div
-                      className="flex flex-1 items-center truncate text-300 text-text-primary"
-                      data-testid="pool-username"
-                    >
-                      {pool.username}
-                    </div>
-                    <div className="w-28 text-300" data-testid="pool-assignment">
-                      {assignmentLabel ? (
-                        <span className="text-text-secondary rounded bg-surface-5 px-2 py-0.5 text-200 whitespace-nowrap">
-                          {assignmentLabel}
-                        </span>
-                      ) : (
-                        <span className="text-text-tertiary">—</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+                    pool={pool}
+                    isSelected={selectedPoolId === pool.poolId}
+                    isDisabled={isPoolExcluded(pool.poolId)}
+                    onSelect={() => setSelectedPoolId(pool.poolId)}
+                    testId={`pool-row-${pool.name}`}
+                  />
+                ))}
+                {filteredUnknownPools.map((pool) => (
+                  <PoolSelectableRow
+                    key={pool.poolId}
+                    pool={pool}
+                    isSelected={false}
+                    isDisabled={true}
+                    testId={`pool-row-unknown-${pool.poolUrl}`}
+                  />
+                ))}
+              </>
             )}
           </div>
         </div>

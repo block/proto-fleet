@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import PoolSelectionPage from "./PoolSelectionPage";
-import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import { PoolConfig, useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import type { MinerSelection } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import { type SelectionMode } from "@/shared/components/List";
@@ -29,19 +29,11 @@ const PoolSelectionPageWrapper = ({
     [selectionMode, deviceIdentifiers],
   );
 
-  const handleAssignPools = async (
-    defaultPoolId: string | undefined,
-    backup1PoolId: string | undefined,
-    backup2PoolId: string | undefined,
-  ) => {
+  const handleAssignPools = async (poolConfig: PoolConfig) => {
     if (!deviceSelector) return;
     await updateMiningPools({
       deviceSelector,
-      poolConfig: {
-        defaultPoolId,
-        backup1PoolId,
-        backup2PoolId,
-      },
+      poolConfig,
       onSuccess: (response) => {
         onSuccess(response.batchIdentifier);
         onDismiss();

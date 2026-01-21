@@ -1,21 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { PoolAssignment } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors } from "@/protoFleet/store";
-
-interface MinerPoolAssignments {
-  defaultPoolId: bigint | undefined;
-  backup1PoolId: bigint | undefined;
-  backup2PoolId: bigint | undefined;
-}
 
 const useMinerPoolAssignments = () => {
   const { handleAuthErrors } = useAuthErrors();
-  const [assignments, setAssignments] = useState<MinerPoolAssignments | null>(null);
+  const [pools, setPools] = useState<PoolAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPoolAssignments = useCallback(
-    async (deviceIdentifier: string): Promise<MinerPoolAssignments | null> => {
+    async (deviceIdentifier: string): Promise<PoolAssignment[]> => {
       setIsLoading(true);
       setError(null);
 
@@ -24,13 +19,8 @@ const useMinerPoolAssignments = () => {
           deviceIdentifier,
         });
 
-        const assignments: MinerPoolAssignments = {
-          defaultPoolId: response.defaultPoolId,
-          backup1PoolId: response.backup1PoolId,
-          backup2PoolId: response.backup2PoolId,
-        };
-        setAssignments(assignments);
-        return assignments;
+        setPools(response.pools);
+        return response.pools;
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -40,7 +30,7 @@ const useMinerPoolAssignments = () => {
             console.error("Error fetching miner pool assignments:", err);
           },
         });
-        return null;
+        return [];
       } finally {
         setIsLoading(false);
       }
@@ -50,12 +40,12 @@ const useMinerPoolAssignments = () => {
 
   return useMemo(
     () => ({
-      assignments,
+      pools,
       isLoading,
       error,
       fetchPoolAssignments,
     }),
-    [assignments, isLoading, error, fetchPoolAssignments],
+    [pools, isLoading, error, fetchPoolAssignments],
   );
 };
 

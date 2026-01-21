@@ -7,6 +7,9 @@ import {
   BlinkLEDResponse,
   DeviceSelector,
   PerformanceMode,
+  type PoolSlotConfig,
+  PoolSlotConfigSchema,
+  RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
   SetPowerTargetRequestSchema,
@@ -61,10 +64,13 @@ interface StreamCommandBatchUpdatesProps {
   onError?: (error: string) => void;
 }
 
+// Configuration for a single pool slot - either a known pool ID or raw pool info
+export type PoolSlotSource = { type: "poolId"; poolId: string } | { type: "rawPool"; url: string; username: string };
+
 export interface PoolConfig {
-  defaultPoolId?: string;
-  backup1PoolId?: string;
-  backup2PoolId?: string;
+  defaultPool: PoolSlotSource;
+  backup1Pool?: PoolSlotSource;
+  backup2Pool?: PoolSlotSource;
 }
 
 interface UpdateMiningPoolsProps {
@@ -201,11 +207,28 @@ const useMinerCommand = () => {
 
   const updateMiningPools = useCallback(
     async ({ deviceSelector, poolConfig, onSuccess, onError }: UpdateMiningPoolsProps) => {
+      const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
+        if (source.type === "poolId") {
+          return create(PoolSlotConfigSchema, {
+            poolSource: { case: "poolId", value: BigInt(source.poolId) },
+          });
+        }
+        return create(PoolSlotConfigSchema, {
+          poolSource: {
+            case: "rawPool",
+            value: create(RawPoolInfoSchema, {
+              url: source.url,
+              username: source.username,
+            }),
+          },
+        });
+      };
+
       const updateMiningPoolsRequest = create(UpdateMiningPoolsRequestSchema, {
         deviceSelector,
-        defaultPoolId: poolConfig.defaultPoolId ? BigInt(poolConfig.defaultPoolId) : undefined,
-        backup1PoolId: poolConfig.backup1PoolId ? BigInt(poolConfig.backup1PoolId) : undefined,
-        backup2PoolId: poolConfig.backup2PoolId ? BigInt(poolConfig.backup2PoolId) : undefined,
+        defaultPool: createPoolSlotConfig(poolConfig.defaultPool),
+        backup1Pool: poolConfig.backup1Pool ? createPoolSlotConfig(poolConfig.backup1Pool) : undefined,
+        backup2Pool: poolConfig.backup2Pool ? createPoolSlotConfig(poolConfig.backup2Pool) : undefined,
       });
 
       await minerCommandClient

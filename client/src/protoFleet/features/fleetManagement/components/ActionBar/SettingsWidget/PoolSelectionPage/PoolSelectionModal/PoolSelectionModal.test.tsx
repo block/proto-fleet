@@ -117,7 +117,7 @@ describe("PoolSelectionModal", () => {
     expect(getByText("No pools found")).toBeInTheDocument();
   });
 
-  test("selecting a pool and clicking Save calls onSave and onDismiss", () => {
+  test("selecting a pool and clicking Save calls onSave with pool ID", () => {
     const { getByText } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
 
     const poolRow = getByText("Ocean Pool");
@@ -127,7 +127,6 @@ describe("PoolSelectionModal", () => {
     fireEvent.click(saveButton);
 
     expect(onSave).toHaveBeenCalledWith("1");
-    expect(onDismiss).toHaveBeenCalled();
   });
 
   test("Save button is disabled when no pool is selected", () => {
@@ -196,85 +195,5 @@ describe("PoolSelectionModal", () => {
     expect(getByText("Ocean Pool")).toBeInTheDocument();
     expect(getByText("Braiins Pool")).toBeInTheDocument();
     expect(getByText("Foundry USA")).toBeInTheDocument();
-  });
-
-  test("shows pools with assignment labels but allows selection for swapping", () => {
-    const poolAssignments = { "1": "Default", "2": "Backup #1" };
-    const { getByText, getByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
-    );
-
-    expect(getByText("Ocean Pool")).toBeInTheDocument();
-    expect(getByText("Braiins Pool")).toBeInTheDocument();
-    expect(getByText("Foundry USA")).toBeInTheDocument();
-
-    expect(getByText("Default")).toBeInTheDocument();
-    expect(getByText("Backup #1")).toBeInTheDocument();
-
-    // All pools should be selectable (no aria-disabled)
-    const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
-    const braiinsPoolRow = getByTestId("pool-row-Braiins Pool");
-    const foundryPoolRow = getByTestId("pool-row-Foundry USA");
-
-    // Verify pools with assignments can be clicked and selected
-    fireEvent.click(oceanPoolRow);
-    expect(oceanPoolRow.querySelector('input[type="radio"]')).toBeChecked();
-
-    fireEvent.click(braiinsPoolRow);
-    expect(braiinsPoolRow.querySelector('input[type="radio"]')).toBeChecked();
-
-    fireEvent.click(foundryPoolRow);
-    expect(foundryPoolRow.querySelector('input[type="radio"]')).toBeChecked();
-  });
-
-  test("renders Assigned to column header", () => {
-    const { getByText } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
-    expect(getByText("Assigned to")).toBeInTheDocument();
-  });
-
-  test("allows selecting any pool for swap functionality", () => {
-    const poolAssignments = { "1": "Default" };
-    const { getByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
-    );
-
-    // Even pools already assigned should be selectable
-    const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
-    fireEvent.click(oceanPoolRow);
-
-    const radio = oceanPoolRow.querySelector('input[type="radio"]');
-    expect(radio).toBeChecked();
-  });
-
-  test("shows unassigned pools with dash in assignment column", () => {
-    const { getByText, queryAllByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
-
-    expect(getByText("Ocean Pool")).toBeInTheDocument();
-    expect(getByText("Braiins Pool")).toBeInTheDocument();
-    expect(getByText("Foundry USA")).toBeInTheDocument();
-
-    const assignmentCells = queryAllByTestId("pool-assignment");
-    assignmentCells.forEach((cell) => {
-      expect(cell).toHaveTextContent("—");
-    });
-  });
-
-  test("displays assignment labels correctly", () => {
-    const poolAssignments = { "1": "Default" };
-    const { getByText, getByTestId } = render(
-      <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} poolAssignments={poolAssignments} />,
-    );
-
-    expect(getByText("Ocean Pool")).toBeInTheDocument();
-    expect(getByText("Braiins Pool")).toBeInTheDocument();
-    expect(getByText("Foundry USA")).toBeInTheDocument();
-
-    // Pool with assignment shows label
-    expect(getByText("Default")).toBeInTheDocument();
-
-    // Pool can still be selected
-    const oceanPoolRow = getByTestId("pool-row-Ocean Pool");
-    fireEvent.click(oceanPoolRow);
-    expect(oceanPoolRow.querySelector('input[type="radio"]')).toBeChecked();
   });
 });

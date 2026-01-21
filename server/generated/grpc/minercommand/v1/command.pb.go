@@ -170,7 +170,7 @@ func (x CommandBatchUpdateStatus_CommandBatchUpdateStatusType) Number() protoref
 
 // Deprecated: Use CommandBatchUpdateStatus_CommandBatchUpdateStatusType.Descriptor instead.
 func (CommandBatchUpdateStatus_CommandBatchUpdateStatusType) EnumDescriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{25, 0}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{27, 0}
 }
 
 type DeviceSelector struct {
@@ -759,19 +759,170 @@ func (x *SetPowerTargetResponse) GetBatchIdentifier() string {
 	return ""
 }
 
+// Configuration for a single pool slot
+// Can specify either a Fleet pool ID (for known pools) or raw pool info (for unknown pools)
+type PoolSlotConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to PoolSource:
+	//
+	//	*PoolSlotConfig_PoolId
+	//	*PoolSlotConfig_RawPool
+	PoolSource    isPoolSlotConfig_PoolSource `protobuf_oneof:"pool_source"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolSlotConfig) Reset() {
+	*x = PoolSlotConfig{}
+	mi := &file_minercommand_v1_command_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolSlotConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolSlotConfig) ProtoMessage() {}
+
+func (x *PoolSlotConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_minercommand_v1_command_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolSlotConfig.ProtoReflect.Descriptor instead.
+func (*PoolSlotConfig) Descriptor() ([]byte, []int) {
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PoolSlotConfig) GetPoolSource() isPoolSlotConfig_PoolSource {
+	if x != nil {
+		return x.PoolSource
+	}
+	return nil
+}
+
+func (x *PoolSlotConfig) GetPoolId() int64 {
+	if x != nil {
+		if x, ok := x.PoolSource.(*PoolSlotConfig_PoolId); ok {
+			return x.PoolId
+		}
+	}
+	return 0
+}
+
+func (x *PoolSlotConfig) GetRawPool() *RawPoolInfo {
+	if x != nil {
+		if x, ok := x.PoolSource.(*PoolSlotConfig_RawPool); ok {
+			return x.RawPool
+		}
+	}
+	return nil
+}
+
+type isPoolSlotConfig_PoolSource interface {
+	isPoolSlotConfig_PoolSource()
+}
+
+type PoolSlotConfig_PoolId struct {
+	// Fleet pool ID - used when the pool exists in Fleet's database
+	PoolId int64 `protobuf:"varint,1,opt,name=pool_id,json=poolId,proto3,oneof"`
+}
+
+type PoolSlotConfig_RawPool struct {
+	// Raw pool info - used when the pool is configured on the miner but not in Fleet
+	RawPool *RawPoolInfo `protobuf:"bytes,2,opt,name=raw_pool,json=rawPool,proto3,oneof"`
+}
+
+func (*PoolSlotConfig_PoolId) isPoolSlotConfig_PoolSource() {}
+
+func (*PoolSlotConfig_RawPool) isPoolSlotConfig_PoolSource() {}
+
+// Raw pool configuration for pools not stored in Fleet
+type RawPoolInfo struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Url      string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Username string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	// Password is optional since miners don't expose it
+	Password      *string `protobuf:"bytes,3,opt,name=password,proto3,oneof" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RawPoolInfo) Reset() {
+	*x = RawPoolInfo{}
+	mi := &file_minercommand_v1_command_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RawPoolInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RawPoolInfo) ProtoMessage() {}
+
+func (x *RawPoolInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_minercommand_v1_command_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RawPoolInfo.ProtoReflect.Descriptor instead.
+func (*RawPoolInfo) Descriptor() ([]byte, []int) {
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RawPoolInfo) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *RawPoolInfo) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *RawPoolInfo) GetPassword() string {
+	if x != nil && x.Password != nil {
+		return *x.Password
+	}
+	return ""
+}
+
 type UpdateMiningPoolsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	DeviceSelector *DeviceSelector        `protobuf:"bytes,1,opt,name=device_selector,json=deviceSelector,proto3" json:"device_selector,omitempty"`
-	DefaultPoolId  int64                  `protobuf:"varint,2,opt,name=default_pool_id,json=defaultPoolId,proto3" json:"default_pool_id,omitempty"`
-	Backup_1PoolId *int64                 `protobuf:"varint,3,opt,name=backup_1_pool_id,json=backup1PoolId,proto3,oneof" json:"backup_1_pool_id,omitempty"`
-	Backup_2PoolId *int64                 `protobuf:"varint,4,opt,name=backup_2_pool_id,json=backup2PoolId,proto3,oneof" json:"backup_2_pool_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Default pool (priority 0) - required
+	DefaultPool *PoolSlotConfig `protobuf:"bytes,2,opt,name=default_pool,json=defaultPool,proto3" json:"default_pool,omitempty"`
+	// Backup pool 1 (priority 1) - optional
+	Backup_1Pool *PoolSlotConfig `protobuf:"bytes,3,opt,name=backup_1_pool,json=backup1Pool,proto3,oneof" json:"backup_1_pool,omitempty"`
+	// Backup pool 2 (priority 2) - optional
+	Backup_2Pool  *PoolSlotConfig `protobuf:"bytes,4,opt,name=backup_2_pool,json=backup2Pool,proto3,oneof" json:"backup_2_pool,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateMiningPoolsRequest) Reset() {
 	*x = UpdateMiningPoolsRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[12]
+	mi := &file_minercommand_v1_command_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +934,7 @@ func (x *UpdateMiningPoolsRequest) String() string {
 func (*UpdateMiningPoolsRequest) ProtoMessage() {}
 
 func (x *UpdateMiningPoolsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[12]
+	mi := &file_minercommand_v1_command_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +947,7 @@ func (x *UpdateMiningPoolsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMiningPoolsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMiningPoolsRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{12}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UpdateMiningPoolsRequest) GetDeviceSelector() *DeviceSelector {
@@ -806,25 +957,25 @@ func (x *UpdateMiningPoolsRequest) GetDeviceSelector() *DeviceSelector {
 	return nil
 }
 
-func (x *UpdateMiningPoolsRequest) GetDefaultPoolId() int64 {
+func (x *UpdateMiningPoolsRequest) GetDefaultPool() *PoolSlotConfig {
 	if x != nil {
-		return x.DefaultPoolId
+		return x.DefaultPool
 	}
-	return 0
+	return nil
 }
 
-func (x *UpdateMiningPoolsRequest) GetBackup_1PoolId() int64 {
-	if x != nil && x.Backup_1PoolId != nil {
-		return *x.Backup_1PoolId
+func (x *UpdateMiningPoolsRequest) GetBackup_1Pool() *PoolSlotConfig {
+	if x != nil {
+		return x.Backup_1Pool
 	}
-	return 0
+	return nil
 }
 
-func (x *UpdateMiningPoolsRequest) GetBackup_2PoolId() int64 {
-	if x != nil && x.Backup_2PoolId != nil {
-		return *x.Backup_2PoolId
+func (x *UpdateMiningPoolsRequest) GetBackup_2Pool() *PoolSlotConfig {
+	if x != nil {
+		return x.Backup_2Pool
 	}
-	return 0
+	return nil
 }
 
 type UpdateMiningPoolsResponse struct {
@@ -836,7 +987,7 @@ type UpdateMiningPoolsResponse struct {
 
 func (x *UpdateMiningPoolsResponse) Reset() {
 	*x = UpdateMiningPoolsResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[13]
+	mi := &file_minercommand_v1_command_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -848,7 +999,7 @@ func (x *UpdateMiningPoolsResponse) String() string {
 func (*UpdateMiningPoolsResponse) ProtoMessage() {}
 
 func (x *UpdateMiningPoolsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[13]
+	mi := &file_minercommand_v1_command_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -861,7 +1012,7 @@ func (x *UpdateMiningPoolsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMiningPoolsResponse.ProtoReflect.Descriptor instead.
 func (*UpdateMiningPoolsResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{13}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UpdateMiningPoolsResponse) GetBatchIdentifier() string {
@@ -880,7 +1031,7 @@ type DownloadLogsRequest struct {
 
 func (x *DownloadLogsRequest) Reset() {
 	*x = DownloadLogsRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[14]
+	mi := &file_minercommand_v1_command_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +1043,7 @@ func (x *DownloadLogsRequest) String() string {
 func (*DownloadLogsRequest) ProtoMessage() {}
 
 func (x *DownloadLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[14]
+	mi := &file_minercommand_v1_command_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +1056,7 @@ func (x *DownloadLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadLogsRequest.ProtoReflect.Descriptor instead.
 func (*DownloadLogsRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{14}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DownloadLogsRequest) GetDeviceSelector() *DeviceSelector {
@@ -924,7 +1075,7 @@ type DownloadLogsResponse struct {
 
 func (x *DownloadLogsResponse) Reset() {
 	*x = DownloadLogsResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[15]
+	mi := &file_minercommand_v1_command_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +1087,7 @@ func (x *DownloadLogsResponse) String() string {
 func (*DownloadLogsResponse) ProtoMessage() {}
 
 func (x *DownloadLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[15]
+	mi := &file_minercommand_v1_command_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1100,7 @@ func (x *DownloadLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadLogsResponse.ProtoReflect.Descriptor instead.
 func (*DownloadLogsResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{15}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DownloadLogsResponse) GetBatchIdentifier() string {
@@ -968,7 +1119,7 @@ type BlinkLEDRequest struct {
 
 func (x *BlinkLEDRequest) Reset() {
 	*x = BlinkLEDRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[16]
+	mi := &file_minercommand_v1_command_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -980,7 +1131,7 @@ func (x *BlinkLEDRequest) String() string {
 func (*BlinkLEDRequest) ProtoMessage() {}
 
 func (x *BlinkLEDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[16]
+	mi := &file_minercommand_v1_command_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -993,7 +1144,7 @@ func (x *BlinkLEDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlinkLEDRequest.ProtoReflect.Descriptor instead.
 func (*BlinkLEDRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{16}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BlinkLEDRequest) GetDeviceSelector() *DeviceSelector {
@@ -1012,7 +1163,7 @@ type BlinkLEDResponse struct {
 
 func (x *BlinkLEDResponse) Reset() {
 	*x = BlinkLEDResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[17]
+	mi := &file_minercommand_v1_command_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1024,7 +1175,7 @@ func (x *BlinkLEDResponse) String() string {
 func (*BlinkLEDResponse) ProtoMessage() {}
 
 func (x *BlinkLEDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[17]
+	mi := &file_minercommand_v1_command_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1037,7 +1188,7 @@ func (x *BlinkLEDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlinkLEDResponse.ProtoReflect.Descriptor instead.
 func (*BlinkLEDResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{17}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BlinkLEDResponse) GetBatchIdentifier() string {
@@ -1056,7 +1207,7 @@ type FirmwareUpdateRequest struct {
 
 func (x *FirmwareUpdateRequest) Reset() {
 	*x = FirmwareUpdateRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[18]
+	mi := &file_minercommand_v1_command_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1068,7 +1219,7 @@ func (x *FirmwareUpdateRequest) String() string {
 func (*FirmwareUpdateRequest) ProtoMessage() {}
 
 func (x *FirmwareUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[18]
+	mi := &file_minercommand_v1_command_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1081,7 +1232,7 @@ func (x *FirmwareUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareUpdateRequest.ProtoReflect.Descriptor instead.
 func (*FirmwareUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{18}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *FirmwareUpdateRequest) GetDeviceSelector() *DeviceSelector {
@@ -1100,7 +1251,7 @@ type FirmwareUpdateResponse struct {
 
 func (x *FirmwareUpdateResponse) Reset() {
 	*x = FirmwareUpdateResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[19]
+	mi := &file_minercommand_v1_command_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1112,7 +1263,7 @@ func (x *FirmwareUpdateResponse) String() string {
 func (*FirmwareUpdateResponse) ProtoMessage() {}
 
 func (x *FirmwareUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[19]
+	mi := &file_minercommand_v1_command_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1276,7 @@ func (x *FirmwareUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareUpdateResponse.ProtoReflect.Descriptor instead.
 func (*FirmwareUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{19}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FirmwareUpdateResponse) GetBatchIdentifier() string {
@@ -1144,7 +1295,7 @@ type UnpairRequest struct {
 
 func (x *UnpairRequest) Reset() {
 	*x = UnpairRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[20]
+	mi := &file_minercommand_v1_command_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1156,7 +1307,7 @@ func (x *UnpairRequest) String() string {
 func (*UnpairRequest) ProtoMessage() {}
 
 func (x *UnpairRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[20]
+	mi := &file_minercommand_v1_command_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1169,7 +1320,7 @@ func (x *UnpairRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnpairRequest.ProtoReflect.Descriptor instead.
 func (*UnpairRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{20}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UnpairRequest) GetDeviceSelector() *DeviceSelector {
@@ -1188,7 +1339,7 @@ type UnpairResponse struct {
 
 func (x *UnpairResponse) Reset() {
 	*x = UnpairResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[21]
+	mi := &file_minercommand_v1_command_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1351,7 @@ func (x *UnpairResponse) String() string {
 func (*UnpairResponse) ProtoMessage() {}
 
 func (x *UnpairResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[21]
+	mi := &file_minercommand_v1_command_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1364,7 @@ func (x *UnpairResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnpairResponse.ProtoReflect.Descriptor instead.
 func (*UnpairResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{21}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *UnpairResponse) GetBatchIdentifier() string {
@@ -1233,7 +1384,7 @@ type StreamCommandBatchUpdatesRequest struct {
 
 func (x *StreamCommandBatchUpdatesRequest) Reset() {
 	*x = StreamCommandBatchUpdatesRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[22]
+	mi := &file_minercommand_v1_command_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1245,7 +1396,7 @@ func (x *StreamCommandBatchUpdatesRequest) String() string {
 func (*StreamCommandBatchUpdatesRequest) ProtoMessage() {}
 
 func (x *StreamCommandBatchUpdatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[22]
+	mi := &file_minercommand_v1_command_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1258,7 +1409,7 @@ func (x *StreamCommandBatchUpdatesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamCommandBatchUpdatesRequest.ProtoReflect.Descriptor instead.
 func (*StreamCommandBatchUpdatesRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{22}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *StreamCommandBatchUpdatesRequest) GetBatchIdentifier() string {
@@ -1281,7 +1432,7 @@ type StreamCommandBatchUpdatesResponse struct {
 
 func (x *StreamCommandBatchUpdatesResponse) Reset() {
 	*x = StreamCommandBatchUpdatesResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[23]
+	mi := &file_minercommand_v1_command_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1444,7 @@ func (x *StreamCommandBatchUpdatesResponse) String() string {
 func (*StreamCommandBatchUpdatesResponse) ProtoMessage() {}
 
 func (x *StreamCommandBatchUpdatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[23]
+	mi := &file_minercommand_v1_command_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1457,7 @@ func (x *StreamCommandBatchUpdatesResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use StreamCommandBatchUpdatesResponse.ProtoReflect.Descriptor instead.
 func (*StreamCommandBatchUpdatesResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{23}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *StreamCommandBatchUpdatesResponse) GetTimestamp() *timestamppb.Timestamp {
@@ -1341,7 +1492,7 @@ type CommandBatchUpdateDeviceCount struct {
 
 func (x *CommandBatchUpdateDeviceCount) Reset() {
 	*x = CommandBatchUpdateDeviceCount{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[24]
+	mi := &file_minercommand_v1_command_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1353,7 +1504,7 @@ func (x *CommandBatchUpdateDeviceCount) String() string {
 func (*CommandBatchUpdateDeviceCount) ProtoMessage() {}
 
 func (x *CommandBatchUpdateDeviceCount) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[24]
+	mi := &file_minercommand_v1_command_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1366,7 +1517,7 @@ func (x *CommandBatchUpdateDeviceCount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandBatchUpdateDeviceCount.ProtoReflect.Descriptor instead.
 func (*CommandBatchUpdateDeviceCount) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{24}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CommandBatchUpdateDeviceCount) GetTotal() int64 {
@@ -1400,7 +1551,7 @@ type CommandBatchUpdateStatus struct {
 
 func (x *CommandBatchUpdateStatus) Reset() {
 	*x = CommandBatchUpdateStatus{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[25]
+	mi := &file_minercommand_v1_command_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1412,7 +1563,7 @@ func (x *CommandBatchUpdateStatus) String() string {
 func (*CommandBatchUpdateStatus) ProtoMessage() {}
 
 func (x *CommandBatchUpdateStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[25]
+	mi := &file_minercommand_v1_command_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1425,7 +1576,7 @@ func (x *CommandBatchUpdateStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandBatchUpdateStatus.ProtoReflect.Descriptor instead.
 func (*CommandBatchUpdateStatus) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{25}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CommandBatchUpdateStatus) GetCommandBatchUpdateStatus() CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
@@ -1451,7 +1602,7 @@ type GetCommandBatchLogBundleRequest struct {
 
 func (x *GetCommandBatchLogBundleRequest) Reset() {
 	*x = GetCommandBatchLogBundleRequest{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[26]
+	mi := &file_minercommand_v1_command_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1463,7 +1614,7 @@ func (x *GetCommandBatchLogBundleRequest) String() string {
 func (*GetCommandBatchLogBundleRequest) ProtoMessage() {}
 
 func (x *GetCommandBatchLogBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[26]
+	mi := &file_minercommand_v1_command_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1476,7 +1627,7 @@ func (x *GetCommandBatchLogBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommandBatchLogBundleRequest.ProtoReflect.Descriptor instead.
 func (*GetCommandBatchLogBundleRequest) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{26}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetCommandBatchLogBundleRequest) GetBatchIdentifier() string {
@@ -1496,7 +1647,7 @@ type GetCommandBatchLogBundleResponse struct {
 
 func (x *GetCommandBatchLogBundleResponse) Reset() {
 	*x = GetCommandBatchLogBundleResponse{}
-	mi := &file_minercommand_v1_command_proto_msgTypes[27]
+	mi := &file_minercommand_v1_command_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1659,7 @@ func (x *GetCommandBatchLogBundleResponse) String() string {
 func (*GetCommandBatchLogBundleResponse) ProtoMessage() {}
 
 func (x *GetCommandBatchLogBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_minercommand_v1_command_proto_msgTypes[27]
+	mi := &file_minercommand_v1_command_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1672,7 @@ func (x *GetCommandBatchLogBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommandBatchLogBundleResponse.ProtoReflect.Descriptor instead.
 func (*GetCommandBatchLogBundleResponse) Descriptor() ([]byte, []int) {
-	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{27}
+	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetCommandBatchLogBundleResponse) GetChunkData() []byte {
@@ -1617,24 +1768,43 @@ var file_minercommand_v1_command_proto_rawDesc = string([]byte{
 	0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x29,
 	0x0a, 0x10, 0x62, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69,
 	0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x49,
-	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x22, 0x92, 0x02, 0x0a, 0x18, 0x55, 0x70,
-	0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x48, 0x0a, 0x0f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65,
-	0x5f, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x1f, 0x2e, 0x6d, 0x69, 0x6e, 0x65, 0x72, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x76,
-	0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72,
-	0x52, 0x0e, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72,
-	0x12, 0x26, 0x0a, 0x0f, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x5f, 0x70, 0x6f, 0x6f, 0x6c,
-	0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0d, 0x64, 0x65, 0x66, 0x61, 0x75,
-	0x6c, 0x74, 0x50, 0x6f, 0x6f, 0x6c, 0x49, 0x64, 0x12, 0x2c, 0x0a, 0x10, 0x62, 0x61, 0x63, 0x6b,
-	0x75, 0x70, 0x5f, 0x31, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x5f, 0x69, 0x64, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x00, 0x52, 0x0d, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x31, 0x50, 0x6f, 0x6f,
-	0x6c, 0x49, 0x64, 0x88, 0x01, 0x01, 0x12, 0x2c, 0x0a, 0x10, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70,
-	0x5f, 0x32, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x5f, 0x69, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03,
-	0x48, 0x01, 0x52, 0x0d, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x32, 0x50, 0x6f, 0x6f, 0x6c, 0x49,
-	0x64, 0x88, 0x01, 0x01, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x5f,
-	0x31, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x5f, 0x69, 0x64, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x62, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x5f, 0x32, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x5f, 0x69, 0x64, 0x22, 0x46,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x22, 0x75, 0x0a, 0x0e, 0x50, 0x6f, 0x6f,
+	0x6c, 0x53, 0x6c, 0x6f, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x19, 0x0a, 0x07, 0x70,
+	0x6f, 0x6f, 0x6c, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x06,
+	0x70, 0x6f, 0x6f, 0x6c, 0x49, 0x64, 0x12, 0x39, 0x0a, 0x08, 0x72, 0x61, 0x77, 0x5f, 0x70, 0x6f,
+	0x6f, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x6d, 0x69, 0x6e, 0x65, 0x72,
+	0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x61, 0x77, 0x50, 0x6f,
+	0x6f, 0x6c, 0x49, 0x6e, 0x66, 0x6f, 0x48, 0x00, 0x52, 0x07, 0x72, 0x61, 0x77, 0x50, 0x6f, 0x6f,
+	0x6c, 0x42, 0x0d, 0x0a, 0x0b, 0x70, 0x6f, 0x6f, 0x6c, 0x5f, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65,
+	0x22, 0x69, 0x0a, 0x0b, 0x52, 0x61, 0x77, 0x50, 0x6f, 0x6f, 0x6c, 0x49, 0x6e, 0x66, 0x6f, 0x12,
+	0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72,
+	0x6c, 0x12, 0x1a, 0x0a, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x1f, 0x0a,
+	0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x48,
+	0x00, 0x52, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x88, 0x01, 0x01, 0x42, 0x0b,
+	0x0a, 0x09, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0xe0, 0x02, 0x0a, 0x18,
+	0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c,
+	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x48, 0x0a, 0x0f, 0x64, 0x65, 0x76, 0x69,
+	0x63, 0x65, 0x5f, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x1f, 0x2e, 0x6d, 0x69, 0x6e, 0x65, 0x72, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64,
+	0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74,
+	0x6f, 0x72, 0x52, 0x0e, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74,
+	0x6f, 0x72, 0x12, 0x42, 0x0a, 0x0c, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x5f, 0x70, 0x6f,
+	0x6f, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x6d, 0x69, 0x6e, 0x65, 0x72,
+	0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x6f, 0x6f, 0x6c, 0x53,
+	0x6c, 0x6f, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x0b, 0x64, 0x65, 0x66, 0x61, 0x75,
+	0x6c, 0x74, 0x50, 0x6f, 0x6f, 0x6c, 0x12, 0x48, 0x0a, 0x0d, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70,
+	0x5f, 0x31, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e,
+	0x6d, 0x69, 0x6e, 0x65, 0x72, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x76, 0x31, 0x2e,
+	0x50, 0x6f, 0x6f, 0x6c, 0x53, 0x6c, 0x6f, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x48, 0x00,
+	0x52, 0x0b, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x31, 0x50, 0x6f, 0x6f, 0x6c, 0x88, 0x01, 0x01,
+	0x12, 0x48, 0x0a, 0x0d, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x5f, 0x32, 0x5f, 0x70, 0x6f, 0x6f,
+	0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x6d, 0x69, 0x6e, 0x65, 0x72, 0x63,
+	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x6f, 0x6f, 0x6c, 0x53, 0x6c,
+	0x6f, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x48, 0x01, 0x52, 0x0b, 0x62, 0x61, 0x63, 0x6b,
+	0x75, 0x70, 0x32, 0x50, 0x6f, 0x6f, 0x6c, 0x88, 0x01, 0x01, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x62,
+	0x61, 0x63, 0x6b, 0x75, 0x70, 0x5f, 0x31, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x42, 0x10, 0x0a, 0x0e,
+	0x5f, 0x62, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x5f, 0x32, 0x5f, 0x70, 0x6f, 0x6f, 0x6c, 0x22, 0x46,
 	0x0a, 0x19, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f,
 	0x6f, 0x6c, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x29, 0x0a, 0x10, 0x62,
 	0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18,
@@ -1866,7 +2036,7 @@ func file_minercommand_v1_command_proto_rawDescGZIP() []byte {
 }
 
 var file_minercommand_v1_command_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_minercommand_v1_command_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_minercommand_v1_command_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_minercommand_v1_command_proto_goTypes = []any{
 	(CoolingMode)(0),     // 0: minercommand.v1.CoolingMode
 	(PerformanceMode)(0), // 1: minercommand.v1.PerformanceMode
@@ -1883,23 +2053,25 @@ var file_minercommand_v1_command_proto_goTypes = []any{
 	(*SetCoolingModeResponse)(nil),            // 12: minercommand.v1.SetCoolingModeResponse
 	(*SetPowerTargetRequest)(nil),             // 13: minercommand.v1.SetPowerTargetRequest
 	(*SetPowerTargetResponse)(nil),            // 14: minercommand.v1.SetPowerTargetResponse
-	(*UpdateMiningPoolsRequest)(nil),          // 15: minercommand.v1.UpdateMiningPoolsRequest
-	(*UpdateMiningPoolsResponse)(nil),         // 16: minercommand.v1.UpdateMiningPoolsResponse
-	(*DownloadLogsRequest)(nil),               // 17: minercommand.v1.DownloadLogsRequest
-	(*DownloadLogsResponse)(nil),              // 18: minercommand.v1.DownloadLogsResponse
-	(*BlinkLEDRequest)(nil),                   // 19: minercommand.v1.BlinkLEDRequest
-	(*BlinkLEDResponse)(nil),                  // 20: minercommand.v1.BlinkLEDResponse
-	(*FirmwareUpdateRequest)(nil),             // 21: minercommand.v1.FirmwareUpdateRequest
-	(*FirmwareUpdateResponse)(nil),            // 22: minercommand.v1.FirmwareUpdateResponse
-	(*UnpairRequest)(nil),                     // 23: minercommand.v1.UnpairRequest
-	(*UnpairResponse)(nil),                    // 24: minercommand.v1.UnpairResponse
-	(*StreamCommandBatchUpdatesRequest)(nil),  // 25: minercommand.v1.StreamCommandBatchUpdatesRequest
-	(*StreamCommandBatchUpdatesResponse)(nil), // 26: minercommand.v1.StreamCommandBatchUpdatesResponse
-	(*CommandBatchUpdateDeviceCount)(nil),     // 27: minercommand.v1.CommandBatchUpdateDeviceCount
-	(*CommandBatchUpdateStatus)(nil),          // 28: minercommand.v1.CommandBatchUpdateStatus
-	(*GetCommandBatchLogBundleRequest)(nil),   // 29: minercommand.v1.GetCommandBatchLogBundleRequest
-	(*GetCommandBatchLogBundleResponse)(nil),  // 30: minercommand.v1.GetCommandBatchLogBundleResponse
-	(*timestamppb.Timestamp)(nil),             // 31: google.protobuf.Timestamp
+	(*PoolSlotConfig)(nil),                    // 15: minercommand.v1.PoolSlotConfig
+	(*RawPoolInfo)(nil),                       // 16: minercommand.v1.RawPoolInfo
+	(*UpdateMiningPoolsRequest)(nil),          // 17: minercommand.v1.UpdateMiningPoolsRequest
+	(*UpdateMiningPoolsResponse)(nil),         // 18: minercommand.v1.UpdateMiningPoolsResponse
+	(*DownloadLogsRequest)(nil),               // 19: minercommand.v1.DownloadLogsRequest
+	(*DownloadLogsResponse)(nil),              // 20: minercommand.v1.DownloadLogsResponse
+	(*BlinkLEDRequest)(nil),                   // 21: minercommand.v1.BlinkLEDRequest
+	(*BlinkLEDResponse)(nil),                  // 22: minercommand.v1.BlinkLEDResponse
+	(*FirmwareUpdateRequest)(nil),             // 23: minercommand.v1.FirmwareUpdateRequest
+	(*FirmwareUpdateResponse)(nil),            // 24: minercommand.v1.FirmwareUpdateResponse
+	(*UnpairRequest)(nil),                     // 25: minercommand.v1.UnpairRequest
+	(*UnpairResponse)(nil),                    // 26: minercommand.v1.UnpairResponse
+	(*StreamCommandBatchUpdatesRequest)(nil),  // 27: minercommand.v1.StreamCommandBatchUpdatesRequest
+	(*StreamCommandBatchUpdatesResponse)(nil), // 28: minercommand.v1.StreamCommandBatchUpdatesResponse
+	(*CommandBatchUpdateDeviceCount)(nil),     // 29: minercommand.v1.CommandBatchUpdateDeviceCount
+	(*CommandBatchUpdateStatus)(nil),          // 30: minercommand.v1.CommandBatchUpdateStatus
+	(*GetCommandBatchLogBundleRequest)(nil),   // 31: minercommand.v1.GetCommandBatchLogBundleRequest
+	(*GetCommandBatchLogBundleResponse)(nil),  // 32: minercommand.v1.GetCommandBatchLogBundleResponse
+	(*timestamppb.Timestamp)(nil),             // 33: google.protobuf.Timestamp
 }
 var file_minercommand_v1_command_proto_depIdxs = []int32{
 	4,  // 0: minercommand.v1.DeviceSelector.include_devices:type_name -> minercommand.v1.DeviceList
@@ -1910,44 +2082,48 @@ var file_minercommand_v1_command_proto_depIdxs = []int32{
 	0,  // 5: minercommand.v1.SetCoolingModeRequest.mode:type_name -> minercommand.v1.CoolingMode
 	3,  // 6: minercommand.v1.SetPowerTargetRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
 	1,  // 7: minercommand.v1.SetPowerTargetRequest.performance_mode:type_name -> minercommand.v1.PerformanceMode
-	3,  // 8: minercommand.v1.UpdateMiningPoolsRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
-	3,  // 9: minercommand.v1.DownloadLogsRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
-	3,  // 10: minercommand.v1.BlinkLEDRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
-	3,  // 11: minercommand.v1.FirmwareUpdateRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
-	3,  // 12: minercommand.v1.UnpairRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
-	31, // 13: minercommand.v1.StreamCommandBatchUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
-	28, // 14: minercommand.v1.StreamCommandBatchUpdatesResponse.status:type_name -> minercommand.v1.CommandBatchUpdateStatus
-	2,  // 15: minercommand.v1.CommandBatchUpdateStatus.command_batch_update_status:type_name -> minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType
-	27, // 16: minercommand.v1.CommandBatchUpdateStatus.command_batch_device_count:type_name -> minercommand.v1.CommandBatchUpdateDeviceCount
-	5,  // 17: minercommand.v1.MinerCommandService.Reboot:input_type -> minercommand.v1.RebootRequest
-	7,  // 18: minercommand.v1.MinerCommandService.StopMining:input_type -> minercommand.v1.StopMiningRequest
-	9,  // 19: minercommand.v1.MinerCommandService.StartMining:input_type -> minercommand.v1.StartMiningRequest
-	11, // 20: minercommand.v1.MinerCommandService.SetCoolingMode:input_type -> minercommand.v1.SetCoolingModeRequest
-	13, // 21: minercommand.v1.MinerCommandService.SetPowerTarget:input_type -> minercommand.v1.SetPowerTargetRequest
-	15, // 22: minercommand.v1.MinerCommandService.UpdateMiningPools:input_type -> minercommand.v1.UpdateMiningPoolsRequest
-	17, // 23: minercommand.v1.MinerCommandService.DownloadLogs:input_type -> minercommand.v1.DownloadLogsRequest
-	19, // 24: minercommand.v1.MinerCommandService.BlinkLED:input_type -> minercommand.v1.BlinkLEDRequest
-	25, // 25: minercommand.v1.MinerCommandService.StreamCommandBatchUpdates:input_type -> minercommand.v1.StreamCommandBatchUpdatesRequest
-	29, // 26: minercommand.v1.MinerCommandService.GetCommandBatchLogBundle:input_type -> minercommand.v1.GetCommandBatchLogBundleRequest
-	21, // 27: minercommand.v1.MinerCommandService.FirmwareUpdate:input_type -> minercommand.v1.FirmwareUpdateRequest
-	23, // 28: minercommand.v1.MinerCommandService.Unpair:input_type -> minercommand.v1.UnpairRequest
-	6,  // 29: minercommand.v1.MinerCommandService.Reboot:output_type -> minercommand.v1.RebootResponse
-	8,  // 30: minercommand.v1.MinerCommandService.StopMining:output_type -> minercommand.v1.StopMiningResponse
-	10, // 31: minercommand.v1.MinerCommandService.StartMining:output_type -> minercommand.v1.StartMiningResponse
-	12, // 32: minercommand.v1.MinerCommandService.SetCoolingMode:output_type -> minercommand.v1.SetCoolingModeResponse
-	14, // 33: minercommand.v1.MinerCommandService.SetPowerTarget:output_type -> minercommand.v1.SetPowerTargetResponse
-	16, // 34: minercommand.v1.MinerCommandService.UpdateMiningPools:output_type -> minercommand.v1.UpdateMiningPoolsResponse
-	18, // 35: minercommand.v1.MinerCommandService.DownloadLogs:output_type -> minercommand.v1.DownloadLogsResponse
-	20, // 36: minercommand.v1.MinerCommandService.BlinkLED:output_type -> minercommand.v1.BlinkLEDResponse
-	26, // 37: minercommand.v1.MinerCommandService.StreamCommandBatchUpdates:output_type -> minercommand.v1.StreamCommandBatchUpdatesResponse
-	30, // 38: minercommand.v1.MinerCommandService.GetCommandBatchLogBundle:output_type -> minercommand.v1.GetCommandBatchLogBundleResponse
-	22, // 39: minercommand.v1.MinerCommandService.FirmwareUpdate:output_type -> minercommand.v1.FirmwareUpdateResponse
-	24, // 40: minercommand.v1.MinerCommandService.Unpair:output_type -> minercommand.v1.UnpairResponse
-	29, // [29:41] is the sub-list for method output_type
-	17, // [17:29] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	16, // 8: minercommand.v1.PoolSlotConfig.raw_pool:type_name -> minercommand.v1.RawPoolInfo
+	3,  // 9: minercommand.v1.UpdateMiningPoolsRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
+	15, // 10: minercommand.v1.UpdateMiningPoolsRequest.default_pool:type_name -> minercommand.v1.PoolSlotConfig
+	15, // 11: minercommand.v1.UpdateMiningPoolsRequest.backup_1_pool:type_name -> minercommand.v1.PoolSlotConfig
+	15, // 12: minercommand.v1.UpdateMiningPoolsRequest.backup_2_pool:type_name -> minercommand.v1.PoolSlotConfig
+	3,  // 13: minercommand.v1.DownloadLogsRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
+	3,  // 14: minercommand.v1.BlinkLEDRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
+	3,  // 15: minercommand.v1.FirmwareUpdateRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
+	3,  // 16: minercommand.v1.UnpairRequest.device_selector:type_name -> minercommand.v1.DeviceSelector
+	33, // 17: minercommand.v1.StreamCommandBatchUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
+	30, // 18: minercommand.v1.StreamCommandBatchUpdatesResponse.status:type_name -> minercommand.v1.CommandBatchUpdateStatus
+	2,  // 19: minercommand.v1.CommandBatchUpdateStatus.command_batch_update_status:type_name -> minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType
+	29, // 20: minercommand.v1.CommandBatchUpdateStatus.command_batch_device_count:type_name -> minercommand.v1.CommandBatchUpdateDeviceCount
+	5,  // 21: minercommand.v1.MinerCommandService.Reboot:input_type -> minercommand.v1.RebootRequest
+	7,  // 22: minercommand.v1.MinerCommandService.StopMining:input_type -> minercommand.v1.StopMiningRequest
+	9,  // 23: minercommand.v1.MinerCommandService.StartMining:input_type -> minercommand.v1.StartMiningRequest
+	11, // 24: minercommand.v1.MinerCommandService.SetCoolingMode:input_type -> minercommand.v1.SetCoolingModeRequest
+	13, // 25: minercommand.v1.MinerCommandService.SetPowerTarget:input_type -> minercommand.v1.SetPowerTargetRequest
+	17, // 26: minercommand.v1.MinerCommandService.UpdateMiningPools:input_type -> minercommand.v1.UpdateMiningPoolsRequest
+	19, // 27: minercommand.v1.MinerCommandService.DownloadLogs:input_type -> minercommand.v1.DownloadLogsRequest
+	21, // 28: minercommand.v1.MinerCommandService.BlinkLED:input_type -> minercommand.v1.BlinkLEDRequest
+	27, // 29: minercommand.v1.MinerCommandService.StreamCommandBatchUpdates:input_type -> minercommand.v1.StreamCommandBatchUpdatesRequest
+	31, // 30: minercommand.v1.MinerCommandService.GetCommandBatchLogBundle:input_type -> minercommand.v1.GetCommandBatchLogBundleRequest
+	23, // 31: minercommand.v1.MinerCommandService.FirmwareUpdate:input_type -> minercommand.v1.FirmwareUpdateRequest
+	25, // 32: minercommand.v1.MinerCommandService.Unpair:input_type -> minercommand.v1.UnpairRequest
+	6,  // 33: minercommand.v1.MinerCommandService.Reboot:output_type -> minercommand.v1.RebootResponse
+	8,  // 34: minercommand.v1.MinerCommandService.StopMining:output_type -> minercommand.v1.StopMiningResponse
+	10, // 35: minercommand.v1.MinerCommandService.StartMining:output_type -> minercommand.v1.StartMiningResponse
+	12, // 36: minercommand.v1.MinerCommandService.SetCoolingMode:output_type -> minercommand.v1.SetCoolingModeResponse
+	14, // 37: minercommand.v1.MinerCommandService.SetPowerTarget:output_type -> minercommand.v1.SetPowerTargetResponse
+	18, // 38: minercommand.v1.MinerCommandService.UpdateMiningPools:output_type -> minercommand.v1.UpdateMiningPoolsResponse
+	20, // 39: minercommand.v1.MinerCommandService.DownloadLogs:output_type -> minercommand.v1.DownloadLogsResponse
+	22, // 40: minercommand.v1.MinerCommandService.BlinkLED:output_type -> minercommand.v1.BlinkLEDResponse
+	28, // 41: minercommand.v1.MinerCommandService.StreamCommandBatchUpdates:output_type -> minercommand.v1.StreamCommandBatchUpdatesResponse
+	32, // 42: minercommand.v1.MinerCommandService.GetCommandBatchLogBundle:output_type -> minercommand.v1.GetCommandBatchLogBundleResponse
+	24, // 43: minercommand.v1.MinerCommandService.FirmwareUpdate:output_type -> minercommand.v1.FirmwareUpdateResponse
+	26, // 44: minercommand.v1.MinerCommandService.Unpair:output_type -> minercommand.v1.UnpairResponse
+	33, // [33:45] is the sub-list for method output_type
+	21, // [21:33] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_minercommand_v1_command_proto_init() }
@@ -1959,14 +2135,19 @@ func file_minercommand_v1_command_proto_init() {
 		(*DeviceSelector_AllDevices)(nil),
 		(*DeviceSelector_IncludeDevices)(nil),
 	}
-	file_minercommand_v1_command_proto_msgTypes[12].OneofWrappers = []any{}
+	file_minercommand_v1_command_proto_msgTypes[12].OneofWrappers = []any{
+		(*PoolSlotConfig_PoolId)(nil),
+		(*PoolSlotConfig_RawPool)(nil),
+	}
+	file_minercommand_v1_command_proto_msgTypes[13].OneofWrappers = []any{}
+	file_minercommand_v1_command_proto_msgTypes[14].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_minercommand_v1_command_proto_rawDesc), len(file_minercommand_v1_command_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

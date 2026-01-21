@@ -486,19 +486,25 @@ message GetMinerPoolAssignmentsRequest {
   string device_identifier = 1 [(buf.validate.field).required = true];
 }
 
+// A single pool assignment from a miner's configuration
+// Groups the pool ID (if matched to a fleet pool) with the raw URL and username
+message PoolAssignment {
+  // Fleet pool ID if this pool matches a fleet pool definition
+  // Absent if the pool doesn't match any fleet pool
+  optional int64 pool_id = 1;
+
+  // Raw pool URL as configured on the miner
+  string url = 2;
+
+  // Username as configured on the miner
+  string username = 3;
+}
+
 // Response containing the miner's current pool assignments
-// Pool IDs reference the fleet's pool definitions (from pools.v1.Pool)
-// If a pool is configured on the miner but doesn't match any fleet pool, the ID will be absent
+// Pools are returned in priority order: index 0 = default (priority 0), index 1 = backup1 (priority 1), etc.
+// If a pool is configured on the miner but doesn't match any fleet pool, the pool_id will be absent
 message GetMinerPoolAssignmentsResponse {
-  // Fleet pool ID for the default pool (priority 0)
-  // Absent if no default pool is configured or if it doesn't match a fleet pool
-  optional int64 default_pool_id = 1;
-
-  // Fleet pool ID for backup pool #1 (priority 1)
-  // Absent if no backup pool #1 is configured or if it doesn't match a fleet pool
-  optional int64 backup_1_pool_id = 2;
-
-  // Fleet pool ID for backup pool #2 (priority 2)
-  // Absent if no backup pool #2 is configured or if it doesn't match a fleet pool
-  optional int64 backup_2_pool_id = 3;
+  // Pool assignments in priority order (max 3: default, backup1, backup2)
+  // Empty if no pools are configured on the miner
+  repeated PoolAssignment pools = 1;
 }

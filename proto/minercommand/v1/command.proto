@@ -73,11 +73,33 @@ message SetPowerTargetResponse {
   string batch_identifier = 1;
 }
 
+// Configuration for a single pool slot
+// Can specify either a Fleet pool ID (for known pools) or raw pool info (for unknown pools)
+message PoolSlotConfig {
+  oneof pool_source {
+    // Fleet pool ID - used when the pool exists in Fleet's database
+    int64 pool_id = 1;
+    // Raw pool info - used when the pool is configured on the miner but not in Fleet
+    RawPoolInfo raw_pool = 2;
+  }
+}
+
+// Raw pool configuration for pools not stored in Fleet
+message RawPoolInfo {
+  string url = 1;
+  string username = 2;
+  // Password is optional since miners don't expose it
+  optional string password = 3;
+}
+
 message UpdateMiningPoolsRequest {
   DeviceSelector device_selector = 1;
-  int64 default_pool_id = 2;
-  optional int64 backup_1_pool_id = 3;
-  optional int64 backup_2_pool_id = 4;
+  // Default pool (priority 0) - required
+  PoolSlotConfig default_pool = 2;
+  // Backup pool 1 (priority 1) - optional
+  optional PoolSlotConfig backup_1_pool = 3;
+  // Backup pool 2 (priority 2) - optional
+  optional PoolSlotConfig backup_2_pool = 4;
 }
 
 message UpdateMiningPoolsResponse {

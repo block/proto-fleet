@@ -1,3 +1,6 @@
+/** Maximum number of pools that can be configured */
+export const MAX_POOLS = 3;
+
 export const poolInfoAttributes = {
   name: "name",
   url: "url",

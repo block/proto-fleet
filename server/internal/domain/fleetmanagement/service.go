@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -926,13 +927,6 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 	return snapshot
 }
 
-// Pool priority constants for mining pool configuration
-const (
-	poolPriorityDefault = 0
-	poolPriorityBackup1 = 1
-	poolPriorityBackup2 = 2
-)
-
 // GetMinerPoolAssignments retrieves the currently configured pools from a miner
 // and matches them with fleet pool definitions to return pool IDs
 func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error) {
@@ -974,25 +968,23 @@ func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerP
 		return nil, fleeterror.NewInternalErrorf("failed to list fleet pools: %v", err)
 	}
 
-	// Match configured pools with fleet pools by URL and username
-	response := &pb.GetMinerPoolAssignmentsResponse{}
-	for _, configuredPool := range configuredPools {
-		poolID := findMatchingFleetPoolID(configuredPool.URL, configuredPool.Username, fleetPools)
-		if poolID == nil {
-			continue
-		}
+	// Sort pools by priority to ensure consistent ordering
+	// (miner API does not guarantee order)
+	sort.Slice(configuredPools, func(i, j int) bool {
+		return configuredPools[i].Priority < configuredPools[j].Priority
+	})
 
-		switch configuredPool.Priority {
-		case poolPriorityDefault:
-			response.DefaultPoolId = poolID
-		case poolPriorityBackup1:
-			response.Backup_1PoolId = poolID
-		case poolPriorityBackup2:
-			response.Backup_2PoolId = poolID
+	pools := make([]*pb.PoolAssignment, 0, len(configuredPools))
+	for _, configuredPool := range configuredPools {
+		assignment := &pb.PoolAssignment{
+			Url:      configuredPool.URL,
+			Username: configuredPool.Username,
+			PoolId:   findMatchingFleetPoolID(configuredPool.URL, configuredPool.Username, fleetPools),
 		}
+		pools = append(pools, assignment)
 	}
 
-	return response, nil
+	return &pb.GetMinerPoolAssignmentsResponse{Pools: pools}, nil
 }
 
 // findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.

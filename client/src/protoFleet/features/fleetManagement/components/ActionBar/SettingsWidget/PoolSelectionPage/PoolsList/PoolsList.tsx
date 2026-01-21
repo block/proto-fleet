@@ -24,7 +24,6 @@ interface MiningPoolsListProps {
   testId?: string;
   disabled?: boolean;
   selectedPoolId?: string;
-  poolAssignments?: Record<string, string>;
 }
 
 const PoolsList = ({
@@ -37,7 +36,6 @@ const PoolsList = ({
   testId,
   disabled = false,
   selectedPoolId,
-  poolAssignments = {},
 }: MiningPoolsListProps) => {
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [poolState, setPoolState] = useState<PoolSelectionState>({ status: "idle" });
@@ -166,7 +164,6 @@ const PoolsList = ({
           onDismiss={() => setShowSelectionModal(false)}
           onSave={handlePoolSelect}
           excludedPoolIds={excludedPoolIds}
-          poolAssignments={poolAssignments}
         />
       ) : null}
     </>

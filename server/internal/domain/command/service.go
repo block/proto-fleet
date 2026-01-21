@@ -378,26 +378,55 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 	}, nil
 }
 
-func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoolID int64, backup1PoolID *int64, backup2PoolID *int64) (*dto.UpdateMiningPoolsPayload, error) {
-	defaultPool, err := s.createMiningPoolDTO(ctx, defaultPoolID, 0)
+// createMiningPoolDTOFromSlotConfig creates a MiningPool DTO from a PoolSlotConfig.
+// It handles both known pools (by ID lookup) and unknown pools (raw URL/username).
+func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config *pb.PoolSlotConfig, priorityIncrement uint32) (*dto.MiningPool, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	switch source := config.PoolSource.(type) {
+	case *pb.PoolSlotConfig_PoolId:
+		return s.createMiningPoolDTO(ctx, source.PoolId, priorityIncrement)
+	case *pb.PoolSlotConfig_RawPool:
+		var password string
+		if source.RawPool.Password != nil {
+			password = *source.RawPool.Password
+		}
+		return &dto.MiningPool{
+			Priority: defaultPoolPriority + priorityIncrement,
+			URL:      source.RawPool.Url,
+			Username: source.RawPool.Username,
+			Password: password,
+		}, nil
+	default:
+		return nil, fleeterror.NewInternalErrorf("invalid pool source type")
+	}
+}
+
+func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig) (*dto.UpdateMiningPoolsPayload, error) {
+	defaultPoolDTO, err := s.createMiningPoolDTOFromSlotConfig(ctx, defaultPool, 0)
 	if err != nil {
 		return nil, err
 	}
-
-	pld := &dto.UpdateMiningPoolsPayload{
-		DefaultPool: *defaultPool,
+	if defaultPoolDTO == nil {
+		return nil, fleeterror.NewInvalidArgumentError("default pool is required")
 	}
 
-	if backup1PoolID != nil {
-		pool, err := s.createMiningPoolDTO(ctx, *backup1PoolID, 1)
+	pld := &dto.UpdateMiningPoolsPayload{
+		DefaultPool: *defaultPoolDTO,
+	}
+
+	if backup1Pool != nil {
+		pool, err := s.createMiningPoolDTOFromSlotConfig(ctx, backup1Pool, 1)
 		if err != nil {
 			return nil, err
 		}
 		pld.Backup1Pool = pool
 	}
 
-	if backup2PoolID != nil {
-		pool, err := s.createMiningPoolDTO(ctx, *backup2PoolID, 2)
+	if backup2Pool != nil {
+		pool, err := s.createMiningPoolDTOFromSlotConfig(ctx, backup2Pool, 2)
 		if err != nil {
 			return nil, err
 		}
@@ -407,8 +436,8 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-func (s *Service) UpdateMiningPools(ctx context.Context, deviceSelector *pb.DeviceSelector, defaultPoolID int64, backup1PoolID *int64, backup2PoolID *int64) (*pb.UpdateMiningPoolsResponse, error) {
-	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPoolID, backup1PoolID, backup2PoolID)
+func (s *Service) UpdateMiningPools(ctx context.Context, deviceSelector *pb.DeviceSelector, defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig) (*pb.UpdateMiningPoolsResponse, error) {
+	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
 		return nil, err
 	}

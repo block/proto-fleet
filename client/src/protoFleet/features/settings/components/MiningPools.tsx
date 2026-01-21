@@ -2,7 +2,11 @@ import { type RefObject, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 
-import { CreatePoolRequestSchema, UpdatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import {
+  CreatePoolRequestSchema,
+  DeletePoolRequestSchema,
+  UpdatePoolRequestSchema,
+} from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import type { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
 import Ellipsis from "@/shared/assets/icons/Ellipsis";
@@ -25,6 +29,7 @@ interface PoolRowProps {
   pool: Pool;
   onEdit: (pool: Pool) => void;
   onTestConnection: (pool: Pool) => void;
+  onDelete: (pool: Pool) => void;
   connectionStatus: ConnectionStatus;
 }
 
@@ -78,9 +83,18 @@ interface PoolRowMenuProps {
   triggerRef: RefObject<HTMLDivElement | null>;
   onEdit: (pool: Pool) => void;
   onTestConnection: (pool: Pool) => void;
+  onDelete: (pool: Pool) => void;
 }
 
-const PoolRowMenu = ({ pool, showMenu, setShowMenu, triggerRef, onEdit, onTestConnection }: PoolRowMenuProps) => (
+const PoolRowMenu = ({
+  pool,
+  showMenu,
+  setShowMenu,
+  triggerRef,
+  onEdit,
+  onTestConnection,
+  onDelete,
+}: PoolRowMenuProps) => (
   <div className="relative" ref={triggerRef}>
     <button
       type="button"
@@ -113,10 +127,20 @@ const PoolRowMenu = ({ pool, showMenu, setShowMenu, triggerRef, onEdit, onTestCo
               onTestConnection(pool);
               setShowMenu(false);
             }}
-            divider={false}
             compact
           >
             Test connection
+          </Row>
+          <Row
+            onClick={() => {
+              onDelete(pool);
+              setShowMenu(false);
+            }}
+            divider={false}
+            compact
+            className="text-intent-critical-80"
+          >
+            Delete pool
           </Row>
         </div>
       </Popover>
@@ -124,7 +148,7 @@ const PoolRowMenu = ({ pool, showMenu, setShowMenu, triggerRef, onEdit, onTestCo
   </div>
 );
 
-const PoolRowDesktop = ({ pool, onEdit, onTestConnection, connectionStatus }: PoolRowProps) => {
+const PoolRowDesktop = ({ pool, onEdit, onTestConnection, onDelete, connectionStatus }: PoolRowProps) => {
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
@@ -145,13 +169,14 @@ const PoolRowDesktop = ({ pool, onEdit, onTestConnection, connectionStatus }: Po
           triggerRef={triggerRef}
           onEdit={onEdit}
           onTestConnection={onTestConnection}
+          onDelete={onDelete}
         />
       </div>
     </div>
   );
 };
 
-const PoolRowMobile = ({ pool, onEdit, onTestConnection, connectionStatus }: PoolRowProps) => {
+const PoolRowMobile = ({ pool, onEdit, onTestConnection, onDelete, connectionStatus }: PoolRowProps) => {
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
@@ -185,13 +210,14 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, connectionStatus }: Poo
           triggerRef={triggerRef}
           onEdit={onEdit}
           onTestConnection={onTestConnection}
+          onDelete={onDelete}
         />
       </div>
     </div>
   );
 };
 
-const PoolRowInner = ({ pool, onEdit, onTestConnection, connectionStatus }: PoolRowProps) => {
+const PoolRowInner = ({ pool, onEdit, onTestConnection, onDelete, connectionStatus }: PoolRowProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const isMobile = isPhone || isTablet;
 
@@ -203,6 +229,7 @@ const PoolRowInner = ({ pool, onEdit, onTestConnection, connectionStatus }: Pool
             pool={pool}
             onEdit={onEdit}
             onTestConnection={onTestConnection}
+            onDelete={onDelete}
             connectionStatus={connectionStatus}
           />
         ) : (
@@ -210,6 +237,7 @@ const PoolRowInner = ({ pool, onEdit, onTestConnection, connectionStatus }: Pool
             pool={pool}
             onEdit={onEdit}
             onTestConnection={onTestConnection}
+            onDelete={onDelete}
             connectionStatus={connectionStatus}
           />
         )}
@@ -220,7 +248,7 @@ const PoolRowInner = ({ pool, onEdit, onTestConnection, connectionStatus }: Pool
 };
 
 const MiningPools = () => {
-  const { pools, createPool, updatePool, validatePool, validatePoolPending, isLoading } = usePools();
+  const { pools, createPool, updatePool, deletePool, validatePool, validatePoolPending, isLoading } = usePools();
   const { isPhone, isTablet } = useWindowDimensions();
   const [showAddPoolModal, setShowAddPoolModal] = useState(false);
   const [showEditPoolModal, setShowEditPoolModal] = useState(false);
@@ -333,6 +361,37 @@ const MiningPools = () => {
     [editingPool, updatePool],
   );
 
+  const handleDeletePool = useCallback(
+    (pool: Pool) => {
+      const deletePoolRequest = create(DeletePoolRequestSchema, {
+        poolId: pool.poolId,
+      });
+
+      deletePool({
+        deletePoolRequest,
+        onSuccess: () => {
+          pushToast({
+            message: "Pool deleted",
+            status: STATUSES.success,
+          });
+          // Close edit modal if the deleted pool was being edited
+          if (editingPool?.poolId === pool.poolId) {
+            setShowEditPoolModal(false);
+            setEditingPool(null);
+            setPoolsInfo(getEmptyPoolsInfo());
+          }
+        },
+        onError: (error) => {
+          pushToast({
+            message: error || "Failed to delete pool",
+            status: STATUSES.error,
+          });
+        },
+      });
+    },
+    [deletePool, editingPool],
+  );
+
   // Loading state - show spinner while fetching
   if (isLoading) {
     return (
@@ -427,6 +486,7 @@ const MiningPools = () => {
                 pool={pool}
                 onEdit={handleEditPool}
                 onTestConnection={handleTestConnection}
+                onDelete={handleDeletePool}
                 connectionStatus={connectionStatuses[pool.poolId.toString()] || "idle"}
               />
             ))}
@@ -469,6 +529,7 @@ const MiningPools = () => {
         }}
         onSave={handleUpdatePool}
         mode="edit"
+        onDelete={editingPool ? () => handleDeletePool(editingPool) : undefined}
       />
     </>
   );

@@ -125,6 +125,7 @@ const usePools = () => {
       await poolsClient
         .deletePool(deletePoolRequest)
         .then(() => {
+          setPools((prevPools) => prevPools.filter((pool) => pool.poolId !== deletePoolRequest.poolId));
           onSuccess?.();
         })
         .catch((err) => {
@@ -175,20 +176,26 @@ const usePools = () => {
     [handleAuthErrors],
   );
 
+  // Sort pools by name (case-insensitive) for consistent display
+  const sortedPools = useMemo(
+    () => [...pools].sort((a, b) => a.poolName.localeCompare(b.poolName, undefined, { sensitivity: "base" })),
+    [pools],
+  );
+
   const miningPools = useMemo(
     () =>
-      pools.map((pool) => ({
+      sortedPools.map((pool) => ({
         poolId: pool.poolId.toString(),
         name: pool.poolName,
         poolUrl: pool.url,
         username: pool.username,
       })),
-    [pools],
+    [sortedPools],
   );
 
   return useMemo(
     () => ({
-      pools,
+      pools: sortedPools,
       miningPools,
       createPool,
       updatePool,
@@ -197,7 +204,7 @@ const usePools = () => {
       validatePoolPending,
       isLoading,
     }),
-    [pools, miningPools, createPool, updatePool, deletePool, validatePool, validatePoolPending, isLoading],
+    [sortedPools, miningPools, createPool, updatePool, deletePool, validatePool, validatePoolPending, isLoading],
   );
 };
 

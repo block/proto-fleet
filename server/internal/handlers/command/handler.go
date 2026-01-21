@@ -89,19 +89,7 @@ func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],
 ) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
-	var backup1PoolID, backup2PoolID *int64
-
-	if req.Msg.Backup_1PoolId != nil {
-		value := *req.Msg.Backup_1PoolId
-		backup1PoolID = &value
-	}
-
-	if req.Msg.Backup_2PoolId != nil {
-		value := *req.Msg.Backup_2PoolId
-		backup2PoolID = &value
-	}
-
-	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceSelector, req.Msg.DefaultPoolId, backup1PoolID, backup2PoolID)
+	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceSelector, req.Msg.DefaultPool, req.Msg.Backup_1Pool, req.Msg.Backup_2Pool)
 	if err != nil {
 		return nil, err
 	}
