@@ -43,32 +43,46 @@ func (m MeasurementType) String() string {
 	}
 }
 
+// InfluxDB measurement name constants
+const (
+	InfluxMeasurementUnknown     = "unknown"
+	InfluxMeasurementTemperature = "temperature_c"
+	InfluxMeasurementHashrate    = "hashrate_mhs"
+	InfluxMeasurementPower       = "power_w"
+	InfluxMeasurementEfficiency  = "efficiency_jh"
+	InfluxMeasurementFanSpeed    = "fan_rpm"
+	InfluxMeasurementVoltage     = "voltage_mv"
+	InfluxMeasurementCurrent     = "current_ma"
+	InfluxMeasurementUptime      = "uptime"
+	InfluxMeasurementErrorRate   = "error_rate"
+)
+
 // InfluxMeasurementName returns the actual InfluxDB table/measurement name
 // This maps domain model measurement types to the actual table names used in InfluxDB
 func (m MeasurementType) InfluxMeasurementName() string {
 	switch m {
 	case MeasurementTypeUnknown:
-		return "unknown"
+		return InfluxMeasurementUnknown
 	case MeasurementTypeTemperature:
-		return "temperature_c"
+		return InfluxMeasurementTemperature
 	case MeasurementTypeHashrate:
-		return "hashrate_mhs"
+		return InfluxMeasurementHashrate
 	case MeasurementTypePower:
-		return "power_w"
+		return InfluxMeasurementPower
 	case MeasurementTypeEfficiency:
-		return "efficiency_jh"
+		return InfluxMeasurementEfficiency
 	case MeasurementTypeFanSpeed:
-		return "fan_rpm"
+		return InfluxMeasurementFanSpeed
 	case MeasurementTypeVoltage:
-		return "voltage_mv"
+		return InfluxMeasurementVoltage
 	case MeasurementTypeCurrent:
-		return "current_ma"
+		return InfluxMeasurementCurrent
 	case MeasurementTypeUptime:
-		return "uptime"
+		return InfluxMeasurementUptime
 	case MeasurementTypeErrorRate:
-		return "error_rate"
+		return InfluxMeasurementErrorRate
 	default:
-		return "unknown"
+		return InfluxMeasurementUnknown
 	}
 }
 

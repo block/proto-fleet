@@ -162,8 +162,6 @@ func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
 	return store, nil
 }
 
-// executeWithFallback has been removed - we now only use device_metrics table
-
 // queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics.
 // Performance optimized: pre-allocated slice, batched error logging, minimal allocations in hot path.
 func (s *InfluxTelemetryStore) queryDeviceMetrics(
@@ -359,10 +357,6 @@ ORDER BY time DESC
 `
 
 func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	return s.getLatestTelemetryFromDeviceMetrics(ctx, query)
-}
-
-func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
 	params := s.getLatestTelemetryParamsForMeasurement(query)
 
 	// Choose the appropriate query based on whether device IDs are specified
@@ -375,7 +369,7 @@ func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.C
 	}
 
 	// Query device_metrics and get all matching points
-	allMetrics, err := s.queryDeviceMetrics(ctx, queryTemplate, query.DeviceIDs, params, "getLatestTelemetryFromDeviceMetrics")
+	allMetrics, err := s.queryDeviceMetrics(ctx, queryTemplate, query.DeviceIDs, params, "GetLatestTelemetry")
 	if err != nil {
 		return nil, err
 	}
@@ -409,14 +403,10 @@ LIMIT 5000
 `
 
 func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
-	return s.getTimeSeriesTelemetryFromDeviceMetrics(ctx, query)
-}
-
-func (s *InfluxTelemetryStore) getTimeSeriesTelemetryFromDeviceMetrics(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
 	params := s.getTimeSeriesParamsForMeasurement(query)
 
 	// Query device_metrics and get all matching points
-	allMetrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "getTimeSeriesTelemetryFromDeviceMetrics")
+	allMetrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "GetTimeSeriesTelemetry")
 	if err != nil {
 		return nil, err
 	}
@@ -444,10 +434,6 @@ LIMIT 1000
 `
 
 func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
-	return s.getTelemetryMetadataFromDeviceMetrics(ctx, query)
-}
-
-func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
 	deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 	influxQuery := fmt.Sprintf(getDeviceMetricsMetadataQuery, deviceIDsStr)
 	params := s.getMetadataParamsForMeasurement(query)
@@ -537,11 +523,6 @@ ORDER BY time ASC
 `
 
 func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
-	// Try to use the new device_metrics store, with fallback to legacy
-	return s.streamTelemetryUpdatesWithFallback(ctx, query)
-}
-
-func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	updateChan := make(chan models.TelemetryUpdate, defaultBufferSize)
 
 	go func() {
@@ -644,10 +625,6 @@ GROUP BY device_id
 ORDER BY device_id ASC`
 
 func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	return s.getAggregatedTelemetryFromDeviceMetrics(ctx, query)
-}
-
-func (s *InfluxTelemetryStore) getAggregatedTelemetryFromDeviceMetrics(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
 	var allResults []models.AggregatedTelemetry
 	aggFunc := getAggregationFunction(query.AggregationType)
 	deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
@@ -673,7 +650,7 @@ func (s *InfluxTelemetryStore) getAggregatedTelemetryFromDeviceMetrics(ctx conte
 
 		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 			if err != nil {
-				s.logger.Debug("error reading point in getAggregatedTelemetryFromDeviceMetrics",
+				s.logger.Debug("error reading point in GetAggregatedTelemetry",
 					slog.String("field", fieldName),
 					slog.Any("error", err))
 				continue
@@ -765,14 +742,6 @@ func (s *InfluxTelemetryStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func deviceIDsToStrings(deviceIDs []models.DeviceIdentifier) []string {
-	result := make([]string, len(deviceIDs))
-	for i, id := range deviceIDs {
-		result[i] = string(id)
-	}
-	return result
-}
-
 func (s *InfluxTelemetryStore) buildDeviceIDsString(deviceIDs []models.DeviceIdentifier) string {
 	if len(deviceIDs) == 0 {
 		return "''"
@@ -794,14 +763,6 @@ func (s *InfluxTelemetryStore) buildDeviceIDsString(deviceIDs []models.DeviceIde
 	return sb.String()
 }
 
-func measurementTypesToStrings(types []models.MeasurementType) []string {
-	result := make([]string, len(types))
-	for i, mt := range types {
-		result[i] = mt.String()
-	}
-	return result
-}
-
 // getAggregationFunction returns the appropriate SQL aggregation function based on the AggregationType
 //
 //nolint:exhaustive // There are only a few types that we care about right now, and the default is AVG
@@ -821,35 +782,6 @@ func getAggregationFunction(aggType models.AggregationType) string {
 		fallthrough
 	default:
 		return "AVG"
-	}
-}
-
-// isCumulativeMeasurement determines if a measurement type is cumulative (like power, hashrate)
-// or non-cumulative (like temperature, voltage)
-func isCumulativeMeasurement(measurementType models.MeasurementType) bool {
-	switch measurementType {
-	case models.MeasurementTypePower:
-		return true
-	case models.MeasurementTypeHashrate:
-		return true
-	case models.MeasurementTypeUptime:
-		return true
-	case models.MeasurementTypeEfficiency:
-		return false
-	case models.MeasurementTypeTemperature:
-		return false
-	case models.MeasurementTypeVoltage:
-		return false
-	case models.MeasurementTypeCurrent:
-		return false
-	case models.MeasurementTypeFanSpeed:
-		return false
-	case models.MeasurementTypeErrorRate:
-		return false
-	case models.MeasurementTypeUnknown:
-		fallthrough
-	default:
-		return false // Default to non-cumulative for unknown types
 	}
 }
 
@@ -953,118 +885,6 @@ func (s *InfluxTelemetryStore) logWrite(pointCount int, duration time.Duration, 
 			slog.Int("point_count", pointCount),
 			slog.Int64("duration_ms", duration.Milliseconds()))
 	}
-}
-
-const GetCombinedMetricsWindowing = `
-{{define "GetCombinedMetricsWindowing"}}
-WITH steps AS (
-    SELECT
-        date_bin_wallclock_gapfill(INTERVAL '{{.SlideIntervalSecs}} second', tz(h.time, 'UTC')) AS bucket,
-        h.device_id,
-        avg(value) AS mean,
-        max(value) AS _max,
-        min(value) AS _min,
-        locf(last_value(value ORDER BY h.time)) AS _last,
-        max(h.time) AS last_time
-    FROM
-        '{{.Table}}' as h
-    WHERE
-		h.time BETWEEN (to_timestamp($start_time) - INTERVAL '{{.WindowDurationSecs}} second') AND $end_time
-		{{- if .DeviceIDs }}
-			AND h.device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
-		{{- end }}
-    GROUP BY bucket, h.device_id
-),
-device_roll_up AS (
-    SELECT
-        to_timestamp(bucket) AS _time,
-        device_id,
-		CASE
-		WHEN isnan(
-			avg (mean) OVER (
-				PARTITION BY device_id
-				ORDER BY bucket
-				RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
-			) )
-		THEN NULL
-		ELSE
-			avg (mean) OVER (
-				PARTITION BY device_id
-				ORDER BY bucket
-				RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
-			)
-		END AS mean,
-        max (_max) OVER (
-			PARTITION BY device_id
-			ORDER BY bucket
-			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
-		) AS _max,
-        min (_min) OVER (
-			PARTITION BY device_id
-			ORDER BY bucket
-			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
-		) AS _min,
-        last_value (_last) OVER (
-			PARTITION BY device_id
-			ORDER BY bucket
-			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
-		) AS latest_value
-    FROM steps
-	GROUP BY bucket, device_id
-    ORDER by bucket
-),
-{{end}}
-`
-const GetCombinedMetricsNonCumulativeTemplate = `
-{{template "GetCombinedMetricsWindowing" .}}
-bucket_stats AS (
-  SELECT
-    _time as time,
-    SUM(latest_value)                         AS v_sum,
-    AVG(latest_value)                         AS v_avg,
-    MIN(latest_value)                         AS v_min,
-    MAX(latest_value)                         AS v_max,
-    approx_percentile_cont(latest_value,0.25) AS v_q1,
-    approx_percentile_cont(latest_value,0.50) AS v_med,
-    approx_percentile_cont(latest_value,0.75) AS v_q3,
-    selector_first(latest_value, _time)['value'] AS v_first
-  FROM device_roll_up
-  GROUP BY _time
-)
-SELECT *
-FROM bucket_stats
-ORDER BY time
-LIMIT  {{.Limit}}
-OFFSET {{.Offset}};
-`
-
-const GetCombinedMetricCumulativeTemplate = `
-{{template "GetCombinedMetricsWindowing" .}}
-bucket_stats AS (
-  SELECT
-    _time as time,
-    SUM(mean)                      AS total,
-    SUM(_min)                       AS min_total,
-    SUM(_max)                       AS max_total,
-    AVG(_max - _min)             AS mean_change,
-    STDDEV_SAMP(_max - _min)     AS stddev_change
-  FROM device_roll_up
-  GROUP BY _time
-)
-SELECT
-	*
-FROM bucket_stats
-ORDER BY time
-LIMIT  {{.Limit}}
-OFFSET {{.Offset}};`
-
-type CombinedMetricsQueryParams struct {
-	Table              string   // measurement table, e.g. "power_w"
-	DeviceIDs          []string // nil if selecting by org
-	WindowDurationSecs int      // granularity in seconds
-	Limit              int      // page_size (≤1000)
-	Offset             int      // decoded page_token
-	SlideIntervalSecs  int      // step in seconds, used for windowing
 }
 
 // isCumulativeMetric determines if a measurement type represents a cumulative metric

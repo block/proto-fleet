@@ -348,7 +348,7 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		if update.Type == models.UpdateTypeTelemetry && update.Data != nil {
 			if sub.measurementTypes != nil {
 				// Determine measurement type from the data
-				mType := determineMeasurementType(update.Data.Measurement)
+				mType := measurementNameToType(update.Data.Measurement)
 				if !sub.measurementTypes[mType] {
 					continue
 				}
@@ -379,32 +379,6 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		"matchingSubscribers", matchingSubscribers,
 		"sentCount", sentCount,
 		"skippedCount", skippedCount)
-}
-
-// determineMeasurementType maps InfluxDB measurement names to internal types
-func determineMeasurementType(measurementName string) models.MeasurementType {
-	switch measurementName {
-	case "power_w":
-		return models.MeasurementTypePower
-	case "temperature_c":
-		return models.MeasurementTypeTemperature
-	case "hashrate_mhs":
-		return models.MeasurementTypeHashrate
-	case "efficiency_jh":
-		return models.MeasurementTypeEfficiency
-	case "fan_rpm":
-		return models.MeasurementTypeFanSpeed
-	case "voltage_mv":
-		return models.MeasurementTypeVoltage
-	case "current_ma":
-		return models.MeasurementTypeCurrent
-	case "uptime":
-		return models.MeasurementTypeUptime
-	case "error_rate":
-		return models.MeasurementTypeErrorRate
-	default:
-		return models.MeasurementTypeUnknown
-	}
 }
 
 // generateSubscriptionID creates a unique ID for a subscription
