@@ -462,8 +462,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       "sticky top-0 z-2 transition-shadow duration-500",
                       stickyBgColor,
                       stickyState.vertical.isStuck
-                        ? "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]"
-                        : "shadow-[0_0_6px_6px_rgba(0,0,0,0)]",
+                        ? "shadow-[0_4px_6px_0_rgba(0,0,0,0.06)]"
+                        : "shadow-[0_4px_6px_0_rgba(0,0,0,0)]",
                     )}
                   >
                     {itemSelectable && (

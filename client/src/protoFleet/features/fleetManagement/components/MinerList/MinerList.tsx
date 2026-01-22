@@ -96,7 +96,6 @@ const MinerList = ({
   minerIds = [],
   listClassName,
   paddingLeft,
-  overflowContainer,
   onAddMiners,
   totalMiners,
   totalDisabledMiners = 0,
@@ -307,7 +306,7 @@ const MinerList = ({
           )}
           containerClassName={listClassName}
           paddingLeft={paddingLeft}
-          overflowContainer={overflowContainer}
+          overflowContainer={false}
           total={totalMiners}
           totalDisabled={totalDisabledMiners}
           itemName={{ singular: "miner", plural: "miners" }}
