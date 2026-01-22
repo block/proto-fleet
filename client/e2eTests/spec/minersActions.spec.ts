@@ -17,6 +17,7 @@ test.describe("Miners", () => {
     });
 
     let minerIp: string;
+
     await test.step("Select first miner and shut it down", async () => {
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
@@ -61,6 +62,7 @@ test.describe("Miners", () => {
 
     const requestPromise = page.waitForRequest(/Reboot/);
     const responsePromise = page.waitForResponse(/Reboot/);
+
     await test.step("Select first miner and reboot it", async () => {
       let minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
@@ -92,6 +94,7 @@ test.describe("Miners", () => {
 
     const requestPromise = page.waitForRequest(/Reboot/);
     const responsePromise = page.waitForResponse(/Reboot/);
+
     await test.step("Select multiple miners and reboot them", async () => {
       let minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
       let minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
@@ -133,6 +136,7 @@ test.describe("Miners", () => {
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
+
     await test.step("Select first miner and set MAX power", async () => {
       let minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
@@ -162,6 +166,7 @@ test.describe("Miners", () => {
 
     const requestPromise2 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise2 = page.waitForResponse(/SetPowerTarget/);
+
     await test.step("Select first miner and set REDUCE power", async () => {
       let minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
@@ -196,6 +201,7 @@ test.describe("Miners", () => {
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
+
     await test.step("Select multiple miners and set MAX power", async () => {
       let minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
       let minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
@@ -235,6 +241,7 @@ test.describe("Miners", () => {
 
     const requestPromise2 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise2 = page.waitForResponse(/SetPowerTarget/);
+
     await test.step("Select multiple miners and set REDUCE power", async () => {
       await minersPage.clickActionsMenuButton();
       await minersPage.clickManagePowerButton();
@@ -268,6 +275,7 @@ test.describe("Miners", () => {
 
     let minerCount: number;
     let minerIp: string;
+
     await test.step("Select a miner and unpair it", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
@@ -295,6 +303,7 @@ test.describe("Miners", () => {
     let minerIp1: string;
     let minerIp2: string;
     let minerIp3: string;
+
     await test.step("Select multiple miners and unpair them", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
@@ -347,6 +356,7 @@ test.describe("Miners", () => {
 
     let minerIp: string;
     let minerCount: number;
+
     await test.step("Add a single miner", async () => {
       minerCount = await minersPage.getMinersCount();
       await minersPage.clickAddMinersButton();
@@ -374,6 +384,7 @@ test.describe("Miners", () => {
     let minerIp1: string;
     let minerIp2: string;
     let minerCount: number;
+
     await test.step("Add multiple miners", async () => {
       minerCount = await minersPage.getMinersCount();
       await minersPage.clickAddMinersButton();

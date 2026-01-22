@@ -6,6 +6,7 @@ test.describe("Mining Pools @setup", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
+
   const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
   const validPoolUrl = "stratum+tcp://stratum.slushpool.com:3333";
   const settingsPoolName = generateRandomText("PoolName");
@@ -54,6 +55,7 @@ test.describe("Mining Pools @setup", () => {
     await commonSteps.goToMinersPage();
 
     let amountOfMiners: number;
+
     await test.step("Select all miners and open pool editor", async () => {
       amountOfMiners = await minersPage.getMinersCount();
       await minersPage.clickSelectAllCheckbox();
@@ -84,6 +86,7 @@ test.describe("Mining Pools @setup", () => {
 
     let minerIp: string;
     let minerStatus: string;
+
     await test.step("Open pool editor for first miner", async () => {
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
       minerStatus = await minersPage.getMinerStatus(minerIp);
