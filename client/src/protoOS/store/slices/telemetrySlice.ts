@@ -13,7 +13,7 @@ import type {
 } from "../types";
 import type { MinerStore } from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
-import type { TelemetryData, TimeSeriesResponse } from "@/protoOS/api/generatedApi";
+import type { CoolingStatusCoolingstatus, TelemetryData, TimeSeriesResponse } from "@/protoOS/api/generatedApi";
 
 // Enable Map/Set support for Immer
 enableMapSet();
@@ -73,7 +73,7 @@ export interface TelemetrySlice {
   asics: Map<string, AsicTelemetryData>;
   psus: Map<number, PsuTelemetryData>;
   fans: Map<number, FanTelemetryData>;
-  coolingMode: string | null; // Current cooling mode (e.g., "COOLING_MODE_AUTO", "COOLING_MODE_OFF")
+  coolingMode: CoolingStatusCoolingstatus["fan_mode"] | null; // Current cooling mode (e.g., "Auto", "Off", "Manual")
   lastApiResponse: any | null; // Store the API response
   lastUpdated: number;
   intervalMs: number; // sampling interval from API
@@ -97,7 +97,7 @@ export interface TelemetrySlice {
   updateFanTelemetry: (fanSlot: number, telemetryData: Partial<FanTelemetryData>) => void;
 
   // Cooling Mode Actions
-  updateCoolingMode: (mode: string) => void;
+  updateCoolingMode: (mode: CoolingStatusCoolingstatus["fan_mode"]) => void;
 
   // Utility Actions
   clearOldData: (olderThanTimestamp: number) => void;

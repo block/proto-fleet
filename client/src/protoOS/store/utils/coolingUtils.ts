@@ -1,4 +1,4 @@
-import { FanStatus } from "@/protoOS/api/generatedApi";
+import { CoolingStatusCoolingstatus, FanStatus } from "@/protoOS/api/generatedApi";
 import { FanData } from "@/protoOS/store";
 
 /**
@@ -19,9 +19,12 @@ export const areAllFansDisconnected = (fans: (FanStatus | null)[] | null | undef
  * @param coolingMode - Current cooling mode from store
  * @returns true if fans are running in immersion mode
  */
-export const areFansDetectedInImmersionMode = (fans: (FanData | undefined)[], coolingMode: string | null): boolean => {
+export const areFansDetectedInImmersionMode = (
+  fans: (FanData | undefined)[],
+  coolingMode: CoolingStatusCoolingstatus["fan_mode"] | null,
+): boolean => {
   const hasFansRunning = fans.some((fan) => fan && (fan.rpm?.latest?.value ?? 0) > 0);
-  const isImmersionMode = coolingMode === "Off" || coolingMode === "COOLING_MODE_OFF";
+  const isImmersionMode = coolingMode === "Off";
 
   return hasFansRunning && isImmersionMode;
 };

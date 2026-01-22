@@ -54,12 +54,10 @@ const FAN_MODES: {
   [COOLING_MODES.immersion]: "Off",
 } as const;
 
-// Workaround: backend returns protobuf enum names (e.g. "COOLING_MODE_AUTO") instead of OpenAPI spec values ("Auto")
 // Note: "Manual" is treated as air-cooled since fans run at fixed speed (vs "Off" for immersion where fans are disabled)
-const isAirCooledMode = (fanMode: string | undefined) =>
-  fanMode === "Auto" || fanMode === "Manual" || fanMode === "COOLING_MODE_AUTO" || fanMode === "COOLING_MODE_MANUAL";
+const isAirCooledMode = (fanMode: string | undefined) => fanMode === "Auto" || fanMode === "Manual";
 
-const isImmersionMode = (fanMode: string | undefined) => fanMode === "Off" || fanMode === "COOLING_MODE_OFF";
+const isImmersionMode = (fanMode: string | undefined) => fanMode === "Off";
 
 const disabledClassName = "opacity-50 pointer-events-none";
 

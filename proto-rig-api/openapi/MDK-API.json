@@ -2745,9 +2745,10 @@
         "properties": {
           "mode": {
             "type": "string",
-            "description": "Parameter to define the cooling mode.  Modes:\n - Off: Fans will be set to off for immersion cooling.\n - Auto: Fans will be controlled based on miner temperature.\n - Manual: Fans run at a specified percentage of their maximum speed.",
+            "description": "Parameter to define the cooling mode.  Modes:\n - Unknown: Cooling mode is not yet determined.\n - Off: Fans will be set to off for immersion cooling.\n - Auto: Fans will be controlled based on miner temperature.\n - Manual: Fans run at a specified percentage of their maximum speed.",
             "example": "Auto",
             "enum": [
+              "Unknown",
               "Off",
               "Auto",
               "Manual"
@@ -3680,13 +3681,13 @@
         "properties": {
           "fan_mode": {
             "type": "string",
-            "description": "Current fan control mode.\n - Off: Fans are disabled.\n - Auto: Fans are controlled automatically based on temperature.\n - Manual: Fans are set to a fixed speed percentage.",
-            "example": "COOLING_MODE_AUTO",
+            "description": "Current fan control mode.\n - Unknown: Cooling mode is not yet determined.\n - Off: Fans are disabled.\n - Auto: Fans are controlled automatically based on temperature.\n - Manual: Fans are set to a fixed speed percentage.",
+            "example": "Auto",
             "enum": [
-              "COOLING_MODE_UNKNOWN",
-              "COOLING_MODE_OFF",
-              "COOLING_MODE_AUTO",
-              "COOLING_MODE_MANUAL"
+              "Unknown",
+              "Off",
+              "Auto",
+              "Manual"
             ]
           },
           "speed_percentage": {

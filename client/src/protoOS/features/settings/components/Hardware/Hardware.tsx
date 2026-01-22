@@ -23,7 +23,7 @@ const Hardware = () => {
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
 
   const noFansConnected = areAllFansDisconnected(coolingData?.fans);
-  const isImmersionMode = coolingMode === "Off" || coolingMode === "COOLING_MODE_OFF";
+  const isImmersionMode = coolingMode === "Off";
   const showNoFansCallout = noFansConnected && isImmersionMode;
 
   if (pending) {

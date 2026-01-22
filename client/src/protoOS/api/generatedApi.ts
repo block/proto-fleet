@@ -265,12 +265,13 @@ export interface ControlBoardInfoMpuinfo {
 export interface CoolingConfig {
   /**
    * Parameter to define the cooling mode.  Modes:
+   *  - Unknown: Cooling mode is not yet determined.
    *  - Off: Fans will be set to off for immersion cooling.
    *  - Auto: Fans will be controlled based on miner temperature.
    *  - Manual: Fans run at a specified percentage of their maximum speed.
    * @example "Auto"
    */
-  mode?: "Off" | "Auto" | "Manual";
+  mode?: "Unknown" | "Off" | "Auto" | "Manual";
   /**
    * Fan speed as a percentage of maximum RPM (valid range: 0-100). Used only when mode is Manual.
    * @min 0
@@ -290,12 +291,13 @@ export interface CoolingStatus {
 export interface CoolingStatusCoolingstatus {
   /**
    * Current fan control mode.
+   *  - Unknown: Cooling mode is not yet determined.
    *  - Off: Fans are disabled.
    *  - Auto: Fans are controlled automatically based on temperature.
    *  - Manual: Fans are set to a fixed speed percentage.
-   * @example "COOLING_MODE_AUTO"
+   * @example "Auto"
    */
-  fan_mode?: "COOLING_MODE_UNKNOWN" | "COOLING_MODE_OFF" | "COOLING_MODE_AUTO" | "COOLING_MODE_MANUAL";
+  fan_mode?: "Unknown" | "Off" | "Auto" | "Manual";
   /** This will show speed of all fans in the system. */
   fans?: FanStatus[];
   /**

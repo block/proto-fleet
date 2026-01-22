@@ -2,7 +2,7 @@
 
 ## Source
 - Repository: miner-firmware (private)
-- Commit SHA: 3ad922c677a23c9991609a1889fce80c6999a7d4
+- Commit SHA: 303723812bb09bfa4e2a0a2d7caf40961dc045d2
 - Commit Date: 2026-01-22
 - Extraction Date: 2026-01-22
 

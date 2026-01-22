@@ -22,7 +22,7 @@ describe("Hardware", () => {
     vi.clearAllMocks();
 
     // Default mock implementations
-    mockUseCoolingMode.mockReturnValue("COOLING_MODE_AUTO");
+    mockUseCoolingMode.mockReturnValue("Auto");
     mockUseHardware.mockReturnValue({
       hashboardsInfo: [{ board: "1234", hb_sn: "PM-123456789" }],
       controlBoardInfo: { board_id: "3", serial_number: "CB-123456789" },
@@ -49,7 +49,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("COOLING_MODE_AUTO");
+      mockUseCoolingMode.mockReturnValue("Auto");
       // Fans with RPM > 0 means they're connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -76,7 +76,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("COOLING_MODE_AUTO");
+      mockUseCoolingMode.mockReturnValue("Auto");
       // Some fans have RPM > 0, so not all disconnected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -105,7 +105,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("COOLING_MODE_OFF");
+      mockUseCoolingMode.mockReturnValue("Off");
       // All fans have RPM = 0 → no fans connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -125,33 +125,6 @@ describe("Hardware", () => {
       expect(screen.queryByText(/^Fan \d+$/)).not.toBeInTheDocument();
     });
 
-    it("shows callout when no fans are connected and in immersion mode (Off string)", () => {
-      mockUseHardware.mockReturnValue({
-        hashboardsInfo: [],
-        controlBoardInfo: null,
-        fansInfo: [null, null, null],
-        psusInfo: [],
-        pending: false,
-        error: null,
-      });
-      mockUseCoolingMode.mockReturnValue("Off");
-      // All fans have RPM = 0 → no fans connected
-      mockUseCoolingStatus.mockReturnValue({
-        data: {
-          fans: [
-            { slot: 1, rpm: 0 },
-            { slot: 2, rpm: 0 },
-            { slot: 3, rpm: 0 },
-          ],
-        },
-      });
-
-      render(<Hardware />);
-
-      expect(screen.getByText("No fans connected")).toBeInTheDocument();
-      expect(screen.getByText("This miner is set to immersion cooling")).toBeInTheDocument();
-    });
-
     it("does not show callout when no fans but in air cooling mode", () => {
       mockUseHardware.mockReturnValue({
         hashboardsInfo: [],
@@ -161,7 +134,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("COOLING_MODE_AUTO");
+      mockUseCoolingMode.mockReturnValue("Auto");
       // All fans have RPM = 0 but in air cooling mode (not immersion)
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -190,7 +163,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("COOLING_MODE_OFF");
+      mockUseCoolingMode.mockReturnValue("Off");
       // At least one fan has RPM > 0 → fans ARE connected, so don't show callout
       mockUseCoolingStatus.mockReturnValue({
         data: {
