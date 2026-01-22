@@ -40,6 +40,13 @@ describe("AddTeamMemberModal", () => {
     expect(getByText("Save")).toBeInTheDocument();
   });
 
+  it("autofocuses the username input on mount", () => {
+    const { getByLabelText } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
+
+    const usernameInput = getByLabelText("Username");
+    expect(usernameInput).toHaveFocus();
+  });
+
   it("save button is always enabled", () => {
     const { getByText } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 

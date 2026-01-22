@@ -35,7 +35,7 @@ const AuthenticateForm = ({ onChange, apiError }: { onChange: (value: string) =>
           </div>
         </div>
 
-        <Input id="currentPassword" label="Password" type="password" onChange={onChange} />
+        <Input id="currentPassword" label="Password" type="password" onChange={onChange} autoFocus />
       </div>
     </div>
   );
@@ -334,6 +334,7 @@ const AuthenticationSettings = () => {
                           type="password"
                           onChange={handleNewPasswordChange}
                           error={passwordErrorMsg}
+                          autoFocus
                         />
                         <div className="flex items-center justify-between gap-5">
                           <div>
@@ -386,6 +387,7 @@ const AuthenticationSettings = () => {
                         type="text"
                         onChange={handleNewUsernameChange}
                         error={usernameErrorMsg}
+                        autoFocus
                       />
                     </div>
                   </div>

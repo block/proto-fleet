@@ -228,6 +228,7 @@ const PoolSelectionModal = ({
             dismiss
             testId="pool-search-input"
             className="h-12"
+            autoFocus
           />
         </div>
 

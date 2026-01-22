@@ -274,6 +274,7 @@ const PoolModal = ({
             initValue={draftPoolInfo[poolIndex].name || ""}
             testId={`pool-name-${poolIndex}-input`}
             error={poolNameError}
+            autoFocus
           />
         )}
         <Input
@@ -284,6 +285,7 @@ const PoolModal = ({
           initValue={draftPoolInfo[poolIndex].url || ""}
           testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           error={urlError}
+          autoFocus={hidePoolName}
         />
         <Input
           id={`${poolInfoAttributes.username} ${poolIndex}`}

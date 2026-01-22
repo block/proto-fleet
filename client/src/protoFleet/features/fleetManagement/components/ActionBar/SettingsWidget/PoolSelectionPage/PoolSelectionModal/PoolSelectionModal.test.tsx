@@ -69,6 +69,13 @@ describe("PoolSelectionModal", () => {
     expect(searchInput).toBeInTheDocument();
   });
 
+  test("autofocuses the search input on mount", () => {
+    const { getByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
+
+    const searchInput = getByTestId("pool-search-input");
+    expect(searchInput).toHaveFocus();
+  });
+
   test("filters pools by name", () => {
     const { getByTestId, getByText, queryByText } = render(
       <PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />,

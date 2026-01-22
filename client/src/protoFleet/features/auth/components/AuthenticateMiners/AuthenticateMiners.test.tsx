@@ -139,6 +139,13 @@ describe("AuthenticateMiners", () => {
     expect(passwordInput).toHaveValue(mockPassword);
   });
 
+  it("autofocuses the bulk username input on mount", () => {
+    const { getByLabelText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    const usernameInput = getByLabelText(bulkUsernameLabel);
+    expect(usernameInput).toHaveFocus();
+  });
+
   it("shows error when authenticating without credentials", () => {
     const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 

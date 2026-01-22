@@ -403,6 +403,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
               disabled={authenticateLoading && bulkCredentials.username !== ""}
               error={hasMissingCredentials && !bulkCredentials.username ? "Missing username" : undefined}
               onChange={handleBulkChange}
+              autoFocus
             />
           </div>
           <div className="flex-1">

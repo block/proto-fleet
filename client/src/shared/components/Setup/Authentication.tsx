@@ -246,6 +246,7 @@ const Authentication = ({
           disabled={initUsername !== undefined && initUsername !== ""}
           initValue={values.username}
           error={errors.username}
+          autoFocus={!initUsername}
         />
         {isUpdateMode && (
           <Input
@@ -255,6 +256,7 @@ const Authentication = ({
             type="password"
             initValue={values.currentPassword}
             error={errors.currentPassword}
+            autoFocus={!!initUsername}
           />
         )}
         <div className="space-y-2">
@@ -265,6 +267,7 @@ const Authentication = ({
             type="password"
             initValue={values.password}
             error={errors.password}
+            autoFocus={!!initUsername && !isUpdateMode}
           />
           <div className="flex items-center justify-between gap-5">
             <div>
