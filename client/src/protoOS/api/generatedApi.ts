@@ -10,24 +10,21 @@
  * ---------------------------------------------------------------
  */
 
-/**
- * Statistical aggregates for time series data
- * @example {"min":28,"avg":31,"max":34}
- */
+/** Statistical aggregates for time series data */
 export interface Aggregates {
   /**
    * Average value in data.
-   * @example 31
+   * @example 50.5
    */
   avg?: number;
   /**
    * Maximum value in data.
-   * @example 34
+   * @example 100.5
    */
   max?: number;
   /**
    * Minimum value in data.
-   * @example 28
+   * @example 0.5
    */
   min?: number;
 }
@@ -52,17 +49,17 @@ export interface AsicStats {
   error_rate?: number;
   /**
    * The frequency of the ASIC measured in megahertz.
-   * @example 650
+   * @example 650.05
    */
   freq_mhz?: number;
   /**
    * The current hash rate of the ASIC, measured in GH/s.
-   * @example 300
+   * @example 300.05
    */
   hashrate_ghs?: number;
   /**
    * The expected hashrate determined by the clock frequency of the ASIC, measured in GH/s.
-   * @example 300
+   * @example 300.05
    */
   ideal_hashrate_ghs?: number;
   /**
@@ -296,9 +293,9 @@ export interface CoolingStatusCoolingstatus {
    *  - Off: Fans are disabled.
    *  - Auto: Fans are controlled automatically based on temperature.
    *  - Manual: Fans are set to a fixed speed percentage.
-   * @example "Auto"
+   * @example "COOLING_MODE_AUTO"
    */
-  fan_mode?: "Off" | "Auto" | "Manual";
+  fan_mode?: "COOLING_MODE_UNKNOWN" | "COOLING_MODE_OFF" | "COOLING_MODE_AUTO" | "COOLING_MODE_MANUAL";
   /** This will show speed of all fans in the system. */
   fans?: FanStatus[];
   /**
@@ -326,14 +323,10 @@ export interface EfficiencyResponse {
   "efficiency-data"?: EfficiencyResponseEfficiencydata;
 }
 
-/**
- * Efficiency data response with time series information
- * @example {"duration":"24h","data":[{"datetime":1704067200,"value":30},{"datetime":1704070800,"value":32}],"aggregates":{"min":28,"avg":31,"max":34}}
- */
+/** Efficiency data response with time series information */
 export interface EfficiencyResponseEfficiencydata {
   /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
-  /** @example [{"datetime":1704067200,"value":30},{"datetime":1704070800,"value":32}] */
   data?: TimeSeriesData[];
   /** Duration of time series data returned. */
   duration?: TimeSeriesDuration;
@@ -380,12 +373,12 @@ export interface FanInfo {
    * The maximum RPM of the cooling device.
    * @example 1000
    */
-  max_rpm?: number;
+  max_rpm?: number | null;
   /**
    * The minimum RPM of the cooling device.
    * @example 1000
    */
-  min_rpm?: number;
+  min_rpm?: number | null;
   /**
    * The name of the cooling device.
    * @example "CPU Cooler"
@@ -589,10 +582,7 @@ export interface HardwareInfo {
   "hardware-info"?: HardwareInfoHardwareinfo;
 }
 
-/**
- * Hardware information and specifications
- * @example {"hashboards-info":[],"psus-info":[],"fans-info":[],"cb-info":{}}
- */
+/** Hardware information and specifications */
 export interface HardwareInfoHardwareinfo {
   /** Complete control board hardware and firmware information */
   "cb-info"?: ControlBoardInfo;
@@ -611,15 +601,12 @@ export enum HashboardFieldType {
   Efficiency = "efficiency",
 }
 
-/**
- * Information about mining hashboards configuration and status
- * @example {"hb_sn":"HB001001","firmware":{},"bootloader":{},"api_version":"1.0","board":"PROTO0_B","chip_id":"ABC123","mining_asic":"BZM","mining_asic_count":120,"temp_sensor_count":3,"port":0,"ec_logs_path":"/var/log/ec_logs","slot":0}
- */
+/** Information about mining hashboards configuration and status */
 export interface HashboardInfo {
   /** @example "1.0" */
   api_version?: string;
-  /** @example "PROTO0_B" */
-  board?: "NOT_SET" | "PROTO0_A" | "PROTO0_B" | "EVT" | "DVT" | "PVT" | "EVB" | "EPIC" | "EE_TEST";
+  /** @example "B3a" */
+  board?: "CpuSimulated" | "B2" | "B3a" | "B3b" | "B3bSim" | "B4" | "B4Sim";
   /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
@@ -666,32 +653,29 @@ export interface HashboardStats {
   "hashboard-stats"?: HashboardStatsHashboardstats;
 }
 
-/**
- * Hashboard performance statistics and metrics
- * @example {"$ref":"#/components/examples/HashboardStatsResponse"}
- */
+/** Hashboard performance statistics and metrics */
 export interface HashboardStatsHashboardstats {
   asics?: AsicStats[];
   /**
    * Current average temperature of the hashboard in celsius.
-   * @example 75
+   * @example 75.05
    */
   avg_asic_temp_c?: number;
   /**
    * The efficiency of the hashboard in joules per terahash.
-   * @example 40
+   * @example 40.05
    */
   efficiency_jth?: number;
   /**
    * The current hash rate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
-   * @example 300
+   * @example 300.05
    */
   hashrate_ghs?: number;
   /** Manufacturing serial number of the hashboard, used for subsequent API calls. */
   hb_sn?: string;
   /**
    * The expected hashrate is determined by the clock frequency of the all ASIC on the hash board, measured in GH/s.
-   * @example 300
+   * @example 300.05
    */
   ideal_hashrate_ghs?: number;
   /**
@@ -701,7 +685,7 @@ export interface HashboardStatsHashboardstats {
   inlet_temp_c?: number;
   /**
    * Current maximum temperature of the hashboard in celsius.
-   * @example 75
+   * @example 75.05
    */
   max_asic_temp_c?: number;
   /**
@@ -711,7 +695,7 @@ export interface HashboardStatsHashboardstats {
   outlet_temp_c?: number;
   /**
    * The power consumption of the hashboard in watts.
-   * @example 1000
+   * @example 1000.05
    */
   power_usage_watts?: number;
   /**
@@ -726,7 +710,7 @@ export interface HashboardStatsHashboardstats {
   status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
   /**
    * The present voltage being supplied to the hashboard in millivolts.
-   * @example 16200
+   * @example 16200.05
    */
   voltage_mv?: number;
 }
@@ -770,7 +754,6 @@ export interface HashboardTemperature {
 
 /** Information about all hashboards connected to the mining device */
 export interface HashboardsInfo {
-  /** @example [{"hb_sn":"HB001234567890","api_version":"1.0","board":"PROTO0_B","mining_asic":"BZM","mining_asic_count":126,"temp_sensor_count":3,"slot":0}] */
   "hashboards-info"?: HashboardInfo[];
 }
 
@@ -780,14 +763,10 @@ export interface HashrateResponse {
   "hashrate-data"?: HashrateResponseHashratedata;
 }
 
-/**
- * Hashrate data response with time series information
- * @example {"duration":"24h","data":[{"datetime":1704067200,"value":98765432},{"datetime":1704070800,"value":99123456}],"aggregates":{"min":95000000,"avg":98944444,"max":100000000}}
- */
+/** Hashrate data response with time series information */
 export interface HashrateResponseHashratedata {
   /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
-  /** @example [{"datetime":1704067200,"value":98765432},{"datetime":1704070800,"value":99123456}] */
   data?: TimeSeriesData[];
   /** Duration of time series data returned. */
   duration?: TimeSeriesDuration;
@@ -838,7 +817,7 @@ export interface LogsResponseLogs {
 
 /** Generic response message */
 export interface MessageResponse {
-  /** @example "Operation completed successfully" */
+  /** @example "info" */
   message?: string;
 }
 
@@ -918,7 +897,7 @@ export interface MiningStatusMiningstatus {
    * Average temperature of the mining device.
    * @example 60
    */
-  average_hb_temp_c?: number;
+  average_hb_temp_c?: number | null;
   /**
    * The number of hardware errors that have occurred during the mining operation.
    * @example 100
@@ -1052,11 +1031,12 @@ export interface NetworkInfoNetworkinfo {
 export interface NotificationError {
   /** @example "FanSlow" */
   error_code?: string;
-  /** @example "Fan 1 is not operating correctly." */
+  /** @example "Fan 3 has stalled. Target RPM: 100, Actual RPM: 0" */
   message?: string;
   slot?: number;
   /** @example "rig" */
   source?: "rig" | "fan" | "psu" | "hashboard";
+  /** @example 1764160757 */
   timestamp?: number;
 }
 
@@ -1156,10 +1136,7 @@ export interface Pool {
    * @example 5
    */
   duplicate?: number;
-  /**
-   * Hashrate calculated over different time windows. This field provides a flexible array format for future extensions.
-   * @example [{"duration_minutes":5,"hashrate_ths":120.5},{"duration_minutes":10,"hashrate_ths":118.3},{"duration_minutes":60,"hashrate_ths":115.7},{"duration_minutes":180,"hashrate_ths":116.2}]
-   */
+  /** Hashrate calculated over different time windows. This field provides a flexible array format for future extensions. */
   hashrate?: HashrateWindow[];
   /**
    * Each pool has a unique ID from 0 to 2, with 0 representing the highest priority and 2 representing the lowest priority.
@@ -1182,6 +1159,11 @@ export interface Pool {
    */
   last_share_time?: number;
   /**
+   * User-defined display name for this pool. Empty string if not set.
+   * @example "Primary Pool"
+   */
+  name?: string;
+  /**
    * The number of notify messages (new jobs) received from the pool.
    * @example 10
    */
@@ -1189,7 +1171,7 @@ export interface Pool {
   /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. Duplicate priorities are not allowed. */
   priority?: number;
   /** The protocol being used for communication with the mining pool. */
-  protocol?: "Unknown" | "StratumV1" | "StratumV2";
+  protocol?: "Unknown" | "Stratum V1" | "Stratum V2";
   /**
    * The number of shares submitted by the miner to the pool that were not accepted because they did not meet the required difficulty level or other criteria.
    * @example 20
@@ -1213,21 +1195,13 @@ export type PoolConfig = PoolConfigInner[];
 
 /** Individual pool configuration with connection details */
 export interface PoolConfigInner {
+  /**
+   * User-defined display name for this pool.
+   * @example "Primary Pool"
+   */
+  name?: string;
   /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
   password?: PoolPassword;
-  /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
-  priority?: PoolPriority;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
-  url?: PoolUrl;
-  /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
-  username?: PoolUsername;
-}
-
-/** Response containing pool configuration results */
-export type PoolConfigResponse = PoolConfigResponseInner[];
-
-/** Response data for individual pool configuration operations */
-export interface PoolConfigResponseInner {
   /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
   priority?: PoolPriority;
   /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
@@ -1256,7 +1230,7 @@ export interface PoolResponse {
 
 /**
  * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
- * @example "pool1.com:3333"
+ * @example "stratum+tcp://myuser.worker1:x@btc.pool.com:3333"
  */
 export type PoolUrl = string;
 
@@ -1268,7 +1242,6 @@ export type PoolUsername = string;
 
 /** List of configured mining pools with their settings */
 export interface PoolsList {
-  /** @example [{"url":"stratum+tcp://pool.example.com:4334","username":"miner.001","password":"x"},{"url":"stratum+tcp://backup.pool.com:4334","username":"miner.001","password":"x"}] */
   pools?: Pool[];
 }
 
@@ -1286,14 +1259,10 @@ export interface PowerResponse {
   "power-data"?: PowerResponsePowerdata;
 }
 
-/**
- * Power data response with time series information
- * @example {"duration":"24h","data":[{"datetime":1704067200,"value":3250},{"datetime":1704070800,"value":3300}],"aggregates":{"min":3200,"avg":3275,"max":3350}}
- */
+/** Power data response with time series information */
 export interface PowerResponsePowerdata {
   /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
-  /** @example [{"datetime":1704067200,"value":3250},{"datetime":1704070800,"value":3300}] */
   data?: TimeSeriesData[];
   /** Duration of time series data returned. */
   duration?: TimeSeriesDuration;
@@ -1303,7 +1272,6 @@ export interface PowerResponsePowerdata {
 export interface PowerSuppliesResponse {
   /** PSU firmware update status information */
   psu_update_status?: PsuUpdateStatus;
-  /** @example [{"psu_sn":"CHI123456789","slot":1,"manufacturer":"Chicony","hw_revision":"A1","model":"S24","vendor":"Chicony"}] */
   psus_info?: PsuInfo[];
 }
 
@@ -1320,10 +1288,7 @@ export enum PsuFieldType {
   AverageTemp = "averageTemp",
 }
 
-/**
- * Power supply unit information and status
- * @example {"psu_sn":"517CP81302000721","slot":2,"manufacturer":"Chicony","hw_revision":"v1.0","model":"PSU3200","vendor":"Chicony","firmware":{"app_version":"1.0","bootloader_version":"1.0"},"power":{"input_voltage":240,"output_voltage":15.38,"input_current":20.34,"output_current":251.5,"input_power":3868,"output_power":4000},"temperatures":[]}
- */
+/** Power supply unit information and status */
 export interface PsuInfo {
   firmware?: {
     /**
@@ -1464,15 +1429,14 @@ export interface PsuUpdateStatus {
    * @example "2025-11-10T12:42:19Z"
    */
   last_update?: string;
-  /** Current status of PSU firmware update */
+  /** Status of PSU firmware update */
   status: PsuUpdateResultStatus;
 }
 
-/**
- * Information about all power supply units in the mining device
- * @example [{"serial_number":"PSU001234567890","model":"Example PSU 1","wattage":1600,"efficiency":94.5,"status":"online"}]
- */
-export type PsusInfo = PsuInfo[];
+/** Information about all power supply units in the mining device */
+export interface PsusInfo {
+  "psus-info"?: PsuInfo[];
+}
 
 /** Request data for refreshing JWT access tokens */
 export interface RefreshRequest {
@@ -1526,8 +1490,8 @@ export interface SystemInfo {
 
 /** System information and device details */
 export interface SystemInfoSysteminfo {
-  /** @example "c1-evt" */
-  board?: "stm32mp157d-dk1" | "stm32mp157f-dk2" | "c1-p0" | "c1-evt" | "unknown";
+  /** @example "C3" */
+  board?: "C1" | "C2" | "C3" | "Unknown";
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
   /** Software component name and version information */
@@ -1628,14 +1592,10 @@ export interface TemperatureResponse {
   "temperature-data"?: TemperatureResponseTemperaturedata;
 }
 
-/**
- * Temperature data response with time series information
- * @example {"duration":"24h","data":[{"datetime":1704067200,"value":68},{"datetime":1704070800,"value":72}],"aggregates":{"min":65,"avg":70,"max":75}}
- */
+/** Temperature data response with time series information */
 export interface TemperatureResponseTemperaturedata {
   /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
-  /** @example [{"datetime":1704067200,"value":68},{"datetime":1704070800,"value":72}] */
   data?: TimeSeriesData[];
   /** Duration of time series data returned. */
   duration?: TimeSeriesDuration;
@@ -1670,10 +1630,7 @@ export interface TimeSeriesAggregates {
   min?: number;
 }
 
-/**
- * Time series data point with timestamp and value for historical metrics
- * @example {"datetime":1704067200,"value":98765432}
- */
+/** Time series data point with timestamp and value for historical metrics */
 export interface TimeSeriesData {
   /**
    * Unix time epoch.
@@ -1682,7 +1639,7 @@ export interface TimeSeriesData {
   datetime?: number;
   /**
    * Value of data requested at the given datetime.
-   * @example 98765432
+   * @example 95.5
    */
   value?: number;
 }
@@ -1830,7 +1787,6 @@ export interface TimeSeriesRequest {
   /**
    * Array of level configurations. Each object specifies a level type, fields to retrieve, and optional indexes.
    * @minItems 1
-   * @example [{"type":"miner","fields":["hashrate","temperature","power"]},{"type":"hashboard","fields":["hashrate","inletTemp","outletTemp"],"indexes":[0,2]}]
    */
   levels: TimeSeriesLevelConfig[];
   /**
@@ -1843,15 +1799,14 @@ export interface TimeSeriesRequest {
 
 /** Response containing time series data for requested metrics */
 export interface TimeSeriesResponse {
-  /**
-   * Hierarchical data organized by level
-   * @example {"miner":{"hashrate":{"unit":"TH/s","values":[95,94.5,94.8],"aggregates":{"min":94,"avg":94.75,"max":95.5}},"temperature":{"unit":"°C","values":[65.5,65.7,66],"aggregates":{"min":65,"avg":65.8,"max":67.2}}},"hashboards":[{"index":0,"serial_number":"HB001","hashrate":{"unit":"TH/s","values":[31.5,31.45,31.52],"aggregates":{"min":31,"avg":31.49,"max":32}},"temperature":{"unit":"°C","values":[66,66.2,66.1],"aggregates":{"min":65.5,"avg":66.1,"max":67}}}],"psus":[{"index":0,"serial_number":"PSU001","inputVoltage":{"unit":"V","values":[240,240.1,239.9],"aggregates":{"min":239.5,"avg":240,"max":240.5}},"outputVoltage":{"unit":"V","values":[12.1,12.09,12.11],"aggregates":{"min":12,"avg":12.1,"max":12.2}},"outputPower":{"unit":"W","values":[3250,3245,3255],"aggregates":{"min":3200,"avg":3250,"max":3300}},"hotspotTemp":{"unit":"°C","values":[65.5,65.7,65.6],"aggregates":{"min":65,"avg":65.6,"max":66}}}]}
-   */
+  /** Hierarchical data organized by level */
   data?: {
     /** Array of ASIC-level data with zero-based indexing (present when 'asic' in levels) */
     asics?: {
-      /** Zero-based index of the ASIC */
-      index?: number;
+      /** Zero-based index of the hashboard this ASIC belongs to */
+      hashboard_index: number;
+      /** Zero-based index of the ASIC within its hashboard */
+      index: number;
       [key: string]: any;
     }[];
     /** Array of hashboard-level data with zero-based indexing (present when 'hashboard' in levels) */
@@ -2225,7 +2180,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     editPool: ({ id, ...query }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
-      this.request<PoolConfigResponse, MessageResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
         body: data,
@@ -2532,10 +2487,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/system/update/check
      */
     updateCheck: (params: RequestParams = {}) =>
-      this.request<MessageResponse, MessageResponse>({
+      this.request<void, MessageResponse>({
         path: `/api/v1/system/update/check`,
         method: "POST",
-        format: "json",
         ...params,
       }),
 
@@ -2548,11 +2502,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     postUpdateSystem: (params: RequestParams = {}) =>
-      this.request<MessageResponse, MessageResponse>({
+      this.request<void, MessageResponse>({
         path: `/api/v1/system/update`,
         method: "POST",
         secure: true,
-        format: "json",
         ...params,
       }),
 
@@ -2575,13 +2528,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<MessageResponse, MessageResponse>({
+      this.request<void, MessageResponse>({
         path: `/api/v1/system/update`,
         method: "PUT",
         body: data,
         secure: true,
         type: ContentType.FormData,
-        format: "json",
         ...params,
       }),
 

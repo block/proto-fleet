@@ -93,7 +93,8 @@ const useFirmwareUpdate = () => {
         } as HttpResponse<MessageResponse>;
       }
 
-      if (response && response.status === 200 && !response.data) {
+      // API returns void on success, so check status codes
+      if (response && response.status === 200) {
         return {
           data: { message: "Update check initiated successfully" },
           status: 200,
@@ -110,7 +111,7 @@ const useFirmwareUpdate = () => {
         } as HttpResponse<MessageResponse>;
       }
 
-      return response;
+      return response as unknown as HttpResponse<MessageResponse>;
     } catch (error: any) {
       // Handle JSON parsing errors from thrown exceptions
       if (error?.message?.includes("Unexpected end of JSON input")) {

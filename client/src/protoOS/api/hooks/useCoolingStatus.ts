@@ -12,6 +12,13 @@ export type CoolingStatusWithNullableFans = Omit<CoolingStatusCoolingstatus, "fa
   fans?: (FanStatus | null)[];
 };
 
+// Maps CoolingConfig mode values to CoolingStatusCoolingstatus fan_mode values
+const modeToFanMode: Record<NonNullable<CoolingConfig["mode"]>, NonNullable<CoolingStatusCoolingstatus["fan_mode"]>> = {
+  Off: "COOLING_MODE_OFF",
+  Auto: "COOLING_MODE_AUTO",
+  Manual: "COOLING_MODE_MANUAL",
+};
+
 interface UseCoolingStatusProps {
   poll?: boolean;
 }
@@ -137,16 +144,17 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
 
             // Update local state immediately with new fan_mode
             if (mode !== undefined && mode !== null) {
+              const fanMode = modeToFanMode[mode];
               setData((prevData) => {
                 if (!prevData) return prevData;
                 return {
                   ...prevData,
-                  fan_mode: mode,
+                  fan_mode: fanMode,
                 } as CoolingStatusWithNullableFans;
               });
 
               // Update store immediately so other components reflect the change
-              useMinerStore.getState().telemetry.updateCoolingMode(mode);
+              useMinerStore.getState().telemetry.updateCoolingMode(fanMode);
             }
 
             onSuccess?.(responseData);

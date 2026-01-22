@@ -435,26 +435,26 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 			return fmt.Sprintf("Power supply %d communication error", psuErr.Index)
 		},
 	},
-	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_UNDER_VOLTAGE: {
-		minerError:        sdkerrors.PSUInputVoltageLow,
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_UNDER_VOLTAGE: {
+		minerError:        sdkerrors.PSUOutputVoltageFault,
 		severity:          sdkerrors.SeverityCritical,
-		causeSummary:      "Overload",
+		causeSummary:      "Output undervoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Low input voltage detected on power supply %d", psuErr.Index)
+			return fmt.Sprintf("Power supply %d output voltage is too low", psuErr.Index)
 		},
 	},
-	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_VOLTAGE: {
-		minerError:        sdkerrors.PSUInputVoltageHigh,
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE: {
+		minerError:        sdkerrors.PSUOutputVoltageFault,
 		severity:          sdkerrors.SeverityCritical,
-		causeSummary:      "Internal fault",
+		causeSummary:      "Output overvoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
-			return fmt.Sprintf("Power supply %d overvoltage detected", psuErr.Index)
+			return fmt.Sprintf("Power supply %d output voltage is too high", psuErr.Index)
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_FAILURE: {
@@ -468,7 +468,7 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 			return fmt.Sprintf("Power supply %d output fault", psuErr.Index)
 		},
 	},
-	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_CURRENT: {
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_CURRENT: {
 		minerError:        sdkerrors.PSUOutputOvercurrent,
 		severity:          sdkerrors.SeverityCritical,
 		causeSummary:      "Loose AC connection",
@@ -521,6 +521,39 @@ var psuErrorMappings = map[miner_psu_api.PsuErrorCode]errorMapping{
 		formatSummary: func(err any) string {
 			psuErr := err.(*miner_psu_api.PsuError)
 			return fmt.Sprintf("Power supply %d is detecting an input voltage fault", psuErr.Index)
+		},
+	},
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE: {
+		minerError:        sdkerrors.PSUInputVoltageLow,
+		severity:          sdkerrors.SeverityCritical,
+		causeSummary:      "Input undervoltage",
+		recommendedAction: actionRetestReplace,
+		impact:            impactBayShutdown,
+		formatSummary: func(err any) string {
+			psuErr := err.(*miner_psu_api.PsuError)
+			return fmt.Sprintf("Power supply %d input voltage is too low", psuErr.Index)
+		},
+	},
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_VOLTAGE: {
+		minerError:        sdkerrors.PSUInputVoltageHigh,
+		severity:          sdkerrors.SeverityCritical,
+		causeSummary:      "Input overvoltage",
+		recommendedAction: actionRetestReplace,
+		impact:            impactBayShutdown,
+		formatSummary: func(err any) string {
+			psuErr := err.(*miner_psu_api.PsuError)
+			return fmt.Sprintf("Power supply %d input voltage is too high", psuErr.Index)
+		},
+	},
+	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_CURRENT: {
+		minerError:        sdkerrors.PSUFaultGeneric,
+		severity:          sdkerrors.SeverityCritical,
+		causeSummary:      "Input overcurrent",
+		recommendedAction: actionRetestReplace,
+		impact:            impactBayShutdown,
+		formatSummary: func(err any) string {
+			psuErr := err.(*miner_psu_api.PsuError)
+			return fmt.Sprintf("Power supply %d input current is too high", psuErr.Index)
 		},
 	},
 	miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_NO_INPUT_VOLTAGE: {

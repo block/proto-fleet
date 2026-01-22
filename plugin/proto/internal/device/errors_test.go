@@ -40,7 +40,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		expectedFullError map[string]any
 	}{
 		{
-			name: "PSU overvoltage includes slot number",
+			name: "PSU output overvoltage includes slot number",
 			response: &miner_data_api.ErrorsResponse{
 				Errors: []*miner_data_api.ErrorFromDb{
 					{
@@ -48,7 +48,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_VOLTAGE,
+									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE,
 									Index: 2,
 								},
 							},
@@ -58,7 +58,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Power supply 2 overvoltage detected"},
+			expectedSummaries: []string{"Power supply 2 output voltage is too high"},
 		},
 		{
 			name: "fan slow spin with RPM details",
@@ -321,7 +321,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 						Error: &miner_error_code.Error{
 							Err: &miner_error_code.Error_PsuError{
 								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_VOLTAGE,
+									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE,
 									Index: 1,
 								},
 							},
@@ -354,7 +354,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedCount:  3,
 			validationType: validateSummaries,
 			expectedSummaries: []string{
-				"Power supply 1 overvoltage detected",
+				"Power supply 1 output voltage is too high",
 				"Fan 2 hardware error",
 				"Hashboard 3 has lost power",
 			},
@@ -426,6 +426,84 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedCount:     1,
 			validationType:    validateSummaries,
 			expectedSummaries: []string{"Power supply 3 overheating"},
+		},
+		{
+			name: "PSU input undervoltage",
+			response: &miner_data_api.ErrorsResponse{
+				Errors: []*miner_data_api.ErrorFromDb{
+					{
+						Timestamp: testTimestamp1,
+						Error: &miner_error_code.Error{
+							Err: &miner_error_code.Error_PsuError{
+								PsuError: &miner_psu_api.PsuError{
+									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE,
+									Index: 1,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCount:  1,
+			validationType: validateFullError,
+			expectedFullError: map[string]any{
+				"summary":      "Power supply 1 input voltage is too low",
+				"minerError":   sdkerrors.PSUInputVoltageLow,
+				"severity":     sdkerrors.SeverityCritical,
+				"causeSummary": "Input undervoltage",
+			},
+		},
+		{
+			name: "PSU input overvoltage",
+			response: &miner_data_api.ErrorsResponse{
+				Errors: []*miner_data_api.ErrorFromDb{
+					{
+						Timestamp: testTimestamp1,
+						Error: &miner_error_code.Error{
+							Err: &miner_error_code.Error_PsuError{
+								PsuError: &miner_psu_api.PsuError{
+									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_VOLTAGE,
+									Index: 2,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCount:  1,
+			validationType: validateFullError,
+			expectedFullError: map[string]any{
+				"summary":      "Power supply 2 input voltage is too high",
+				"minerError":   sdkerrors.PSUInputVoltageHigh,
+				"severity":     sdkerrors.SeverityCritical,
+				"causeSummary": "Input overvoltage",
+			},
+		},
+		{
+			name: "PSU input overcurrent",
+			response: &miner_data_api.ErrorsResponse{
+				Errors: []*miner_data_api.ErrorFromDb{
+					{
+						Timestamp: testTimestamp1,
+						Error: &miner_error_code.Error{
+							Err: &miner_error_code.Error_PsuError{
+								PsuError: &miner_psu_api.PsuError{
+									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_CURRENT,
+									Index: 3,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCount:  1,
+			validationType: validateFullError,
+			expectedFullError: map[string]any{
+				"summary":      "Power supply 3 input current is too high",
+				"minerError":   sdkerrors.PSUFaultGeneric,
+				"severity":     sdkerrors.SeverityCritical,
+				"causeSummary": "Input overcurrent",
+			},
 		},
 		{
 			name: "hashboard undervoltage with voltage",
