@@ -1,15 +1,8 @@
 name: ProtoFleet Deploy Miner Simulator
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/protofleet-deploy-develop-frontend.yml"
-      - "client/**"
-      - "deploy/develop/frontend/**"
-      - "miner-firmware"
-      - "miner-firmware/**"
+  # NOTE: This workflow requires access to miner-firmware (private) to build the simulator
+  # It can only be triggered manually with appropriate access
   workflow_dispatch:
 
 permissions:

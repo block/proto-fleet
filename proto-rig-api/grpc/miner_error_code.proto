@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package miner_error_code;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_psu_api.proto";
+import "miner_hb_api.proto";
+import "miner_fan_api.proto";
+
+// Error block offset are according to R2 FW EFFA doc:
+// https://docs.google.com/spreadsheets/d/1W4rTrs-XgJptoGdd9VEa0Q4iB6ee2i46YhoVzEnIl4k
+enum ErrorCodeOffset {
+    PSU_ERROR_CODE_OFFSET = 0x00000;
+    FAN_ERROR_CODE_OFFSET = 0x10000;
+    RIG_ERROR_CODE_OFFSET = 0x30000;
+    HB_ERROR_CODE_OFFSET = 0x40000;
+}
+
+// Rig (Control Board) Error code offset start at 0x30000
+enum RigErrorCode {
+    RIG_ERROR_CODE_UNKNOWN = 0;
+    RIG_ERROR_CODE_LOW_HASH_RATE = 1;
+    RIG_ERROR_CODE_DHCP_FAILURE = 2;
+    RIG_ERROR_CODE_USB_FAILURE = 3;
+    RIG_ERROR_CODE_POOL_CONNECTION_FAILURE = 4;
+    RIG_ERROR_CODE_HIGH_CPU_USAGE = 5;
+    RIG_ERROR_CODE_OVER_HEAT = 6;
+    RIG_ERROR_CODE_NETWORK_ERROR = 7;
+    RIG_ERROR_CODE_MEMFAULT_CONNECTION_FAILURE = 8;
+    RIG_ERROR_CODE_FIRMWARE_UPDATE_FAILURE = 9;
+    RIG_ERROR_CODE_MIXED_HASHBOARD_TYPES_IN_BAY = 10;
+    RIG_ERROR_CODE_MINING_STOPPED_DUE_TO_PHASE_IMBALANCE = 18;
+    RIG_ERROR_CODE_POOL_CONFIG_MISSING = 19;
+    RIG_ERROR_CODE_INSUFFICIENT_COOLING = 20;
+    RIG_ERROR_CODE_PSU_RECOVERY_IN_PROGRESS = 21;
+}
+
+message RigError {
+
+    message BayIndex {
+        uint32 bay_index = 1;
+    }
+
+    message InsufficientCooling {
+        uint32 bay_index = 1;
+        uint32 num_operational_fans = 2;
+        uint32 num_expected_fans = 3;
+        repeated uint32 failed_fans = 4;
+        repeated uint32 required_fans = 5;
+    }
+
+    message PsuRecoveryInProgress {
+        uint32 bay_index = 1;
+        repeated miner_psu_api.PsuErrorCode psu_error_codes = 2;
+    }
+
+    message PhaseImbalance {
+        repeated uint32 failed_bays = 1;
+    }
+
+    message PoolInfo {
+        uint32 id = 1;
+        string url = 2;
+    }
+
+    RigErrorCode code = 1;
+    oneof detail {
+        BayIndex bay_index = 2;
+        InsufficientCooling insufficient_cooling = 3;
+        PsuRecoveryInProgress psu_recovery_in_progress = 4;
+        PhaseImbalance phase_imbalance = 5;
+        PoolInfo pool_info = 6;
+    }
+}
+
+
+
+message Error {
+    oneof err {
+        RigError rig_error = 1;
+        miner_fan_api.FanError fan_error = 2;
+        miner_hb_api.HbError hb_error = 3;
+        miner_psu_api.PsuError psu_error = 4;
+    }
+}
+
+// Simple message to return a list of error codes, mainly used for when publishing errors via pubsub msg
+message ErrorList {
+    repeated Error errors = 1;
+}

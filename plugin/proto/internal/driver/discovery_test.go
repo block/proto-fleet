@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -20,7 +19,6 @@ type simMinerContainer struct {
 	container testcontainers.Container
 	host      string
 	port2121  string
-	port8080  string
 }
 
 // startSimMiner starts a sim miner container and returns connection details
@@ -31,22 +29,11 @@ func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    "../../../../miner-firmware",
-			Dockerfile: "docker/sim/Dockerfile",
-			BuildArgs: map[string]*string{
-				"TYPE": stringPtr("b4-sim"),
-			},
-			BuildOptionsModifier: func(opts *build.ImageBuildOptions) {
-				opts.Version = build.BuilderBuildKit
-			},
+			Context:    "../../../..",
+			Dockerfile: "server/fake-proto-rig/Dockerfile",
 		},
-		ExposedPorts: []string{"8080/tcp", "2121/tcp"},
-		WaitingFor: wait.ForAll(
-			wait.ForListeningPort("8080/tcp"),
-			wait.ForListeningPort("2121/tcp"),
-		).WithDeadline(3 * time.Minute),
-		Privileged: true,
-		CapAdd:     []string{"NET_ADMIN", "NET_RAW"},
+		ExposedPorts: []string{"2121/tcp"},
+		WaitingFor:   wait.ForHTTP("/health").WithPort("2121/tcp").WithStartupTimeout(2 * time.Minute),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -62,14 +49,10 @@ func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 	port2121, err := container.MappedPort(ctx, "2121")
 	require.NoError(t, err, "Failed to get mapped port 2121")
 
-	port8080, err := container.MappedPort(ctx, "8080")
-	require.NoError(t, err, "Failed to get mapped port 8080")
-
 	simMiner := &simMinerContainer{
 		container: container,
 		host:      host,
 		port2121:  port2121.Port(),
-		port8080:  port8080.Port(),
 	}
 
 	// Wait for miner to be ready
@@ -563,8 +546,4 @@ func BenchmarkDiscoverDevice(b *testing.B) {
 func getUnusedNonRoutableIP(t *testing.T) string {
 	t.Helper()
 	return "192.0.2.1"
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

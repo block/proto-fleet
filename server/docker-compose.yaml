@@ -84,22 +84,25 @@ services:
       start_period: 3s
 
   # Development-specific services
-  mms:
+  fake-proto-rig:
     build:
-      context: ../miner-firmware
-      dockerfile: docker/sim/Dockerfile
-      args:
-        TYPE: "b4-sim"
+      context: ..
+      dockerfile: server/fake-proto-rig/Dockerfile
+    environment:
+      GRPC_PORT: "2121"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2121/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     expose:
-      - 8080
       - 2121
-    privileged: true
     deploy:
       replicas: 5 # Default is 5 instances, can be overridden with --scale
       resources:
         limits:
-          cpus: "0.5"
-          memory: 512M
+          cpus: "0.25"
+          memory: 128M
         reservations:
           memory: 64M
     networks:
@@ -245,21 +248,25 @@ services:
       - NET_RAW
   proto-sim:
     build:
-      context: ../miner-firmware
-      dockerfile: docker/sim/Dockerfile
-      args:
-        TYPE: "b4-sim"
+      context: ..
+      dockerfile: server/fake-proto-rig/Dockerfile
+    environment:
+      GRPC_PORT: "2121"
+      SERIAL_NUMBER: "PROTO-SIM-001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2121/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     ports:
-      - "8080:8080"
       - "2121:2121"
-    privileged: true
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 512M
-        reservations:
+          cpus: "0.25"
           memory: 128M
+        reservations:
+          memory: 64M
     networks:
       - fleet-network
     cap_add:

@@ -168,10 +168,9 @@ ProtoFleet uses **Zustand with a slice-based architecture** (`useFleetStore`):
 
 **ProtoOS** - REST API with Swagger/OpenAPI:
 
-- Generated TypeScript client from `miner-firmware/crates/miner-api-server/docs/MDK-API.json`
+- Generated TypeScript client from `proto-rig-api/openapi/MDK-API.json`
 - Generated file: `src/protoOS/api/generatedApi.ts`
 - Regenerate with: `npm run generate-api-types`
-- Requires miner-firmware submodule: `git submodule update`
 - Application code uses hooks in `src/protoOS/api/hooks/` (not `generatedApi.ts` directly)
 - Hooks handle error handling, polling, and automatic store updates
 

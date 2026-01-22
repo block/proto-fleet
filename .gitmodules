@@ -1,3 +1,0 @@
-[submodule "miner-firmware"]
-	path = miner-firmware
-	url = https://github.com/btc-mining/miner-firmware.git

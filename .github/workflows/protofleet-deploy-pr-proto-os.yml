@@ -3,13 +3,9 @@
 name: ProtoFleet Deploy PR Proto OS
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-deploy-pr-frontend.yml"
-      - "client/**"
-      - "deploy/develop/frontend/**"
-      - "miner-firmware"
-      - "miner-firmware/**"
+  # NOTE: This workflow requires access to miner-firmware (private) to build the simulator
+  # It can only be triggered manually with appropriate access
+  workflow_dispatch:
 
 permissions:
   # Needed for aws-actions/configure-aws-credentials

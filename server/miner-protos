@@ -1,1 +1,1 @@
-../miner-firmware/crates/rpc/protos
+../proto-rig-api/grpc

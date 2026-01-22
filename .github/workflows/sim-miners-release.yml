@@ -1,5 +1,7 @@
 name: Create SimMiners Release Artifacts
 
+# NOTE: This workflow requires access to miner-firmware (private) to build the simulator
+# It should only run in environments with access to the private submodule
 on:
   release:
     types: [created]

@@ -4,15 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Proto Fleet is a monorepo for a Bitcoin mining fleet management system with three main components:
+Proto Fleet is a monorepo for a Bitcoin mining fleet management system with two main components:
 
 - **Client**: TypeScript/React applications (ProtoOS dashboard and ProtoFleet management UI)
 - **Server**: Go backend service (fleet API, telemetry, device management)
-- **Miner Firmware**: Rust-based firmware for mining hardware (Git submodule)
 
 The system allows management of both Proto (custom firmware) and Antminer devices through a unified interface.
 
-**Note**: The `miner-firmware/` directory is a Git submodule that must be initialized before certain operations (e.g., generating ProtoOS API types from the miner API definitions).
+API specifications for Proto miner communication are vendored in `proto-rig-api/` (gRPC protos and OpenAPI spec).
 
 ## Quick Reference
 
@@ -53,9 +52,6 @@ The workspace is automatically active when running Go commands from the root dir
 
 # Install all dependencies
 just init
-
-# Initialize miner-firmware submodule
-git submodule update --init --recursive
 ```
 
 ## Common Development Workflows
@@ -135,7 +131,9 @@ proto-fleet/
 │   └── CLAUDE.md             # Detailed server development guide
 ├── proto/                     # Protocol Buffer API definitions (shared)
 │   ├── auth/, pairing/, telemetry/, fleetmanagement/, etc.
-├── miner-firmware/           # Rust firmware (Git submodule)
+├── proto-rig-api/            # Vendored API specs for Proto miner communication
+│   ├── grpc/                 # Protocol Buffer definitions
+│   └── openapi/              # OpenAPI/Swagger specification
 ├── plugin/                   # External plugin support
 ├── deployment-files/         # Deployment configurations
 └── bin/                      # Hermit-managed binaries
@@ -159,7 +157,7 @@ Two separate React applications sharing common components:
 **ProtoOS** (Single Miner Dashboard):
 
 - REST API with polling for updates
-- Generated types from OpenAPI/Swagger definitions in miner firmware
+- Generated types from OpenAPI/Swagger definitions in `proto-rig-api/openapi/`
 - Zustand state management with slice-based architecture
 - Served by embedded API server on mining device
 
@@ -294,18 +292,6 @@ Never manually edit generated files in:
 - `client/src/protoOS/api/generatedApi.ts`
 - `client/src/protoFleet/api/generated/`
 - `server/generated/`
-
-### Git Submodules
-
-The miner-firmware directory must be initialized for certain operations:
-
-```bash
-# Initialize/update submodule
-git submodule update --init --recursive
-
-# Clean submodules
-just clean-submodules
-```
 
 ### Multi-App Build System
 

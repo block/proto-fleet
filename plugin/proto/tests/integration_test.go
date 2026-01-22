@@ -31,25 +31,21 @@ func TestProtoPluginIntegration(t *testing.T) {
 	keyPair, err := testutils.GenerateEd25519KeyPair()
 	require.NoError(t, err, "Failed to generate Ed25519 key pair for test")
 
-	// Start proto-sim container using the same config as server/docker-compose.yaml
+	// Start fake-proto-rig container (Go-based simulator)
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    "../../../miner-firmware",
-			Dockerfile: "docker/sim/Dockerfile",
-			BuildArgs: map[string]*string{
-				"TYPE": stringPtr("b4-sim"),
-			},
+			Context:    "../../..",
+			Dockerfile: "server/fake-proto-rig/Dockerfile",
 			BuildOptionsModifier: func(opts *build.ImageBuildOptions) {
 				opts.Version = build.BuilderBuildKit
 			},
 		},
-		ExposedPorts: []string{"8080/tcp", "2121/tcp"},
-		WaitingFor: wait.ForAll(
-			wait.ForListeningPort("8080/tcp"),
-			wait.ForListeningPort("2121/tcp"),
-		).WithDeadline(3 * time.Minute),
-		Privileged: true,
-		CapAdd:     []string{"NET_ADMIN", "NET_RAW"},
+		ExposedPorts: []string{"2121/tcp"},
+		WaitingFor:   wait.ForHTTP("/health").WithPort("2121/tcp").WithStartupTimeout(2 * time.Minute),
+		Env: map[string]string{
+			"GRPC_PORT":     "2121",
+			"SERIAL_NUMBER": "PROTO-SIM-TEST",
+		},
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

@@ -50,7 +50,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
-          submodules: recursive
 
       - name: Activate hermit
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
@@ -90,13 +89,13 @@ jobs:
             exit 1
           fi
 
+          # Pre-pull images used by fake-proto-rig Dockerfile to avoid testcontainers resolution issues
+          echo "Pre-pulling Alpine images for fake-proto-rig build..."
+          docker pull golang:1.25.4-alpine
+          docker pull alpine:3.21
+          echo "✅ Alpine images pulled successfully"
+
           echo "Docker daemon is fully functional with all required images"
-
-      - name: Ensure miner-firmware submodule is correct
-        run: |
-          echo "Ensure dist protoOS exists"
-
-          mkdir -p ../../miner-firmware/docker/sim/protoOS/dist/protoOS
 
       - name: Run tests
         run: go test -timeout=30m ./...

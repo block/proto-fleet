@@ -150,15 +150,9 @@ There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for prod
 
 ## API typescript definition file
 
-There is a `/protoOS/api/types.ts` file that has been automatically generated based on swagger's `MDK-API.json` file in `miner-api-server/docs`.
+There is a `/protoOS/api/types.ts` file that has been automatically generated based on the `MDK-API.json` OpenAPI spec in `proto-rig-api/openapi/`.
 
-You need to fetch the miner-firmware submodule first.
-
-```sh
-git submodule update
-```
-
-Then run this command to regenerate the file.
+Run this command to regenerate the file:
 
 ```sh
 node scripts/generate_api_ts.mjs

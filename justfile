@@ -111,5 +111,3 @@ test-e2e-headed: install-playwright
 test-e2e-wip: install-playwright
   npx playwright test --grep @wip --project=desktop
   
-clean-submodules:
-  git submodule update --init --force --recursive --checkout && git submodule foreach --recursive "git reset --hard && git clean -ffdx" && mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS

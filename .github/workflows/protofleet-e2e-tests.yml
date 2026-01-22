@@ -35,7 +35,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
-          submodules: recursive
 
       - name: Activate hermit
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
@@ -79,18 +78,6 @@ jobs:
           # Skip lint in CI to avoid import order issues from merged main branch
           npm run build:protoOS
           npm run build:protoFleet
-
-      - name: Copy ProtoOS build to miner-firmware
-        run: |
-          mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS
-          cp -r client/dist/protoOS/* miner-firmware/docker/sim/protoOS/dist/protoOS/
-
-          # Verify ProtoOS files were copied successfully
-          if [ ! -f "miner-firmware/docker/sim/protoOS/dist/protoOS/index.html" ]; then
-            echo "ERROR: ProtoOS build files not copied correctly"
-            exit 1
-          fi
-          echo "ProtoOS files copied and verified"
 
       - name: Build plugins for CI (Linux AMD64)
         run: |
@@ -184,8 +171,8 @@ jobs:
       - name: Start simulated miners
         working-directory: server
         run: |
-          # Scale up miner simulators (5 MMS + 5 Antminer + 2 single instances = 12 total)
-          docker compose up -d --scale mms=5 --scale fake-antminer=5
+          # Scale up miner simulators (5 fake-proto-rig + 5 Antminer = 10 total)
+          docker compose up -d --scale fake-proto-rig=5 --scale fake-antminer=5
 
           # Give miners time to start
           sleep 10

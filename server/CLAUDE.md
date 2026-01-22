@@ -142,7 +142,7 @@ The codebase follows a domain-driven design with clear separation of concerns:
 
 **Protocol**: Uses [Connect RPC](https://connectrpc.com/) which supports both gRPC and Connect protocols over HTTP/1.1 and HTTP/2.
 
-**Code Generation**: API definitions are in protobuf format. The `miner-protos` directory is a symlink to miner firmware protos. Generated code goes to `generated/miner-api/` and `generated/grpc/`.
+**Code Generation**: API definitions are in protobuf format. Proto miner API definitions are vendored in `proto-rig-api/grpc/`. Generated code goes to `generated/miner-api/` and `generated/grpc/`.
 
 **Interceptors**: Authentication, error mapping, logging, and validation are implemented as Connect interceptors in `internal/handlers/interceptors/`.
 

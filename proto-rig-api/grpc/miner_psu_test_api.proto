@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package miner_psu_test_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_psu_api.proto";
+
+// ============================================================================
+// Injection Command Messages
+// ============================================================================
+
+// Inject a PSU error code.
+message InjectError {
+  miner_psu_api.PsuErrorCode error_code = 1;
+  // If true, injection persists until explicitly cleared.
+  // If false, injection is consumed after one telemetry read (one-shot).
+  bool persistent = 2;
+}
+
+// Inject a measurement value override.
+message InjectMeasurement {
+  miner_psu_api.PsuMeasurement measurement = 1;
+  // If true, injection persists until explicitly cleared.
+  // If false, injection is consumed after one telemetry read (one-shot).
+  bool persistent = 2;
+}
+
+// Clear active injections.
+message ClearInjections {
+  // If true, clear all injected errors.
+  bool errors = 1;
+  // If true, clear all injected measurements.
+  bool measurements = 2;
+}
+
+// ============================================================================
+// PSU Test Injection Message (listen on "psu.<id>.test")
+// ============================================================================
+
+// Message for test injection commands.
+// Subscribe on "psu.<id>.test" subject.
+message PsuTestInject {
+  oneof cmd {
+    InjectError inject_error = 1;
+    InjectMeasurement inject_measurement = 2;
+    ClearInjections clear_injections = 3;
+    // Note: TriggerRecovery is intentionally omitted for MVP
+  }
+}
