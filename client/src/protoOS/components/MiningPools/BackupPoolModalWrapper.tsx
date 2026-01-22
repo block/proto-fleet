@@ -34,7 +34,6 @@ const BackupPoolModalWrapper = ({
       testConnection={testConnection}
       mode={mode}
       onDelete={onDelete}
-      hidePoolName
     />
   );
 };

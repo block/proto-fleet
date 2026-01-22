@@ -34,8 +34,7 @@ const SettingsMiningPools = () => {
       const newPools = [...Array(3)].map((_, index) => {
         const pool = poolsInfo?.[index];
         return {
-          // Forward compatible: use pool name if firmware provides it in the future
-          name: (pool as { name?: string })?.name || "",
+          name: pool?.name || "",
           url: pool?.url || "",
           username: pool?.user || "",
           password: "",
@@ -56,6 +55,7 @@ const SettingsMiningPools = () => {
       const previous = previousPools[i];
 
       if (
+        current.name !== previous.name ||
         current.url !== previous.url ||
         current.username !== previous.username ||
         current.password !== previous.password
@@ -89,6 +89,7 @@ const SettingsMiningPools = () => {
           editPool({
             poolId: changedPoolIndex,
             poolInfo: {
+              name: changedPool.name,
               url: changedPool.url,
               username: changedPool.username,
               password: changedPool.password,

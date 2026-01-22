@@ -31,6 +31,7 @@ const warnDefaultPoolCallout = "warn-default-pool-callout";
 const warnBackupPoolDialog = "warn-backup-pool-dialog";
 
 // Modal inputs use poolIndex in their testIds
+const getPoolNameInput = (poolIndex: number) => `pool-name-${poolIndex}-input`;
 const getUrlInput = (poolIndex: number) => `url-${poolIndex}-input`;
 const getUsernameInput = (poolIndex: number) => `username-${poolIndex}-input`;
 const getEditButton = (poolIndex: number) => `pool-${poolIndex}-edit-button`;
@@ -84,9 +85,12 @@ describe("Onboarding", () => {
     await user.click(getByTestId(addPoolButton));
 
     // Fill in pool details
+    const poolNameInput = getByTestId(getPoolNameInput(0));
     const urlInput = getByTestId(getUrlInput(0));
     const usernameInput = getByTestId(getUsernameInput(0));
 
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Test Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -109,8 +113,11 @@ describe("Onboarding", () => {
 
     // Add a pool
     await user.click(getByTestId(addPoolButton));
+    const poolNameInput = getByTestId(getPoolNameInput(0));
     const urlInput = getByTestId(getUrlInput(0));
     const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Test Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -139,8 +146,11 @@ describe("Onboarding", () => {
 
     // Add first pool only
     await user.click(getByTestId(addPoolButton));
+    const poolNameInput = getByTestId(getPoolNameInput(0));
     const urlInput = getByTestId(getUrlInput(0));
     const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Test Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -165,8 +175,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Primary Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -185,8 +198,11 @@ describe("Onboarding", () => {
       expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
     });
 
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Backup Pool");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://backup:3333");
     await user.clear(usernameInput);
@@ -210,8 +226,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    const poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
-    let usernameInput = getByTestId(getUsernameInput(0));
+    const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Test Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -294,8 +313,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Primary Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -309,8 +331,11 @@ describe("Onboarding", () => {
 
     // Add second pool (delete is only enabled when there are 2+ pools)
     await user.click(getByTestId("add-another-pool-button"));
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Backup Pool");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://backup.example.com:3333");
     await user.clear(usernameInput);
@@ -345,8 +370,11 @@ describe("Onboarding", () => {
 
     // Add one pool
     await user.click(getByTestId(addPoolButton));
+    const poolNameInput = getByTestId(getPoolNameInput(0));
     const urlInput = getByTestId(getUrlInput(0));
     const usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Test Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -378,8 +406,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Primary Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -398,8 +429,11 @@ describe("Onboarding", () => {
       expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
     });
 
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Backup Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl); // Same URL as first pool
     await user.clear(usernameInput);
@@ -417,8 +451,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Primary Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl);
     await user.clear(usernameInput);
@@ -437,8 +474,11 @@ describe("Onboarding", () => {
       expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
     });
 
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Backup Pool");
     await user.clear(urlInput);
     await user.type(urlInput, poolUrl); // Same URL
     await user.clear(usernameInput);
@@ -456,8 +496,11 @@ describe("Onboarding", () => {
 
     // Add first pool with lowercase URL and username
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Primary Pool");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://pool.example.com:3333");
     await user.clear(usernameInput);
@@ -476,8 +519,11 @@ describe("Onboarding", () => {
       expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
     });
 
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Backup Pool");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://POOL.EXAMPLE.COM:3333"); // Same URL, different case
     await user.clear(usernameInput);
@@ -495,8 +541,11 @@ describe("Onboarding", () => {
 
     // Add first pool
     await user.click(getByTestId(addPoolButton));
+    let poolNameInput = getByTestId(getPoolNameInput(0));
     let urlInput = getByTestId(getUrlInput(0));
     let usernameInput = getByTestId(getUsernameInput(0));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Pool 1");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://pool1:3333");
     await user.clear(usernameInput);
@@ -513,8 +562,11 @@ describe("Onboarding", () => {
       expect(getByTestId(getUrlInput(1))).toBeInTheDocument();
     });
 
+    poolNameInput = getByTestId(getPoolNameInput(1));
     urlInput = getByTestId(getUrlInput(1));
     usernameInput = getByTestId(getUsernameInput(1));
+    await user.clear(poolNameInput);
+    await user.type(poolNameInput, "Pool 2");
     await user.clear(urlInput);
     await user.type(urlInput, "stratum+tcp://pool2:3333");
     await user.clear(usernameInput);
