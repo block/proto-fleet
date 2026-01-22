@@ -57,6 +57,33 @@ const (
 	InfluxMeasurementErrorRate   = "error_rate"
 )
 
+// MeasurementNameToType converts an InfluxDB measurement name string to a MeasurementType.
+// This is the reverse of MeasurementType.InfluxMeasurementName().
+func MeasurementNameToType(name string) MeasurementType {
+	switch name {
+	case InfluxMeasurementHashrate:
+		return MeasurementTypeHashrate
+	case InfluxMeasurementPower:
+		return MeasurementTypePower
+	case InfluxMeasurementTemperature:
+		return MeasurementTypeTemperature
+	case InfluxMeasurementEfficiency:
+		return MeasurementTypeEfficiency
+	case InfluxMeasurementFanSpeed:
+		return MeasurementTypeFanSpeed
+	case InfluxMeasurementVoltage:
+		return MeasurementTypeVoltage
+	case InfluxMeasurementCurrent:
+		return MeasurementTypeCurrent
+	case InfluxMeasurementUptime:
+		return MeasurementTypeUptime
+	case InfluxMeasurementErrorRate:
+		return MeasurementTypeErrorRate
+	default:
+		return MeasurementTypeUnknown
+	}
+}
+
 // InfluxMeasurementName returns the actual InfluxDB table/measurement name
 // This maps domain model measurement types to the actual table names used in InfluxDB
 func (m MeasurementType) InfluxMeasurementName() string {

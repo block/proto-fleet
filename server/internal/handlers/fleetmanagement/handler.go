@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // Handler handles the Connect-RPC endpoints
@@ -90,7 +92,26 @@ func (h *Handler) GetBatchMinerTelemetry(ctx context.Context, r *connect.Request
 		return nil, err
 	}
 
+	// Convert raw storage units to display units (H/s → TH/s, W → kW, J/H → J/TH)
+	for _, miner := range result.Miners {
+		if miner == nil {
+			continue
+		}
+		convertMeasurements(miner.Hashrate, models.MeasurementTypeHashrate)
+		convertMeasurements(miner.PowerUsage, models.MeasurementTypePower)
+		convertMeasurements(miner.Efficiency, models.MeasurementTypeEfficiency)
+	}
+
 	return connect.NewResponse(result), nil
+}
+
+// convertMeasurements converts measurement values from raw storage units to display units.
+func convertMeasurements(measurements []*commonpb.Measurement, measurementType models.MeasurementType) {
+	for _, m := range measurements {
+		if m != nil {
+			m.Value = models.ConvertToDisplayUnits(m.Value, measurementType)
+		}
+	}
 }
 
 func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Request[pb.GetMinerPoolAssignmentsRequest]) (*connect.Response[pb.GetMinerPoolAssignmentsResponse], error) {

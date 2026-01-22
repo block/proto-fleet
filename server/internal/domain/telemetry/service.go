@@ -95,11 +95,6 @@ import (
 )
 
 const (
-	// Conversion factors
-	mhsToThsConversionFactor  = 1e6
-	wattsToKwConversionFactor = 1e3
-	jhToJthConversionFactor   = 1e12
-
 	// Default intervals
 	defaultStatusUpdateInterval    = 1 * time.Second
 	defaultFetchInterval           = 10 * time.Second
@@ -134,88 +129,12 @@ const (
 	defaultStatusFlushInterval = 1 * time.Second
 )
 
-// convertHashrateToThs converts hashrate from MH/s to TH/s
-func convertHashrateToThs(valueInMhs float64) float64 {
-	return valueInMhs / mhsToThsConversionFactor
-}
-
-// convertPowerToKw converts power from watts to kilowatts
-func convertPowerToKw(valueInWatts float64) float64 {
-	return valueInWatts / wattsToKwConversionFactor
-}
-
-// convertTelemetryValue converts a measurement value from storage format to API format
-// based on the measurement type. This centralizes unit conversion logic for:
-// - Hashrate: MH/s → TH/s
-// - Power: Watts → Kilowatts
-// - Efficiency: J/H → J/TH
-// - All other measurement types: no conversion (returned as-is)
-func convertTelemetryValue(value float64, measurementType models.MeasurementType) float64 {
-	switch measurementType {
-	case models.MeasurementTypeHashrate:
-		return convertHashrateToThs(value)
-	case models.MeasurementTypePower:
-		return convertPowerToKw(value)
-	case models.MeasurementTypeEfficiency:
-		return value * jhToJthConversionFactor
-	case models.MeasurementTypeUnknown,
-		models.MeasurementTypeTemperature,
-		models.MeasurementTypeFanSpeed,
-		models.MeasurementTypeVoltage,
-		models.MeasurementTypeCurrent,
-		models.MeasurementTypeUptime,
-		models.MeasurementTypeErrorRate:
-		return value
-	default:
-		return value
-	}
-}
-
-// measurementNameToType converts an InfluxDB measurement name to a MeasurementType.
-// This is the reverse of MeasurementType.InfluxMeasurementName().
-func measurementNameToType(name string) models.MeasurementType {
-	switch name {
-	case models.InfluxMeasurementHashrate:
-		return models.MeasurementTypeHashrate
-	case models.InfluxMeasurementPower:
-		return models.MeasurementTypePower
-	case models.InfluxMeasurementTemperature:
-		return models.MeasurementTypeTemperature
-	case models.InfluxMeasurementEfficiency:
-		return models.MeasurementTypeEfficiency
-	case models.InfluxMeasurementFanSpeed:
-		return models.MeasurementTypeFanSpeed
-	case models.InfluxMeasurementVoltage:
-		return models.MeasurementTypeVoltage
-	case models.InfluxMeasurementCurrent:
-		return models.MeasurementTypeCurrent
-	case models.InfluxMeasurementUptime:
-		return models.MeasurementTypeUptime
-	case models.InfluxMeasurementErrorRate:
-		return models.MeasurementTypeErrorRate
-	default:
-		return models.MeasurementTypeUnknown
-	}
-}
-
-// applyTelemetryValueConversions converts measurement values in telemetry data from
-// storage format to API format. Modifies the slice in-place.
-func applyTelemetryValueConversions(telemetryData []models.Telemetry) {
-	for i := range telemetryData {
-		measurementType := measurementNameToType(telemetryData[i].Measurement)
-		if value, ok := telemetryData[i].Fields["value"].(float64); ok {
-			telemetryData[i].Fields["value"] = convertTelemetryValue(value, measurementType)
-		}
-	}
-}
-
-// toDeviceIdentifiers converts a slice of device ID strings to DeviceIdentifiers.
-func toDeviceIdentifiers(deviceIDs []string) []models.DeviceIdentifier {
-	result := make([]models.DeviceIdentifier, len(deviceIDs))
-	for i, id := range deviceIDs {
-		result[i] = models.DeviceIdentifier(id)
-	}
-	return result
+// measurementTypeMapping maps protobuf measurement types to internal types.
+var measurementTypeMapping = map[pb.MeasurementConfig_MeasurementType]models.MeasurementType{
+	pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE: models.MeasurementTypePower,
+	pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE: models.MeasurementTypeTemperature,
+	pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE:    models.MeasurementTypeHashrate,
+	pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY:  models.MeasurementTypeEfficiency,
 }
 
 // parseTimeSeriesConfig converts a protobuf TimeSeriesConfig to a models.TimeRange
@@ -274,7 +193,7 @@ type UpdateScheduler interface {
 type TelemetryDataStore interface {
 	Store(ctx context.Context, data ...models.Telemetry) error
 	StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error // Only need to store new data, will update read requests to use new data.
-	GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error)
+	GetLatestDeviceMetricsBatch(ctx context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error)
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error)
 	GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
@@ -858,14 +777,18 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	return nil
 }
 
-// GetLatestTelemetry delegates to the datastore to retrieve latest telemetry data
+// GetLatestTelemetry retrieves latest telemetry data for devices
 func (s *TelemetryService) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	telemetryData, err := s.telemetryDataStore.GetLatestTelemetry(ctx, query)
+	metricsMap, err := s.telemetryDataStore.GetLatestDeviceMetricsBatch(ctx, query.DeviceIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	applyTelemetryValueConversions(telemetryData)
+	var telemetryData []models.Telemetry
+	for _, metrics := range metricsMap {
+		telemetryData = append(telemetryData, metrics.ToRawTelemetry(query.MeasurementTypes)...)
+	}
+
 	return telemetryData, nil
 }
 
@@ -875,7 +798,6 @@ func (s *TelemetryService) GetTimeSeriesTelemetry(ctx context.Context, query mod
 		return nil, err
 	}
 
-	applyTelemetryValueConversions(telemetryData)
 	return telemetryData, nil
 }
 
@@ -929,35 +851,13 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 }
 
 func (s *TelemetryService) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	aggregatedData, err := s.telemetryDataStore.GetAggregatedTelemetry(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range aggregatedData {
-		aggregatedData[i].Value = convertTelemetryValue(aggregatedData[i].Value, aggregatedData[i].MeasurementType)
-	}
-
-	return aggregatedData, nil
+	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
+	return s.telemetryDataStore.GetAggregatedTelemetry(ctx, query)
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	combinedMetrics, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
-	if err != nil {
-		return models.CombinedMetric{}, err
-	}
-
-	for i := range combinedMetrics.Metrics {
-		measurementType := combinedMetrics.Metrics[i].MeasurementType
-		for j := range combinedMetrics.Metrics[i].AggregatedValues {
-			combinedMetrics.Metrics[i].AggregatedValues[j].Value = convertTelemetryValue(
-				combinedMetrics.Metrics[i].AggregatedValues[j].Value,
-				measurementType,
-			)
-		}
-	}
-
-	return combinedMetrics, nil
+	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
+	return s.telemetryDataStore.GetCombinedMetrics(ctx, query)
 }
 
 func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query models.StreamCombinedMetricsQuery) (<-chan models.CombinedMetric, error) {
@@ -1172,6 +1072,14 @@ func (s *TelemetryService) GetBatchMinerTelemetry(ctx context.Context, deviceIDs
 		configMap[config.MeasurementType] = config
 	}
 
+	// Helper function to get effective data mode and time series config for a measurement type
+	getEffectiveConfig := func(mType pb.MeasurementConfig_MeasurementType) (pb.DataMode, *commonpb.TimeSeriesConfig) {
+		if config, ok := configMap[mType]; ok {
+			return config.DataMode, config.TimeSeriesConfig
+		}
+		return dataMode, timeSeriesConfig
+	}
+
 	// Initialize result map
 	result := make(map[string]*fleetmanagementModels.MinerTelemetry, len(deviceIDs))
 	for _, deviceID := range deviceIDs {
@@ -1184,134 +1092,85 @@ func (s *TelemetryService) GetBatchMinerTelemetry(ctx context.Context, deviceIDs
 		}
 	}
 
-	// Helper function to get effective data mode and time series config for a measurement type
-	getEffectiveConfig := func(mType pb.MeasurementConfig_MeasurementType) (pb.DataMode, *commonpb.TimeSeriesConfig) {
-		if config, ok := configMap[mType]; ok {
-			return config.DataMode, config.TimeSeriesConfig
+	// Step 1: Populate all SNAPSHOT/latest values (1 query for all measurement types)
+	s.populateLatestSnapshot(ctx, deviceIDs, result, getEffectiveConfig)
+
+	// Step 2: For any measurements in TIME_SERIES mode, fetch and overwrite with time series data
+	s.populateTimeSeriesData(ctx, deviceIDs, result, getEffectiveConfig)
+
+	return result, nil
+}
+
+// populateLatestSnapshot populates all SNAPSHOT/latest values for each device.
+func (s *TelemetryService) populateLatestSnapshot(
+	ctx context.Context,
+	deviceIDs []string,
+	result map[string]*fleetmanagementModels.MinerTelemetry,
+	getEffectiveConfig func(pb.MeasurementConfig_MeasurementType) (pb.DataMode, *commonpb.TimeSeriesConfig),
+) {
+	deviceMetricsMap, err := s.telemetryDataStore.GetLatestDeviceMetricsBatch(ctx, models.ToDeviceIdentifiers(deviceIDs))
+	if err != nil {
+		slog.Warn("failed to get batch device metrics", slog.Any("error", err))
+		return
+	}
+
+	for deviceID, metrics := range deviceMetricsMap {
+		telemetry, ok := result[string(deviceID)]
+		if !ok {
+			continue
 		}
-		return dataMode, timeSeriesConfig
+		telemetry.Timestamp = timestamppb.New(metrics.Timestamp)
+
+		for pbType, internalType := range measurementTypeMapping {
+			if dataMode, _ := getEffectiveConfig(pbType); dataMode == pb.DataMode_DATA_MODE_METADATA {
+				continue
+			}
+			if value, timestamp, ok := metrics.ExtractRawMeasurement(internalType); ok {
+				telemetry.SetMeasurements(pbType, []*commonpb.Measurement{{
+					Value:     value,
+					Timestamp: timestamppb.New(timestamp),
+				}})
+			}
+		}
 	}
+}
 
-	// Process each measurement type in batch
-	measurementTypes := []struct {
-		pbType       pb.MeasurementConfig_MeasurementType
-		internalType models.MeasurementType
-		setter       func(deviceID string, measurements []*commonpb.Measurement)
-	}{
-		{
-			pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE,
-			models.MeasurementTypePower,
-			func(deviceID string, measurements []*commonpb.Measurement) {
-				if t, ok := result[deviceID]; ok {
-					t.PowerUsage = measurements
-				}
-			},
-		},
-		{
-			pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE,
-			models.MeasurementTypeTemperature,
-			func(deviceID string, measurements []*commonpb.Measurement) {
-				if t, ok := result[deviceID]; ok {
-					t.Temperature = measurements
-				}
-			},
-		},
-		{
-			pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE,
-			models.MeasurementTypeHashrate,
-			func(deviceID string, measurements []*commonpb.Measurement) {
-				if t, ok := result[deviceID]; ok {
-					t.Hashrate = measurements
-				}
-			},
-		},
-		{
-			pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY,
-			models.MeasurementTypeEfficiency,
-			func(deviceID string, measurements []*commonpb.Measurement) {
-				if t, ok := result[deviceID]; ok {
-					t.Efficiency = measurements
-				}
-			},
-		},
-	}
-
-	for _, mt := range measurementTypes {
-		effectiveDataMode, effectiveTSConfig := getEffectiveConfig(mt.pbType)
-
-		// Skip if metadata mode
-		if effectiveDataMode == pb.DataMode_DATA_MODE_METADATA {
+// populateTimeSeriesData fetches TIME_SERIES data for measurements that need it, overwriting SNAPSHOT values.
+func (s *TelemetryService) populateTimeSeriesData(
+	ctx context.Context,
+	deviceIDs []string,
+	result map[string]*fleetmanagementModels.MinerTelemetry,
+	getEffectiveConfig func(pb.MeasurementConfig_MeasurementType) (pb.DataMode, *commonpb.TimeSeriesConfig),
+) {
+	for pbType, internalType := range measurementTypeMapping {
+		dataMode, tsConfig := getEffectiveConfig(pbType)
+		if dataMode != pb.DataMode_DATA_MODE_TIME_SERIES || tsConfig == nil {
 			continue
 		}
 
-		// Batch fetch based on mode
-		if effectiveDataMode == pb.DataMode_DATA_MODE_TIME_SERIES && effectiveTSConfig != nil {
-			measurementsByDevice, err := s.getBatchTimeSeriesMeasurements(ctx, deviceIDs, mt.internalType, effectiveTSConfig)
-			if err != nil {
-				// Log but don't fail the entire batch
-				slog.Warn("failed to get batch time series telemetry",
-					slog.String("measurement_type", mt.internalType.String()),
-					slog.Any("error", err))
-				continue
-			}
-			for deviceID, measurements := range measurementsByDevice {
-				mt.setter(deviceID, measurements)
-			}
-		} else {
-			// SNAPSHOT mode - get latest measurements
-			measurementsByDevice, err := s.getBatchLatestMeasurements(ctx, deviceIDs, mt.internalType)
-			if err != nil {
-				// Log but don't fail the entire batch
-				slog.Warn("failed to get batch latest telemetry",
-					slog.String("measurement_type", mt.internalType.String()),
-					slog.Any("error", err))
-				continue
-			}
-			for deviceID, measurements := range measurementsByDevice {
-				mt.setter(deviceID, measurements)
+		measurementsByDevice, err := s.getBatchTimeSeriesMeasurements(ctx, deviceIDs, internalType, tsConfig)
+		if err != nil {
+			slog.Warn("failed to get batch time series telemetry",
+				slog.String("measurement_type", internalType.String()),
+				slog.Any("error", err))
+			continue
+		}
+
+		for deviceID, measurements := range measurementsByDevice {
+			if telemetry, ok := result[deviceID]; ok {
+				telemetry.SetMeasurements(pbType, measurements)
 			}
 		}
 	}
-
-	return result, nil
 }
 
-// getBatchLatestMeasurements retrieves the latest measurements for multiple devices in a single query
-func (s *TelemetryService) getBatchLatestMeasurements(ctx context.Context, deviceIDs []string, measurementType models.MeasurementType) (map[string][]*commonpb.Measurement, error) {
-	query := models.LatestTelemetryQuery{
-		DeviceIDs:        toDeviceIdentifiers(deviceIDs),
-		MeasurementTypes: []models.MeasurementType{measurementType},
-	}
-
-	telemetryData, err := s.telemetryDataStore.GetLatestTelemetry(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch latest telemetry: %w", err)
-	}
-
-	// Group results by device ID
-	result := make(map[string][]*commonpb.Measurement)
-	for _, data := range telemetryData {
-		deviceID := data.Tags["device_id"]
-		if value, ok := data.Fields["value"].(float64); ok {
-			value = convertTelemetryValue(value, measurementType)
-			result[deviceID] = append(result[deviceID], &commonpb.Measurement{
-				Value:     value,
-				Timestamp: timestamppb.New(data.Timestamp),
-			})
-		}
-	}
-
-	return result, nil
-}
-
-// getBatchTimeSeriesMeasurements retrieves time series measurements for multiple devices in a single query
+// getBatchTimeSeriesMeasurements retrieves time series measurements for multiple devices in a single query.
 func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, deviceIDs []string, measurementType models.MeasurementType, timeSeriesConfig *commonpb.TimeSeriesConfig) (map[string][]*commonpb.Measurement, error) {
 	query := models.TimeSeriesTelemetryQuery{
-		DeviceIDs:        toDeviceIdentifiers(deviceIDs),
+		DeviceIDs:        models.ToDeviceIdentifiers(deviceIDs),
 		MeasurementTypes: []models.MeasurementType{measurementType},
 		TimeRange:        parseTimeSeriesConfig(timeSeriesConfig),
 	}
-
 	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch time series telemetry: %w", err)
@@ -1322,7 +1181,6 @@ func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, d
 	for _, data := range telemetryData {
 		deviceID := data.Tags["device_id"]
 		if value, ok := data.Fields["value"].(float64); ok {
-			value = convertTelemetryValue(value, measurementType)
 			result[deviceID] = append(result[deviceID], &commonpb.Measurement{
 				Value:     value,
 				Timestamp: timestamppb.New(data.Timestamp),
@@ -1358,7 +1216,7 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 	}
 
 	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
-		DeviceIDs:        toDeviceIdentifiers(deviceIDs),
+		DeviceIDs:        models.ToDeviceIdentifiers(deviceIDs),
 		MeasurementTypes: internalMeasurementTypes,
 		BufferSize:       subscriberChannelBuffer,
 	})
@@ -1406,7 +1264,7 @@ func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgI
 	}
 
 	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
-		DeviceIDs:        toDeviceIdentifiers(deviceIDs),
+		DeviceIDs:        models.ToDeviceIdentifiers(deviceIDs),
 		MeasurementTypes: nil,
 		EventTypes:       eventTypes,
 		BufferSize:       subscriberChannelBuffer,
@@ -1459,23 +1317,18 @@ func internalMeasurementTypeToPb(internalType models.MeasurementType) pb.Measure
 
 // getLatestMeasurements retrieves the latest measurements for a device and measurement type
 func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID string, measurementType models.MeasurementType) ([]*commonpb.Measurement, error) {
-	query := models.LatestTelemetryQuery{
-		DeviceIDs:        []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
-		MeasurementTypes: []models.MeasurementType{measurementType},
-	}
-
-	telemetryData, err := s.telemetryDataStore.GetLatestTelemetry(ctx, query)
+	metricsMap, err := s.telemetryDataStore.GetLatestDeviceMetricsBatch(ctx, []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest telemetry: %w", err)
 	}
 
 	var measurements []*commonpb.Measurement
-	for _, data := range telemetryData {
-		if value, ok := data.Fields["value"].(float64); ok {
-			value = convertTelemetryValue(value, measurementType)
+	if metrics, ok := metricsMap[models.DeviceIdentifier(deviceID)]; ok {
+		value, timestamp, found := metrics.ExtractRawMeasurement(measurementType)
+		if found {
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
-				Timestamp: timestamppb.New(data.Timestamp),
+				Timestamp: timestamppb.New(timestamp),
 			})
 		}
 	}
@@ -1499,7 +1352,6 @@ func (s *TelemetryService) getTimeSeriesMeasurements(ctx context.Context, device
 	var measurements []*commonpb.Measurement
 	for _, data := range telemetryData {
 		if value, ok := data.Fields["value"].(float64); ok {
-			value = convertTelemetryValue(value, measurementType)
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
 				Timestamp: timestamppb.New(data.Timestamp),
@@ -1522,7 +1374,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 		measurementName := update.Data.Measurement
 		var internalMeasurementType models.MeasurementType
 
-		internalMeasurementType = measurementNameToType(measurementName)
+		internalMeasurementType = models.MeasurementNameToType(measurementName)
 		if internalMeasurementType == models.MeasurementTypeUnknown {
 			return nil
 		}
@@ -1540,9 +1392,10 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 			return nil
 		}
 
+		// Note: StreamTelemetryUpdates returns already-converted values (via convertDeviceMetricsToTelemetry)
 		var value float64
 		if val, ok := update.Data.Fields["value"].(float64); ok {
-			value = convertTelemetryValue(val, internalMeasurementType)
+			value = val
 		}
 
 		return &pb.StreamMinerUpdatesResponse{

@@ -18,7 +18,7 @@ const Sparkline = ({ data, threshold = 2 }: SparklineProps) => {
   const neutral = useCssVariable("--color-text-primary-30");
 
   const { lineColor, startValue, minValue, maxValue } = useMemo(() => {
-    const _data = data.sort((d) => d.time);
+    const _data = [...data].sort((a, b) => a.time - b.time);
     const startValue = _data[0]?.y;
     const endValue = _data[data.length - 1].y;
 

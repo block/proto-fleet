@@ -425,7 +425,7 @@ func TestInfluxTelemetryStore_Store_SinglePoint(t *testing.T) {
 	t.Log("Successfully stored single telemetry point to InfluxDB")
 }
 
-func TestInfluxTelemetryStore_GetLatestTelemetry(t *testing.T) {
+func TestInfluxTelemetryStore_GetLatestDeviceMetricsBatch(t *testing.T) {
 	t.Parallel()
 
 	store, container, ctx := setupIntegrationTest(t)
@@ -464,30 +464,15 @@ func TestInfluxTelemetryStore_GetLatestTelemetry(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // Give InfluxDB time to process writes
 
-	query := models.LatestTelemetryQuery{
-		DeviceIDs: []models.DeviceIdentifier{"device1", "device2"},
-		MeasurementTypes: []models.MeasurementType{
-			models.MeasurementTypeTemperature,
-			models.MeasurementTypeHashrate,
-		},
-		MaxAge: durationPtr(2 * time.Hour),
-	}
+	results, err := store.GetLatestDeviceMetricsBatch(ctx, []models.DeviceIdentifier{"device1", "device2"})
+	require.NoError(t, err, "GetLatestDeviceMetricsBatch should succeed - if this fails, there's a bug in the implementation")
 
-	results, err := store.GetLatestTelemetry(ctx, query)
-	require.NoError(t, err, "GetLatestTelemetry should succeed - if this fails, there's a bug in the implementation")
+	t.Logf("Retrieved %d device metrics", len(results))
 
-	t.Logf("Retrieved %d latest telemetry points", len(results))
-
-	deviceIDs := make(map[string]bool)
-	for _, result := range results {
-		if deviceID, exists := result.Tags["device_id"]; exists {
-			deviceIDs[deviceID] = true
-		}
-	}
-
-	assert.NotEmpty(t, deviceIDs, "Should have telemetry from test devices")
-	assert.Len(t, deviceIDs, 2, "Should have telemetry from exactly 2 devices")
-	t.Logf("Found data from devices: %v", deviceIDs)
+	assert.NotEmpty(t, results, "Should have metrics from test devices")
+	assert.Len(t, results, 2, "Should have metrics from exactly 2 devices")
+	assert.Contains(t, results, models.DeviceIdentifier("device1"), "Should have device1 metrics")
+	assert.Contains(t, results, models.DeviceIdentifier("device2"), "Should have device2 metrics")
 }
 
 func TestInfluxTelemetryStore_GetTimeSeriesTelemetry(t *testing.T) {
@@ -1099,13 +1084,15 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_Cumulative(t *testing.T) {
 		// Device1: AVG=1000, MIN=1000, MAX=1000, latest=1000
 		// Device2: AVG=2000, MIN=2000, MAX=2000, latest=2000
 		// Fleet: AVG=3000, MIN=3000, MAX=3000, SUM=3000
-		{models.MeasurementTypeHashrate, baseTime.Add(-90 * time.Minute), 3000, 3000, 3000, 3000},
+		// Note: Test helper stores hashrate in H/s (MH/s * 1e6), so expected values are in H/s
+		{models.MeasurementTypeHashrate, baseTime.Add(-90 * time.Minute), 3000e6, 3000e6, 3000e6, 3000e6},
 
 		// Hashrate bucket at -80min: device1@-80 (1050), device1@-78 (1005), device2@-75 (2100)
 		// Device1: AVG=(1050+1005)/2=1027.5, MIN=1005, MAX=1050, latest=1005
 		// Device2: AVG=2100, MIN=2100, MAX=2100, latest=2100
 		// Fleet: AVG=3127.5, MIN=3105, MAX=3150, SUM=3105
-		{models.MeasurementTypeHashrate, baseTime.Add(-80 * time.Minute), 3127.5, 3105, 3150, 3105},
+		// Note: Values in H/s (MH/s * 1e6)
+		{models.MeasurementTypeHashrate, baseTime.Add(-80 * time.Minute), 3127.5e6, 3105e6, 3150e6, 3105e6},
 
 		// Power bucket at -90min: device1@-89 (100), device2@-85 (200)
 		// Device1: AVG=100, MIN=100, MAX=100, latest=100
@@ -1141,17 +1128,19 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_Cumulative(t *testing.T) {
 		assert.NotEmpty(t, metric.AggregatedValues, "Metric should have aggregated values")
 
 		// Verify gauge-based aggregations: AVG, MIN, MAX, SUM (no MeanChange)
+		// Use InEpsilon for relative tolerance (0.01%) to handle both small (power ~100)
+		// and large (hashrate ~3e9 H/s) values
 		for _, aggValue := range metric.AggregatedValues {
 			//nolint:exhaustive // This is limited to just this test case
 			switch aggValue.Type {
 			case models.AggregationTypeAverage:
-				assert.InDelta(t, expected[i].avg, aggValue.Value, 1.0, "Average should match expected value")
+				assert.InEpsilon(t, expected[i].avg, aggValue.Value, 0.0001, "Average should match expected value")
 			case models.AggregationTypeMin:
-				assert.InDelta(t, expected[i].min, aggValue.Value, 1.0, "Min should match expected value")
+				assert.InEpsilon(t, expected[i].min, aggValue.Value, 0.0001, "Min should match expected value")
 			case models.AggregationTypeMax:
-				assert.InDelta(t, expected[i].max, aggValue.Value, 1.0, "Max should match expected value")
+				assert.InEpsilon(t, expected[i].max, aggValue.Value, 0.0001, "Max should match expected value")
 			case models.AggregationTypeSum:
-				assert.InDelta(t, expected[i].sum, aggValue.Value, 1.0, "Sum should match expected value")
+				assert.InEpsilon(t, expected[i].sum, aggValue.Value, 0.0001, "Sum should match expected value")
 			default:
 				t.Errorf("Unexpected aggregation type: %s", aggValue.Type)
 			}
@@ -1268,7 +1257,8 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_MixedMeasurements(t *testing.T)
 		// Device1: AVG=1000, MIN=1000, MAX=1000, latest=1000
 		// Device2: AVG=2000, MIN=2000, MAX=2000, latest=2000
 		// Fleet: AVG=3000, MIN=3000, MAX=3000, SUM=3000
-		{models.MeasurementTypeHashrate, baseTime.Add(-90 * time.Minute), 3000, 3000, 3000, 3000},
+		// Note: Values in H/s (test helper converts MH/s * 1e6)
+		{models.MeasurementTypeHashrate, baseTime.Add(-90 * time.Minute), 3000e6, 3000e6, 3000e6, 3000e6},
 		// Power (cumulative) bucket at -90min: device1@-89 (100), device1@-79 (105), device2@-85 (200)
 		// Device1: AVG=102.5, MIN=100, MAX=105, latest=105
 		// Device2: AVG=200, MIN=200, MAX=200, latest=200
@@ -1293,17 +1283,19 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_MixedMeasurements(t *testing.T)
 			"OpenTime should be within 7 minutes of expected bucket time (15-min intervals)")
 
 		assert.NotEmpty(t, result.Metrics[i].AggregatedValues, "Metric should have aggregated values")
+		// Use InEpsilon for relative tolerance (0.01%) to handle both small (temp ~30)
+		// and large (hashrate ~3e9 H/s) values
 		for _, aggValue := range result.Metrics[i].AggregatedValues {
 			//nolint:exhaustive // This is limited to just this test case
 			switch aggValue.Type {
 			case models.AggregationTypeSum:
-				assert.InDelta(t, expected.sum, aggValue.Value, 1.0, "Sum should match expected value")
+				assert.InEpsilon(t, expected.sum, aggValue.Value, 0.0001, "Sum should match expected value")
 			case models.AggregationTypeAverage:
-				assert.InDelta(t, expected.avg, aggValue.Value, 1.0, "Average should match expected value")
+				assert.InEpsilon(t, expected.avg, aggValue.Value, 0.0001, "Average should match expected value")
 			case models.AggregationTypeMin:
-				assert.InDelta(t, expected.min, aggValue.Value, 1.0, "Min should match expected value")
+				assert.InEpsilon(t, expected.min, aggValue.Value, 0.0001, "Min should match expected value")
 			case models.AggregationTypeMax:
-				assert.InDelta(t, expected.max, aggValue.Value, 1.0, "Max should match expected value")
+				assert.InEpsilon(t, expected.max, aggValue.Value, 0.0001, "Max should match expected value")
 			default:
 				t.Errorf("Unexpected aggregation type: %s", aggValue.Type)
 			}
@@ -1847,11 +1839,12 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_WithNullFields(t *testing.T) {
 	// - MIN: 1000 + 2000 = 3000
 	// - MAX: 1000 + 2000 = 3000
 	// - SUM: 1000 + 2000 = 3000 (both devices must contribute - CRITICAL!)
+	// Note: Values are in H/s (test helper converts MH/s * 1e6)
 	expectedAgg := map[models.AggregationType]float64{
-		models.AggregationTypeSum:     3000.0, // CRITICAL: Both devices must contribute
-		models.AggregationTypeAverage: 3000.0, // Sum of per-device averages
-		models.AggregationTypeMin:     3000.0, // Sum of per-device minimums
-		models.AggregationTypeMax:     3000.0, // Sum of per-device maximums
+		models.AggregationTypeSum:     3000e6, // CRITICAL: Both devices must contribute
+		models.AggregationTypeAverage: 3000e6, // Sum of per-device averages
+		models.AggregationTypeMin:     3000e6, // Sum of per-device minimums
+		models.AggregationTypeMax:     3000e6, // Sum of per-device maximums
 	}
 
 	require.NotEmpty(t, hashrateMetric.AggregatedValues, "Should have aggregated values")
@@ -1862,15 +1855,15 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_WithNullFields(t *testing.T) {
 			continue // Skip aggregation types we don't expect
 		}
 
-		assert.InDelta(t, expected, aggValue.Value, 1.0,
+		assert.InEpsilon(t, expected, aggValue.Value, 0.0001,
 			"Aggregation %s should be %.2f (both devices contributing), got %.2f",
 			aggValue.Type, expected, aggValue.Value)
 
-		// CRITICAL CHECK: SUM should be 3000, not 2000
-		// If SUM=2000, it means device1 was excluded due to NULL field in last row
+		// CRITICAL CHECK: SUM should be 3e9, not 2e9
+		// If SUM=2e9, it means device1 was excluded due to NULL field in last row
 		if aggValue.Type == models.AggregationTypeSum {
-			assert.Greater(t, aggValue.Value, 2500.0,
-				"SUM must include device1 (value ~1000) despite having NULL hashrate in later row")
+			assert.Greater(t, aggValue.Value, 2500e6,
+				"SUM must include device1 (value ~1e9) despite having NULL hashrate in later row")
 		}
 	}
 
@@ -1955,16 +1948,17 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_MixedNullAndValidDevices(t *tes
 	// Device1: AVG=1000, MIN=1000, MAX=1000, latest=1000
 	// Device4: AVG=2000, MIN=2000, MAX=2000, latest=2000
 	// Fleet: sum per-device aggregations
+	// Note: Values are in H/s (test helper converts MH/s * 1e6)
 	expectedHashrateAgg := map[models.AggregationType]float64{
-		models.AggregationTypeSum:     3000.0, // 1000 + 2000 (sum of latest)
-		models.AggregationTypeAverage: 3000.0, // 1000 + 2000 (sum of per-device AVGs)
-		models.AggregationTypeMin:     3000.0, // 1000 + 2000 (sum of per-device MINs)
-		models.AggregationTypeMax:     3000.0, // 1000 + 2000 (sum of per-device MAXs)
+		models.AggregationTypeSum:     3000e6, // 1000 + 2000 (sum of latest)
+		models.AggregationTypeAverage: 3000e6, // 1000 + 2000 (sum of per-device AVGs)
+		models.AggregationTypeMin:     3000e6, // 1000 + 2000 (sum of per-device MINs)
+		models.AggregationTypeMax:     3000e6, // 1000 + 2000 (sum of per-device MAXs)
 	}
 
 	for _, aggValue := range hashrateMetric.AggregatedValues {
 		if expected, ok := expectedHashrateAgg[aggValue.Type]; ok {
-			assert.InDelta(t, expected, aggValue.Value, 1.0,
+			assert.InEpsilon(t, expected, aggValue.Value, 0.0001,
 				"Hashrate %s should be %.2f (2 devices with valid hashrate)", aggValue.Type, expected)
 		}
 	}
@@ -2087,6 +2081,7 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_SparseDeviceReporting(t *testin
 	// Bucket 1 (-60min): device1 (1000) + device2 (2000) = 3000
 	// Bucket 2 (-50min): device1 (1100) only = 1100 (device2 has no data!)
 	// Bucket 3 (-40min): device1 (1200) + device2 (2200) = 3400
+	// Note: Values are in H/s (test helper converts MH/s * 1e6)
 
 	expectedBuckets := []struct {
 		openTimeOffset time.Duration
@@ -2094,9 +2089,9 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_SparseDeviceReporting(t *testin
 		deviceCount    int
 		description    string
 	}{
-		{-60 * time.Minute, 3000.0, 2, "Both devices reporting"},
-		{-50 * time.Minute, 1100.0, 1, "Only device1 (device2 offline)"},
-		{-40 * time.Minute, 3400.0, 2, "Both devices reporting again"},
+		{-60 * time.Minute, 3000e6, 2, "Both devices reporting"},
+		{-50 * time.Minute, 1100e6, 1, "Only device1 (device2 offline)"},
+		{-40 * time.Minute, 3400e6, 2, "Both devices reporting again"},
 	}
 
 	for i, expected := range expectedBuckets {
@@ -2121,14 +2116,14 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_SparseDeviceReporting(t *testin
 			}
 		}
 
-		assert.InDelta(t, expected.sumValue, sumValue, 10.0,
+		assert.InEpsilon(t, expected.sumValue, sumValue, 0.0001,
 			"Bucket %d (%s): SUM should be %.0f", i, expected.description, expected.sumValue)
 
 		t.Logf("✓ Bucket %d at %v: SUM=%.0f (%s)",
 			i, metric.OpenTime.Format("15:04"), sumValue, expected.description)
 	}
 
-	// Critical check: Bucket 2 should have SUM ~1100 (NOT 3100 from bucket 1's device2 value)
+	// Critical check: Bucket 2 should have SUM ~1.1e9 (NOT 3.1e9 from bucket 1's device2 value)
 	if len(hashrateMetrics) >= 2 {
 		bucket2 := hashrateMetrics[1]
 		var sum float64
@@ -2138,8 +2133,8 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_SparseDeviceReporting(t *testin
 				break
 			}
 		}
-		assert.Less(t, sum, 2000.0,
-			"Bucket 2 SUM should NOT include device2 (offline) - should be ~1100, not 3000+")
+		assert.Less(t, sum, 2000e6,
+			"Bucket 2 SUM should NOT include device2 (offline) - should be ~1.1e9, not 3e9+")
 	}
 }
 
@@ -2539,7 +2534,7 @@ func TestInfluxTelemetryStore_GetLatestDeviceMetrics_WithPartialData(t *testing.
 
 // Tests for new device_metrics query methods with fallback
 
-func TestInfluxTelemetryStore_GetLatestTelemetry_FromDeviceMetrics(t *testing.T) {
+func TestInfluxTelemetryStore_GetLatestDeviceMetricsBatch_FromDeviceMetrics(t *testing.T) {
 	t.Parallel()
 
 	store, container, ctx := setupIntegrationTest(t)
@@ -2592,53 +2587,35 @@ func TestInfluxTelemetryStore_GetLatestTelemetry_FromDeviceMetrics(t *testing.T)
 	require.NoError(t, err, "Should successfully store device metrics")
 	time.Sleep(200 * time.Millisecond)
 
-	// Query using GetLatestTelemetry (should use device_metrics and return LATEST for each device)
-	query := models.LatestTelemetryQuery{
-		DeviceIDs: []models.DeviceIdentifier{
-			models.DeviceIdentifier(device1ID),
-			models.DeviceIdentifier(device2ID),
-		},
-		MeasurementTypes: []models.MeasurementType{
-			models.MeasurementTypeHashrate,
-			models.MeasurementTypeTemperature,
-			models.MeasurementTypePower,
-		},
-	}
-
-	results, err := store.GetLatestTelemetry(ctx, query)
-	require.NoError(t, err, "GetLatestTelemetry should succeed with device_metrics data")
+	// Query using GetLatestDeviceMetricsBatch (should return LATEST for each device)
+	results, err := store.GetLatestDeviceMetricsBatch(ctx, []models.DeviceIdentifier{
+		models.DeviceIdentifier(device1ID),
+		models.DeviceIdentifier(device2ID),
+	})
+	require.NoError(t, err, "GetLatestDeviceMetricsBatch should succeed with device_metrics data")
 
 	// Should have results for both devices
-	assert.NotEmpty(t, results, "Should have telemetry results")
-
-	// Group results by device and measurement
-	deviceMeasurements := make(map[string]map[string]float64)
-	for _, result := range results {
-		deviceID := result.Tags["device_id"]
-		if deviceMeasurements[deviceID] == nil {
-			deviceMeasurements[deviceID] = make(map[string]float64)
-		}
-		if value, ok := result.Fields["value"].(float64); ok {
-			deviceMeasurements[deviceID][result.Measurement] = value
-		}
-	}
+	assert.NotEmpty(t, results, "Should have device metrics results")
+	assert.Len(t, results, 2, "Should have exactly 2 devices")
 
 	// Verify device1 has LATEST values (from -10 minute metric)
-	require.Contains(t, deviceMeasurements, device1ID, "Should have data for device1")
-	assert.InDelta(t, 100.0, deviceMeasurements[device1ID][models.MeasurementTypeHashrate.InfluxMeasurementName()], 0.1,
-		"Device1 hashrate should be 100 MH/s (latest value, converted from 100000000 H/s)")
-	assert.InDelta(t, 65.5, deviceMeasurements[device1ID][models.MeasurementTypeTemperature.InfluxMeasurementName()], 0.1,
+	require.Contains(t, results, models.DeviceIdentifier(device1ID), "Should have data for device1")
+	d1 := results[models.DeviceIdentifier(device1ID)]
+	assert.InDelta(t, 100000000.0, d1.HashrateHS.Value, 0.1,
+		"Device1 hashrate should be 100000000 H/s (latest value)")
+	assert.InDelta(t, 65.5, d1.TempC.Value, 0.1,
 		"Device1 temperature should be 65.5°C (latest value)")
-	assert.InDelta(t, 3250.0, deviceMeasurements[device1ID][models.MeasurementTypePower.InfluxMeasurementName()], 0.1,
+	assert.InDelta(t, 3250.0, d1.PowerW.Value, 0.1,
 		"Device1 power should be 3250W (latest value)")
 
 	// Verify device2 has LATEST values (from -5 minute metric)
-	require.Contains(t, deviceMeasurements, device2ID, "Should have data for device2")
-	assert.InDelta(t, 110.0, deviceMeasurements[device2ID][models.MeasurementTypeHashrate.InfluxMeasurementName()], 0.1,
-		"Device2 hashrate should be 110 MH/s (latest value, converted from 110000000 H/s)")
-	assert.InDelta(t, 68.0, deviceMeasurements[device2ID][models.MeasurementTypeTemperature.InfluxMeasurementName()], 0.1,
+	require.Contains(t, results, models.DeviceIdentifier(device2ID), "Should have data for device2")
+	d2 := results[models.DeviceIdentifier(device2ID)]
+	assert.InDelta(t, 110000000.0, d2.HashrateHS.Value, 0.1,
+		"Device2 hashrate should be 110000000 H/s (latest value)")
+	assert.InDelta(t, 68.0, d2.TempC.Value, 0.1,
 		"Device2 temperature should be 68.0°C (latest value)")
-	assert.InDelta(t, 3400.0, deviceMeasurements[device2ID][models.MeasurementTypePower.InfluxMeasurementName()], 0.1,
+	assert.InDelta(t, 3400.0, d2.PowerW.Value, 0.1,
 		"Device2 power should be 3400W (latest value)")
 }
 
@@ -2738,17 +2715,18 @@ func TestInfluxTelemetryStore_GetTimeSeriesTelemetry_FromDeviceMetrics(t *testin
 			"All results should be before or equal to endTime")
 	}
 
-	// Verify we have the expected measurements with correct conversions
+	// Verify we have the expected measurements (store returns raw values)
 	hashrateCount := 0
 	powerCount := 0
 	for _, result := range results {
 		if result.Measurement == models.MeasurementTypeHashrate.InfluxMeasurementName() {
 			hashrateCount++
-			// Verify hashrate is in MH/s (converted from H/s)
+			// Verify hashrate is in raw H/s (handler converts to TH/s for API)
+			// Test data: 90-110 MH/s = 9e7-1.1e8 H/s (raw values)
 			value, ok := result.Fields["value"].(float64)
 			require.True(t, ok, "Hashrate value should be float64")
-			assert.GreaterOrEqual(t, value, 90.0, "Hashrate should be >= 90 MH/s")
-			assert.LessOrEqual(t, value, 110.0, "Hashrate should be <= 110 MH/s")
+			assert.GreaterOrEqual(t, value, 9e7, "Hashrate should be >= 9e7 H/s")
+			assert.LessOrEqual(t, value, 1.1e8, "Hashrate should be <= 1.1e8 H/s")
 		} else if result.Measurement == models.MeasurementTypePower.InfluxMeasurementName() {
 			powerCount++
 		}
@@ -2844,9 +2822,10 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry_FromDeviceMetrics(t *testin
 		assert.Positive(t, result.DataPoints, "Should have data points counted")
 
 		if result.MeasurementType == models.MeasurementTypeHashrate {
-			// Values are in MH/s after conversion
-			assert.Greater(t, result.Value, 50.0, "Average hashrate should be reasonable (converted to MH/s)")
-			assert.Less(t, result.Value, 150.0, "Average hashrate should be within expected range")
+			// Values are in raw H/s (service layer converts to TH/s for API)
+			// Input values: 80-100 MH/s = 80e6-100e6 H/s
+			assert.Greater(t, result.Value, 50e6, "Average hashrate should be reasonable (raw H/s)")
+			assert.Less(t, result.Value, 150e6, "Average hashrate should be within expected range")
 		}
 	}
 }
@@ -3008,20 +2987,11 @@ func TestInfluxTelemetryStore_Fallback_WhenNoDeviceMetrics(t *testing.T) {
 	// Now query for a device that doesn't exist
 	deviceID := "non-existent-device"
 
-	query := models.LatestTelemetryQuery{
-		DeviceIDs: []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
-		MeasurementTypes: []models.MeasurementType{
-			models.MeasurementTypeHashrate,
-			models.MeasurementTypeTemperature,
-			models.MeasurementTypePower,
-		},
-	}
-
-	results, err := store.GetLatestTelemetry(ctx, query)
-	require.NoError(t, err, "GetLatestTelemetry should succeed even when device doesn't exist")
+	results, err := store.GetLatestDeviceMetricsBatch(ctx, []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)})
+	require.NoError(t, err, "GetLatestDeviceMetricsBatch should succeed even when device doesn't exist")
 
 	// Should get empty results when device doesn't have metrics
-	assert.Empty(t, results, "Should have no telemetry results when device doesn't have metrics")
+	assert.Empty(t, results, "Should have no results when device doesn't have metrics")
 
 	// Now store device_metrics and verify we get results
 	now := time.Now()
@@ -3048,17 +3018,12 @@ func TestInfluxTelemetryStore_Fallback_WhenNoDeviceMetrics(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Query again and should now get results
-	results, err = store.GetLatestTelemetry(ctx, query)
-	require.NoError(t, err, "GetLatestTelemetry should succeed with device_metrics data")
+	results, err = store.GetLatestDeviceMetricsBatch(ctx, []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)})
+	require.NoError(t, err, "GetLatestDeviceMetricsBatch should succeed with device_metrics data")
 
 	// Should get results from device_metrics
-	assert.NotEmpty(t, results, "Should have telemetry results from device_metrics")
-	assert.GreaterOrEqual(t, len(results), 3, "Should have at least 3 measurement types")
-
-	// Verify device ID
-	for _, result := range results {
-		assert.Equal(t, deviceID, result.Tags["device_id"], "Device ID should match")
-	}
+	assert.NotEmpty(t, results, "Should have device metrics results")
+	assert.Contains(t, results, models.DeviceIdentifier(deviceID), "Should have data for the device")
 }
 
 // TestInfluxTelemetryStore_GetCombinedMetrics_Chunking tests that large time range queries

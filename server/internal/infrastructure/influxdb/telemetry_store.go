@@ -248,13 +248,6 @@ func filterLatestByDevice(metrics []modelsV2.DeviceMetrics) []modelsV2.DeviceMet
 	return results
 }
 
-// sortTelemetryByTimeDesc sorts telemetry by timestamp descending (most recent first)
-func sortTelemetryByTimeDesc(data []models.Telemetry) {
-	sort.Slice(data, func(i, j int) bool {
-		return data[i].Timestamp.After(data[j].Timestamp)
-	})
-}
-
 // sortTelemetryByTimeAsc sorts telemetry by timestamp ascending (oldest first)
 func sortTelemetryByTimeAsc(data []models.Telemetry) {
 	sort.Slice(data, func(i, j int) bool {
@@ -356,38 +349,45 @@ WHERE time >= $max_age
 ORDER BY time DESC
 `
 
-func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	params := s.getLatestTelemetryParamsForMeasurement(query)
-
-	// Choose the appropriate query based on whether device IDs are specified
+// getLatestDeviceMetricsFromTable queries the device_metrics table directly (fallback for cold cache).
+func (s *InfluxTelemetryStore) getLatestDeviceMetricsFromTable(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]modelsV2.DeviceMetrics, error) {
 	var queryTemplate string
-	if len(query.DeviceIDs) > 0 {
+	if len(deviceIDs) > 0 {
 		queryTemplate = getLatestDeviceMetricsForMultipleDevicesQuery
 	} else {
-		// Use the query that doesn't filter by device_id for "all devices" case
 		queryTemplate = getLatestDeviceMetricsForAllDevicesQuery
 	}
+	params := influxdb3.QueryParameters{
+		"max_age": time.Now().Add(-defaultMaxAge),
+	}
 
-	// Query device_metrics and get all matching points
-	allMetrics, err := s.queryDeviceMetrics(ctx, queryTemplate, query.DeviceIDs, params, "GetLatestTelemetry")
+	allMetrics, err := s.queryDeviceMetrics(ctx, queryTemplate, deviceIDs, params, "getLatestDeviceMetricsFromTable")
 	if err != nil {
 		return nil, err
 	}
 
-	// Keep only the latest metrics per device
-	latestMetrics := filterLatestByDevice(allMetrics)
+	// Table query returns all rows - filter to get latest per device
+	return filterLatestByDevice(allMetrics), nil
+}
 
-	// Convert DeviceMetrics to legacy Telemetry format
-	var results []models.Telemetry
-	for _, deviceMetrics := range latestMetrics {
-		telemetryPoints := s.convertDeviceMetricsToTelemetry(deviceMetrics, query.MeasurementTypes)
-		results = append(results, telemetryPoints...)
+// GetLatestDeviceMetricsBatch returns the latest metrics for each device.
+// Returns a map for O(1) device lookup.
+func (s *InfluxTelemetryStore) GetLatestDeviceMetricsBatch(
+	ctx context.Context,
+	deviceIDs []models.DeviceIdentifier,
+) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
+	metrics, err := s.getLatestDeviceMetricsFromTable(ctx, deviceIDs)
+	if err != nil {
+		return nil, err
 	}
 
-	// Sort by timestamp descending (most recent first)
-	sortTelemetryByTimeDesc(results)
+	// Build map for O(1) device lookup
+	result := make(map[models.DeviceIdentifier]modelsV2.DeviceMetrics, len(metrics))
+	for _, m := range metrics {
+		result[models.DeviceIdentifier(m.DeviceID)] = m
+	}
 
-	return results, nil
+	return result, nil
 }
 
 const getTimeSeriesDeviceMetricsQuery = `
@@ -405,7 +405,7 @@ LIMIT 5000
 func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
 	params := s.getTimeSeriesParamsForMeasurement(query)
 
-	// Query device_metrics and get all matching points
+	// Query device_metrics table
 	allMetrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "GetTimeSeriesTelemetry")
 	if err != nil {
 		return nil, err
@@ -665,10 +665,6 @@ func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query
 			if valueField := point.GetField("aggregated_value"); valueField != nil {
 				if val, ok := valueField.(float64); ok {
 					aggregatedValue = val
-					// Convert HashRate from H/s to MH/s if needed
-					if measurementType == models.MeasurementTypeHashrate {
-						aggregatedValue /= 1_000_000
-					}
 				}
 			}
 
@@ -783,18 +779,6 @@ func getAggregationFunction(aggType models.AggregationType) string {
 	default:
 		return "AVG"
 	}
-}
-
-func (s *InfluxTelemetryStore) getLatestTelemetryParamsForMeasurement(query models.LatestTelemetryQuery) influxdb3.QueryParameters {
-	params := make(influxdb3.QueryParameters)
-
-	if query.MaxAge != nil {
-		params["max_age"] = time.Now().Add(-*query.MaxAge)
-	} else {
-		params["max_age"] = time.Now().Add(-defaultMaxAge)
-	}
-
-	return params
 }
 
 func (s *InfluxTelemetryStore) getTimeSeriesParamsForMeasurement(query models.TimeSeriesTelemetryQuery) influxdb3.QueryParameters {
@@ -1160,10 +1144,6 @@ LIMIT 1000
 
 			if avgField := point.GetField("avg_value"); avgField != nil {
 				if val, ok := avgField.(float64); ok {
-					// Convert hashrate from H/s to MH/s
-					if measurementType == models.MeasurementTypeHashrate {
-						val /= 1_000_000
-					}
 					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
 						Type:  models.AggregationTypeAverage,
 						Value: val,
@@ -1173,9 +1153,6 @@ LIMIT 1000
 
 			if minField := point.GetField("min_value"); minField != nil {
 				if val, ok := minField.(float64); ok {
-					if measurementType == models.MeasurementTypeHashrate {
-						val /= 1_000_000
-					}
 					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
 						Type:  models.AggregationTypeMin,
 						Value: val,
@@ -1185,9 +1162,6 @@ LIMIT 1000
 
 			if maxField := point.GetField("max_value"); maxField != nil {
 				if val, ok := maxField.(float64); ok {
-					if measurementType == models.MeasurementTypeHashrate {
-						val /= 1_000_000
-					}
 					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
 						Type:  models.AggregationTypeMax,
 						Value: val,
@@ -1197,9 +1171,6 @@ LIMIT 1000
 
 			if sumField := point.GetField("sum_value"); sumField != nil {
 				if val, ok := sumField.(float64); ok {
-					if measurementType == models.MeasurementTypeHashrate {
-						val /= 1_000_000
-					}
 					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
 						Type:  models.AggregationTypeSum,
 						Value: val,
@@ -1556,104 +1527,19 @@ func (s *InfluxTelemetryStore) StoreDeviceMetrics(ctx context.Context, telemetry
 	return nil
 }
 
-// convertDeviceMetricsToTelemetry converts a DeviceMetrics instance to legacy Telemetry format
-// It filters by the requested measurement types
+// convertDeviceMetricsToTelemetry converts a DeviceMetrics instance to legacy Telemetry format.
+// It filters by the requested measurement types and adds temperature_status tag for temperature measurements.
+// Note: This returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer.
 func (s *InfluxTelemetryStore) convertDeviceMetricsToTelemetry(deviceMetrics modelsV2.DeviceMetrics, requestedTypes []models.MeasurementType) []models.Telemetry {
-	var results []models.Telemetry
-	deviceID := models.DeviceIdentifier(deviceMetrics.DeviceID)
+	results := deviceMetrics.ToRawTelemetry(requestedTypes)
 
-	// Create a map of requested types for quick lookup
-	requestedTypesMap := make(map[models.MeasurementType]bool)
-	for _, mt := range requestedTypes {
-		requestedTypesMap[mt] = true
-	}
-
-	// Helper function to check if a measurement type is requested
-	isRequested := func(mt models.MeasurementType) bool {
-		if len(requestedTypesMap) == 0 {
-			return true // If no specific types requested, return all
-		}
-		return requestedTypesMap[mt]
-	}
-
-	// Convert HashrateHS (H/s) to hashrate_mhs (MH/s)
-	if deviceMetrics.HashrateHS != nil && isRequested(models.MeasurementTypeHashrate) {
-		valueInMhs := deviceMetrics.HashrateHS.Value / 1_000_000 // H/s to MH/s
-		results = append(results, models.Telemetry{
-			Measurement: models.MeasurementTypeHashrate.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id": deviceMetrics.DeviceID,
-			},
-			Fields: map[string]interface{}{
-				"value": valueInMhs,
-			},
-			Timestamp: deviceMetrics.Timestamp,
-		})
-	}
-
-	// Convert TempC to temperature_c
-	if deviceMetrics.TempC != nil && isRequested(models.MeasurementTypeTemperature) {
-		// Calculate temperature status using domain logic
-		tempStatus := telemetry.GetTemperatureStatusString(deviceMetrics.TempC.Value)
-
-		results = append(results, models.Telemetry{
-			Measurement: models.MeasurementTypeTemperature.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id":          deviceMetrics.DeviceID,
-				"temperature_status": tempStatus,
-			},
-			Fields: map[string]interface{}{
-				"value": deviceMetrics.TempC.Value,
-			},
-			Timestamp: deviceMetrics.Timestamp,
-		})
-	}
-
-	// Convert PowerW to power_w
-	if deviceMetrics.PowerW != nil && isRequested(models.MeasurementTypePower) {
-		results = append(results, models.Telemetry{
-			Measurement: models.MeasurementTypePower.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id": deviceMetrics.DeviceID,
-			},
-			Fields: map[string]interface{}{
-				"value": deviceMetrics.PowerW.Value,
-			},
-			Timestamp: deviceMetrics.Timestamp,
-		})
-	}
-
-	// Convert EfficiencyJH to efficiency_jh (stored in J/H, converted to J/TH at API layer)
-	if deviceMetrics.EfficiencyJH != nil && isRequested(models.MeasurementTypeEfficiency) {
-		results = append(results, models.Telemetry{
-			Measurement: models.MeasurementTypeEfficiency.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id": deviceMetrics.DeviceID,
-			},
-			Fields: map[string]interface{}{
-				"value": deviceMetrics.EfficiencyJH.Value,
-			},
-			Timestamp: deviceMetrics.Timestamp,
-		})
-	}
-
-	// Convert FanRPM to fan_speed_rpm (if FanSpeed measurement type exists)
-	if deviceMetrics.FanRPM != nil && isRequested(models.MeasurementTypeFanSpeed) {
-		results = append(results, models.Telemetry{
-			Measurement: models.MeasurementTypeFanSpeed.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id": deviceMetrics.DeviceID,
-			},
-			Fields: map[string]interface{}{
-				"value": deviceMetrics.FanRPM.Value,
-			},
-			Timestamp: deviceMetrics.Timestamp,
-		})
-	}
-
-	// Set device_id as DeviceIdentifier for all results
+	// Add temperature_status tag for temperature measurements
 	for i := range results {
-		results[i].Tags["device_id"] = string(deviceID)
+		if results[i].Measurement == models.MeasurementTypeTemperature.InfluxMeasurementName() {
+			if value, ok := results[i].Fields["value"].(float64); ok {
+				results[i].Tags["temperature_status"] = telemetry.GetTemperatureStatusString(value)
+			}
+		}
 	}
 
 	return results

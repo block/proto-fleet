@@ -17,6 +17,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 var mockTime = time.Now()
@@ -59,13 +60,12 @@ func TestHandler_GetSnapshot(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockStore *mock.MockTelemetryDataStore) {
-				mockStore.EXPECT().GetLatestTelemetry(gomock.Any(), gomock.Any()).
-					Return([]models.Telemetry{
-						{
-							Measurement: "temperature",
-							Fields:      map[string]any{"value": 65.5},
-							Tags:        map[string]string{"device_id": "device1"},
-							Timestamp:   mockTime,
+				mockStore.EXPECT().GetLatestDeviceMetricsBatch(gomock.Any(), gomock.Any()).
+					Return(map[models.DeviceIdentifier]modelsV2.DeviceMetrics{
+						"device1": {
+							DeviceID:  "device1",
+							Timestamp: mockTime,
+							TempC:     &modelsV2.MetricValue{Value: 65.5},
 						},
 					}, nil)
 			},
@@ -85,7 +85,7 @@ func TestHandler_GetSnapshot(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockStore *mock.MockTelemetryDataStore) {
-				mockStore.EXPECT().GetLatestTelemetry(gomock.Any(), gomock.Any()).
+				mockStore.EXPECT().GetLatestDeviceMetricsBatch(gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("service error"))
 			},
 			expectedError: true,

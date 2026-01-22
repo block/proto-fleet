@@ -348,7 +348,7 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		if update.Type == models.UpdateTypeTelemetry && update.Data != nil {
 			if sub.measurementTypes != nil {
 				// Determine measurement type from the data
-				mType := measurementNameToType(update.Data.Measurement)
+				mType := models.MeasurementNameToType(update.Data.Measurement)
 				if !sub.measurementTypes[mType] {
 					continue
 				}

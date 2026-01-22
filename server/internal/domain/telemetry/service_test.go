@@ -1801,3 +1801,157 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 		t.Fatal("processDevice blocked on full channel - non-blocking send not working")
 	}
 }
+
+// Unit conversion test constants - raw storage values
+// These tests verify that the service layer returns RAW values (H/s, W, J/H)
+// and does NOT apply unit conversion. Conversion should happen in the handler layer.
+const (
+	// Raw hashrate: 100 TH/s = 100e12 H/s (storage unit)
+	testRawHashrateHS = 100e12
+	// Raw power: 3 kW = 3000 W (storage unit)
+	testRawPowerW = 3000.0
+	// Raw efficiency: 30 J/TH = 30e-12 J/H (storage unit)
+	testRawEfficiencyJH = 30e-12
+)
+
+// TestService_GetAggregatedTelemetry_ReturnsRawValues verifies that GetAggregatedTelemetry
+// returns values in raw storage units (H/s, W, J/H) WITHOUT applying conversion.
+func TestService_GetAggregatedTelemetry_ReturnsRawValues(t *testing.T) {
+	tests := []struct {
+		name            string
+		measurementType models.MeasurementType
+		storeValue      float64
+		expectedValue   float64
+	}{
+		{
+			name:            "hashrate returns raw H/s (no conversion to TH/s)",
+			measurementType: models.MeasurementTypeHashrate,
+			storeValue:      testRawHashrateHS,
+			expectedValue:   testRawHashrateHS, // Should be 100e12, NOT 100.0
+		},
+		{
+			name:            "power returns raw W (no conversion to kW)",
+			measurementType: models.MeasurementTypePower,
+			storeValue:      testRawPowerW,
+			expectedValue:   testRawPowerW, // Should be 3000, NOT 3.0
+		},
+		{
+			name:            "efficiency returns raw J/H (no conversion to J/TH)",
+			measurementType: models.MeasurementTypeEfficiency,
+			storeValue:      testRawEfficiencyJH,
+			expectedValue:   testRawEfficiencyJH, // Should be 30e-12, NOT 30.0
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+			// Store returns raw values
+			mockDataStore.EXPECT().GetAggregatedTelemetry(gomock.Any(), gomock.Any()).
+				Return([]models.AggregatedTelemetry{
+					{
+						DeviceID:        "device1",
+						MeasurementType: tt.measurementType,
+						Value:           tt.storeValue,
+						AggregationType: models.AggregationTypeAverage,
+					},
+				}, nil)
+
+			service := NewTelemetryService(Config{}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+			query := models.AggregationQuery{
+				DeviceIDs:        []models.DeviceIdentifier{"device1"},
+				MeasurementTypes: []models.MeasurementType{tt.measurementType},
+				AggregationType:  models.AggregationTypeAverage,
+			}
+
+			result, err := service.GetAggregatedTelemetry(t.Context(), query)
+
+			require.NoError(t, err)
+			require.Len(t, result, 1)
+			assert.InDelta(t, tt.expectedValue, result[0].Value, 1e-20,
+				"Service should return raw value %v, but got %v (conversion should happen in handler)",
+				tt.expectedValue, result[0].Value)
+		})
+	}
+}
+
+// TestService_GetCombinedMetrics_ReturnsRawValues verifies that GetCombinedMetrics
+// returns values in raw storage units (H/s, W, J/H) WITHOUT applying conversion.
+func TestService_GetCombinedMetrics_ReturnsRawValues(t *testing.T) {
+	tests := []struct {
+		name            string
+		measurementType models.MeasurementType
+		storeValue      float64
+		expectedValue   float64
+	}{
+		{
+			name:            "hashrate returns raw H/s (no conversion to TH/s)",
+			measurementType: models.MeasurementTypeHashrate,
+			storeValue:      testRawHashrateHS,
+			expectedValue:   testRawHashrateHS,
+		},
+		{
+			name:            "power returns raw W (no conversion to kW)",
+			measurementType: models.MeasurementTypePower,
+			storeValue:      testRawPowerW,
+			expectedValue:   testRawPowerW,
+		},
+		{
+			name:            "efficiency returns raw J/H (no conversion to J/TH)",
+			measurementType: models.MeasurementTypeEfficiency,
+			storeValue:      testRawEfficiencyJH,
+			expectedValue:   testRawEfficiencyJH,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+			// Store returns raw values
+			mockDataStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).
+				Return(models.CombinedMetric{
+					Metrics: []models.Metric{
+						{
+							MeasurementType: tt.measurementType,
+							AggregatedValues: []models.AggregatedValue{
+								{Type: models.AggregationTypeSum, Value: tt.storeValue},
+							},
+							OpenTime: time.Now(),
+						},
+					},
+				}, nil)
+
+			service := NewTelemetryService(Config{}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+			query := models.CombinedMetricsQuery{
+				DeviceIDs:        []models.DeviceIdentifier{"device1"},
+				MeasurementTypes: []models.MeasurementType{tt.measurementType},
+				AggregationTypes: []models.AggregationType{models.AggregationTypeSum},
+			}
+
+			result, err := service.GetCombinedMetrics(t.Context(), query)
+
+			require.NoError(t, err)
+			require.Len(t, result.Metrics, 1)
+			require.Len(t, result.Metrics[0].AggregatedValues, 1)
+			assert.InDelta(t, tt.expectedValue, result.Metrics[0].AggregatedValues[0].Value, 1e-20,
+				"Service should return raw value %v, but got %v (conversion should happen in handler)",
+				tt.expectedValue, result.Metrics[0].AggregatedValues[0].Value)
+		})
+	}
+}

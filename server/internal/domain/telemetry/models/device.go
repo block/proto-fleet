@@ -19,3 +19,12 @@ type Device struct {
 func NewDeviceIdentifierFromString(s string) DeviceIdentifier {
 	return DeviceIdentifier(s)
 }
+
+// ToDeviceIdentifiers converts a slice of device ID strings to DeviceIdentifiers.
+func ToDeviceIdentifiers(deviceIDs []string) []DeviceIdentifier {
+	result := make([]DeviceIdentifier, len(deviceIDs))
+	for i, id := range deviceIDs {
+		result[i] = DeviceIdentifier(id)
+	}
+	return result
+}

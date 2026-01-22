@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+)
 
 // DeviceMetrics represents the complete telemetry snapshot for a mining device.
 // It includes device-level health and aggregated metrics, as well as detailed
@@ -27,4 +31,87 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics `json:"control_board_metrics,omitempty"`
 	FanMetrics          []FanMetrics          `json:"fan_metrics,omitempty"`
 	SensorMetrics       []SensorMetrics       `json:"sensor_metrics,omitempty"`
+}
+
+// DefaultMeasurementTypes returns the standard set of measurement types for conversion.
+var DefaultMeasurementTypes = []models.MeasurementType{
+	models.MeasurementTypeHashrate,
+	models.MeasurementTypeTemperature,
+	models.MeasurementTypePower,
+	models.MeasurementTypeEfficiency,
+	models.MeasurementTypeFanSpeed,
+}
+
+// ExtractRawMeasurement extracts a measurement value in raw storage units.
+// Returns (value, timestamp, ok) where ok is false if the measurement is not available.
+// Values are returned in storage units (H/s, W, J/H) - conversion to display units
+// should happen in the handler layer.
+func (m *DeviceMetrics) ExtractRawMeasurement(measurementType models.MeasurementType) (float64, time.Time, bool) {
+	var rawValue float64
+	switch measurementType {
+	case models.MeasurementTypeHashrate:
+		if m.HashrateHS == nil {
+			return 0, time.Time{}, false
+		}
+		rawValue = m.HashrateHS.Value
+	case models.MeasurementTypeTemperature:
+		if m.TempC == nil {
+			return 0, time.Time{}, false
+		}
+		rawValue = m.TempC.Value
+	case models.MeasurementTypePower:
+		if m.PowerW == nil {
+			return 0, time.Time{}, false
+		}
+		rawValue = m.PowerW.Value
+	case models.MeasurementTypeEfficiency:
+		if m.EfficiencyJH == nil {
+			return 0, time.Time{}, false
+		}
+		rawValue = m.EfficiencyJH.Value
+	case models.MeasurementTypeFanSpeed:
+		if m.FanRPM == nil {
+			return 0, time.Time{}, false
+		}
+		rawValue = m.FanRPM.Value
+	case models.MeasurementTypeUnknown, models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent, models.MeasurementTypeUptime, models.MeasurementTypeErrorRate:
+		// DeviceMetrics doesn't have fields for these measurement types
+		return 0, time.Time{}, false
+	default:
+		// Any unhandled MeasurementType should be treated as unavailable
+		return 0, time.Time{}, false
+	}
+
+	return rawValue, m.Timestamp, true
+}
+
+// ToRawTelemetry converts DeviceMetrics to a slice of Telemetry records.
+// Values are returned in raw storage units (H/s, W, J/H) - conversion to display
+// units should happen in the handler layer.
+// If requestedTypes is empty, all available measurement types are included.
+func (m *DeviceMetrics) ToRawTelemetry(requestedTypes []models.MeasurementType) []models.Telemetry {
+	if len(requestedTypes) == 0 {
+		requestedTypes = DefaultMeasurementTypes
+	}
+
+	var results []models.Telemetry
+	for _, mt := range requestedTypes {
+		value, timestamp, ok := m.ExtractRawMeasurement(mt)
+		if !ok {
+			continue
+		}
+
+		results = append(results, models.Telemetry{
+			Measurement: mt.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": m.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": value,
+			},
+			Timestamp: timestamp,
+		})
+	}
+	return results
 }
