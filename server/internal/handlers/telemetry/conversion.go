@@ -679,9 +679,23 @@ func getUnitForMeasurementType(measurementType telemetryv1.MeasurementType) comm
 }
 
 func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.GetCombinedMetricsResponse, error) {
-	metrics := make([]*telemetryv1.Metric, len(combinedMetrics.Metrics))
+	metrics, err := convertMetricsToProto(combinedMetrics.Metrics)
+	if err != nil {
+		return nil, err
+	}
 
-	for i, metric := range combinedMetrics.Metrics {
+	return &telemetryv1.GetCombinedMetricsResponse{
+		Metrics:                 metrics,
+		NextPageToken:           combinedMetrics.NextPageToken,
+		TemperatureStatusCounts: convertTemperatureStatusCounts(combinedMetrics.TemperatureStatusCounts),
+		UptimeStatusCounts:      convertUptimeStatusCounts(combinedMetrics.UptimeStatusCounts),
+	}, nil
+}
+
+func convertMetricsToProto(domainMetrics []models.Metric) ([]*telemetryv1.Metric, error) {
+	metrics := make([]*telemetryv1.Metric, len(domainMetrics))
+
+	for i, metric := range domainMetrics {
 		measurementType, err := measurementTypeToProto(metric.MeasurementType)
 		if err != nil {
 			return nil, err
@@ -711,32 +725,39 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 		}
 	}
 
-	// Convert temperature status counts if present
-	var temperatureStatusCounts []*telemetryv1.TemperatureStatusCount
-	for _, statusCount := range combinedMetrics.TemperatureStatusCounts {
-		temperatureStatusCounts = append(temperatureStatusCounts, &telemetryv1.TemperatureStatusCount{
+	return metrics, nil
+}
+
+func convertTemperatureStatusCounts(statusCounts []models.TemperatureStatusCount) []*telemetryv1.TemperatureStatusCount {
+	if len(statusCounts) == 0 {
+		return nil
+	}
+
+	result := make([]*telemetryv1.TemperatureStatusCount, len(statusCounts))
+	for i, statusCount := range statusCounts {
+		result[i] = &telemetryv1.TemperatureStatusCount{
 			Timestamp:     timestamppb.New(statusCount.Timestamp),
 			ColdCount:     statusCount.ColdCount,
 			OkCount:       statusCount.OkCount,
 			HotCount:      statusCount.HotCount,
 			CriticalCount: statusCount.CriticalCount,
-		})
+		}
+	}
+	return result
+}
+
+func convertUptimeStatusCounts(statusCounts []models.UptimeStatusCount) []*telemetryv1.UptimeStatusCount {
+	if len(statusCounts) == 0 {
+		return nil
 	}
 
-	// Convert uptime status counts if present
-	var uptimeStatusCounts []*telemetryv1.UptimeStatusCount
-	for _, statusCount := range combinedMetrics.UptimeStatusCounts {
-		uptimeStatusCounts = append(uptimeStatusCounts, &telemetryv1.UptimeStatusCount{
+	result := make([]*telemetryv1.UptimeStatusCount, len(statusCounts))
+	for i, statusCount := range statusCounts {
+		result[i] = &telemetryv1.UptimeStatusCount{
 			Timestamp:       timestamppb.New(statusCount.Timestamp),
 			HashingCount:    statusCount.HashingCount,
 			NotHashingCount: statusCount.NotHashingCount,
-		})
+		}
 	}
-
-	return &telemetryv1.GetCombinedMetricsResponse{
-		Metrics:                 metrics,
-		NextPageToken:           combinedMetrics.NextPageToken,
-		TemperatureStatusCounts: temperatureStatusCounts,
-		UptimeStatusCounts:      uptimeStatusCounts,
-	}, nil
+	return result
 }

@@ -345,62 +345,15 @@ func (h *Handler) StreamCombinedMetricUpdates(
 }
 
 func (h *Handler) convertCombinedMetricsToStreamResponse(combinedMetrics models.CombinedMetric, updateInterval time.Duration) (*telemetryv1.StreamCombinedMetricUpdatesResponse, error) {
-	metrics := make([]*telemetryv1.Metric, len(combinedMetrics.Metrics))
-	for i, metric := range combinedMetrics.Metrics {
-		measurementType, err := measurementTypeToProto(metric.MeasurementType)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert measurement type: %w", err)
-		}
-
-		aggregatedValues := make([]*telemetryv1.AggregatedValue, len(metric.AggregatedValues))
-		for j, aggValue := range metric.AggregatedValues {
-			aggregationType, err := aggregationTypeToProto(aggValue.Type)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert aggregation type: %w", err)
-			}
-
-			aggregatedValues[j] = &telemetryv1.AggregatedValue{
-				AggregationType: aggregationType,
-				Value:           aggValue.Value,
-			}
-		}
-
-		metrics[i] = &telemetryv1.Metric{
-			MeasurementType:  measurementType,
-			OpenTime:         timestamppb.New(metric.OpenTime),
-			AggregatedValues: aggregatedValues,
-			DeviceCount:      metric.DeviceCount,
-		}
+	metrics, err := convertMetricsToProto(combinedMetrics.Metrics)
+	if err != nil {
+		return nil, err
 	}
-
-	// Convert temperature status counts if present
-	var temperatureStatusCounts []*telemetryv1.TemperatureStatusCount
-	for _, statusCount := range combinedMetrics.TemperatureStatusCounts {
-		temperatureStatusCounts = append(temperatureStatusCounts, &telemetryv1.TemperatureStatusCount{
-			Timestamp:     timestamppb.New(statusCount.Timestamp),
-			ColdCount:     statusCount.ColdCount,
-			OkCount:       statusCount.OkCount,
-			HotCount:      statusCount.HotCount,
-			CriticalCount: statusCount.CriticalCount,
-		})
-	}
-
-	// Convert uptime status counts if present
-	var uptimeStatusCounts []*telemetryv1.UptimeStatusCount
-	for _, statusCount := range combinedMetrics.UptimeStatusCounts {
-		uptimeStatusCounts = append(uptimeStatusCounts, &telemetryv1.UptimeStatusCount{
-			Timestamp:       timestamppb.New(statusCount.Timestamp),
-			HashingCount:    statusCount.HashingCount,
-			NotHashingCount: statusCount.NotHashingCount,
-		})
-	}
-
-	nextUpdateTime := time.Now().Add(updateInterval)
 
 	return &telemetryv1.StreamCombinedMetricUpdatesResponse{
 		Metrics:                 metrics,
-		NextUpdateTime:          timestamppb.New(nextUpdateTime),
-		TemperatureStatusCounts: temperatureStatusCounts,
-		UptimeStatusCounts:      uptimeStatusCounts,
+		NextUpdateTime:          timestamppb.New(time.Now().Add(updateInterval)),
+		TemperatureStatusCounts: convertTemperatureStatusCounts(combinedMetrics.TemperatureStatusCounts),
+		UptimeStatusCounts:      convertUptimeStatusCounts(combinedMetrics.UptimeStatusCounts),
 	}, nil
 }
