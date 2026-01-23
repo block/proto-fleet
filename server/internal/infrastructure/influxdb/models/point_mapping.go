@@ -117,27 +117,42 @@ func DeviceMetricsToPoints(telemetry modelsV2.DeviceMetrics) []*influxdb3.Point 
 // ToDeviceMetrics converts InfluxDB point values to a DeviceMetrics instance.
 // It processes both device-level and component-level points.
 func ToDeviceMetrics(devicePoint *influxdb3.PointValues, _ ...*influxdb3.PointValues) (modelsV2.DeviceMetrics, error) {
-	if devicePoint == nil || devicePoint.GetMeasurement() != deviceMetricsMeasurement {
-		return modelsV2.DeviceMetrics{}, fmt.Errorf("invalid device metrics point")
+	if devicePoint == nil {
+		return modelsV2.DeviceMetrics{}, fmt.Errorf("nil device metrics point")
+	}
+	measurement := devicePoint.GetMeasurement()
+	if measurement != "" && measurement != deviceMetricsMeasurement {
+		return modelsV2.DeviceMetrics{}, fmt.Errorf("invalid device metrics point: got measurement %q, want %q", measurement, deviceMetricsMeasurement)
 	}
 	telemetry := modelsV2.DeviceMetrics{}
 
+	// Get device_id - try tag first, then string field (LVC returns fields)
 	id, ok := devicePoint.GetTag(deviceIDTag)
 	if !ok {
-		return modelsV2.DeviceMetrics{}, fmt.Errorf("missing device_id tag")
+		idPtr := devicePoint.GetStringField(deviceIDTag)
+		if idPtr == nil {
+			return modelsV2.DeviceMetrics{}, fmt.Errorf("missing device_id")
+		}
+		id = *idPtr
 	}
 	telemetry.DeviceID = id
 	telemetry.Timestamp = devicePoint.Timestamp
 
+	// Get health - try tag first, then string field (LVC returns fields)
 	healthStr, ok := devicePoint.GetTag(healthTag)
 	if !ok {
-		slog.Debug("missing health tag, defaulting to unknown")
-		unknown := modelsV2.HealthUnknown
-		healthStr = unknown.String()
+		healthPtr := devicePoint.GetStringField(healthTag)
+		if healthPtr == nil {
+			slog.Debug("missing health, defaulting to unknown")
+			unknown := modelsV2.HealthUnknown
+			healthStr = unknown.String()
+		} else {
+			healthStr = *healthPtr
+		}
 	}
 	health, err := modelsV2.ParseHealthStatus(healthStr)
 	if err != nil {
-		return modelsV2.DeviceMetrics{}, fmt.Errorf("invalid health tag: %w", err)
+		return modelsV2.DeviceMetrics{}, fmt.Errorf("invalid health: %w", err)
 	}
 	telemetry.Health = health
 

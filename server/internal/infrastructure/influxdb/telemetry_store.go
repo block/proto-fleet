@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
@@ -38,6 +39,15 @@ const (
 	queryChunkSize = 4 * time.Hour
 	// Maximum number of concurrent chunk queries
 	maxConcurrentChunkQueries = 16
+
+	// LVC (Last Value Cache) configuration
+	// Table and cache names
+	deviceMetricsTableName = "device_metrics"
+	deviceMetricsLVCName   = "device_metrics_latest"
+	// Maximum lookback for using LVC optimization (matches InfluxDB LVC TTL)
+	maxLVCLookback = 10 * time.Minute
+	// Buffer to handle client/server time drift
+	lvcDriftBuffer = 10 * time.Second
 )
 
 // timeChunk represents a single time range chunk for parallel query execution
@@ -132,10 +142,30 @@ func mergeChunkResults(results []chunkResult) ([]models.Metric, []models.Tempera
 
 var _ telemetry.TelemetryDataStore = &InfluxTelemetryStore{}
 
+// QueryStats tracks LVC query path usage for observability.
+// All fields are updated atomically and safe for concurrent access.
+type QueryStats struct {
+	// LVCHits counts successful LVC queries that returned results
+	LVCHits int64
+	// LVCMisses counts LVC queries that returned empty results (triggering fallback)
+	LVCMisses int64
+	// LVCErrors counts LVC queries that failed with errors (triggering fallback)
+	LVCErrors int64
+	// TableQueries counts direct table queries (fallback or non-LVC-eligible)
+	TableQueries int64
+}
+
 type InfluxTelemetryStore struct {
 	client *influxdb3.Client
 	config Config
 	logger *slog.Logger
+
+	queryStats struct {
+		lvcHits      atomic.Int64
+		lvcMisses    atomic.Int64
+		lvcErrors    atomic.Int64
+		tableQueries atomic.Int64
+	}
 }
 
 func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
@@ -160,6 +190,26 @@ func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
 	}
 
 	return store, nil
+}
+
+// GetQueryStats returns a snapshot of the current query statistics.
+// Use this to monitor LVC effectiveness in production or verify LVC usage in tests.
+func (s *InfluxTelemetryStore) GetQueryStats() QueryStats {
+	return QueryStats{
+		LVCHits:      s.queryStats.lvcHits.Load(),
+		LVCMisses:    s.queryStats.lvcMisses.Load(),
+		LVCErrors:    s.queryStats.lvcErrors.Load(),
+		TableQueries: s.queryStats.tableQueries.Load(),
+	}
+}
+
+// ResetQueryStats resets all query statistics to zero.
+// Useful for testing to get clean stats for each test case.
+func (s *InfluxTelemetryStore) ResetQueryStats() {
+	s.queryStats.lvcHits.Store(0)
+	s.queryStats.lvcMisses.Store(0)
+	s.queryStats.lvcErrors.Store(0)
+	s.queryStats.tableQueries.Store(0)
 }
 
 // queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics.
@@ -330,6 +380,8 @@ func (s *InfluxTelemetryStore) Store(ctx context.Context, data ...models.Telemet
 	return finalErr
 }
 
+// nolint:unqueryvet // SELECT * required: InfluxDB 3 is schemaless - columns are created dynamically
+// as data is written. Querying for explicit columns fails if any column doesn't exist in the data.
 const getLatestDeviceMetricsForMultipleDevicesQuery = `
 SELECT
 *,
@@ -340,6 +392,8 @@ AND time >= $max_age
 ORDER BY time DESC
 `
 
+// nolint:unqueryvet // SELECT * required: InfluxDB 3 is schemaless - columns are created dynamically
+// as data is written. Querying for explicit columns fails if any column doesn't exist in the data.
 const getLatestDeviceMetricsForAllDevicesQuery = `
 SELECT
 *,
@@ -348,6 +402,80 @@ FROM device_metrics
 WHERE time >= $max_age
 ORDER BY time DESC
 `
+
+// LVC (Last Value Cache) query templates
+// These query the materialized LVC instead of the full table for faster results
+// Syntax: last_cache('table_name', 'cache_name') per InfluxDB 3 docs
+//
+// nolint:unqueryvet // SELECT * required: InfluxDB 3 is schemaless - columns are created dynamically
+// as data is written. Querying for explicit columns fails if any column doesn't exist in the data.
+var (
+	getLatestDeviceMetricsFromLVCQuery = fmt.Sprintf(`
+SELECT
+*,
+'device_metrics' as measurement
+FROM last_cache('%s', '%s')
+WHERE device_id IN (%%s)
+`, deviceMetricsTableName, deviceMetricsLVCName)
+
+	getLatestDeviceMetricsFromLVCAllDevicesQuery = fmt.Sprintf(`
+SELECT
+*,
+'device_metrics' as measurement
+FROM last_cache('%s', '%s')
+`, deviceMetricsTableName, deviceMetricsLVCName)
+
+	getTimeSeriesDeviceMetricsFromLVCQuery = fmt.Sprintf(`
+SELECT
+*,
+'device_metrics' as measurement
+FROM last_cache('%s', '%s')
+WHERE device_id IN (%%s)
+ORDER BY time ASC
+`, deviceMetricsTableName, deviceMetricsLVCName)
+)
+
+// canUseLVCForTimeRange determines if a time range is fresh enough to use LVC.
+// LVC is only valid for recent data (within maxLVCLookback of now).
+// The drift buffer expands the window slightly to handle clock drift.
+func canUseLVCForTimeRange(startTime *time.Time) bool {
+	now := time.Now()
+	lvcCutoff := now.Add(-maxLVCLookback).Add(-lvcDriftBuffer)
+
+	// If no start time specified, assume "recent" query - LVC is valid
+	if startTime == nil {
+		return true
+	}
+
+	// If start time is older than LVC lookback, can't use LVC
+	if startTime.Before(lvcCutoff) {
+		return false
+	}
+
+	return true
+}
+
+// getLatestDeviceMetricsFromLVC queries the LVC for latest device metrics.
+// Returns nil if LVC query fails (caller should fall back to table query).
+func (s *InfluxTelemetryStore) getLatestDeviceMetricsFromLVC(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]modelsV2.DeviceMetrics, error) {
+	var queryTemplate string
+	if len(deviceIDs) > 0 {
+		queryTemplate = getLatestDeviceMetricsFromLVCQuery
+	} else {
+		queryTemplate = getLatestDeviceMetricsFromLVCAllDevicesQuery
+	}
+
+	// LVC doesn't need time filter - it already contains only the latest values
+	params := influxdb3.QueryParameters{}
+
+	metrics, err := s.queryDeviceMetrics(ctx, queryTemplate, deviceIDs, params, "getLatestDeviceMetricsFromLVC")
+	if err != nil {
+		return nil, err
+	}
+
+	// LVC caches up to 60 values per device (--count 60), so filter to get only the latest
+	return filterLatestByDevice(metrics), nil
+}
 
 // getLatestDeviceMetricsFromTable queries the device_metrics table directly (fallback for cold cache).
 func (s *InfluxTelemetryStore) getLatestDeviceMetricsFromTable(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]modelsV2.DeviceMetrics, error) {
@@ -371,14 +499,46 @@ func (s *InfluxTelemetryStore) getLatestDeviceMetricsFromTable(ctx context.Conte
 }
 
 // GetLatestDeviceMetricsBatch returns the latest metrics for each device.
+// Uses LVC (Last Value Cache) for fast queries, with automatic fallback to table query.
 // Returns a map for O(1) device lookup.
 func (s *InfluxTelemetryStore) GetLatestDeviceMetricsBatch(
 	ctx context.Context,
 	deviceIDs []models.DeviceIdentifier,
 ) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
-	metrics, err := s.getLatestDeviceMetricsFromTable(ctx, deviceIDs)
+	// Try LVC first for fast path
+	metrics, err := s.getLatestDeviceMetricsFromLVC(ctx, deviceIDs)
 	if err != nil {
-		return nil, err
+		lvcErrors := s.queryStats.lvcErrors.Add(1)
+		tableQueries := s.queryStats.tableQueries.Add(1)
+		s.logger.Error("LVC query failed, falling back to table query",
+			slog.String("error", err.Error()),
+			slog.Int("device_count", len(deviceIDs)),
+			slog.Int64("lvc_errors", lvcErrors),
+			slog.Int64("table_queries", tableQueries))
+		// Fall back to table query
+		metrics, err = s.getLatestDeviceMetricsFromTable(ctx, deviceIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else if len(metrics) == 0 {
+		// LVC returned no results, fall back to table (LVC might be cold)
+		lvcMisses := s.queryStats.lvcMisses.Add(1)
+		tableQueries := s.queryStats.tableQueries.Add(1)
+		s.logger.Debug("LVC cache miss, falling back to table query",
+			slog.Int("device_count", len(deviceIDs)),
+			slog.Int64("lvc_misses", lvcMisses),
+			slog.Int64("table_queries", tableQueries))
+		metrics, err = s.getLatestDeviceMetricsFromTable(ctx, deviceIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// LVC query succeeded with results
+		lvcHits := s.queryStats.lvcHits.Add(1)
+		s.logger.Debug("LVC cache hit",
+			slog.Int("device_count", len(deviceIDs)),
+			slog.Int("result_count", len(metrics)),
+			slog.Int64("lvc_hits", lvcHits))
 	}
 
 	// Build map for O(1) device lookup
@@ -390,6 +550,8 @@ func (s *InfluxTelemetryStore) GetLatestDeviceMetricsBatch(
 	return result, nil
 }
 
+// nolint:unqueryvet // SELECT * required: InfluxDB 3 is schemaless - columns are created dynamically
+// as data is written. Querying for explicit columns fails if any column doesn't exist in the data.
 const getTimeSeriesDeviceMetricsQuery = `
 SELECT
 *,
@@ -402,13 +564,76 @@ ORDER BY time ASC
 LIMIT 5000
 `
 
-func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
-	params := s.getTimeSeriesParamsForMeasurement(query)
+// getTimeSeriesFromLVC queries the LVC for time series data (sparklines).
+// Returns nil if LVC query fails (caller should fall back to table query).
+func (s *InfluxTelemetryStore) getTimeSeriesFromLVC(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]modelsV2.DeviceMetrics, error) {
+	// LVC doesn't need time filter - it already contains only the latest values
+	params := influxdb3.QueryParameters{}
 
-	// Query device_metrics table
-	allMetrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "GetTimeSeriesTelemetry")
+	metrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsFromLVCQuery, deviceIDs, params, "getTimeSeriesFromLVC")
 	if err != nil {
 		return nil, err
+	}
+
+	return metrics, nil
+}
+
+// GetTimeSeriesTelemetry returns time series telemetry data.
+// Uses LVC for recent time ranges, with automatic fallback to table query.
+func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
+	var allMetrics []modelsV2.DeviceMetrics
+	var err error
+	var usedLVC bool
+
+	// Check if we can use LVC for this time range
+	if canUseLVCForTimeRange(query.TimeRange.StartTime) {
+		allMetrics, err = s.getTimeSeriesFromLVC(ctx, query.DeviceIDs)
+		if err != nil {
+			lvcErrors := s.queryStats.lvcErrors.Add(1)
+			tableQueries := s.queryStats.tableQueries.Add(1)
+			s.logger.Error("LVC time series query failed, falling back to table query",
+				slog.String("error", err.Error()),
+				slog.Int("device_count", len(query.DeviceIDs)),
+				slog.Int64("lvc_errors", lvcErrors),
+				slog.Int64("table_queries", tableQueries))
+			// Fall through to table query
+			allMetrics = nil
+		} else if len(allMetrics) > 0 {
+			usedLVC = true
+			lvcHits := s.queryStats.lvcHits.Add(1)
+			s.logger.Debug("LVC time series cache hit",
+				slog.Int("device_count", len(query.DeviceIDs)),
+				slog.Int("result_count", len(allMetrics)),
+				slog.Int64("lvc_hits", lvcHits))
+		} else {
+			lvcMisses := s.queryStats.lvcMisses.Add(1)
+			tableQueries := s.queryStats.tableQueries.Add(1)
+			s.logger.Debug("LVC time series cache miss, falling back to table query",
+				slog.Int("device_count", len(query.DeviceIDs)),
+				slog.Int64("lvc_misses", lvcMisses),
+				slog.Int64("table_queries", tableQueries))
+		}
+	} else {
+		tableQueries := s.queryStats.tableQueries.Add(1)
+		// Log with time range context for debugging
+		logAttrs := []any{
+			slog.Int("device_count", len(query.DeviceIDs)),
+			slog.Duration("lvc_window", maxLVCLookback),
+		}
+		if query.TimeRange.StartTime != nil {
+			logAttrs = append(logAttrs, slog.Time("query_start", *query.TimeRange.StartTime))
+		}
+		logAttrs = append(logAttrs, slog.Int64("table_queries", tableQueries))
+		s.logger.Debug("LVC not applicable for time range, using table query", logAttrs...)
+	}
+
+	// Fall back to table query if LVC failed, returned empty, or wasn't applicable
+	if allMetrics == nil || (len(allMetrics) == 0 && !usedLVC) {
+		params := s.getTimeSeriesParamsForMeasurement(query)
+		allMetrics, err = s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "GetTimeSeriesTelemetry")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Convert DeviceMetrics to legacy Telemetry format

@@ -157,3 +157,55 @@ func createInfluxDBDatabaseWithToken(ctx context.Context, container testcontaine
 
 	return nil
 }
+
+// CreateLastValueCache creates a Last Value Cache for device_metrics table in the test container.
+// This is required for testing LVC query functionality.
+// Parameters match the production LVC configuration in init_last_cache.sh.
+func CreateLastValueCache(ctx context.Context, container testcontainers.Container, dbName, token string) error {
+	lvcName := "device_metrics_latest"
+	tableName := "device_metrics"
+	keyColumns := "device_id"
+	ttl := "10mins"
+	count := "60"
+
+	var cmd []string
+	if token == "" {
+		cmd = []string{
+			"influxdb3", "create", "last_cache",
+			"--database", dbName,
+			"--table", tableName,
+			"--key-columns", keyColumns,
+			"--ttl", ttl,
+			"--count", count,
+			lvcName,
+		}
+	} else {
+		cmd = []string{
+			"influxdb3", "create", "last_cache",
+			"--token", token,
+			"--database", dbName,
+			"--table", tableName,
+			"--key-columns", keyColumns,
+			"--ttl", ttl,
+			"--count", count,
+			lvcName,
+		}
+	}
+
+	exitCode, reader, err := container.Exec(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("failed to execute last_cache creation command: %w", err)
+	}
+
+	output, _ := io.ReadAll(reader)
+	outputStr := string(output)
+
+	if exitCode != 0 {
+		if strings.Contains(outputStr, "already exists") || strings.Contains(outputStr, "409") {
+			return nil // LVC already exists, that's fine
+		}
+		return fmt.Errorf("last_cache creation command failed with exit code %d: %s", exitCode, outputStr)
+	}
+
+	return nil
+}

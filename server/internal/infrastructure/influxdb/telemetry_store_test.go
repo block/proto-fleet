@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -351,15 +352,16 @@ func TestNewTelemetryStore(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		testCase := tc
+		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, err := NewTelemetryStore(tt.config)
+			store, err := NewTelemetryStore(testCase.config)
 
-			if tt.expectError {
+			if testCase.expectError {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMsg)
+				assert.Contains(t, err.Error(), testCase.errorMsg)
 				assert.Nil(t, store)
 			} else {
 				require.NoError(t, err)
@@ -3172,21 +3174,22 @@ func TestSplitTimeRange(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		testCase := tc
+		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			chunks := splitTimeRange(tt.startTime, tt.endTime, tt.chunkSize)
+			chunks := splitTimeRange(testCase.startTime, testCase.endTime, testCase.chunkSize)
 
-			assert.Len(t, chunks, tt.expectedCount, "Should have expected number of chunks")
+			assert.Len(t, chunks, testCase.expectedCount, "Should have expected number of chunks")
 
 			// Verify first chunk starts at start time
 			if len(chunks) > 0 {
-				assert.Equal(t, tt.startTime, chunks[0].StartTime, "First chunk should start at start time")
+				assert.Equal(t, testCase.startTime, chunks[0].StartTime, "First chunk should start at start time")
 			}
 
 			// Verify last chunk ends at end time
 			if len(chunks) > 0 {
-				assert.Equal(t, tt.endTime, chunks[len(chunks)-1].EndTime, "Last chunk should end at end time")
+				assert.Equal(t, testCase.endTime, chunks[len(chunks)-1].EndTime, "Last chunk should end at end time")
 			}
 
 			// Verify chunks are non-overlapping with exactly 1ns gap between them
@@ -3260,15 +3263,382 @@ func TestNeedsChunking(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		testCase := tc
+		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			result := needsChunking(tt.start, tt.end)
-			assert.Equal(t, tt.expected, result)
+			result := needsChunking(testCase.start, testCase.end)
+			assert.Equal(t, testCase.expected, result)
 		})
 	}
 }
 
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// LVC (Last Value Cache) Integration Tests
+// These tests verify that the LVC query optimization works correctly.
+
+// lvcTestFixture holds common test dependencies for LVC tests.
+type lvcTestFixture struct {
+	store      *InfluxTelemetryStore
+	container  testcontainers.Container
+	testConfig testutils.Config
+}
+
+// setupLVCTest creates a test fixture with InfluxDB container and store.
+// The LVC is NOT created here - call createLVC after writing test data.
+func setupLVCTest(t *testing.T) *lvcTestFixture {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	container, testConfig := testutils.SetupInfluxDBContainer(t)
+	t.Cleanup(func() {
+		if err := container.Terminate(t.Context()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	})
+
+	config := Config{
+		URL:           testConfig.URL,
+		Organization:  testConfig.Organization,
+		Bucket:        testConfig.Bucket,
+		Token:         testConfig.Token,
+		WriteTimeout:  testConfig.WriteTimeout,
+		QueryTimeout:  testConfig.QueryTimeout,
+		RetryAttempts: 3,
+		RetryDelay:    50 * time.Millisecond,
+	}
+
+	store, err := NewTelemetryStore(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Close() })
+
+	ctx := t.Context()
+	err = store.Ping(ctx)
+	require.NoError(t, err, "Should be able to ping InfluxDB")
+
+	return &lvcTestFixture{
+		store:      store,
+		container:  container,
+		testConfig: testConfig,
+	}
+}
+
+// lvcRetryConfig configures retry behavior for LVC operations.
+const (
+	lvcRetryTimeout  = 5 * time.Second
+	lvcRetryInterval = 200 * time.Millisecond
+)
+
+// createLVC creates the Last Value Cache with retry logic.
+// Retries handle the case where the table doesn't exist yet (404 error).
+func (f *lvcTestFixture) createLVC(ctx context.Context, t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(lvcRetryTimeout)
+
+	for time.Now().Before(deadline) {
+		err := testutils.CreateLastValueCache(ctx, f.container, f.testConfig.Bucket, f.testConfig.Token)
+		if err == nil {
+			return
+		}
+		// Retry on 404 (table not yet created)
+		if strings.Contains(err.Error(), "404") {
+			time.Sleep(lvcRetryInterval)
+			continue
+		}
+		require.NoError(t, err, "Should be able to create Last Value Cache")
+	}
+	t.Fatal("Timed out waiting to create LVC (table may not exist)")
+}
+
+// waitForLVCHit retries the query until we get an LVC hit with results, or timeout.
+// This ensures we're actually testing LVC functionality, not just the fallback.
+// For nil deviceIDs (all-devices query), also requires results to be returned.
+func (f *lvcTestFixture) waitForLVCHit(
+	ctx context.Context,
+	t *testing.T,
+	deviceIDs []models.DeviceIdentifier,
+) map[models.DeviceIdentifier]modelsV2.DeviceMetrics {
+	t.Helper()
+
+	deadline := time.Now().Add(lvcRetryTimeout)
+	var lastResults map[models.DeviceIdentifier]modelsV2.DeviceMetrics
+	var lastStats QueryStats
+
+	for time.Now().Before(deadline) {
+		f.store.ResetQueryStats()
+		results, err := f.store.GetLatestDeviceMetricsBatch(ctx, deviceIDs)
+		require.NoError(t, err)
+
+		stats := f.store.GetQueryStats()
+		lastResults = results
+		lastStats = stats
+
+		// For nil deviceIDs (all-devices), require both LVC hit AND results
+		// because empty results with nil deviceIDs is falsely counted as "hit"
+		if stats.LVCHits == 1 && (len(deviceIDs) > 0 || len(results) > 0) {
+			t.Logf("LVC hit achieved (hits=%d, misses=%d, errors=%d, results=%d)",
+				stats.LVCHits, stats.LVCMisses, stats.LVCErrors, len(results))
+			return results
+		}
+
+		time.Sleep(lvcRetryInterval)
+	}
+
+	t.Fatalf("LVC hit not achieved within %v timeout. Last stats: hits=%d, misses=%d, errors=%d, tableQueries=%d, results=%d",
+		lvcRetryTimeout, lastStats.LVCHits, lastStats.LVCMisses, lastStats.LVCErrors, lastStats.TableQueries, len(lastResults))
+	return lastResults
+}
+
+func TestInfluxTelemetryStore_LVC_QueryReturnsLatestValues(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	fixture := setupLVCTest(t)
+	now := time.Now()
+	deviceID := "lvc-test-device"
+
+	olderMetrics := modelsV2.DeviceMetrics{
+		DeviceID:   deviceID,
+		Timestamp:  now.Add(-5 * time.Minute),
+		Health:     modelsV2.HealthWarning,
+		HashrateHS: &modelsV2.MetricValue{Value: 80000000.0, Kind: modelsV2.MetricKindGauge},
+		TempC:      &modelsV2.MetricValue{Value: 60.0, Kind: modelsV2.MetricKindGauge},
+		PowerW:     &modelsV2.MetricValue{Value: 3000.0, Kind: modelsV2.MetricKindGauge},
+	}
+	latestMetrics := modelsV2.DeviceMetrics{
+		DeviceID:   deviceID,
+		Timestamp:  now.Add(-1 * time.Minute),
+		Health:     modelsV2.HealthHealthyActive,
+		HashrateHS: &modelsV2.MetricValue{Value: 100000000.0, Kind: modelsV2.MetricKindGauge},
+		TempC:      &modelsV2.MetricValue{Value: 65.0, Kind: modelsV2.MetricKindGauge},
+		PowerW:     &modelsV2.MetricValue{Value: 3200.0, Kind: modelsV2.MetricKindGauge},
+	}
+
+	// Write older data first to create the table (required before LVC creation)
+	ctx := t.Context()
+	err := fixture.store.StoreDeviceMetrics(ctx, olderMetrics)
+	require.NoError(t, err)
+
+	// Create LVC (retries until table exists)
+	fixture.createLVC(ctx, t)
+
+	// Write fresh data that will populate the LVC
+	err = fixture.store.StoreDeviceMetrics(ctx, latestMetrics)
+	require.NoError(t, err)
+
+	// Act - waitForLVCHit retries until LVC has data
+	results := fixture.waitForLVCHit(ctx, t, []models.DeviceIdentifier{
+		models.DeviceIdentifier(deviceID),
+	})
+
+	// Assert
+	require.Contains(t, results, models.DeviceIdentifier(deviceID))
+
+	device := results[models.DeviceIdentifier(deviceID)]
+	assert.Equal(t, modelsV2.HealthHealthyActive, device.Health)
+	assert.InDelta(t, 100000000.0, device.HashrateHS.Value, 0.1)
+	assert.InDelta(t, 65.0, device.TempC.Value, 0.1)
+	assert.InDelta(t, 3200.0, device.PowerW.Value, 0.1)
+
+	// Verify LVC was actually used (waitForLVCHit guarantees this, but double-check)
+	stats := fixture.store.GetQueryStats()
+	assert.Equal(t, int64(1), stats.LVCHits, "Must have LVC hit")
+	assert.Equal(t, int64(0), stats.LVCErrors, "Should have 0 LVC errors")
+	assert.Equal(t, int64(0), stats.TableQueries, "LVC hit should not trigger table query")
+}
+
+func TestInfluxTelemetryStore_LVC_MultipleDevices(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	fixture := setupLVCTest(t)
+	now := time.Now()
+
+	device1ID := "lvc-multi-device1"
+	device2ID := "lvc-multi-device2"
+	device3ID := "lvc-multi-device3"
+
+	// Initial data to create the table (required before LVC creation)
+	initialMetric := modelsV2.DeviceMetrics{
+		DeviceID:   device1ID,
+		Timestamp:  now.Add(-5 * time.Minute),
+		Health:     modelsV2.HealthHealthyActive,
+		HashrateHS: &modelsV2.MetricValue{Value: 50000000.0, Kind: modelsV2.MetricKindGauge},
+	}
+
+	// Fresh data that will populate the LVC
+	testMetrics := []modelsV2.DeviceMetrics{
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-2 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 100000000.0, Kind: modelsV2.MetricKindGauge},
+			TempC:      &modelsV2.MetricValue{Value: 65.0, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceID:   device2ID,
+			Timestamp:  now.Add(-1 * time.Minute),
+			Health:     modelsV2.HealthWarning,
+			HashrateHS: &modelsV2.MetricValue{Value: 90000000.0, Kind: modelsV2.MetricKindGauge},
+			TempC:      &modelsV2.MetricValue{Value: 70.0, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceID:   device3ID,
+			Timestamp:  now.Add(-30 * time.Second),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 110000000.0, Kind: modelsV2.MetricKindGauge},
+			TempC:      &modelsV2.MetricValue{Value: 62.0, Kind: modelsV2.MetricKindGauge},
+		},
+	}
+
+	// Write initial data to create the table
+	ctx := t.Context()
+	err := fixture.store.StoreDeviceMetrics(ctx, initialMetric)
+	require.NoError(t, err)
+
+	// Create LVC (retries until table exists)
+	fixture.createLVC(ctx, t)
+
+	// Write fresh data that will populate the LVC
+	err = fixture.store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err)
+
+	// Act - waitForLVCHit retries until LVC has data
+	results := fixture.waitForLVCHit(ctx, t, []models.DeviceIdentifier{
+		models.DeviceIdentifier(device1ID),
+		models.DeviceIdentifier(device2ID),
+		models.DeviceIdentifier(device3ID),
+	})
+
+	// Assert
+	assert.Len(t, results, 3)
+	assert.Contains(t, results, models.DeviceIdentifier(device1ID))
+	assert.Contains(t, results, models.DeviceIdentifier(device2ID))
+	assert.Contains(t, results, models.DeviceIdentifier(device3ID))
+
+	assert.InDelta(t, 100000000.0, results[models.DeviceIdentifier(device1ID)].HashrateHS.Value, 0.1)
+	assert.InDelta(t, 90000000.0, results[models.DeviceIdentifier(device2ID)].HashrateHS.Value, 0.1)
+	assert.InDelta(t, 110000000.0, results[models.DeviceIdentifier(device3ID)].HashrateHS.Value, 0.1)
+
+	// Verify LVC was actually used
+	stats := fixture.store.GetQueryStats()
+	assert.Equal(t, int64(1), stats.LVCHits, "Must have LVC hit")
+	assert.Equal(t, int64(0), stats.LVCErrors, "Should have 0 LVC errors")
+	assert.Equal(t, int64(0), stats.TableQueries, "LVC hit should not trigger table query")
+}
+
+func TestInfluxTelemetryStore_LVC_AllDevicesQuery(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	fixture := setupLVCTest(t)
+	now := time.Now()
+
+	device1ID := "lvc-all-device1"
+	device2ID := "lvc-all-device2"
+
+	// Initial data to create the table (required before LVC creation)
+	initialMetric := modelsV2.DeviceMetrics{
+		DeviceID:   device1ID,
+		Timestamp:  now.Add(-5 * time.Minute),
+		Health:     modelsV2.HealthHealthyActive,
+		HashrateHS: &modelsV2.MetricValue{Value: 50000000.0, Kind: modelsV2.MetricKindGauge},
+	}
+
+	// Fresh data that will populate the LVC
+	testMetrics := []modelsV2.DeviceMetrics{
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-2 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 100000000.0, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceID:   device2ID,
+			Timestamp:  now.Add(-1 * time.Minute),
+			Health:     modelsV2.HealthWarning,
+			HashrateHS: &modelsV2.MetricValue{Value: 90000000.0, Kind: modelsV2.MetricKindGauge},
+		},
+	}
+
+	// Write initial data to create the table
+	ctx := t.Context()
+	err := fixture.store.StoreDeviceMetrics(ctx, initialMetric)
+	require.NoError(t, err)
+
+	// Create LVC (retries until table exists)
+	fixture.createLVC(ctx, t)
+
+	// Write fresh data that will populate the LVC
+	err = fixture.store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err)
+
+	// Act - waitForLVCHit retries until LVC has data
+	results := fixture.waitForLVCHit(ctx, t, nil)
+
+	// Assert - LVC hit with all devices
+	assert.GreaterOrEqual(t, len(results), 2)
+	assert.Contains(t, results, models.DeviceIdentifier(device1ID))
+	assert.Contains(t, results, models.DeviceIdentifier(device2ID))
+
+	// Verify LVC was actually used
+	stats := fixture.store.GetQueryStats()
+	assert.Equal(t, int64(1), stats.LVCHits, "Must have LVC hit")
+	assert.Equal(t, int64(0), stats.LVCErrors, "Should have 0 LVC errors")
+	assert.Equal(t, int64(0), stats.TableQueries, "LVC hit should not trigger table query")
+}
+
+// TestCanUseLVCForTimeRange tests the time range validation for LVC usage.
+func TestCanUseLVCForTimeRange(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - shared test data
+	now := time.Now()
+	fiveMinutesAgo := now.Add(-5 * time.Minute)
+	fifteenMinutesAgo := now.Add(-15 * time.Minute)
+	oneHourAgo := now.Add(-1 * time.Hour)
+
+	tests := []struct {
+		name      string
+		startTime *time.Time
+		expected  bool
+	}{
+		{
+			name:      "nil start time - should use LVC (assumes recent query)",
+			startTime: nil,
+			expected:  true,
+		},
+		{
+			name:      "recent start time (5 min ago) - should use LVC",
+			startTime: &fiveMinutesAgo,
+			expected:  true,
+		},
+		{
+			name:      "older start time (15 min ago) - should NOT use LVC (beyond TTL)",
+			startTime: &fifteenMinutesAgo,
+			expected:  false,
+		},
+		{
+			name:      "much older start time (1 hour ago) - should NOT use LVC",
+			startTime: &oneHourAgo,
+			expected:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		testCase := tc
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Act
+			result := canUseLVCForTimeRange(testCase.startTime)
+
+			// Assert
+			assert.Equal(t, testCase.expected, result)
+		})
+	}
 }
