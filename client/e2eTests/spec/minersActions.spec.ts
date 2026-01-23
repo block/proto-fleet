@@ -408,7 +408,8 @@ test.describe("Miners", () => {
     });
   });
 
-  test("CLEANUP: Re-authenticate added miners", async ({ homePage, commonSteps }) => {
+  // Miners auto-authenticate now, breaking the previous logic
+  test.fixme("CLEANUP: Re-authenticate added miners", async ({ homePage, commonSteps }) => {
     // Workaround - re-added Antminers need authentication again
     await commonSteps.loginAsAdmin();
 

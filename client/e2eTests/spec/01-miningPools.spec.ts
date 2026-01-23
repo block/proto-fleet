@@ -8,11 +8,11 @@ test.describe("Mining Pools @setup", () => {
   });
 
   const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
-  const validPoolUrl = "stratum+tcp://stratum.slushpool.com:3333";
-  const settingsPoolName = generateRandomText("PoolName");
+  const validPoolUrl = "stratum+tcp://mine.ocean.xyz:3334";
 
   test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
-    const poolUsername = "test";
+    const settingsPoolName = generateRandomText("PoolName");
+    const poolUsername = generateRandomText("PoolUsername");
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to mining pools settings", async () => {
@@ -20,9 +20,17 @@ test.describe("Mining Pools @setup", () => {
       await settingsPoolsPage.validateMiningPoolsPageOpened();
     });
 
-    await test.step("Configure mining pool with invalid URL", async () => {
+    await test.step("Start adding a pool", async () => {
       await settingsPoolsPage.clickAddPool();
       await newPoolModal.validatePoolModalOpened();
+    });
+
+    await test.step("Validate empty pool url message", async () => {
+      await newPoolModal.clickTestConnection();
+      await newPoolModal.validateEmptyPoolUrlError();
+    });
+
+    await test.step("Configure mining pool with invalid URL", async () => {
       await newPoolModal.inputPoolName(settingsPoolName);
       await newPoolModal.inputPoolUrl(invalidPoolUrl);
       await newPoolModal.inputPoolUsername(poolUsername);
@@ -50,7 +58,7 @@ test.describe("Mining Pools @setup", () => {
 
   test("Add default mining pool to all miners", async ({ minersPage, editPoolPage, newPoolModal, commonSteps }) => {
     const poolName = generateRandomText("PoolName");
-    const poolUsername = "pool";
+    const poolUsername = generateRandomText("PoolUsername");
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -80,8 +88,32 @@ test.describe("Mining Pools @setup", () => {
     });
   });
 
-  test("Add to first miner backup pool created from settings", async ({ minersPage, editPoolPage, commonSteps }) => {
+  test("Add to first miner backup pool created from settings", async ({
+    settingsPage,
+    settingsPoolsPage,
+    newPoolModal,
+    minersPage,
+    editPoolPage,
+    commonSteps,
+  }) => {
+    const settingsPoolName = generateRandomText("PoolName");
+    const poolUsername = generateRandomText("PoolUsername");
     await commonSteps.loginAsAdmin();
+
+    await test.step("Navigate to mining pools settings", async () => {
+      await settingsPage.navigateToMiningPoolsSettings();
+      await settingsPoolsPage.validateMiningPoolsPageOpened();
+    });
+
+    await test.step("Add a pool", async () => {
+      await settingsPoolsPage.clickAddPool();
+      await newPoolModal.inputPoolName(settingsPoolName);
+      await newPoolModal.inputPoolUrl(validPoolUrl);
+      await newPoolModal.inputPoolUsername(poolUsername);
+      await newPoolModal.clickSaveNewPool();
+      await settingsPoolsPage.validatePoolEntryByUniqueName(settingsPoolName, validPoolUrl, poolUsername);
+    });
+
     await commonSteps.goToMinersPage();
 
     let minerIp: string;

@@ -62,7 +62,8 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
+  // Miners auto-authenticate now, breaking the previous logic
+  test.fixme("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Authenticate miners", async () => {

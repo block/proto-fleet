@@ -1,5 +1,6 @@
 import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
+import { type IssueIconId } from "../helpers/testDataHelper";
 import { BasePage } from "./base";
 
 const PROLONGED_TIMEOUT = DEFAULT_TIMEOUT * 4;
@@ -63,6 +64,12 @@ export class MinersPage extends BasePage {
     const minerRow = await this.getMinerRowByIp(minerName);
     const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
     await expect(columnLocator).toHaveText(expectedValue);
+  }
+
+  async validateMinerIcon(minerIp: string, columnTestId: string, iconId: IssueIconId) {
+    const minerRow = await this.getMinerRowByIp(minerIp);
+    const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
+    await expect(columnLocator.getByTestId(iconId)).toBeVisible();
   }
 
   async clickMinerThreeDotsButton(ipAddress: string) {
@@ -287,5 +294,25 @@ export class MinersPage extends BasePage {
 
   async clickAddMinersButton() {
     await this.click("Add miners");
+  }
+
+  async clickMinerElementByTestId(ipAddress: string, testId: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await minerRow.getByTestId(testId).click();
+  }
+
+  async validateMinerIssuesModalOpened(minerName: string) {
+    await this.validateTitleInModal(`${minerName} status`);
+  }
+
+  async validateErrorInModal(errorText: string, iconId: IssueIconId) {
+    const modal = this.page.locator('[role="dialog"], [data-testid*="modal"]');
+    await expect(modal.getByText(errorText)).toBeVisible();
+    await expect(modal.getByTestId(iconId)).toBeVisible();
+    await expect(modal.getByText("Reported on 01/01/2026 at ").first()).toBeVisible();
+  }
+
+  async clickCloseStatusModal() {
+    await this.clickIn("Done", "modal");
   }
 }

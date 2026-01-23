@@ -28,6 +28,10 @@ export class NewPoolModalPage extends BasePage {
     ).toBeVisible();
   }
 
+  async validateEmptyPoolUrlError() {
+    await this.validateTextIsVisible("A Pool URL is required to connect to this pool.");
+  }
+
   async validateConnectionSuccessful() {
     await expect(
       this.page.locator(`//div[@data-testid='pool-connected-callout' and not(contains(@class,'hidden'))]`),
