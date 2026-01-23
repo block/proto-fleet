@@ -20,10 +20,10 @@ import { MiningPool } from "./types";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
 import usePools from "@/protoFleet/api/usePools";
-import { Alert, Dismiss } from "@/shared/assets/icons";
+import { Alert, Dismiss, Success } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Callout from "@/shared/components/Callout";
-import { intents } from "@/shared/components/Callout/constants";
+import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import { MAX_POOLS } from "@/shared/components/MiningPools/constants";
 import PageOverlay from "@/shared/components/PageOverlay";
@@ -48,6 +48,18 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [editingPoolIndex, setEditingPoolIndex] = useState<number | null>(null);
   const [testingPoolId, setTestingPoolId] = useState<string | null>(null);
+  const [showConnectionCallout, setShowConnectionCallout] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
+
+  const showSuccessCallout = useMemo(
+    () => showConnectionCallout && !testingPoolId && !connectionError,
+    [showConnectionCallout, testingPoolId, connectionError],
+  );
+
+  const showErrorCallout = useMemo(
+    () => showConnectionCallout && !testingPoolId && connectionError,
+    [showConnectionCallout, testingPoolId, connectionError],
+  );
 
   const { fetchPoolAssignments, isLoading: isLoadingAssignments } = useMinerPoolAssignments();
   const { miningPools, validatePool } = usePools();
@@ -167,11 +179,13 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
   const handleAddPool = useCallback(() => {
     setEditingPoolIndex(null);
     setShowSelectionModal(true);
+    setShowConnectionCallout(false);
   }, []);
 
   const handleUpdatePool = useCallback((index: number) => {
     setEditingPoolIndex(index);
     setShowSelectionModal(true);
+    setShowConnectionCallout(false);
   }, []);
 
   const handlePoolSelected = useCallback(
@@ -198,6 +212,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
       }
       setShowSelectionModal(false);
       setEditingPoolIndex(null);
+      setShowConnectionCallout(false);
     },
     [editingPoolIndex, miningPools],
   );
@@ -214,18 +229,28 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
 
   const handleTestConnection = useCallback(
     (pool: MiningPool) => {
+      if (testingPoolId) return;
+
       setTestingPoolId(pool.poolId);
+      setConnectionError(false);
       validatePool({
         poolInfo: {
           url: pool.poolUrl,
           username: pool.username,
         },
+        onSuccess: () => {
+          setConnectionError(false);
+        },
+        onError: () => {
+          setConnectionError(true);
+        },
         onFinally: () => {
           setTestingPoolId(null);
+          setShowConnectionCallout(true);
         },
       });
     },
-    [validatePool],
+    [testingPoolId, validatePool],
   );
 
   const handleAssignPoolsClick = async () => {
@@ -331,6 +356,24 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
               </p>
             </div>
 
+            {/* Connection test result callouts */}
+            <DismissibleCalloutWrapper
+              icon={<Success />}
+              intent={intents.success}
+              onDismiss={() => setShowConnectionCallout(false)}
+              show={showSuccessCallout}
+              title="Pool connection successful"
+              testId="pool-selection-page-connection-success-callout"
+            />
+            <DismissibleCalloutWrapper
+              icon={<Alert width={iconSizes.medium} />}
+              intent={intents.danger}
+              onDismiss={() => setShowConnectionCallout(false)}
+              show={showErrorCallout}
+              title="We couldn't connect with your pool. Review your pool details and try again."
+              testId="pool-selection-page-connection-error-callout"
+            />
+
             {/* Duplicate pools warning */}
             {hasDuplicatePools && (
               <Callout
@@ -372,7 +415,6 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
                           onUpdate={() => handleUpdatePool(index)}
                           onTestConnection={() => handleTestConnection(pool)}
                           onRemove={() => handleRemovePool(pool.poolId)}
-                          isTestingConnection={testingPoolId === pool.poolId}
                           testId={`pool-row-${index}`}
                         />
                       ))}

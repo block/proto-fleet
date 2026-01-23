@@ -12,15 +12,9 @@ interface FleetPoolActionsMenuProps {
   onTestConnection: () => void;
   onRemove: () => void;
   poolId: string;
-  isTestingConnection?: boolean;
 }
 
-const FleetPoolActionsMenuInner = ({
-  onTestConnection,
-  onRemove,
-  poolId,
-  isTestingConnection = false,
-}: FleetPoolActionsMenuProps) => {
+const FleetPoolActionsMenuInner = ({ onTestConnection, onRemove, poolId }: FleetPoolActionsMenuProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const { triggerRef } = usePopover();
 
@@ -35,10 +29,9 @@ const FleetPoolActionsMenuInner = ({
   });
 
   const handleTestConnection = useCallback(() => {
-    if (isTestingConnection) return;
     setIsOpen(false);
     onTestConnection();
-  }, [onTestConnection, isTestingConnection]);
+  }, [onTestConnection]);
 
   const handleRemove = useCallback(() => {
     setIsOpen(false);
@@ -67,13 +60,13 @@ const FleetPoolActionsMenuInner = ({
           testId={`pool-${poolId}-actions-popover`}
         >
           <Row
-            className={`text-emphasis-300 ${isTestingConnection ? "pointer-events-none opacity-50" : ""}`}
+            className="text-emphasis-300"
             testId={`pool-${poolId}-test-connection-action`}
             onClick={handleTestConnection}
             compact
             divider
           >
-            {isTestingConnection ? "Testing..." : "Test connection"}
+            Test connection
           </Row>
           <Row
             className="text-emphasis-300"

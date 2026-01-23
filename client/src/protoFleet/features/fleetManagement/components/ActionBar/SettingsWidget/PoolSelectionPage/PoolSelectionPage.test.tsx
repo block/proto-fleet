@@ -25,6 +25,11 @@ const mockPools = [
   }),
 ];
 
+const mockValidatePool = vi.fn(({ onSuccess, onFinally }) => {
+  onSuccess?.();
+  onFinally?.();
+});
+
 vi.mock("@/protoFleet/api/usePools", () => ({
   default: () => ({
     pools: mockPools,
@@ -34,10 +39,7 @@ vi.mock("@/protoFleet/api/usePools", () => ({
       poolUrl: pool.url,
       username: pool.username,
     })),
-    validatePool: vi.fn(({ onSuccess, onFinally }) => {
-      onSuccess?.();
-      onFinally?.();
-    }),
+    validatePool: mockValidatePool,
     createPool: vi.fn(),
     updatePool: vi.fn(),
     deletePool: vi.fn(),
@@ -298,5 +300,155 @@ describe("Pool selection page", () => {
 
     expect(getByTestId("add-new-pool-button")).toBeInTheDocument();
     expect(getByText("Add new pool")).toBeInTheDocument();
+  });
+
+  test("shows success callout when test connection succeeds", async () => {
+    const { getByText, getByTestId, getAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    // Add a pool first
+    fireEvent.click(getByTestId("add-pool-button"));
+    await waitFor(() => expect(getByText("Select pool")).toBeInTheDocument());
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+    await waitFor(() => expect(getByTestId("pool-row-0")).toBeInTheDocument());
+
+    // Click test connection via the actions menu
+    const actionsButton = getByTestId("pool-1-actions-menu-button");
+    fireEvent.click(actionsButton);
+
+    await waitFor(() => {
+      expect(getByTestId("pool-1-test-connection-action")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByTestId("pool-1-test-connection-action"));
+
+    // Success callout should appear and be visible (max-h-96)
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-page-connection-success-callout");
+      expect(callout).toHaveClass("max-h-96");
+      expect(callout).not.toHaveClass("max-h-0");
+      expect(getByText("Pool connection successful")).toBeInTheDocument();
+    });
+  });
+
+  test("dismisses success callout when dismiss button is clicked", async () => {
+    const { getByText, getByTestId, getAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    // Add a pool first
+    fireEvent.click(getByTestId("add-pool-button"));
+    await waitFor(() => expect(getByText("Select pool")).toBeInTheDocument());
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+    await waitFor(() => expect(getByTestId("pool-row-0")).toBeInTheDocument());
+
+    // Click test connection via the actions menu
+    const actionsButton = getByTestId("pool-1-actions-menu-button");
+    fireEvent.click(actionsButton);
+
+    await waitFor(() => {
+      expect(getByTestId("pool-1-test-connection-action")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByTestId("pool-1-test-connection-action"));
+
+    // Success callout should appear with max-h-96 (visible state)
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-page-connection-success-callout");
+      expect(callout).toHaveClass("max-h-96");
+    });
+
+    // Find and click the dismiss button within the callout
+    const callout = getByTestId("pool-selection-page-connection-success-callout");
+    const dismissButton = callout.querySelector("button");
+    if (dismissButton) {
+      fireEvent.click(dismissButton);
+    }
+
+    // Callout should be hidden (max-h-0 class)
+    await waitFor(() => {
+      const calloutAfter = getByTestId("pool-selection-page-connection-success-callout");
+      expect(calloutAfter).toHaveClass("max-h-0");
+    });
+  });
+
+  test("shows error callout when test connection fails", async () => {
+    // Override mock to simulate failure
+    mockValidatePool.mockImplementationOnce(({ onError, onFinally }) => {
+      onError?.();
+      onFinally?.();
+    });
+
+    const { getByText, getByTestId, getAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    // Add a pool first
+    fireEvent.click(getByTestId("add-pool-button"));
+    await waitFor(() => expect(getByText("Select pool")).toBeInTheDocument());
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+    await waitFor(() => expect(getByTestId("pool-row-0")).toBeInTheDocument());
+
+    // Click test connection via the actions menu
+    const actionsButton = getByTestId("pool-1-actions-menu-button");
+    fireEvent.click(actionsButton);
+
+    await waitFor(() => {
+      expect(getByTestId("pool-1-test-connection-action")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByTestId("pool-1-test-connection-action"));
+
+    // Error callout should appear and be visible (max-h-96)
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-page-connection-error-callout");
+      expect(callout).toHaveClass("max-h-96");
+      expect(callout).not.toHaveClass("max-h-0");
+      expect(
+        getByText("We couldn't connect with your pool. Review your pool details and try again."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("dismisses callout when opening pool selection modal", async () => {
+    const { getByText, getByTestId, getAllByText } = render(
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
+    );
+
+    // Add a pool first
+    fireEvent.click(getByTestId("add-pool-button"));
+    await waitFor(() => expect(getByText("Select pool")).toBeInTheDocument());
+    fireEvent.click(getByText("Client pool A1"));
+    fireEvent.click(getAllByText("Save").find((btn) => btn.closest("button")) as HTMLElement);
+    await waitFor(() => expect(getByTestId("pool-row-0")).toBeInTheDocument());
+
+    // Click test connection via the actions menu
+    const actionsButton = getByTestId("pool-1-actions-menu-button");
+    fireEvent.click(actionsButton);
+
+    await waitFor(() => {
+      expect(getByTestId("pool-1-test-connection-action")).toBeInTheDocument();
+    });
+
+    fireEvent.click(getByTestId("pool-1-test-connection-action"));
+
+    // Success callout should appear with max-h-96 (visible state)
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-page-connection-success-callout");
+      expect(callout).toHaveClass("max-h-96");
+    });
+
+    // Open pool selection modal (Add another pool)
+    fireEvent.click(getByTestId("add-another-pool-button"));
+
+    // Callout should be hidden (max-h-0 class) when modal opens
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-page-connection-success-callout");
+      expect(callout).toHaveClass("max-h-0");
+    });
   });
 });

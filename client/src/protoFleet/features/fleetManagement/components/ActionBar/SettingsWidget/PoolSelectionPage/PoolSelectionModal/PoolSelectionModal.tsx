@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { MiningPool } from "../types";
 import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
+import { Alert, Success } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -71,8 +74,20 @@ const PoolSelectionModal = ({
   const [showAddPoolModal, setShowAddPoolModal] = useState(false);
   const [newPoolInfo, setNewPoolInfo] = useState<PoolInfo[]>([emptyPoolInfo]);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [showConnectionCallout, setShowConnectionCallout] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
 
   const { validatePool, createPool, miningPools } = usePools();
+
+  const showSuccessCallout = useMemo(
+    () => showConnectionCallout && !isTestingConnection && !connectionError,
+    [showConnectionCallout, isTestingConnection, connectionError],
+  );
+
+  const showErrorCallout = useMemo(
+    () => showConnectionCallout && !isTestingConnection && connectionError,
+    [showConnectionCallout, isTestingConnection, connectionError],
+  );
 
   const filteredPools = useMemo(() => filterPoolsByQuery(miningPools, searchQuery), [miningPools, searchQuery]);
 
@@ -89,29 +104,31 @@ const PoolSelectionModal = ({
     }
   };
 
-  const handleTestSelectedConnection = () => {
+  const handleTestSelectedConnection = useCallback(() => {
     if (!selectedPoolId) return;
 
     const selectedPool = miningPools.find((p) => p.poolId === selectedPoolId);
     if (!selectedPool) return;
 
     setIsTestingConnection(true);
+    setConnectionError(false);
     validatePool({
       poolInfo: {
         url: selectedPool.poolUrl,
         username: selectedPool.username,
       },
       onSuccess: () => {
-        // Could add toast notification here
+        setConnectionError(false);
       },
       onError: () => {
-        // Could add toast notification here
+        setConnectionError(true);
       },
       onFinally: () => {
         setIsTestingConnection(false);
+        setShowConnectionCallout(true);
       },
     });
-  };
+  }, [selectedPoolId, miningPools, validatePool]);
 
   const handleNewPoolSave = async (pool: PoolInfo, isPasswordSet: boolean) => {
     const createPoolRequest = create(CreatePoolRequestSchema, {
@@ -219,6 +236,22 @@ const PoolSelectionModal = ({
       size="extraLarge"
     >
       <div className="mt-6 flex flex-col gap-6">
+        <DismissibleCalloutWrapper
+          icon={<Success />}
+          intent={intents.success}
+          onDismiss={() => setShowConnectionCallout(false)}
+          show={showSuccessCallout}
+          title="Pool connection successful"
+          testId="pool-selection-modal-connection-success-callout"
+        />
+        <DismissibleCalloutWrapper
+          icon={<Alert width={iconSizes.medium} />}
+          intent={intents.danger}
+          onDismiss={() => setShowConnectionCallout(false)}
+          show={showErrorCallout}
+          title="We couldn't connect with your pool. Review your pool details and try again."
+          testId="pool-selection-modal-connection-error-callout"
+        />
         <div className="w-[320px]">
           <Input
             id="pool-search"
@@ -262,7 +295,10 @@ const PoolSelectionModal = ({
                     pool={pool}
                     isSelected={selectedPoolId === pool.poolId}
                     isDisabled={isPoolExcluded(pool.poolId)}
-                    onSelect={() => setSelectedPoolId(pool.poolId)}
+                    onSelect={() => {
+                      setSelectedPoolId(pool.poolId);
+                      setShowConnectionCallout(false);
+                    }}
                     testId={`pool-row-${pool.name}`}
                   />
                 ))}

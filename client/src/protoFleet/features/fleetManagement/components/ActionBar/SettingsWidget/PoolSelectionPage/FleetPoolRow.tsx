@@ -12,19 +12,10 @@ interface FleetPoolRowProps {
   onUpdate: () => void;
   onTestConnection: () => void;
   onRemove: () => void;
-  isTestingConnection?: boolean;
   testId?: string;
 }
 
-const FleetPoolRow = ({
-  pool,
-  priorityNumber,
-  onUpdate,
-  onTestConnection,
-  onRemove,
-  isTestingConnection = false,
-  testId,
-}: FleetPoolRowProps) => {
+const FleetPoolRow = ({ pool, priorityNumber, onUpdate, onTestConnection, onRemove, testId }: FleetPoolRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pool.poolId });
 
   const style = {
@@ -70,12 +61,7 @@ const FleetPoolRow = ({
             onClick={onUpdate}
             testId={`${testId}-update-button`}
           />
-          <FleetPoolActionsMenu
-            onTestConnection={onTestConnection}
-            onRemove={onRemove}
-            poolId={pool.poolId}
-            isTestingConnection={isTestingConnection}
-          />
+          <FleetPoolActionsMenu onTestConnection={onTestConnection} onRemove={onRemove} poolId={pool.poolId} />
         </div>
       </Row>
     </div>

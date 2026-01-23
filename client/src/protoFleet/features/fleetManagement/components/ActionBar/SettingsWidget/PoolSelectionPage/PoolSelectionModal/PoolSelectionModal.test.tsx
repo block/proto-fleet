@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import PoolSelectionModal from "./PoolSelectionModal";
@@ -202,5 +202,81 @@ describe("PoolSelectionModal", () => {
     expect(getByText("Ocean Pool")).toBeInTheDocument();
     expect(getByText("Braiins Pool")).toBeInTheDocument();
     expect(getByText("Foundry USA")).toBeInTheDocument();
+  });
+
+  test("shows success callout when test connection succeeds", async () => {
+    mockValidatePool.mockImplementation(({ onSuccess, onFinally }) => {
+      onSuccess?.();
+      onFinally?.();
+    });
+
+    const { getByText, getByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
+
+    // Select a pool
+    fireEvent.click(getByText("Ocean Pool"));
+
+    // Click test connection
+    fireEvent.click(getByText("Test connection"));
+
+    // Success callout should appear and be visible
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-modal-connection-success-callout");
+      expect(callout).toHaveClass("max-h-96");
+      expect(callout).not.toHaveClass("max-h-0");
+    });
+    expect(getByText("Pool connection successful")).toBeInTheDocument();
+  });
+
+  test("shows error callout when test connection fails", async () => {
+    mockValidatePool.mockImplementation(({ onError, onFinally }) => {
+      onError?.();
+      onFinally?.();
+    });
+
+    const { getByText, getByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
+
+    // Select a pool
+    fireEvent.click(getByText("Ocean Pool"));
+
+    // Click test connection
+    fireEvent.click(getByText("Test connection"));
+
+    // Error callout should appear and be visible
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-modal-connection-error-callout");
+      expect(callout).toHaveClass("max-h-96");
+      expect(callout).not.toHaveClass("max-h-0");
+    });
+    expect(
+      getByText("We couldn't connect with your pool. Review your pool details and try again."),
+    ).toBeInTheDocument();
+  });
+
+  test("dismisses callout when selecting a different pool", async () => {
+    mockValidatePool.mockImplementation(({ onSuccess, onFinally }) => {
+      onSuccess?.();
+      onFinally?.();
+    });
+
+    const { getByText, getByTestId } = render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
+
+    // Select a pool and test connection
+    fireEvent.click(getByText("Ocean Pool"));
+    fireEvent.click(getByText("Test connection"));
+
+    // Wait for success callout to appear
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-modal-connection-success-callout");
+      expect(callout).toHaveClass("max-h-96");
+    });
+
+    // Select a different pool
+    fireEvent.click(getByText("Braiins Pool"));
+
+    // Callout should be hidden
+    await waitFor(() => {
+      const callout = getByTestId("pool-selection-modal-connection-success-callout");
+      expect(callout).toHaveClass("max-h-0");
+    });
   });
 });
