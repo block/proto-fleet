@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianvoe/gofakeit/v7"
 	gomock "github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -269,28 +268,13 @@ func TestTelemetryService_Stop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func FakeTelemetryData(deviceID models.DeviceIdentifier) models.Telemetry {
-	data := models.Telemetry{}
-	data.Measurement = gofakeit.RandomString([]string{"temperature", "hashrate", "fan_speed", "power_usage"})
-	data.Fields = map[string]any{
-		"value": gofakeit.Float64Range(0, 100),
-	}
-	data.Tags = map[string]string{
-		"device_id": deviceID.String(),
-		"location":  gofakeit.City(),
-	}
-	data.Timestamp = gofakeit.DateRange(time.Now().Add(-24*time.Hour), time.Now())
-	return data
-}
+// FakeTelemetryData is no longer used - tests now use DeviceMetrics v2 model
 
 func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 	type deviceScenario struct {
 		device                     models.Device
-		telemetry                  []models.Telemetry
 		deviceMetrics              *modelsV2.DeviceMetrics
-		hasStoreError              bool
 		hasSchedulerError          bool
-		hasMinerError              bool
 		hasDiscoveryError          bool
 		hasDeviceMetricsError      bool
 		hasDeviceMetricsStoreError bool
@@ -301,167 +285,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 		devicesScenario []deviceScenario
 	}{
 		{
-			name: "validates telemetry data is stored correctly for one device one  telemetry record",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "123",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("123")},
-				},
-			},
-		},
-		{
-			name: "validates telemetry data is stored correctly for one device and multiple telemetry records",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "124",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry: []models.Telemetry{
-						FakeTelemetryData("124"),
-						FakeTelemetryData("124"),
-						FakeTelemetryData("124"),
-						FakeTelemetryData("124"),
-						FakeTelemetryData("124"),
-					},
-				},
-			},
-		},
-		{
-			name: "validates telemetry data is stored correctly for multiple devices with one telemetry record each",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("125")},
-				},
-				{
-					device: models.Device{
-						ID:            "305",
-						LastUpdatedAt: time.Now().Add(-2 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("305")},
-				},
-				{
-					device: models.Device{
-						ID:            "10010",
-						LastUpdatedAt: time.Now().Add(-1 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("10010")},
-				},
-			},
-		},
-		{
-			name: "validates telemetry data is stored correctly for multiple devices with multiple telemetry records each",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("125"), FakeTelemetryData("125"), FakeTelemetryData("125"), FakeTelemetryData("125"), FakeTelemetryData("125")},
-				},
-				{
-					device: models.Device{
-						ID:            "305",
-						LastUpdatedAt: time.Now().Add(-2 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("305"), FakeTelemetryData("305"), FakeTelemetryData("305")},
-				},
-				{
-					device: models.Device{
-						ID:            "10010",
-						LastUpdatedAt: time.Now().Add(-1 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010")},
-				},
-			},
-		},
-		{
-			name: "gets error when device discovery fails of just one device of many",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					hasDiscoveryError: true,
-				},
-				{
-					device: models.Device{
-						ID:            "305",
-						LastUpdatedAt: time.Now().Add(-2 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("305"), FakeTelemetryData("305"), FakeTelemetryData("305")},
-				},
-				{
-					device: models.Device{
-						ID:            "10010",
-						LastUpdatedAt: time.Now().Add(-1 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010")},
-				},
-			},
-		},
-		{
-			name: "gets error when miner errors of just one device of many",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					hasMinerError: true,
-				},
-				{
-					device: models.Device{
-						ID:            "10010",
-						LastUpdatedAt: time.Now().Add(-1 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010")},
-				},
-			},
-		},
-		{
-			name: "gets error when store has an error for just one device of many",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry:     []models.Telemetry{FakeTelemetryData("125"), FakeTelemetryData("125")},
-					hasStoreError: true,
-				},
-				{
-					device: models.Device{
-						ID:            "10010",
-						LastUpdatedAt: time.Now().Add(-1 * time.Minute),
-					},
-					telemetry: []models.Telemetry{FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010"), FakeTelemetryData("10010")},
-				},
-			},
-		},
-		{
-			name: "validates telemetry data with one device and no returned data",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "125",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					telemetry:     []models.Telemetry{},
-					hasStoreError: true,
-				},
-			},
-		},
-		{
-			name: "validates GetDeviceMetrics succeeds and stores device metrics, GetTelemetry also succeeds",
+			name: "validates GetDeviceMetrics succeeds and stores device metrics",
 			devicesScenario: []deviceScenario{
 				{
 					device: models.Device{
@@ -472,12 +296,11 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						DeviceID:  "200",
 						Timestamp: time.Now(),
 					},
-					telemetry: []models.Telemetry{FakeTelemetryData("200")},
 				},
 			},
 		},
 		{
-			name: "validates GetDeviceMetrics fails and falls back to GetTelemetry successfully",
+			name: "validates GetDeviceMetrics fails with not implemented",
 			devicesScenario: []deviceScenario{
 				{
 					device: models.Device{
@@ -485,25 +308,11 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
 					},
 					hasDeviceMetricsError: true,
-					telemetry:             []models.Telemetry{FakeTelemetryData("201")},
 				},
 			},
 		},
 		{
-			name: "validates GetDeviceMetrics fails and GetTelemetry also fails",
-			devicesScenario: []deviceScenario{
-				{
-					device: models.Device{
-						ID:            "202",
-						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
-					},
-					hasDeviceMetricsError: true,
-					hasMinerError:         true,
-				},
-			},
-		},
-		{
-			name: "validates GetDeviceMetrics succeeds but StoreDeviceMetrics fails, GetTelemetry still succeeds",
+			name: "validates GetDeviceMetrics succeeds but StoreDeviceMetrics fails",
 			devicesScenario: []deviceScenario{
 				{
 					device: models.Device{
@@ -514,8 +323,44 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						DeviceID:  "203",
 						Timestamp: time.Now(),
 					},
-					telemetry:                  []models.Telemetry{FakeTelemetryData("203")},
 					hasDeviceMetricsStoreError: true,
+				},
+			},
+		},
+		{
+			name: "gets error when device discovery fails",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "125",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					hasDiscoveryError: true,
+				},
+			},
+		},
+		{
+			name: "validates multiple devices with successful device metrics",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "300",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					deviceMetrics: &modelsV2.DeviceMetrics{
+						DeviceID:  "300",
+						Timestamp: time.Now(),
+					},
+				},
+				{
+					device: models.Device{
+						ID:            "301",
+						LastUpdatedAt: time.Now().Add(-2 * time.Minute),
+					},
+					deviceMetrics: &modelsV2.DeviceMetrics{
+						DeviceID:  "301",
+						Timestamp: time.Now(),
+					},
 				},
 			},
 		},
@@ -531,26 +376,11 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
-			//nolint:revive
-			addFailedDevice := func(device models.Device, withErr bool) {
-				// TODO(briano-block): Migrate this into a larger test on the workers
-				// if withErr {
-				// 	mockScheduler.EXPECT().
-				// 		AddFailedDevices(gomock.Any(), device).
-				// 		Return(errors.New("failed to add device")).Times(1)
-				// 	return
-				// }
-				// mockScheduler.EXPECT().
-				// 	AddFailedDevices(gomock.Any(), device).
-				// 	Return(nil).Times(1)
-			}
-
 			for _, scenario := range test.devicesScenario {
 				if scenario.hasDiscoveryError {
 					mockMinerGetter.EXPECT().
 						GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 						Return(nil, errors.New("discovery error"))
-					addFailedDevice(scenario.device, scenario.hasSchedulerError)
 					continue
 				}
 				mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -558,7 +388,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
 
-				// Setup GetDeviceMetrics expectation (always called)
+				// Setup GetDeviceMetrics expectation
 				if scenario.deviceMetrics != nil {
 					mockMiner.EXPECT().
 						GetDeviceMetrics(gomock.Any()).
@@ -567,50 +397,36 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						mockDataStore.EXPECT().
 							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
 							Return(errors.New("device metrics store error"))
-						// Don't continue - we still need to call GetTelemetry
+						// Even when StoreDeviceMetrics fails, service still calls AddDevices
+						mockScheduler.EXPECT().
+							AddDevices(gomock.Any(), gomock.Any()).
+							Do(func(ctx context.Context, devices ...models.Device) {
+								require.Len(t, devices, 1)
+								assert.Equal(t, scenario.device.ID, devices[0].ID)
+							}).Return(nil).Times(1)
 					} else {
 						mockDataStore.EXPECT().
 							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
 							Return(nil)
+						mockScheduler.EXPECT().
+							AddDevices(gomock.Any(), gomock.Any()).
+							Do(func(ctx context.Context, devices ...models.Device) {
+								require.Len(t, devices, 1)
+								assert.Equal(t, scenario.device.ID, devices[0].ID)
+							}).Return(nil).Times(1)
 					}
 				} else if scenario.hasDeviceMetricsError {
 					mockMiner.EXPECT().
 						GetDeviceMetrics(gomock.Any()).
-						Return(modelsV2.DeviceMetrics{}, errors.New("device metrics error"))
-				} else {
-					// Default case - GetDeviceMetrics not implemented
-					mockMiner.EXPECT().
-						GetDeviceMetrics(gomock.Any()).
 						Return(modelsV2.DeviceMetrics{}, errors.New("not implemented"))
+					// Even when GetDeviceMetrics fails, service still calls AddDevices to update last_updated_at
+					mockScheduler.EXPECT().
+						AddDevices(gomock.Any(), gomock.Any()).
+						Do(func(ctx context.Context, devices ...models.Device) {
+							require.Len(t, devices, 1)
+							assert.Equal(t, scenario.device.ID, devices[0].ID)
+						}).Return(nil).Times(1)
 				}
-
-				// Setup GetTelemetry expectation (always called after GetDeviceMetrics)
-				if scenario.hasMinerError {
-					mockMiner.EXPECT().
-						GetTelemetry(gomock.Any(), scenario.device.LastUpdatedAt).
-						Return(nil, errors.New("miner error"))
-					addFailedDevice(scenario.device, scenario.hasSchedulerError)
-					continue
-				}
-				mockMiner.EXPECT().
-					GetTelemetry(gomock.Any(), scenario.device.LastUpdatedAt).
-					Return(scenario.telemetry, nil)
-				if scenario.hasStoreError {
-					mockDataStore.EXPECT().
-						Store(gomock.Any(), scenario.telemetry).
-						Return(errors.New("store error"))
-					addFailedDevice(scenario.device, scenario.hasSchedulerError)
-					continue
-				}
-				mockDataStore.EXPECT().
-					Store(gomock.Any(), scenario.telemetry).
-					Return(nil)
-				mockScheduler.EXPECT().
-					AddDevices(gomock.Any(), gomock.Any()).
-					Do(func(ctx context.Context, devices ...models.Device) {
-						require.Len(t, devices, 1)
-						assert.Equal(t, scenario.device.ID, devices[0].ID)
-					}).Return(nil).Times(1)
 			}
 
 			service := NewTelemetryService(Config{
@@ -621,8 +437,9 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 
 			for _, scenario := range test.devicesScenario {
 				err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
-				// Only error if GetTelemetry fails, not if GetDeviceMetrics fails
-				if scenario.hasMinerError || scenario.hasDiscoveryError || scenario.hasStoreError || scenario.hasSchedulerError {
+				// Only discovery errors and scheduler errors bubble up to caller
+				// StoreDeviceMetrics errors are logged but don't fail the operation
+				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
 					require.Error(t, err)
 					continue
 				}
@@ -1740,14 +1557,13 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
-		Return(modelsV2.DeviceMetrics{}, errors.New("not implemented"))
-
-	mockMiner.EXPECT().
-		GetTelemetry(gomock.Any(), gomock.Any()).
-		Return([]models.Telemetry{}, nil)
+		Return(modelsV2.DeviceMetrics{
+			DeviceID:  string(deviceID),
+			Timestamp: time.Now(),
+		}, nil)
 
 	mockDataStore.EXPECT().
-		Store(gomock.Any(), gomock.Any()).
+		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	mockScheduler.EXPECT().
@@ -1813,75 +1629,6 @@ const (
 	// Raw efficiency: 30 J/TH = 30e-12 J/H (storage unit)
 	testRawEfficiencyJH = 30e-12
 )
-
-// TestService_GetAggregatedTelemetry_ReturnsRawValues verifies that GetAggregatedTelemetry
-// returns values in raw storage units (H/s, W, J/H) WITHOUT applying conversion.
-func TestService_GetAggregatedTelemetry_ReturnsRawValues(t *testing.T) {
-	tests := []struct {
-		name            string
-		measurementType models.MeasurementType
-		storeValue      float64
-		expectedValue   float64
-	}{
-		{
-			name:            "hashrate returns raw H/s (no conversion to TH/s)",
-			measurementType: models.MeasurementTypeHashrate,
-			storeValue:      testRawHashrateHS,
-			expectedValue:   testRawHashrateHS, // Should be 100e12, NOT 100.0
-		},
-		{
-			name:            "power returns raw W (no conversion to kW)",
-			measurementType: models.MeasurementTypePower,
-			storeValue:      testRawPowerW,
-			expectedValue:   testRawPowerW, // Should be 3000, NOT 3.0
-		},
-		{
-			name:            "efficiency returns raw J/H (no conversion to J/TH)",
-			measurementType: models.MeasurementTypeEfficiency,
-			storeValue:      testRawEfficiencyJH,
-			expectedValue:   testRawEfficiencyJH, // Should be 30e-12, NOT 30.0
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
-			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-
-			// Store returns raw values
-			mockDataStore.EXPECT().GetAggregatedTelemetry(gomock.Any(), gomock.Any()).
-				Return([]models.AggregatedTelemetry{
-					{
-						DeviceID:        "device1",
-						MeasurementType: tt.measurementType,
-						Value:           tt.storeValue,
-						AggregationType: models.AggregationTypeAverage,
-					},
-				}, nil)
-
-			service := NewTelemetryService(Config{}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-
-			query := models.AggregationQuery{
-				DeviceIDs:        []models.DeviceIdentifier{"device1"},
-				MeasurementTypes: []models.MeasurementType{tt.measurementType},
-				AggregationType:  models.AggregationTypeAverage,
-			}
-
-			result, err := service.GetAggregatedTelemetry(t.Context(), query)
-
-			require.NoError(t, err)
-			require.Len(t, result, 1)
-			assert.InDelta(t, tt.expectedValue, result[0].Value, 1e-20,
-				"Service should return raw value %v, but got %v (conversion should happen in handler)",
-				tt.expectedValue, result[0].Value)
-		})
-	}
-}
 
 // TestService_GetCombinedMetrics_ReturnsRawValues verifies that GetCombinedMetrics
 // returns values in raw storage units (H/s, W, J/H) WITHOUT applying conversion.

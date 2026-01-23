@@ -182,21 +182,6 @@ func (mr *MockTelemetryDataStoreMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockTelemetryDataStore)(nil).Close))
 }
 
-// GetAggregatedTelemetry mocks base method.
-func (m *MockTelemetryDataStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAggregatedTelemetry", ctx, query)
-	ret0, _ := ret[0].([]models.AggregatedTelemetry)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAggregatedTelemetry indicates an expected call of GetAggregatedTelemetry.
-func (mr *MockTelemetryDataStoreMockRecorder) GetAggregatedTelemetry(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetAggregatedTelemetry), ctx, query)
-}
-
 // GetCombinedMetrics mocks base method.
 func (m *MockTelemetryDataStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	m.ctrl.T.Helper()
@@ -227,26 +212,11 @@ func (mr *MockTelemetryDataStoreMockRecorder) GetLatestDeviceMetricsBatch(ctx, d
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestDeviceMetricsBatch", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetLatestDeviceMetricsBatch), ctx, deviceIDs)
 }
 
-// GetTelemetryMetadata mocks base method.
-func (m *MockTelemetryDataStore) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTelemetryMetadata", ctx, query)
-	ret0, _ := ret[0].([]models.DeviceMetadata)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetTelemetryMetadata indicates an expected call of GetTelemetryMetadata.
-func (mr *MockTelemetryDataStoreMockRecorder) GetTelemetryMetadata(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelemetryMetadata", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetTelemetryMetadata), ctx, query)
-}
-
 // GetTimeSeriesTelemetry mocks base method.
-func (m *MockTelemetryDataStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
+func (m *MockTelemetryDataStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models0.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTimeSeriesTelemetry", ctx, query)
-	ret0, _ := ret[0].([]models.Telemetry)
+	ret0, _ := ret[0].([]models0.DeviceMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -269,25 +239,6 @@ func (m *MockTelemetryDataStore) Ping(ctx context.Context) error {
 func (mr *MockTelemetryDataStoreMockRecorder) Ping(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockTelemetryDataStore)(nil).Ping), ctx)
-}
-
-// Store mocks base method.
-func (m *MockTelemetryDataStore) Store(ctx context.Context, data ...models.Telemetry) error {
-	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx}
-	for _, a := range data {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "Store", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Store indicates an expected call of Store.
-func (mr *MockTelemetryDataStoreMockRecorder) Store(ctx interface{}, data ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx}, data...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Store", reflect.TypeOf((*MockTelemetryDataStore)(nil).Store), varargs...)
 }
 
 // StoreDeviceMetrics mocks base method.

@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_telemetry_v1_telemetry: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Chx0ZWxlbWV0cnkvdjEvdGVsZW1ldHJ5LnByb3RvEgx0ZWxlbWV0cnkudjEiagoORGV2aWNlU2VsZWN0b3ISFQoLYWxsX2RldmljZXMYASABKAhIABIvCgtkZXZpY2VfbGlzdBgCIAEoCzIYLnRlbGVtZXRyeS52MS5EZXZpY2VMaXN0SABCEAoOc2VsZWN0b3JfdmFsdWUiIAoKRGV2aWNlTGlzdBISCgpkZXZpY2VfaWRzGAEgAygJIpgBChZUZW1wZXJhdHVyZVN0YXR1c0NvdW50Ei0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY29sZF9jb3VudBgCIAEoBRIQCghva19jb3VudBgDIAEoBRIRCglob3RfY291bnQYBCABKAUSFgoOY3JpdGljYWxfY291bnQYBSABKAUidAoRVXB0aW1lU3RhdHVzQ291bnQSLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhkKEW5vdF9oYXNoaW5nX2NvdW50GAMgASgFIo8BCglUaW1lUmFuZ2USMwoKc3RhcnRfdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIxCghlbmRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBAUINCgtfc3RhcnRfdGltZUILCglfZW5kX3RpbWUipQIKDVRlbGVtZXRyeURhdGESEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEigKBHVuaXQYBCABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0Ei0KCXRpbWVzdGFtcBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoEdGFncxgGIAMoCzIlLnRlbGVtZXRyeS52MS5UZWxlbWV0cnlEYXRhLlRhZ3NFbnRyeRorCglUYWdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLIAgoORGV2aWNlTWV0YWRhdGESEQoJZGV2aWNlX2lkGAEgASgJEhgKC2RldmljZV90eXBlGAIgASgJSACIAQESLQoJbGFzdF9zZWVuGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBItCgZzdGF0dXMYBCABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzEhUKCGxvY2F0aW9uGAUgASgJSAGIAQESNAoEdGFncxgGIAMoCzImLnRlbGVtZXRyeS52MS5EZXZpY2VNZXRhZGF0YS5UYWdzRW50cnkSFAoMY2FwYWJpbGl0aWVzGAcgAygJGisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg4KDF9kZXZpY2VfdHlwZUILCglfbG9jYXRpb24i1AIKE0FnZ3JlZ2F0ZWRUZWxlbWV0cnkSEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYBCABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEhMKC2RhdGFfcG9pbnRzGAUgASgFEiwKC3RpbWVfd2luZG93GAYgASgLMhcudGVsZW1ldHJ5LnYxLlRpbWVSYW5nZRI5CgR0YWdzGAcgAygLMisudGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0ZWRUZWxlbWV0cnkuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIm4KEE1pbmVyU3RhdGVDb3VudHMSFQoNaGFzaGluZ19jb3VudBgBIAEoBRIUCgxicm9rZW5fY291bnQYAiABKAUSFQoNb2ZmbGluZV9jb3VudBgDIAEoBRIWCg5zbGVlcGluZ19jb3VudBgEIAEoBSLWAwoPVGVsZW1ldHJ5VXBkYXRlEiYKBHR5cGUYASABKA4yGC50ZWxlbWV0cnkudjEuVXBkYXRlVHlwZRIWCglkZXZpY2VfaWQYAiABKAlIAIgBARItCgl0aW1lc3RhbXAYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KBGRhdGEYBCABKAsyGy50ZWxlbWV0cnkudjEuVGVsZW1ldHJ5RGF0YUgBiAEBEhoKDWVycm9yX21lc3NhZ2UYBSABKAlIAogBARIyCgZzdGF0dXMYBiABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzSAOIAQESNgoNZGV2aWNlX3N0YXR1cxgHIAEoDjIaLnRlbGVtZXRyeS52MS5EZXZpY2VTdGF0dXNIBIgBARI/ChJtaW5lcl9zdGF0ZV9jb3VudHMYCCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50c0gFiAEBQgwKCl9kZXZpY2VfaWRCBwoFX2RhdGFCEAoOX2Vycm9yX21lc3NhZ2VCCQoHX3N0YXR1c0IQCg5fZGV2aWNlX3N0YXR1c0IVChNfbWluZXJfc3RhdGVfY291bnRzIqwCChJHZXRTbmFwc2hvdFJlcXVlc3QSHAoKZGV2aWNlX2lkcxgBIAMoCUIIukgFkgECCAESQgoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlQgi6SAWSAQIIARJBCgdtYXhfYWdlGAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBAiAowUyAggBSACIAQESOAoEdGFncxgEIAMoCzIqLnRlbGVtZXRyeS52MS5HZXRTbmFwc2hvdFJlcXVlc3QuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQgoKCF9tYXhfYWdlIkUKE0dldFNuYXBzaG90UmVzcG9uc2USLgoJdGVsZW1ldHJ5GAEgAygLMhsudGVsZW1ldHJ5LnYxLlRlbGVtZXRyeURhdGEiwAIKFEdldFRpbWVTZXJpZXNSZXF1ZXN0EhwKCmRldmljZV9pZHMYASADKAlCCLpIBZIBAggBEkIKEW1lYXN1cmVtZW50X3R5cGVzGAIgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZUIIukgFkgECCAESMwoKdGltZV9yYW5nZRgDIAEoCzIXLnRlbGVtZXRyeS52MS5UaW1lUmFuZ2VCBrpIA8gBARIeCgVsaW1pdBgEIAEoBUIKukgHGgUYkE4oAUgAiAEBEjoKBHRhZ3MYBSADKAsyLC50ZWxlbWV0cnkudjEuR2V0VGltZVNlcmllc1JlcXVlc3QuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQggKBl9saW1pdCJHChVHZXRUaW1lU2VyaWVzUmVzcG9uc2USLgoJdGVsZW1ldHJ5GAEgAygLMhsudGVsZW1ldHJ5LnYxLlRlbGVtZXRyeURhdGEi7wEKEkdldE1ldGFkYXRhUmVxdWVzdBISCgpkZXZpY2VfaWRzGAEgAygJEjkKDXN0YXR1c19maWx0ZXIYAiABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzSACIAQESRQoLdGFnX2ZpbHRlcnMYAyADKAsyMC50ZWxlbWV0cnkudjEuR2V0TWV0YWRhdGFSZXF1ZXN0LlRhZ0ZpbHRlcnNFbnRyeRoxCg9UYWdGaWx0ZXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIQCg5fc3RhdHVzX2ZpbHRlciJEChNHZXRNZXRhZGF0YVJlc3BvbnNlEi0KB2RldmljZXMYASADKAsyHC50ZWxlbWV0cnkudjEuRGV2aWNlTWV0YWRhdGEi7QIKFFN0cmVhbVVwZGF0ZXNSZXF1ZXN0EhIKCmRldmljZV9pZHMYASADKAkSQgoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlQgi6SAWSAQIIARIZChFpbmNsdWRlX2hlYXJ0YmVhdBgDIAEoCBJLChJoZWFydGJlYXRfaW50ZXJ2YWwYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCNgEMgIIAUgAiAEBEjoKBHRhZ3MYBSADKAsyLC50ZWxlbWV0cnkudjEuU3RyZWFtVXBkYXRlc1JlcXVlc3QuVGFnc0VudHJ5EhUKDWNvbm5lY3Rpb25faWQYBiABKAkaKwoJVGFnc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCFQoTX2hlYXJ0YmVhdF9pbnRlcnZhbCJGChVTdHJlYW1VcGRhdGVzUmVzcG9uc2USLQoGdXBkYXRlGAEgASgLMh0udGVsZW1ldHJ5LnYxLlRlbGVtZXRyeVVwZGF0ZSLMAwocR2V0QWdncmVnYXRlZFNuYXBzaG90UmVxdWVzdBIcCgpkZXZpY2VfaWRzGAEgAygJQgi6SAWSAQIIARJCChFtZWFzdXJlbWVudF90eXBlcxgCIAMoDjIdLnRlbGVtZXRyeS52MS5NZWFzdXJlbWVudFR5cGVCCLpIBZIBAggBEjMKCnRpbWVfcmFuZ2UYAyABKAsyFy50ZWxlbWV0cnkudjEuVGltZVJhbmdlQga6SAPIAQESQQoQYWdncmVnYXRpb25fdHlwZRgEIAEoDjIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGlvblR5cGVCCLpIBYIBAhABEksKEWdyb3VwX2J5X2ludGVydmFsGAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBAiAowUyAggBSACIAQESQgoEdGFncxgGIAMoCzI0LnRlbGVtZXRyeS52MS5HZXRBZ2dyZWdhdGVkU25hcHNob3RSZXF1ZXN0LlRhZ3NFbnRyeRorCglUYWdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIUChJfZ3JvdXBfYnlfaW50ZXJ2YWwiWwodR2V0QWdncmVnYXRlZFNuYXBzaG90UmVzcG9uc2USOgoPYWdncmVnYXRlZF9kYXRhGAEgAygLMiEudGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0ZWRUZWxlbWV0cnki7AMKGUdldENvbWJpbmVkTWV0cmljc1JlcXVlc3QSPQoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMhwudGVsZW1ldHJ5LnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQESOAoRbWVhc3VyZW1lbnRfdHlwZXMYAyADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEjMKDGFnZ3JlZ2F0aW9ucxgEIAMoDjIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGlvblR5cGUSLgoLZ3JhbnVsYXJpdHkYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SNgoKc3RhcnRfdGltZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARIsCghlbmRfdGltZRgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcGFnZV90b2tlbhgIIAEoCRIRCglwYWdlX3NpemUYCSABKAU6ZLpIYRpfChllbmRfdGltZV9hZnRlcl9zdGFydF90aW1lEiFlbmRfdGltZSBtdXN0IGJlIGFmdGVyIHN0YXJ0X3RpbWUaH3RoaXMuZW5kX3RpbWUgPiB0aGlzLnN0YXJ0X3RpbWUiWQoPQWdncmVnYXRlZFZhbHVlEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYASABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEg0KBXZhbHVlGAIgASgBIsABCgZNZXRyaWMSNwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjIdLnRlbGVtZXRyeS52MS5NZWFzdXJlbWVudFR5cGUSLQoJb3Blbl90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI4ChFhZ2dyZWdhdGVkX3ZhbHVlcxgDIAMoCzIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGVkVmFsdWUSFAoMZGV2aWNlX2NvdW50GAQgASgFIuQBChpHZXRDb21iaW5lZE1ldHJpY3NSZXNwb25zZRIlCgdtZXRyaWNzGAEgAygLMhQudGVsZW1ldHJ5LnYxLk1ldHJpYxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSRwoZdGVtcGVyYXR1cmVfc3RhdHVzX2NvdW50cxgDIAMoCzIkLnRlbGVtZXRyeS52MS5UZW1wZXJhdHVyZVN0YXR1c0NvdW50Ej0KFHVwdGltZV9zdGF0dXNfY291bnRzGAQgAygLMh8udGVsZW1ldHJ5LnYxLlVwdGltZVN0YXR1c0NvdW50ItUCCiJTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXF1ZXN0Ej0KD2RldmljZV9zZWxlY3RvchgBIAEoCzIcLnRlbGVtZXRyeS52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBEi4KB21ldHJpY3MYAiADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEjMKDGFnZ3JlZ2F0aW9ucxgDIAMoDjIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGlvblR5cGUSQAoLZ3JhbnVsYXJpdHkYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIECICjBTICCAoSMgoPdXBkYXRlX2ludGVydmFsGAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhUKDWNvbm5lY3Rpb25faWQYBiABKAkiigIKI1N0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlc1Jlc3BvbnNlEiUKB21ldHJpY3MYASADKAsyFC50ZWxlbWV0cnkudjEuTWV0cmljEjQKEG5leHRfdXBkYXRlX3RpbWUYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEkcKGXRlbXBlcmF0dXJlX3N0YXR1c19jb3VudHMYAyADKAsyJC50ZWxlbWV0cnkudjEuVGVtcGVyYXR1cmVTdGF0dXNDb3VudBI9ChR1cHRpbWVfc3RhdHVzX2NvdW50cxgEIAMoCzIfLnRlbGVtZXRyeS52MS5VcHRpbWVTdGF0dXNDb3VudCrLAgoPTWVhc3VyZW1lbnRUeXBlEiAKHE1FQVNVUkVNRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIgChxNRUFTVVJFTUVOVF9UWVBFX1RFTVBFUkFUVVJFEAESHQoZTUVBU1VSRU1FTlRfVFlQRV9IQVNIUkFURRACEhoKFk1FQVNVUkVNRU5UX1RZUEVfUE9XRVIQAxIfChtNRUFTVVJFTUVOVF9UWVBFX0VGRklDSUVOQ1kQBBIeChpNRUFTVVJFTUVOVF9UWVBFX0ZBTl9TUEVFRBAFEhwKGE1FQVNVUkVNRU5UX1RZUEVfVk9MVEFHRRAGEhwKGE1FQVNVUkVNRU5UX1RZUEVfQ1VSUkVOVBAHEhsKF01FQVNVUkVNRU5UX1RZUEVfVVBUSU1FEAgSHwobTUVBU1VSRU1FTlRfVFlQRV9FUlJPUl9SQVRFEAkqvQIKD0FnZ3JlZ2F0aW9uVHlwZRIgChxBR0dSRUdBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASHAoYQUdHUkVHQVRJT05fVFlQRV9BVkVSQUdFEAESGAoUQUdHUkVHQVRJT05fVFlQRV9NSU4QAhIYChRBR0dSRUdBVElPTl9UWVBFX01BWBADEhgKFEFHR1JFR0FUSU9OX1RZUEVfU1VNEAQSIwofQUdHUkVHQVRJT05fVFlQRV9GSVJTVF9RVUFSVElMRRAFEhsKF0FHR1JFR0FUSU9OX1RZUEVfTUVESUFOEAYSIwofQUdHUkVHQVRJT05fVFlQRV9USElSRF9RVUFSVElMRRAHEhoKFkFHR1JFR0FUSU9OX1RZUEVfRklSU1QQCBIZChVBR0dSRUdBVElPTl9UWVBFX0xBU1QQCSqsAQoPQ29tcG9uZW50U3RhdHVzEiAKHENPTVBPTkVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIcChhDT01QT05FTlRfU1RBVFVTX0hFQUxUSFkQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIdChlDT01QT05FTlRfU1RBVFVTX0NSSVRJQ0FMEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQqrAEKEVRlbXBlcmF0dXJlU3RhdHVzEiIKHlRFTVBFUkFUVVJFX1NUQVRVU19VTlNQRUNJRklFRBAAEhsKF1RFTVBFUkFUVVJFX1NUQVRVU19DT0xEEAESGQoVVEVNUEVSQVRVUkVfU1RBVFVTX09LEAISGgoWVEVNUEVSQVRVUkVfU1RBVFVTX0hPVBADEh8KG1RFTVBFUkFUVVJFX1NUQVRVU19DUklUSUNBTBAEKtsBCgxEZXZpY2VTdGF0dXMSHQoZREVWSUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhgKFERFVklDRV9TVEFUVVNfT05MSU5FEAESGQoVREVWSUNFX1NUQVRVU19PRkZMSU5FEAISHQoZREVWSUNFX1NUQVRVU19NQUlOVEVOQU5DRRADEhcKE0RFVklDRV9TVEFUVVNfRVJST1IQBBIaChZERVZJQ0VfU1RBVFVTX0lOQUNUSVZFEAUSIwofREVWSUNFX1NUQVRVU19ORUVEU19NSU5JTkdfUE9PTBAGKrkBCgpVcGRhdGVUeXBlEhsKF1VQREFURV9UWVBFX1VOU1BFQ0lGSUVEEAASGQoVVVBEQVRFX1RZUEVfVEVMRU1FVFJZEAESGQoVVVBEQVRFX1RZUEVfSEVBUlRCRUFUEAISFQoRVVBEQVRFX1RZUEVfRVJST1IQAxIdChlVUERBVEVfVFlQRV9ERVZJQ0VfU1RBVFVTEAQSIgoeVVBEQVRFX1RZUEVfTUlORVJfU1RBVEVfQ09VTlRTEAUy1gUKEFRlbGVtZXRyeVNlcnZpY2USUgoLR2V0U25hcHNob3QSIC50ZWxlbWV0cnkudjEuR2V0U25hcHNob3RSZXF1ZXN0GiEudGVsZW1ldHJ5LnYxLkdldFNuYXBzaG90UmVzcG9uc2USWAoNR2V0VGltZVNlcmllcxIiLnRlbGVtZXRyeS52MS5HZXRUaW1lU2VyaWVzUmVxdWVzdBojLnRlbGVtZXRyeS52MS5HZXRUaW1lU2VyaWVzUmVzcG9uc2USUgoLR2V0TWV0YWRhdGESIC50ZWxlbWV0cnkudjEuR2V0TWV0YWRhdGFSZXF1ZXN0GiEudGVsZW1ldHJ5LnYxLkdldE1ldGFkYXRhUmVzcG9uc2USWgoNU3RyZWFtVXBkYXRlcxIiLnRlbGVtZXRyeS52MS5TdHJlYW1VcGRhdGVzUmVxdWVzdBojLnRlbGVtZXRyeS52MS5TdHJlYW1VcGRhdGVzUmVzcG9uc2UwARJwChVHZXRBZ2dyZWdhdGVkU25hcHNob3QSKi50ZWxlbWV0cnkudjEuR2V0QWdncmVnYXRlZFNuYXBzaG90UmVxdWVzdBorLnRlbGVtZXRyeS52MS5HZXRBZ2dyZWdhdGVkU25hcHNob3RSZXNwb25zZRJpChJHZXRDb21iaW5lZE1ldHJpY3MSJy50ZWxlbWV0cnkudjEuR2V0Q29tYmluZWRNZXRyaWNzUmVxdWVzdBooLnRlbGVtZXRyeS52MS5HZXRDb21iaW5lZE1ldHJpY3NSZXNwb25zZSIAEoYBChtTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXMSMC50ZWxlbWV0cnkudjEuU3RyZWFtQ29tYmluZWRNZXRyaWNVcGRhdGVzUmVxdWVzdBoxLnRlbGVtZXRyeS52MS5TdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXNwb25zZSIAMAFCxQEKEGNvbS50ZWxlbWV0cnkudjFCDlRlbGVtZXRyeVByb3RvUAFaUGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvdGVsZW1ldHJ5L3YxO3RlbGVtZXRyeXYxogIDVFhYqgIMVGVsZW1ldHJ5LlYxygIMVGVsZW1ldHJ5XFYx4gIYVGVsZW1ldHJ5XFYxXEdQQk1ldGFkYXRh6gINVGVsZW1ldHJ5OjpWMWIGcHJvdG8z",
+    "Chx0ZWxlbWV0cnkvdjEvdGVsZW1ldHJ5LnByb3RvEgx0ZWxlbWV0cnkudjEiagoORGV2aWNlU2VsZWN0b3ISFQoLYWxsX2RldmljZXMYASABKAhIABIvCgtkZXZpY2VfbGlzdBgCIAEoCzIYLnRlbGVtZXRyeS52MS5EZXZpY2VMaXN0SABCEAoOc2VsZWN0b3JfdmFsdWUiIAoKRGV2aWNlTGlzdBISCgpkZXZpY2VfaWRzGAEgAygJIpgBChZUZW1wZXJhdHVyZVN0YXR1c0NvdW50Ei0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY29sZF9jb3VudBgCIAEoBRIQCghva19jb3VudBgDIAEoBRIRCglob3RfY291bnQYBCABKAUSFgoOY3JpdGljYWxfY291bnQYBSABKAUidAoRVXB0aW1lU3RhdHVzQ291bnQSLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhkKEW5vdF9oYXNoaW5nX2NvdW50GAMgASgFIo8BCglUaW1lUmFuZ2USMwoKc3RhcnRfdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIxCghlbmRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBAUINCgtfc3RhcnRfdGltZUILCglfZW5kX3RpbWUipQIKDVRlbGVtZXRyeURhdGESEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEigKBHVuaXQYBCABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0Ei0KCXRpbWVzdGFtcBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoEdGFncxgGIAMoCzIlLnRlbGVtZXRyeS52MS5UZWxlbWV0cnlEYXRhLlRhZ3NFbnRyeRorCglUYWdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLIAgoORGV2aWNlTWV0YWRhdGESEQoJZGV2aWNlX2lkGAEgASgJEhgKC2RldmljZV90eXBlGAIgASgJSACIAQESLQoJbGFzdF9zZWVuGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBItCgZzdGF0dXMYBCABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzEhUKCGxvY2F0aW9uGAUgASgJSAGIAQESNAoEdGFncxgGIAMoCzImLnRlbGVtZXRyeS52MS5EZXZpY2VNZXRhZGF0YS5UYWdzRW50cnkSFAoMY2FwYWJpbGl0aWVzGAcgAygJGisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg4KDF9kZXZpY2VfdHlwZUILCglfbG9jYXRpb24i1AIKE0FnZ3JlZ2F0ZWRUZWxlbWV0cnkSEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYBCABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEhMKC2RhdGFfcG9pbnRzGAUgASgFEiwKC3RpbWVfd2luZG93GAYgASgLMhcudGVsZW1ldHJ5LnYxLlRpbWVSYW5nZRI5CgR0YWdzGAcgAygLMisudGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0ZWRUZWxlbWV0cnkuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIm4KEE1pbmVyU3RhdGVDb3VudHMSFQoNaGFzaGluZ19jb3VudBgBIAEoBRIUCgxicm9rZW5fY291bnQYAiABKAUSFQoNb2ZmbGluZV9jb3VudBgDIAEoBRIWCg5zbGVlcGluZ19jb3VudBgEIAEoBSLWAwoPVGVsZW1ldHJ5VXBkYXRlEiYKBHR5cGUYASABKA4yGC50ZWxlbWV0cnkudjEuVXBkYXRlVHlwZRIWCglkZXZpY2VfaWQYAiABKAlIAIgBARItCgl0aW1lc3RhbXAYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KBGRhdGEYBCABKAsyGy50ZWxlbWV0cnkudjEuVGVsZW1ldHJ5RGF0YUgBiAEBEhoKDWVycm9yX21lc3NhZ2UYBSABKAlIAogBARIyCgZzdGF0dXMYBiABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzSAOIAQESNgoNZGV2aWNlX3N0YXR1cxgHIAEoDjIaLnRlbGVtZXRyeS52MS5EZXZpY2VTdGF0dXNIBIgBARI/ChJtaW5lcl9zdGF0ZV9jb3VudHMYCCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50c0gFiAEBQgwKCl9kZXZpY2VfaWRCBwoFX2RhdGFCEAoOX2Vycm9yX21lc3NhZ2VCCQoHX3N0YXR1c0IQCg5fZGV2aWNlX3N0YXR1c0IVChNfbWluZXJfc3RhdGVfY291bnRzIu0CChRTdHJlYW1VcGRhdGVzUmVxdWVzdBISCgpkZXZpY2VfaWRzGAEgAygJEkIKEW1lYXN1cmVtZW50X3R5cGVzGAIgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZUIIukgFkgECCAESGQoRaW5jbHVkZV9oZWFydGJlYXQYAyABKAgSSwoSaGVhcnRiZWF0X2ludGVydmFsGAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQg+6SAyqAQkiAwjYBDICCAFIAIgBARI6CgR0YWdzGAUgAygLMiwudGVsZW1ldHJ5LnYxLlN0cmVhbVVwZGF0ZXNSZXF1ZXN0LlRhZ3NFbnRyeRIVCg1jb25uZWN0aW9uX2lkGAYgASgJGisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQhUKE19oZWFydGJlYXRfaW50ZXJ2YWwiRgoVU3RyZWFtVXBkYXRlc1Jlc3BvbnNlEi0KBnVwZGF0ZRgBIAEoCzIdLnRlbGVtZXRyeS52MS5UZWxlbWV0cnlVcGRhdGUi7AMKGUdldENvbWJpbmVkTWV0cmljc1JlcXVlc3QSPQoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMhwudGVsZW1ldHJ5LnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQESOAoRbWVhc3VyZW1lbnRfdHlwZXMYAyADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEjMKDGFnZ3JlZ2F0aW9ucxgEIAMoDjIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGlvblR5cGUSLgoLZ3JhbnVsYXJpdHkYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SNgoKc3RhcnRfdGltZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARIsCghlbmRfdGltZRgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcGFnZV90b2tlbhgIIAEoCRIRCglwYWdlX3NpemUYCSABKAU6ZLpIYRpfChllbmRfdGltZV9hZnRlcl9zdGFydF90aW1lEiFlbmRfdGltZSBtdXN0IGJlIGFmdGVyIHN0YXJ0X3RpbWUaH3RoaXMuZW5kX3RpbWUgPiB0aGlzLnN0YXJ0X3RpbWUiWQoPQWdncmVnYXRlZFZhbHVlEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYASABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEg0KBXZhbHVlGAIgASgBIsABCgZNZXRyaWMSNwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjIdLnRlbGVtZXRyeS52MS5NZWFzdXJlbWVudFR5cGUSLQoJb3Blbl90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI4ChFhZ2dyZWdhdGVkX3ZhbHVlcxgDIAMoCzIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGVkVmFsdWUSFAoMZGV2aWNlX2NvdW50GAQgASgFIuQBChpHZXRDb21iaW5lZE1ldHJpY3NSZXNwb25zZRIlCgdtZXRyaWNzGAEgAygLMhQudGVsZW1ldHJ5LnYxLk1ldHJpYxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSRwoZdGVtcGVyYXR1cmVfc3RhdHVzX2NvdW50cxgDIAMoCzIkLnRlbGVtZXRyeS52MS5UZW1wZXJhdHVyZVN0YXR1c0NvdW50Ej0KFHVwdGltZV9zdGF0dXNfY291bnRzGAQgAygLMh8udGVsZW1ldHJ5LnYxLlVwdGltZVN0YXR1c0NvdW50ItUCCiJTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXF1ZXN0Ej0KD2RldmljZV9zZWxlY3RvchgBIAEoCzIcLnRlbGVtZXRyeS52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBEi4KB21ldHJpY3MYAiADKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEjMKDGFnZ3JlZ2F0aW9ucxgDIAMoDjIdLnRlbGVtZXRyeS52MS5BZ2dyZWdhdGlvblR5cGUSQAoLZ3JhbnVsYXJpdHkYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIECICjBTICCAoSMgoPdXBkYXRlX2ludGVydmFsGAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhUKDWNvbm5lY3Rpb25faWQYBiABKAkiigIKI1N0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlc1Jlc3BvbnNlEiUKB21ldHJpY3MYASADKAsyFC50ZWxlbWV0cnkudjEuTWV0cmljEjQKEG5leHRfdXBkYXRlX3RpbWUYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEkcKGXRlbXBlcmF0dXJlX3N0YXR1c19jb3VudHMYAyADKAsyJC50ZWxlbWV0cnkudjEuVGVtcGVyYXR1cmVTdGF0dXNDb3VudBI9ChR1cHRpbWVfc3RhdHVzX2NvdW50cxgEIAMoCzIfLnRlbGVtZXRyeS52MS5VcHRpbWVTdGF0dXNDb3VudCrLAgoPTWVhc3VyZW1lbnRUeXBlEiAKHE1FQVNVUkVNRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIgChxNRUFTVVJFTUVOVF9UWVBFX1RFTVBFUkFUVVJFEAESHQoZTUVBU1VSRU1FTlRfVFlQRV9IQVNIUkFURRACEhoKFk1FQVNVUkVNRU5UX1RZUEVfUE9XRVIQAxIfChtNRUFTVVJFTUVOVF9UWVBFX0VGRklDSUVOQ1kQBBIeChpNRUFTVVJFTUVOVF9UWVBFX0ZBTl9TUEVFRBAFEhwKGE1FQVNVUkVNRU5UX1RZUEVfVk9MVEFHRRAGEhwKGE1FQVNVUkVNRU5UX1RZUEVfQ1VSUkVOVBAHEhsKF01FQVNVUkVNRU5UX1RZUEVfVVBUSU1FEAgSHwobTUVBU1VSRU1FTlRfVFlQRV9FUlJPUl9SQVRFEAkqvQIKD0FnZ3JlZ2F0aW9uVHlwZRIgChxBR0dSRUdBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASHAoYQUdHUkVHQVRJT05fVFlQRV9BVkVSQUdFEAESGAoUQUdHUkVHQVRJT05fVFlQRV9NSU4QAhIYChRBR0dSRUdBVElPTl9UWVBFX01BWBADEhgKFEFHR1JFR0FUSU9OX1RZUEVfU1VNEAQSIwofQUdHUkVHQVRJT05fVFlQRV9GSVJTVF9RVUFSVElMRRAFEhsKF0FHR1JFR0FUSU9OX1RZUEVfTUVESUFOEAYSIwofQUdHUkVHQVRJT05fVFlQRV9USElSRF9RVUFSVElMRRAHEhoKFkFHR1JFR0FUSU9OX1RZUEVfRklSU1QQCBIZChVBR0dSRUdBVElPTl9UWVBFX0xBU1QQCSqsAQoPQ29tcG9uZW50U3RhdHVzEiAKHENPTVBPTkVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIcChhDT01QT05FTlRfU1RBVFVTX0hFQUxUSFkQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIdChlDT01QT05FTlRfU1RBVFVTX0NSSVRJQ0FMEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQqrAEKEVRlbXBlcmF0dXJlU3RhdHVzEiIKHlRFTVBFUkFUVVJFX1NUQVRVU19VTlNQRUNJRklFRBAAEhsKF1RFTVBFUkFUVVJFX1NUQVRVU19DT0xEEAESGQoVVEVNUEVSQVRVUkVfU1RBVFVTX09LEAISGgoWVEVNUEVSQVRVUkVfU1RBVFVTX0hPVBADEh8KG1RFTVBFUkFUVVJFX1NUQVRVU19DUklUSUNBTBAEKtsBCgxEZXZpY2VTdGF0dXMSHQoZREVWSUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhgKFERFVklDRV9TVEFUVVNfT05MSU5FEAESGQoVREVWSUNFX1NUQVRVU19PRkZMSU5FEAISHQoZREVWSUNFX1NUQVRVU19NQUlOVEVOQU5DRRADEhcKE0RFVklDRV9TVEFUVVNfRVJST1IQBBIaChZERVZJQ0VfU1RBVFVTX0lOQUNUSVZFEAUSIwofREVWSUNFX1NUQVRVU19ORUVEU19NSU5JTkdfUE9PTBAGKrkBCgpVcGRhdGVUeXBlEhsKF1VQREFURV9UWVBFX1VOU1BFQ0lGSUVEEAASGQoVVVBEQVRFX1RZUEVfVEVMRU1FVFJZEAESGQoVVVBEQVRFX1RZUEVfSEVBUlRCRUFUEAISFQoRVVBEQVRFX1RZUEVfRVJST1IQAxIdChlVUERBVEVfVFlQRV9ERVZJQ0VfU1RBVFVTEAQSIgoeVVBEQVRFX1RZUEVfTUlORVJfU1RBVEVfQ09VTlRTEAUy4gIKEFRlbGVtZXRyeVNlcnZpY2USWgoNU3RyZWFtVXBkYXRlcxIiLnRlbGVtZXRyeS52MS5TdHJlYW1VcGRhdGVzUmVxdWVzdBojLnRlbGVtZXRyeS52MS5TdHJlYW1VcGRhdGVzUmVzcG9uc2UwARJpChJHZXRDb21iaW5lZE1ldHJpY3MSJy50ZWxlbWV0cnkudjEuR2V0Q29tYmluZWRNZXRyaWNzUmVxdWVzdBooLnRlbGVtZXRyeS52MS5HZXRDb21iaW5lZE1ldHJpY3NSZXNwb25zZSIAEoYBChtTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXMSMC50ZWxlbWV0cnkudjEuU3RyZWFtQ29tYmluZWRNZXRyaWNVcGRhdGVzUmVxdWVzdBoxLnRlbGVtZXRyeS52MS5TdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXNwb25zZSIAMAFCxQEKEGNvbS50ZWxlbWV0cnkudjFCDlRlbGVtZXRyeVByb3RvUAFaUGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvdGVsZW1ldHJ5L3YxO3RlbGVtZXRyeXYxogIDVFhYqgIMVGVsZW1ldHJ5LlYxygIMVGVsZW1ldHJ5XFYx4gIYVGVsZW1ldHJ5XFYxXEdQQk1ldGFkYXRh6gINVGVsZW1ldHJ5OjpWMWIGcHJvdG8z",
     [
       file_google_protobuf_timestamp,
       file_google_protobuf_duration,
@@ -441,167 +441,6 @@ export const TelemetryUpdateSchema: GenMessage<TelemetryUpdate> =
 /**
  * Request/Response Messages
  *
- * @generated from message telemetry.v1.GetSnapshotRequest
- */
-export type GetSnapshotRequest = Message<"telemetry.v1.GetSnapshotRequest"> & {
-  /**
-   * Device identifiers to query - at least one required
-   *
-   * @generated from field: repeated string device_ids = 1;
-   */
-  deviceIds: string[];
-
-  /**
-   * Measurement types to retrieve - at least one required
-   *
-   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-   */
-  measurementTypes: MeasurementType[];
-
-  /**
-   * Maximum age of data to return (optional)
-   *
-   * @generated from field: optional google.protobuf.Duration max_age = 3;
-   */
-  maxAge?: Duration;
-
-  /**
-   * Optional tag filters
-   *
-   * @generated from field: map<string, string> tags = 4;
-   */
-  tags: { [key: string]: string };
-};
-
-/**
- * Describes the message telemetry.v1.GetSnapshotRequest.
- * Use `create(GetSnapshotRequestSchema)` to create a new message.
- */
-export const GetSnapshotRequestSchema: GenMessage<GetSnapshotRequest> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 10);
-
-/**
- * @generated from message telemetry.v1.GetSnapshotResponse
- */
-export type GetSnapshotResponse = Message<"telemetry.v1.GetSnapshotResponse"> & {
-  /**
-   * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
-   */
-  telemetry: TelemetryData[];
-};
-
-/**
- * Describes the message telemetry.v1.GetSnapshotResponse.
- * Use `create(GetSnapshotResponseSchema)` to create a new message.
- */
-export const GetSnapshotResponseSchema: GenMessage<GetSnapshotResponse> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 11);
-
-/**
- * @generated from message telemetry.v1.GetTimeSeriesRequest
- */
-export type GetTimeSeriesRequest = Message<"telemetry.v1.GetTimeSeriesRequest"> & {
-  /**
-   * @generated from field: repeated string device_ids = 1;
-   */
-  deviceIds: string[];
-
-  /**
-   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-   */
-  measurementTypes: MeasurementType[];
-
-  /**
-   * @generated from field: telemetry.v1.TimeRange time_range = 3;
-   */
-  timeRange?: TimeRange;
-
-  /**
-   * @generated from field: optional int32 limit = 4;
-   */
-  limit?: number;
-
-  /**
-   * @generated from field: map<string, string> tags = 5;
-   */
-  tags: { [key: string]: string };
-};
-
-/**
- * Describes the message telemetry.v1.GetTimeSeriesRequest.
- * Use `create(GetTimeSeriesRequestSchema)` to create a new message.
- */
-export const GetTimeSeriesRequestSchema: GenMessage<GetTimeSeriesRequest> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 12);
-
-/**
- * @generated from message telemetry.v1.GetTimeSeriesResponse
- */
-export type GetTimeSeriesResponse = Message<"telemetry.v1.GetTimeSeriesResponse"> & {
-  /**
-   * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
-   */
-  telemetry: TelemetryData[];
-};
-
-/**
- * Describes the message telemetry.v1.GetTimeSeriesResponse.
- * Use `create(GetTimeSeriesResponseSchema)` to create a new message.
- */
-export const GetTimeSeriesResponseSchema: GenMessage<GetTimeSeriesResponse> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 13);
-
-/**
- * @generated from message telemetry.v1.GetMetadataRequest
- */
-export type GetMetadataRequest = Message<"telemetry.v1.GetMetadataRequest"> & {
-  /**
-   * @generated from field: repeated string device_ids = 1;
-   */
-  deviceIds: string[];
-
-  /**
-   * @generated from field: optional telemetry.v1.ComponentStatus status_filter = 2;
-   */
-  statusFilter?: ComponentStatus;
-
-  /**
-   * @generated from field: map<string, string> tag_filters = 3;
-   */
-  tagFilters: { [key: string]: string };
-};
-
-/**
- * Describes the message telemetry.v1.GetMetadataRequest.
- * Use `create(GetMetadataRequestSchema)` to create a new message.
- */
-export const GetMetadataRequestSchema: GenMessage<GetMetadataRequest> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 14);
-
-/**
- * @generated from message telemetry.v1.GetMetadataResponse
- */
-export type GetMetadataResponse = Message<"telemetry.v1.GetMetadataResponse"> & {
-  /**
-   * @generated from field: repeated telemetry.v1.DeviceMetadata devices = 1;
-   */
-  devices: DeviceMetadata[];
-};
-
-/**
- * Describes the message telemetry.v1.GetMetadataResponse.
- * Use `create(GetMetadataResponseSchema)` to create a new message.
- */
-export const GetMetadataResponseSchema: GenMessage<GetMetadataResponse> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 15);
-
-/**
  * @generated from message telemetry.v1.StreamUpdatesRequest
  */
 export type StreamUpdatesRequest = Message<"telemetry.v1.StreamUpdatesRequest"> & {
@@ -645,7 +484,7 @@ export type StreamUpdatesRequest = Message<"telemetry.v1.StreamUpdatesRequest"> 
  */
 export const StreamUpdatesRequestSchema: GenMessage<StreamUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 16);
+  messageDesc(file_telemetry_v1_telemetry, 10);
 
 /**
  * @generated from message telemetry.v1.StreamUpdatesResponse
@@ -663,68 +502,7 @@ export type StreamUpdatesResponse = Message<"telemetry.v1.StreamUpdatesResponse"
  */
 export const StreamUpdatesResponseSchema: GenMessage<StreamUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 17);
-
-/**
- * @generated from message telemetry.v1.GetAggregatedSnapshotRequest
- */
-export type GetAggregatedSnapshotRequest = Message<"telemetry.v1.GetAggregatedSnapshotRequest"> & {
-  /**
-   * @generated from field: repeated string device_ids = 1;
-   */
-  deviceIds: string[];
-
-  /**
-   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-   */
-  measurementTypes: MeasurementType[];
-
-  /**
-   * @generated from field: telemetry.v1.TimeRange time_range = 3;
-   */
-  timeRange?: TimeRange;
-
-  /**
-   * @generated from field: telemetry.v1.AggregationType aggregation_type = 4;
-   */
-  aggregationType: AggregationType;
-
-  /**
-   * @generated from field: optional google.protobuf.Duration group_by_interval = 5;
-   */
-  groupByInterval?: Duration;
-
-  /**
-   * @generated from field: map<string, string> tags = 6;
-   */
-  tags: { [key: string]: string };
-};
-
-/**
- * Describes the message telemetry.v1.GetAggregatedSnapshotRequest.
- * Use `create(GetAggregatedSnapshotRequestSchema)` to create a new message.
- */
-export const GetAggregatedSnapshotRequestSchema: GenMessage<GetAggregatedSnapshotRequest> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 18);
-
-/**
- * @generated from message telemetry.v1.GetAggregatedSnapshotResponse
- */
-export type GetAggregatedSnapshotResponse = Message<"telemetry.v1.GetAggregatedSnapshotResponse"> & {
-  /**
-   * @generated from field: repeated telemetry.v1.AggregatedTelemetry aggregated_data = 1;
-   */
-  aggregatedData: AggregatedTelemetry[];
-};
-
-/**
- * Describes the message telemetry.v1.GetAggregatedSnapshotResponse.
- * Use `create(GetAggregatedSnapshotResponseSchema)` to create a new message.
- */
-export const GetAggregatedSnapshotResponseSchema: GenMessage<GetAggregatedSnapshotResponse> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 19);
+  messageDesc(file_telemetry_v1_telemetry, 11);
 
 /**
  * @generated from message telemetry.v1.GetCombinedMetricsRequest
@@ -791,7 +569,7 @@ export type GetCombinedMetricsRequest = Message<"telemetry.v1.GetCombinedMetrics
  */
 export const GetCombinedMetricsRequestSchema: GenMessage<GetCombinedMetricsRequest> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 20);
+  messageDesc(file_telemetry_v1_telemetry, 12);
 
 /**
  * @generated from message telemetry.v1.AggregatedValue
@@ -816,7 +594,7 @@ export type AggregatedValue = Message<"telemetry.v1.AggregatedValue"> & {
  */
 export const AggregatedValueSchema: GenMessage<AggregatedValue> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 21);
+  messageDesc(file_telemetry_v1_telemetry, 13);
 
 /**
  * @generated from message telemetry.v1.Metric
@@ -851,7 +629,7 @@ export type Metric = Message<"telemetry.v1.Metric"> & {
  * Describes the message telemetry.v1.Metric.
  * Use `create(MetricSchema)` to create a new message.
  */
-export const MetricSchema: GenMessage<Metric> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 22);
+export const MetricSchema: GenMessage<Metric> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 14);
 
 /**
  * @generated from message telemetry.v1.GetCombinedMetricsResponse
@@ -890,7 +668,7 @@ export type GetCombinedMetricsResponse = Message<"telemetry.v1.GetCombinedMetric
  */
 export const GetCombinedMetricsResponseSchema: GenMessage<GetCombinedMetricsResponse> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 23);
+  messageDesc(file_telemetry_v1_telemetry, 15);
 
 /**
  * @generated from message telemetry.v1.StreamCombinedMetricUpdatesRequest
@@ -944,7 +722,7 @@ export type StreamCombinedMetricUpdatesRequest = Message<"telemetry.v1.StreamCom
  */
 export const StreamCombinedMetricUpdatesRequestSchema: GenMessage<StreamCombinedMetricUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 24);
+  messageDesc(file_telemetry_v1_telemetry, 16);
 
 /**
  * @generated from message telemetry.v1.StreamCombinedMetricUpdatesResponse
@@ -985,7 +763,7 @@ export type StreamCombinedMetricUpdatesResponse = Message<"telemetry.v1.StreamCo
  */
 export const StreamCombinedMetricUpdatesResponseSchema: GenMessage<StreamCombinedMetricUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 25);
+  messageDesc(file_telemetry_v1_telemetry, 17);
 
 /**
  * Enums matching domain models
@@ -1301,36 +1079,6 @@ export const UpdateTypeSchema: GenEnum<UpdateType> = /*@__PURE__*/ enumDesc(file
  */
 export const TelemetryService: GenService<{
   /**
-   * Get latest telemetry data for specified devices and measurement types
-   *
-   * @generated from rpc telemetry.v1.TelemetryService.GetSnapshot
-   */
-  getSnapshot: {
-    methodKind: "unary";
-    input: typeof GetSnapshotRequestSchema;
-    output: typeof GetSnapshotResponseSchema;
-  };
-  /**
-   * Get time series telemetry data for specified devices and measurement types
-   *
-   * @generated from rpc telemetry.v1.TelemetryService.GetTimeSeries
-   */
-  getTimeSeries: {
-    methodKind: "unary";
-    input: typeof GetTimeSeriesRequestSchema;
-    output: typeof GetTimeSeriesResponseSchema;
-  };
-  /**
-   * Get metadata about devices including last seen time and capabilities
-   *
-   * @generated from rpc telemetry.v1.TelemetryService.GetMetadata
-   */
-  getMetadata: {
-    methodKind: "unary";
-    input: typeof GetMetadataRequestSchema;
-    output: typeof GetMetadataResponseSchema;
-  };
-  /**
    * Stream real-time telemetry updates
    *
    * @generated from rpc telemetry.v1.TelemetryService.StreamUpdates
@@ -1339,16 +1087,6 @@ export const TelemetryService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamUpdatesRequestSchema;
     output: typeof StreamUpdatesResponseSchema;
-  };
-  /**
-   * Get aggregated telemetry data (averages, min, max, etc.)
-   *
-   * @generated from rpc telemetry.v1.TelemetryService.GetAggregatedSnapshot
-   */
-  getAggregatedSnapshot: {
-    methodKind: "unary";
-    input: typeof GetAggregatedSnapshotRequestSchema;
-    output: typeof GetAggregatedSnapshotResponseSchema;
   };
   /**
    * Historical, aggregated candles (pull).

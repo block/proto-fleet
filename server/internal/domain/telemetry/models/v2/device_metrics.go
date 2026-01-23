@@ -85,33 +85,3 @@ func (m *DeviceMetrics) ExtractRawMeasurement(measurementType models.Measurement
 
 	return rawValue, m.Timestamp, true
 }
-
-// ToRawTelemetry converts DeviceMetrics to a slice of Telemetry records.
-// Values are returned in raw storage units (H/s, W, J/H) - conversion to display
-// units should happen in the handler layer.
-// If requestedTypes is empty, all available measurement types are included.
-func (m *DeviceMetrics) ToRawTelemetry(requestedTypes []models.MeasurementType) []models.Telemetry {
-	if len(requestedTypes) == 0 {
-		requestedTypes = DefaultMeasurementTypes
-	}
-
-	var results []models.Telemetry
-	for _, mt := range requestedTypes {
-		value, timestamp, ok := m.ExtractRawMeasurement(mt)
-		if !ok {
-			continue
-		}
-
-		results = append(results, models.Telemetry{
-			Measurement: mt.InfluxMeasurementName(),
-			Tags: map[string]string{
-				"device_id": m.DeviceID,
-			},
-			Fields: map[string]interface{}{
-				"value": value,
-			},
-			Timestamp: timestamp,
-		})
-	}
-	return results
-}

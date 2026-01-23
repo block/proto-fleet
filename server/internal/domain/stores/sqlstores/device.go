@@ -304,7 +304,7 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 
 	deviceIDs := make([]models.DeviceIdentifier, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		deviceIDs = append(deviceIDs, models.NewDeviceIdentifierFromString(identifier))
+		deviceIDs = append(deviceIDs, models.DeviceIdentifier(identifier))
 	}
 
 	return deviceIDs, nil
@@ -581,7 +581,7 @@ func (s *SQLDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context
 	}
 
 	for _, status := range statuses {
-		deviceID := models.NewDeviceIdentifierFromString(status.DeviceIdentifier)
+		deviceID := models.DeviceIdentifier(status.DeviceIdentifier)
 		minerStatus := toMinerStatus(status.Status)
 		statusMap[deviceID] = minerStatus
 	}

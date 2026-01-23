@@ -20,13 +20,6 @@ type MetricValue struct {
 	MetaData *MetricValueMetaData `json:"metadata,omitempty"`
 }
 
-func NewGaugeValue(value float64) *MetricValue {
-	return &MetricValue{
-		Value: value,
-		Kind:  MetricKindGauge,
-	}
-}
-
 // MetricValueMetaData provides statistical context for a metric value.
 // It supports aggregated values (Min/Max/Avg/StdDev over a time window) and
 // metric classification (Gauge/Rate/Counter) for proper interpretation.

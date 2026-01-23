@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
@@ -135,7 +137,7 @@ func (b *TelemetryBroadcaster) Subscribe(ctx context.Context, config Subscriptio
 	updateChan := make(chan models.TelemetryUpdate, bufferSize)
 
 	sub := &Subscription{
-		id:               generateSubscriptionID(),
+		id:               uuid.New().String(),
 		deviceIDs:        deviceIDFilter,
 		measurementTypes: measurementTypeFilter,
 		eventTypes:       eventTypeFilter,
@@ -345,10 +347,10 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		}
 
 		// Check if subscriber is interested in this measurement type (only for telemetry updates)
-		if update.Type == models.UpdateTypeTelemetry && update.Data != nil {
+		if update.Type == models.UpdateTypeTelemetry && update.MeasurementName != "" {
 			if sub.measurementTypes != nil {
 				// Determine measurement type from the data
-				mType := models.MeasurementNameToType(update.Data.Measurement)
+				mType := models.MeasurementNameToType(update.MeasurementName)
 				if !sub.measurementTypes[mType] {
 					continue
 				}
@@ -379,9 +381,4 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		"matchingSubscribers", matchingSubscribers,
 		"sentCount", sentCount,
 		"skippedCount", skippedCount)
-}
-
-// generateSubscriptionID creates a unique ID for a subscription
-func generateSubscriptionID() string {
-	return time.Now().Format("20060102150405.000000")
 }

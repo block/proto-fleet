@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"syscall"
-	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
@@ -18,7 +17,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
-	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
@@ -119,14 +117,6 @@ func (p *PluginMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetr
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
 
 	return v2Metrics, nil
-}
-
-// GetTelemetry implements interfaces.Miner
-// This is the legacy telemetry method, kept for backward compatibility
-func (p *PluginMiner) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetryModels.Telemetry, error) {
-	// SDK devices don't support the legacy telemetry format
-	// Return empty slice to indicate no legacy telemetry available
-	return []telemetryModels.Telemetry{}, nil
 }
 
 // GetDeviceStatus implements interfaces.Miner

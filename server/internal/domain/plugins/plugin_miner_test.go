@@ -483,15 +483,6 @@ func TestPluginMiner_UpdateMiningPools(t *testing.T) {
 	assert.Equal(t, "worker1", receivedPools[0].WorkerName)
 }
 
-func TestPluginMiner_GetTelemetry_ReturnsEmpty(t *testing.T) {
-	pm, _ := createTestPluginMiner()
-
-	telemetry, err := pm.GetTelemetry(t.Context(), time.Now())
-
-	require.NoError(t, err)
-	assert.Empty(t, telemetry, "SDK devices don't support legacy telemetry format")
-}
-
 func TestPluginMiner_ErrorPropagation(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
 

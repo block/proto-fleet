@@ -75,6 +75,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -191,13 +192,10 @@ type UpdateScheduler interface {
 }
 
 type TelemetryDataStore interface {
-	Store(ctx context.Context, data ...models.Telemetry) error
-	StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error // Only need to store new data, will update read requests to use new data.
+	StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error
 	GetLatestDeviceMetricsBatch(ctx context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error)
-	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error)
-	GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
+	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
-	GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
 	Ping(ctx context.Context) error
 	Close() error
@@ -207,11 +205,9 @@ type MinerGetter interface {
 }
 
 type deviceResult struct {
-	device       models.Device
-	telemetry    []models.Telemetry
-	metrics      modelsV2.DeviceMetrics
-	telemetryErr error
-	metricsErr   error
+	device     models.Device
+	metrics    modelsV2.DeviceMetrics
+	metricsErr error
 }
 
 // statusResult represents a status update result from a worker.
@@ -301,7 +297,7 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 	defer close(s.statusTasks)
 	defer close(s.statusResults)
 
-	s.broadcasters.Range(func(_, value interface{}) bool {
+	s.broadcasters.Range(func(_, value any) bool {
 		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 			broadcaster.Stop()
 		}
@@ -640,7 +636,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 				// Store BEFORE broadcasting to ensure in-memory state is current
 				// before any broadcast handlers execute.
 				s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
-				s.broadcasters.Range(func(_, value interface{}) bool {
+				s.broadcasters.Range(func(_, value any) bool {
 					if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 						broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
 					}
@@ -716,7 +712,6 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 
 	result := &deviceResult{device: device}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
-	result.telemetry, result.telemetryErr = miner.GetTelemetry(ctx, device.LastUpdatedAt)
 	return result, nil
 }
 
@@ -759,15 +754,6 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		}
 	}
 
-	if result.telemetryErr != nil {
-		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, result.telemetryErr)
-	}
-
-	if err := s.telemetryDataStore.Store(ctx, result.telemetry...); err != nil {
-		slog.Error("failed to store telemetry data", "deviceID", device.ID, "error", err)
-		return fmt.Errorf("failed to store telemetry data for device %s: %w", device.ID, err)
-	}
-
 	if err := s.updateScheduler.AddDevices(ctx, models.Device{
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
@@ -776,35 +762,6 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	}
 	return nil
 }
-
-// GetLatestTelemetry retrieves latest telemetry data for devices
-func (s *TelemetryService) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	metricsMap, err := s.telemetryDataStore.GetLatestDeviceMetricsBatch(ctx, query.DeviceIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	var telemetryData []models.Telemetry
-	for _, metrics := range metricsMap {
-		telemetryData = append(telemetryData, metrics.ToRawTelemetry(query.MeasurementTypes)...)
-	}
-
-	return telemetryData, nil
-}
-
-func (s *TelemetryService) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
-	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return telemetryData, nil
-}
-
-func (s *TelemetryService) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
-	return s.telemetryDataStore.GetTelemetryMetadata(ctx, query)
-}
-
 func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	return s.telemetryDataStore.StreamTelemetryUpdates(ctx, query)
 }
@@ -848,11 +805,6 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 	}()
 
 	return updateChan, nil
-}
-
-func (s *TelemetryService) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
-	return s.telemetryDataStore.GetAggregatedTelemetry(ctx, query)
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
@@ -944,10 +896,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 	//   - Window using updateInterval: [now-100ms, now] - captures 0 complete 5-min buckets!
 	//
 	// Solution: Use granularity as the minimum window width
-	windowWidth := query.Granularity
-	if updateInterval > windowWidth {
-		windowWidth = updateInterval
-	}
+	windowWidth := max(query.Granularity, updateInterval)
 
 	// Align end time to bucket boundaries for consistent results
 	granularityNanos := query.Granularity.Nanoseconds()
@@ -981,11 +930,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled: %w", ctx.Err())
 	}
-}
-
-// Ping checks the health of the telemetry datastore
-func (s *TelemetryService) Ping(ctx context.Context) error {
-	return s.telemetryDataStore.Ping(ctx)
 }
 
 // GetMinerTelemetry returns the latest telemetry data for a miner
@@ -1171,21 +1115,22 @@ func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, d
 		MeasurementTypes: []models.MeasurementType{measurementType},
 		TimeRange:        parseTimeSeriesConfig(timeSeriesConfig),
 	}
-	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
+	deviceMetrics, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch time series telemetry: %w", err)
 	}
 
 	// Group results by device ID
 	result := make(map[string][]*commonpb.Measurement)
-	for _, data := range telemetryData {
-		deviceID := data.Tags["device_id"]
-		if value, ok := data.Fields["value"].(float64); ok {
-			result[deviceID] = append(result[deviceID], &commonpb.Measurement{
-				Value:     value,
-				Timestamp: timestamppb.New(data.Timestamp),
-			})
+	for _, dm := range deviceMetrics {
+		value, timestamp, ok := dm.ExtractRawMeasurement(measurementType)
+		if !ok {
+			continue
 		}
+		result[dm.DeviceID] = append(result[dm.DeviceID], &commonpb.Measurement{
+			Value:     value,
+			Timestamp: timestamppb.New(timestamp),
+		})
 	}
 
 	return result, nil
@@ -1344,19 +1289,21 @@ func (s *TelemetryService) getTimeSeriesMeasurements(ctx context.Context, device
 		TimeRange:        parseTimeSeriesConfig(timeSeriesConfig),
 	}
 
-	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
+	deviceMetrics, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get time series telemetry: %w", err)
 	}
 
 	var measurements []*commonpb.Measurement
-	for _, data := range telemetryData {
-		if value, ok := data.Fields["value"].(float64); ok {
-			measurements = append(measurements, &commonpb.Measurement{
-				Value:     value,
-				Timestamp: timestamppb.New(data.Timestamp),
-			})
+	for _, dm := range deviceMetrics {
+		value, timestamp, ok := dm.ExtractRawMeasurement(measurementType)
+		if !ok {
+			continue
 		}
+		measurements = append(measurements, &commonpb.Measurement{
+			Value:     value,
+			Timestamp: timestamppb.New(timestamp),
+		})
 	}
 
 	return measurements, nil
@@ -1367,11 +1314,11 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 	//nolint:exhaustive // we handle all a few measurements for now
 	switch update.Type {
 	case models.UpdateTypeTelemetry:
-		if update.Data == nil {
+		if update.MeasurementName == "" {
 			return nil
 		}
 
-		measurementName := update.Data.Measurement
+		measurementName := update.MeasurementName
 		var internalMeasurementType models.MeasurementType
 
 		internalMeasurementType = models.MeasurementNameToType(measurementName)
@@ -1381,22 +1328,13 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 
 		pbMeasurementType := internalMeasurementTypeToPb(internalMeasurementType)
 
-		typeRequested := false
-		for _, requestedType := range measurementTypes {
-			if requestedType == pbMeasurementType {
-				typeRequested = true
-				break
-			}
-		}
+		typeRequested := slices.Contains(measurementTypes, pbMeasurementType)
 		if !typeRequested {
 			return nil
 		}
 
 		// Note: StreamTelemetryUpdates returns already-converted values (via convertDeviceMetricsToTelemetry)
-		var value float64
-		if val, ok := update.Data.Fields["value"].(float64); ok {
-			value = val
-		}
+		value := update.MeasurementValue
 
 		return &pb.StreamMinerUpdatesResponse{
 			Timestamp:        timestamppb.New(update.Timestamp),
@@ -1406,7 +1344,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 					MeasurementType: pbMeasurementType,
 					Measurement: &commonpb.Measurement{
 						Value:     value,
-						Timestamp: timestamppb.New(update.Data.Timestamp),
+						Timestamp: timestamppb.New(update.Timestamp),
 					},
 				},
 			},

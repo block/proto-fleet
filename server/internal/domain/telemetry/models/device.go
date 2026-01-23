@@ -15,11 +15,6 @@ type Device struct {
 	LastUpdatedAt time.Time        `json:"last_updated_at"`
 }
 
-// NewDeviceIdentifierFromString creates a DeviceID from a string for compatibility
-func NewDeviceIdentifierFromString(s string) DeviceIdentifier {
-	return DeviceIdentifier(s)
-}
-
 // ToDeviceIdentifiers converts a slice of device ID strings to DeviceIdentifiers.
 func ToDeviceIdentifiers(deviceIDs []string) []DeviceIdentifier {
 	result := make([]DeviceIdentifier, len(deviceIDs))

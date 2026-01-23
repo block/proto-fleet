@@ -341,7 +341,7 @@ func validateConfig(config Config) error {
 #### **❌ Bad Pattern - Graceful Degradation:**
 ```go
 // WRONG - This masks real bugs
-results, err := store.GetLatestTelemetry(ctx, query)
+results, err := store.GetLatestDeviceMetricsBatch(ctx, deviceIDs)
 if err != nil {
     t.Logf("Query failed: %v", err)
     t.Skip("InfluxDB query issues - skipping detailed assertions")
@@ -352,8 +352,8 @@ if err != nil {
 #### **✅ Correct Pattern - Fail Fast:**
 ```go
 // CORRECT - This catches real bugs
-results, err := store.GetLatestTelemetry(ctx, query)
-require.NoError(t, err, "GetLatestTelemetry should succeed - if this fails, there's a bug in the implementation")
+results, err := store.GetLatestDeviceMetricsBatch(ctx, deviceIDs)
+require.NoError(t, err, "GetLatestDeviceMetricsBatch should succeed - if this fails, there's a bug in the implementation")
 ```
 
 #### **Why This Matters:**
@@ -685,7 +685,7 @@ const (
 
 ```go
 // For query errors
-return nil, newTelemetryQueryError(err, "GetLatestTelemetry")
+return nil, newTelemetryQueryError(err, "GetLatestDeviceMetricsBatch")
 
 // For write errors
 return newTelemetryWriteError(err, pointCount)
@@ -697,7 +697,7 @@ return newTelemetryWriteErrorWithRetry(err, pointCount, retryAttempt)
 return nil, newTelemetryConnectionError(err)
 
 // For iteration errors with partial data
-return nil, newTelemetryIterationError(err, "GetLatestTelemetry", errorCount, hasPartialData)
+return nil, newTelemetryIterationError(err, "GetLatestDeviceMetricsBatch", errorCount, hasPartialData)
 ```
 
 ### Retry Logic Implementation
@@ -1061,13 +1061,13 @@ var _ telemetry.TelemetryDataStore = &InfluxTelemetryStore{}
 
 type TelemetryDataStore interface {
     Store(ctx context.Context, data ...models.Telemetry) error
-    GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error)
+    StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error
+    GetLatestDeviceMetricsBatch(ctx context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error)
     GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error)
-    GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
     StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
-    GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error)
-    Close() error
+    GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
     Ping(ctx context.Context) error
+    Close() error
 }
 ```
 

@@ -200,6 +200,7 @@ test.describe("Miner Issues Tests", () => {
 
     const firstMinerIp = testMiners[0].ipAddress;
     const firstMinerName = testMiners[0].name;
+
     await test.step("Validate modal can be opened from alert icon", async () => {
       // From general alert icon
       await minersPage.clickMinerElementByTestId(firstMinerIp, "alert-icon");

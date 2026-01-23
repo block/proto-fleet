@@ -34,21 +34,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// TelemetryServiceGetSnapshotProcedure is the fully-qualified name of the TelemetryService's
-	// GetSnapshot RPC.
-	TelemetryServiceGetSnapshotProcedure = "/telemetry.v1.TelemetryService/GetSnapshot"
-	// TelemetryServiceGetTimeSeriesProcedure is the fully-qualified name of the TelemetryService's
-	// GetTimeSeries RPC.
-	TelemetryServiceGetTimeSeriesProcedure = "/telemetry.v1.TelemetryService/GetTimeSeries"
-	// TelemetryServiceGetMetadataProcedure is the fully-qualified name of the TelemetryService's
-	// GetMetadata RPC.
-	TelemetryServiceGetMetadataProcedure = "/telemetry.v1.TelemetryService/GetMetadata"
 	// TelemetryServiceStreamUpdatesProcedure is the fully-qualified name of the TelemetryService's
 	// StreamUpdates RPC.
 	TelemetryServiceStreamUpdatesProcedure = "/telemetry.v1.TelemetryService/StreamUpdates"
-	// TelemetryServiceGetAggregatedSnapshotProcedure is the fully-qualified name of the
-	// TelemetryService's GetAggregatedSnapshot RPC.
-	TelemetryServiceGetAggregatedSnapshotProcedure = "/telemetry.v1.TelemetryService/GetAggregatedSnapshot"
 	// TelemetryServiceGetCombinedMetricsProcedure is the fully-qualified name of the TelemetryService's
 	// GetCombinedMetrics RPC.
 	TelemetryServiceGetCombinedMetricsProcedure = "/telemetry.v1.TelemetryService/GetCombinedMetrics"
@@ -59,16 +47,8 @@ const (
 
 // TelemetryServiceClient is a client for the telemetry.v1.TelemetryService service.
 type TelemetryServiceClient interface {
-	// Get latest telemetry data for specified devices and measurement types
-	GetSnapshot(context.Context, *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error)
-	// Get time series telemetry data for specified devices and measurement types
-	GetTimeSeries(context.Context, *connect.Request[v1.GetTimeSeriesRequest]) (*connect.Response[v1.GetTimeSeriesResponse], error)
-	// Get metadata about devices including last seen time and capabilities
-	GetMetadata(context.Context, *connect.Request[v1.GetMetadataRequest]) (*connect.Response[v1.GetMetadataResponse], error)
 	// Stream real-time telemetry updates
 	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamUpdatesResponse], error)
-	// Get aggregated telemetry data (averages, min, max, etc.)
-	GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error)
 	// Historical, aggregated candles (pull).
 	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
 	// Live updates pushed by the server.
@@ -85,29 +65,9 @@ type TelemetryServiceClient interface {
 func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) TelemetryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &telemetryServiceClient{
-		getSnapshot: connect.NewClient[v1.GetSnapshotRequest, v1.GetSnapshotResponse](
-			httpClient,
-			baseURL+TelemetryServiceGetSnapshotProcedure,
-			opts...,
-		),
-		getTimeSeries: connect.NewClient[v1.GetTimeSeriesRequest, v1.GetTimeSeriesResponse](
-			httpClient,
-			baseURL+TelemetryServiceGetTimeSeriesProcedure,
-			opts...,
-		),
-		getMetadata: connect.NewClient[v1.GetMetadataRequest, v1.GetMetadataResponse](
-			httpClient,
-			baseURL+TelemetryServiceGetMetadataProcedure,
-			opts...,
-		),
 		streamUpdates: connect.NewClient[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse](
 			httpClient,
 			baseURL+TelemetryServiceStreamUpdatesProcedure,
-			opts...,
-		),
-		getAggregatedSnapshot: connect.NewClient[v1.GetAggregatedSnapshotRequest, v1.GetAggregatedSnapshotResponse](
-			httpClient,
-			baseURL+TelemetryServiceGetAggregatedSnapshotProcedure,
 			opts...,
 		),
 		getCombinedMetrics: connect.NewClient[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse](
@@ -125,38 +85,14 @@ func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // telemetryServiceClient implements TelemetryServiceClient.
 type telemetryServiceClient struct {
-	getSnapshot                 *connect.Client[v1.GetSnapshotRequest, v1.GetSnapshotResponse]
-	getTimeSeries               *connect.Client[v1.GetTimeSeriesRequest, v1.GetTimeSeriesResponse]
-	getMetadata                 *connect.Client[v1.GetMetadataRequest, v1.GetMetadataResponse]
 	streamUpdates               *connect.Client[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse]
-	getAggregatedSnapshot       *connect.Client[v1.GetAggregatedSnapshotRequest, v1.GetAggregatedSnapshotResponse]
 	getCombinedMetrics          *connect.Client[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse]
 	streamCombinedMetricUpdates *connect.Client[v1.StreamCombinedMetricUpdatesRequest, v1.StreamCombinedMetricUpdatesResponse]
-}
-
-// GetSnapshot calls telemetry.v1.TelemetryService.GetSnapshot.
-func (c *telemetryServiceClient) GetSnapshot(ctx context.Context, req *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error) {
-	return c.getSnapshot.CallUnary(ctx, req)
-}
-
-// GetTimeSeries calls telemetry.v1.TelemetryService.GetTimeSeries.
-func (c *telemetryServiceClient) GetTimeSeries(ctx context.Context, req *connect.Request[v1.GetTimeSeriesRequest]) (*connect.Response[v1.GetTimeSeriesResponse], error) {
-	return c.getTimeSeries.CallUnary(ctx, req)
-}
-
-// GetMetadata calls telemetry.v1.TelemetryService.GetMetadata.
-func (c *telemetryServiceClient) GetMetadata(ctx context.Context, req *connect.Request[v1.GetMetadataRequest]) (*connect.Response[v1.GetMetadataResponse], error) {
-	return c.getMetadata.CallUnary(ctx, req)
 }
 
 // StreamUpdates calls telemetry.v1.TelemetryService.StreamUpdates.
 func (c *telemetryServiceClient) StreamUpdates(ctx context.Context, req *connect.Request[v1.StreamUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamUpdatesResponse], error) {
 	return c.streamUpdates.CallServerStream(ctx, req)
-}
-
-// GetAggregatedSnapshot calls telemetry.v1.TelemetryService.GetAggregatedSnapshot.
-func (c *telemetryServiceClient) GetAggregatedSnapshot(ctx context.Context, req *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error) {
-	return c.getAggregatedSnapshot.CallUnary(ctx, req)
 }
 
 // GetCombinedMetrics calls telemetry.v1.TelemetryService.GetCombinedMetrics.
@@ -171,16 +107,8 @@ func (c *telemetryServiceClient) StreamCombinedMetricUpdates(ctx context.Context
 
 // TelemetryServiceHandler is an implementation of the telemetry.v1.TelemetryService service.
 type TelemetryServiceHandler interface {
-	// Get latest telemetry data for specified devices and measurement types
-	GetSnapshot(context.Context, *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error)
-	// Get time series telemetry data for specified devices and measurement types
-	GetTimeSeries(context.Context, *connect.Request[v1.GetTimeSeriesRequest]) (*connect.Response[v1.GetTimeSeriesResponse], error)
-	// Get metadata about devices including last seen time and capabilities
-	GetMetadata(context.Context, *connect.Request[v1.GetMetadataRequest]) (*connect.Response[v1.GetMetadataResponse], error)
 	// Stream real-time telemetry updates
 	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest], *connect.ServerStream[v1.StreamUpdatesResponse]) error
-	// Get aggregated telemetry data (averages, min, max, etc.)
-	GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error)
 	// Historical, aggregated candles (pull).
 	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
 	// Live updates pushed by the server.
@@ -193,29 +121,9 @@ type TelemetryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	telemetryServiceGetSnapshotHandler := connect.NewUnaryHandler(
-		TelemetryServiceGetSnapshotProcedure,
-		svc.GetSnapshot,
-		opts...,
-	)
-	telemetryServiceGetTimeSeriesHandler := connect.NewUnaryHandler(
-		TelemetryServiceGetTimeSeriesProcedure,
-		svc.GetTimeSeries,
-		opts...,
-	)
-	telemetryServiceGetMetadataHandler := connect.NewUnaryHandler(
-		TelemetryServiceGetMetadataProcedure,
-		svc.GetMetadata,
-		opts...,
-	)
 	telemetryServiceStreamUpdatesHandler := connect.NewServerStreamHandler(
 		TelemetryServiceStreamUpdatesProcedure,
 		svc.StreamUpdates,
-		opts...,
-	)
-	telemetryServiceGetAggregatedSnapshotHandler := connect.NewUnaryHandler(
-		TelemetryServiceGetAggregatedSnapshotProcedure,
-		svc.GetAggregatedSnapshot,
 		opts...,
 	)
 	telemetryServiceGetCombinedMetricsHandler := connect.NewUnaryHandler(
@@ -230,16 +138,8 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 	)
 	return "/telemetry.v1.TelemetryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case TelemetryServiceGetSnapshotProcedure:
-			telemetryServiceGetSnapshotHandler.ServeHTTP(w, r)
-		case TelemetryServiceGetTimeSeriesProcedure:
-			telemetryServiceGetTimeSeriesHandler.ServeHTTP(w, r)
-		case TelemetryServiceGetMetadataProcedure:
-			telemetryServiceGetMetadataHandler.ServeHTTP(w, r)
 		case TelemetryServiceStreamUpdatesProcedure:
 			telemetryServiceStreamUpdatesHandler.ServeHTTP(w, r)
-		case TelemetryServiceGetAggregatedSnapshotProcedure:
-			telemetryServiceGetAggregatedSnapshotHandler.ServeHTTP(w, r)
 		case TelemetryServiceGetCombinedMetricsProcedure:
 			telemetryServiceGetCombinedMetricsHandler.ServeHTTP(w, r)
 		case TelemetryServiceStreamCombinedMetricUpdatesProcedure:
@@ -253,24 +153,8 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 // UnimplementedTelemetryServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTelemetryServiceHandler struct{}
 
-func (UnimplementedTelemetryServiceHandler) GetSnapshot(context.Context, *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetSnapshot is not implemented"))
-}
-
-func (UnimplementedTelemetryServiceHandler) GetTimeSeries(context.Context, *connect.Request[v1.GetTimeSeriesRequest]) (*connect.Response[v1.GetTimeSeriesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetTimeSeries is not implemented"))
-}
-
-func (UnimplementedTelemetryServiceHandler) GetMetadata(context.Context, *connect.Request[v1.GetMetadataRequest]) (*connect.Response[v1.GetMetadataResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetMetadata is not implemented"))
-}
-
 func (UnimplementedTelemetryServiceHandler) StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest], *connect.ServerStream[v1.StreamUpdatesResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.StreamUpdates is not implemented"))
-}
-
-func (UnimplementedTelemetryServiceHandler) GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetAggregatedSnapshot is not implemented"))
 }
 
 func (UnimplementedTelemetryServiceHandler) GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error) {

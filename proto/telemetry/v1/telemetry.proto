@@ -9,21 +9,9 @@ import "common/v1/measurement.proto";
 
 // Service for retrieving telemetry data from mining devices
 service TelemetryService {
-  // Get latest telemetry data for specified devices and measurement types
-  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
-  
-  // Get time series telemetry data for specified devices and measurement types
-  rpc GetTimeSeries(GetTimeSeriesRequest) returns (GetTimeSeriesResponse);
-  
-  // Get metadata about devices including last seen time and capabilities
-  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
-  
   // Stream real-time telemetry updates
   rpc StreamUpdates(StreamUpdatesRequest) returns (stream StreamUpdatesResponse);
-  
-  // Get aggregated telemetry data (averages, min, max, etc.)
-  rpc GetAggregatedSnapshot(GetAggregatedSnapshotRequest) returns (GetAggregatedSnapshotResponse);
-  
+
   // Historical, aggregated candles (pull).
   rpc GetCombinedMetrics(GetCombinedMetricsRequest) returns (GetCombinedMetricsResponse) {}
 
@@ -211,49 +199,6 @@ message TelemetryUpdate {
 }
 
 // Request/Response Messages
-message GetSnapshotRequest {
-  // Device identifiers to query - at least one required
-  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
-  
-  // Measurement types to retrieve - at least one required
-  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
-  
-  // Maximum age of data to return (optional)
-  optional google.protobuf.Duration max_age = 3 [(buf.validate.field).duration = {
-    gte: { seconds: 1 }
-    lte: { seconds: 86400 } // 24 hours
-  }];
-  
-  // Optional tag filters
-  map<string, string> tags = 4;
-}
-
-message GetSnapshotResponse {
-  repeated TelemetryData telemetry = 1;
-}
-
-message GetTimeSeriesRequest {
-  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
-  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
-  TimeRange time_range = 3 [(buf.validate.field).required = true];
-  optional int32 limit = 4 [(buf.validate.field).int32 = {gte: 1, lte: 10000}];
-  map<string, string> tags = 5;
-}
-
-message GetTimeSeriesResponse {
-  repeated TelemetryData telemetry = 1;
-}
-
-message GetMetadataRequest {
-  repeated string device_ids = 1;
-  optional ComponentStatus status_filter = 2;
-  map<string, string> tag_filters = 3;
-}
-
-message GetMetadataResponse {
-  repeated DeviceMetadata devices = 1;
-}
-
 message StreamUpdatesRequest {
   repeated string device_ids = 1;
   repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
@@ -271,22 +216,6 @@ message StreamUpdatesRequest {
 
 message StreamUpdatesResponse {
   TelemetryUpdate update = 1;
-}
-
-message GetAggregatedSnapshotRequest {
-  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
-  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
-  TimeRange time_range = 3 [(buf.validate.field).required = true];
-  AggregationType aggregation_type = 4 [(buf.validate.field).enum.defined_only = true];
-  optional google.protobuf.Duration group_by_interval = 5 [(buf.validate.field).duration = {
-    gte: { seconds: 1 }
-    lte: { seconds: 86400 } // 24 hours
-  }];
-  map<string, string> tags = 6;
-}
-
-message GetAggregatedSnapshotResponse {
-  repeated AggregatedTelemetry aggregated_data = 1;
 }
 
 message GetCombinedMetricsRequest {

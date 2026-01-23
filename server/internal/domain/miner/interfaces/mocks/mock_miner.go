@@ -8,14 +8,12 @@ import (
 	context "context"
 	url "net/url"
 	reflect "reflect"
-	time "time"
 
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	models2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -207,10 +205,10 @@ func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 }
 
 // GetDeviceMetrics mocks base method.
-func (m *MockMiner) GetDeviceMetrics(ctx context.Context) (models2.DeviceMetrics, error) {
+func (m *MockMiner) GetDeviceMetrics(ctx context.Context) (models1.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceMetrics", ctx)
-	ret0, _ := ret[0].(models2.DeviceMetrics)
+	ret0, _ := ret[0].(models1.DeviceMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -306,21 +304,6 @@ func (m *MockMiner) GetSerialNumber() string {
 func (mr *MockMinerMockRecorder) GetSerialNumber() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMiner)(nil).GetSerialNumber))
-}
-
-// GetTelemetry mocks base method.
-func (m *MockMiner) GetTelemetry(ctx context.Context, after time.Time) ([]models1.Telemetry, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTelemetry", ctx, after)
-	ret0, _ := ret[0].([]models1.Telemetry)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetTelemetry indicates an expected call of GetTelemetry.
-func (mr *MockMinerMockRecorder) GetTelemetry(ctx, after interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelemetry", reflect.TypeOf((*MockMiner)(nil).GetTelemetry), ctx, after)
 }
 
 // GetType mocks base method.

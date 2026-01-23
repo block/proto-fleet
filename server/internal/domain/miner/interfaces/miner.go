@@ -3,13 +3,11 @@ package interfaces
 import (
 	"context"
 	"net/url"
-	"time"
 
 	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
@@ -48,7 +46,6 @@ type Miner interface {
 	Unpair(ctx context.Context) error
 
 	// Telemetry operations
-	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
 	GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error)
 
 	// GetDeviceStatus

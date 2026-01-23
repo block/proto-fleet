@@ -47,78 +47,6 @@ func NewHandler(telemetryService *telemetry.TelemetryService) *Handler {
 	}
 }
 
-func (h *Handler) GetSnapshot(
-	ctx context.Context,
-	req *connect.Request[telemetryv1.GetSnapshotRequest],
-) (*connect.Response[telemetryv1.GetSnapshotResponse], error) {
-	query, err := toLatestTelemetryQuery(req.Msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	telemetryData, err := h.telemetryService.GetLatestTelemetry(ctx, query)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	response, err := fromTelemetryData(telemetryData)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	return connect.NewResponse(&telemetryv1.GetSnapshotResponse{
-		Telemetry: response,
-	}), nil
-}
-
-func (h *Handler) GetTimeSeries(
-	ctx context.Context,
-	req *connect.Request[telemetryv1.GetTimeSeriesRequest],
-) (*connect.Response[telemetryv1.GetTimeSeriesResponse], error) {
-	query, err := toTimeSeriesTelemetryQuery(req.Msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	telemetryData, err := h.telemetryService.GetTimeSeriesTelemetry(ctx, query)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	response, err := fromTelemetryData(telemetryData)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	return connect.NewResponse(&telemetryv1.GetTimeSeriesResponse{
-		Telemetry: response,
-	}), nil
-}
-
-func (h *Handler) GetMetadata(
-	ctx context.Context,
-	req *connect.Request[telemetryv1.GetMetadataRequest],
-) (*connect.Response[telemetryv1.GetMetadataResponse], error) {
-	query, err := toMetadataQuery(req.Msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	metadata, err := h.telemetryService.GetTelemetryMetadata(ctx, query)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	response, err := fromDeviceMetadata(metadata)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	return connect.NewResponse(&telemetryv1.GetMetadataResponse{
-		Devices: response,
-	}), nil
-}
-
 func (h *Handler) StreamUpdates(
 	ctx context.Context,
 	req *connect.Request[telemetryv1.StreamUpdatesRequest],
@@ -223,30 +151,6 @@ func (h *Handler) StreamUpdates(
 			}
 		}
 	}
-}
-
-func (h *Handler) GetAggregatedSnapshot(
-	ctx context.Context,
-	req *connect.Request[telemetryv1.GetAggregatedSnapshotRequest],
-) (*connect.Response[telemetryv1.GetAggregatedSnapshotResponse], error) {
-	query, err := toAggregationQuery(req.Msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	aggregatedData, err := h.telemetryService.GetAggregatedTelemetry(ctx, query)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	response, err := fromAggregatedTelemetry(aggregatedData)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	return connect.NewResponse(&telemetryv1.GetAggregatedSnapshotResponse{
-		AggregatedData: response,
-	}), nil
 }
 
 func (h *Handler) GetCombinedMetrics(
