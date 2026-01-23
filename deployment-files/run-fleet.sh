@@ -115,6 +115,98 @@ copy_nginx_config() {
     fi
 }
 
+# Detect if running inside WSL
+is_wsl() {
+    grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null
+}
+
+# Check and fix WSL networking issues (IPv6/DNS problems)
+fix_wsl_networking() {
+    echo "Detected WSL environment. Checking network connectivity..."
+
+    # Test if we can reach Docker registry
+    if ! curl -s --max-time 5 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+        echo "Network issue detected. Applying WSL networking fixes..."
+
+        # Fix 1: Configure system to prefer IPv4 over IPv6
+        echo "  - Configuring IPv4 preference..."
+        if ! grep -qF "precedence ::ffff:0:0/96 100" /etc/gai.conf 2>/dev/null; then
+            sudo bash -c 'echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf'
+        fi
+        # Fix 2: Disable IPv6 routing at kernel level
+        echo "  - Disabling IPv6 routing..."
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
+        sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1
+
+        # Make IPv6 disabling persistent across reboots
+        for setting in "net.ipv6.conf.all.disable_ipv6=1" "net.ipv6.conf.default.disable_ipv6=1"; do
+            grep -q "^$setting" /etc/sysctl.conf 2>/dev/null || sudo bash -c "echo '$setting' >> /etc/sysctl.conf"
+        done
+        # Fix 3: Ensure Google's DNS server is available as a fallback
+        echo "  - Configuring DNS..."
+        if ! grep -q "nameserver 8.8.8.8" /etc/resolv.conf 2>/dev/null; then
+            sudo cp /etc/resolv.conf "/etc/resolv.conf.backup.$(date +%s)" 2>/dev/null || true
+            sudo bash -c 'echo "nameserver 8.8.8.8" >> /etc/resolv.conf'
+        fi
+
+        # Fix 4: Prevent WSL from overwriting resolv.conf on restart
+        if grep -q "generateResolvConf *= *false" /etc/wsl.conf 2>/dev/null; then
+            : # Already configured correctly
+        elif grep -q "generateResolvConf" /etc/wsl.conf 2>/dev/null; then
+            # Setting exists but is true - change to false
+            sudo sed -i 's/generateResolvConf *= *true/generateResolvConf = false/' /etc/wsl.conf
+        elif grep -q "^\[network\]" /etc/wsl.conf 2>/dev/null; then
+            # [network] section exists - add setting to it
+            sudo sed -i '/^\[network\]/a generateResolvConf = false' /etc/wsl.conf
+        else
+            # No [network] section - append new section
+            sudo bash -c 'printf "\n[network]\ngenerateResolvConf = false\n" >> /etc/wsl.conf'
+        fi
+
+        echo "Fixes applied. Testing connectivity..."
+
+        max_retries=5
+        backoff_seconds=2
+        attempt=1
+        connectivity_restored=0
+
+        while [ "$attempt" -le "$max_retries" ]; do
+            echo "  - Connectivity test attempt $attempt of $max_retries..."
+            if curl -s --max-time 10 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+                connectivity_restored=1
+                break
+            fi
+
+            if [ "$attempt" -lt "$max_retries" ]; then
+                echo "    Connection still failing. Waiting ${backoff_seconds}s before retry..."
+                sleep "$backoff_seconds"
+                backoff_seconds=$((backoff_seconds * 2))
+            fi
+
+            attempt=$((attempt + 1))
+        done
+
+        if [ "$connectivity_restored" -ne 1 ]; then
+            echo ""
+            echo "ERROR: Still cannot reach Docker registry."
+            echo "Please try the following:"
+            echo "  1. Open PowerShell as Administrator"
+            echo "  2. Run: wsl --shutdown"
+            echo "  3. Re-open WSL and run this script again"
+            echo ""
+            exit 1
+        fi
+
+        echo "Network connectivity restored!"
+
+        # Clear any corrupted Docker build cache from previous failed attempts
+        echo "Clearing Docker build cache from any previous failed attempts..."
+        docker builder prune -af >/dev/null 2>&1 || true
+    else
+        echo "Network connectivity OK."
+    fi
+}
+
 # ----------------------------------------------------------------------------
 # Docker Installation Check and Setup
 # ----------------------------------------------------------------------------
@@ -198,6 +290,15 @@ if ! docker info > /dev/null 2>&1; then
     fi
 else
     echo "Docker daemon is already running."
+fi
+
+# ----------------------------------------------------------------------------
+# WSL Networking Fix
+# ----------------------------------------------------------------------------
+
+# Fix WSL networking issues (IPv6/DNS) if running in WSL
+if is_wsl; then
+    fix_wsl_networking
 fi
 
 # ----------------------------------------------------------------------------
