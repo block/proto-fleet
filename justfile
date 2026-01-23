@@ -44,6 +44,22 @@ build-plugins-multi-arch:
   chmod +x deployment-files/server/*-plugin-*
   echo "Multi-arch plugins built successfully"
 
+# Update all Go dependencies across workspace
+update-go-deps:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Updating server dependencies..."
+  (cd server && go get -u ./... && go mod tidy)
+  echo "Updating plugin/proto dependencies..."
+  (cd plugin/proto && go get -u ./... && go mod tidy)
+  echo "Updating plugin/antminer dependencies..."
+  (cd plugin/antminer && go get -u ./... && go mod tidy)
+  echo "Updating server/fake-proto-rig dependencies..."
+  (cd server/fake-proto-rig && go get -u ./... && go mod tidy)
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "All Go dependencies updated successfully"
+
 # Run protoFleet client and server
 dev: build-plugins
   ./dev.sh
