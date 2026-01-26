@@ -1,7 +1,10 @@
 package plugins
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -226,4 +229,233 @@ func TestMultiTypeDiscoverer_Discover_FirstPluginFails(t *testing.T) {
 
 	// Should get the successful discovery result
 	assert.Equal(t, "SUCCESS123", device.SerialNumber)
+}
+
+func TestMultiTypeDiscoverer_Discover_AllPluginsFail(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	manager := NewManager(&Config{})
+
+	failingDriver1 := mocks.NewMockDriver(ctrl)
+	failingDriver1.EXPECT().
+		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+		Return(sdk.DeviceInfo{}, fleeterror.NewInternalError("plugin1 failure")).
+		AnyTimes()
+
+	failingDriver2 := mocks.NewMockDriver(ctrl)
+	failingDriver2.EXPECT().
+		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+		Return(sdk.DeviceInfo{}, fleeterror.NewInternalError("plugin2 failure")).
+		AnyTimes()
+
+	manager.plugins["failing-plugin-1"] = &LoadedPlugin{
+		Name:       "failing-plugin-1",
+		Driver:     failingDriver1,
+		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+		MinerTypes: []models.Type{models.TypeAntminer},
+	}
+	manager.plugins["failing-plugin-2"] = &LoadedPlugin{
+		Name:       "failing-plugin-2",
+		Driver:     failingDriver2,
+		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+		MinerTypes: []models.Type{models.TypeWhatsminer},
+	}
+
+	discoverer := NewMultiTypeDiscoverer(manager)
+
+	// Act
+	ctx := t.Context()
+	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
+
+	// Assert
+	assert.Nil(t, device)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all plugin discovery attempts failed")
+}
+
+func TestMultiTypeDiscoverer_Discover_ParallelExecution_FastPluginWins(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	manager := NewManager(&Config{})
+
+	fastDeviceInfo := sdk.DeviceInfo{
+		Type:         sdk.DeviceTypeASIC,
+		SerialNumber: "FAST123",
+		Model:        "Fast Model",
+		Manufacturer: "Fast Manufacturer",
+		URLScheme:    "http",
+		MacAddress:   "00:11:22:33:44:55",
+	}
+
+	slowDeviceInfo := sdk.DeviceInfo{
+		Type:         sdk.DeviceTypeASIC,
+		SerialNumber: "SLOW123",
+		Model:        "Slow Model",
+		Manufacturer: "Slow Manufacturer",
+		URLScheme:    "http",
+		MacAddress:   "00:11:22:33:44:66",
+	}
+
+	var slowPluginCanceled atomic.Bool
+
+	fastDriver := mocks.NewMockDriver(ctrl)
+	fastDriver.EXPECT().
+		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+		Return(fastDeviceInfo, nil).
+		AnyTimes()
+
+	slowDriver := mocks.NewMockDriver(ctrl)
+	slowDriver.EXPECT().
+		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+		DoAndReturn(func(ctx context.Context, ip, port string) (sdk.DeviceInfo, error) {
+			select {
+			case <-ctx.Done():
+				slowPluginCanceled.Store(true)
+				return sdk.DeviceInfo{}, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return slowDeviceInfo, nil
+			}
+		}).
+		AnyTimes()
+
+	manager.plugins["fast-plugin"] = &LoadedPlugin{
+		Name:       "fast-plugin",
+		Driver:     fastDriver,
+		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+		MinerTypes: []models.Type{models.TypeAntminer},
+	}
+	manager.plugins["slow-plugin"] = &LoadedPlugin{
+		Name:       "slow-plugin",
+		Driver:     slowDriver,
+		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+		MinerTypes: []models.Type{models.TypeWhatsminer},
+	}
+
+	discoverer := NewMultiTypeDiscoverer(manager)
+
+	// Act
+	ctx := t.Context()
+	start := time.Now()
+	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
+	elapsed := time.Since(start)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, device)
+	assert.Equal(t, "FAST123", device.SerialNumber)
+	assert.Less(t, elapsed, 100*time.Millisecond, "Discovery should complete before slow plugin timeout")
+
+	time.Sleep(50 * time.Millisecond)
+	assert.True(t, slowPluginCanceled.Load(), "Slow plugin should have been canceled")
+}
+
+func TestMultiTypeDiscoverer_Discover_ContextCancellation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	manager := NewManager(&Config{})
+
+	blockingDriver := mocks.NewMockDriver(ctrl)
+	blockingDriver.EXPECT().
+		DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+		DoAndReturn(func(ctx context.Context, ip, port string) (sdk.DeviceInfo, error) {
+			<-ctx.Done()
+			return sdk.DeviceInfo{}, ctx.Err()
+		}).
+		AnyTimes()
+
+	manager.plugins["blocking-plugin"] = &LoadedPlugin{
+		Name:       "blocking-plugin",
+		Driver:     blockingDriver,
+		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+		MinerTypes: []models.Type{models.TypeAntminer},
+	}
+
+	discoverer := NewMultiTypeDiscoverer(manager)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	// Act
+	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
+
+	// Assert
+	assert.Nil(t, device)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "discovery canceled")
+}
+
+func TestMultiTypeDiscoverer_Discover_ParallelExecution_VerifyConcurrency(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	manager := NewManager(&Config{})
+
+	var concurrentCount atomic.Int32
+	var maxConcurrent atomic.Int32
+
+	deviceInfo := sdk.DeviceInfo{
+		Type:         sdk.DeviceTypeASIC,
+		SerialNumber: "TEST123",
+		Model:        "Test Model",
+		Manufacturer: "Test Manufacturer",
+		URLScheme:    "http",
+		MacAddress:   "00:11:22:33:44:55",
+	}
+
+	createConcurrencyTrackingDriver := func() *mocks.MockDriver {
+		driver := mocks.NewMockDriver(ctrl)
+		driver.EXPECT().
+			DiscoverDevice(gomock.Any(), "192.168.1.100", "80").
+			DoAndReturn(func(ctx context.Context, ip, port string) (sdk.DeviceInfo, error) {
+				current := concurrentCount.Add(1)
+				for {
+					maxVal := maxConcurrent.Load()
+					if current > maxVal {
+						if maxConcurrent.CompareAndSwap(maxVal, current) {
+							break
+						}
+					} else {
+						break
+					}
+				}
+
+				time.Sleep(20 * time.Millisecond)
+
+				concurrentCount.Add(-1)
+				return deviceInfo, nil
+			}).
+			AnyTimes()
+		return driver
+	}
+
+	for i := range 3 {
+		name := string(rune('a'+i)) + "-plugin"
+		manager.plugins[name] = &LoadedPlugin{
+			Name:       name,
+			Driver:     createConcurrencyTrackingDriver(),
+			Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
+			MinerTypes: []models.Type{models.TypeAntminer},
+		}
+	}
+
+	discoverer := NewMultiTypeDiscoverer(manager)
+
+	// Act
+	ctx := t.Context()
+	device, err := discoverer.Discover(ctx, "192.168.1.100", "80")
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, device)
+	assert.GreaterOrEqual(t, maxConcurrent.Load(), int32(2), "Plugins should run concurrently")
 }

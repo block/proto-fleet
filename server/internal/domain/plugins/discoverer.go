@@ -36,7 +36,15 @@ func NewMultiTypeDiscoverer(manager *Manager) *MultiTypeDiscoverer {
 	}
 }
 
-// Discover tries to discover a device using all available plugins until one succeeds.
+// discoveryResult holds the result of a successful plugin discovery.
+type discoveryResult struct {
+	device     *discoverymodels.DiscoveredDevice
+	pluginName string
+}
+
+// Discover tries to discover a device by running all available plugins concurrently.
+// The first plugin to successfully discover the device wins, and all other plugin
+// discovery attempts are canceled to avoid wasting resources.
 func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	plugins := d.manager.GetAllPlugins()
 
@@ -44,68 +52,112 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 		return nil, fleeterror.NewInternalError("no plugins available for discovery")
 	}
 
-	var lastErr error
+	// Create cancellable context - first success cancels all other plugins
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
+	// Buffer channels to len(plugins) to prevent goroutine leaks after cancellation
+	resultChan := make(chan discoveryResult, len(plugins))
+	errChan := make(chan error, len(plugins))
+
+	activePlugins := 0
 	for name, plugin := range plugins {
 		if !plugin.Caps[sdk.CapabilityDiscovery] {
 			continue
 		}
+		activePlugins++
 
-		slog.Debug("Trying plugin for device discovery",
-			"plugin", name,
-			"ip", ipAddress,
-			"port", port)
+		go func(name string, plugin *LoadedPlugin) {
+			device, err := discoverWithPlugin(ctx, plugin, name, ipAddress, port)
+			if err != nil {
+				select {
+				case errChan <- err:
+				case <-ctx.Done():
+				}
+				return
+			}
 
-		deviceInfo, err := plugin.Driver.DiscoverDevice(ctx, ipAddress, port)
-		if err != nil {
-			slog.Debug("Plugin discovery failed",
-				"plugin", name,
-				"error", err)
+			select {
+			case resultChan <- discoveryResult{device: device, pluginName: name}:
+				cancel() // Cancel other plugins
+			case <-ctx.Done():
+			}
+		}(name, plugin)
+	}
+
+	if activePlugins == 0 {
+		return nil, fleeterror.NewInternalError("no plugins with discovery capability available")
+	}
+
+	// Wait for first success or all failures
+	errCount := 0
+	var lastErr error
+	for {
+		select {
+		case r := <-resultChan:
+			slog.Debug("Plugin won discovery race", "plugin", r.pluginName, "ip", ipAddress)
+			return r.device, nil
+		case err := <-errChan:
+			errCount++
 			lastErr = err
-			continue
+			if errCount >= activePlugins {
+				return nil, fleeterror.NewInternalErrorf("all plugin discovery attempts failed, last error: %v", lastErr)
+			}
+		case <-ctx.Done():
+			return nil, fleeterror.NewInternalErrorf("discovery canceled: %v", ctx.Err())
 		}
+	}
+}
 
-		// Use plugin's miner type for consistent type storage
-		var pluginType string
-		if len(plugin.MinerTypes) > 0 {
-			pluginType = plugin.MinerTypes[0].String()
-		}
-		fleetDevice := convertSDKDeviceInfoToFleetDevice(deviceInfo, ipAddress, port, pluginType)
+// discoverWithPlugin attempts to discover a device using a single plugin.
+func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
+	slog.Debug("Trying plugin for device discovery",
+		"plugin", pluginName,
+		"ip", ipAddress,
+		"port", port)
 
-		discoveredDevice := &discoverymodels.DiscoveredDevice{
-			Device: pb.Device{
-				DeviceIdentifier: fleetDevice.DeviceIdentifier,
-				IpAddress:        fleetDevice.IpAddress,
-				Port:             fleetDevice.Port,
-				UrlScheme:        fleetDevice.UrlScheme,
-				SerialNumber:     fleetDevice.SerialNumber,
-				Model:            fleetDevice.Model,
-				Manufacturer:     fleetDevice.Manufacturer,
-				Type:             fleetDevice.Type,
-				MacAddress:       fleetDevice.MacAddress,
-				Capabilities:     fleetDevice.Capabilities,
-			},
-			OrgID:           0,
-			IsActive:        true,
-			FirstDiscovered: time.Now(),
-			LastSeen:        time.Now(),
-		}
-
-		slog.Info("Plugin discovered device successfully",
-			"plugin", name,
-			"device", deviceInfo.SerialNumber,
-			"model", deviceInfo.Model,
-			"manufacturer", deviceInfo.Manufacturer,
-			"type", fleetDevice.Type)
-
-		return discoveredDevice, nil
+	deviceInfo, err := plugin.Driver.DiscoverDevice(ctx, ipAddress, port)
+	if err != nil {
+		slog.Debug("Plugin discovery failed",
+			"plugin", pluginName,
+			"error", err)
+		return nil, err
 	}
 
-	if lastErr != nil {
-		return nil, fleeterror.NewInternalErrorf("all plugin discovery attempts failed, last error: %v", lastErr)
+	// Use plugin's miner type for consistent type storage
+	var pluginType string
+	if len(plugin.MinerTypes) > 0 {
+		pluginType = plugin.MinerTypes[0].String()
+	}
+	fleetDevice := convertSDKDeviceInfoToFleetDevice(deviceInfo, ipAddress, port, pluginType)
+
+	discoveredDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: fleetDevice.DeviceIdentifier,
+			IpAddress:        fleetDevice.IpAddress,
+			Port:             fleetDevice.Port,
+			UrlScheme:        fleetDevice.UrlScheme,
+			SerialNumber:     fleetDevice.SerialNumber,
+			Model:            fleetDevice.Model,
+			Manufacturer:     fleetDevice.Manufacturer,
+			Type:             fleetDevice.Type,
+			MacAddress:       fleetDevice.MacAddress,
+			Capabilities:     fleetDevice.Capabilities,
+		},
+		OrgID:           0,
+		IsActive:        true,
+		FirstDiscovered: time.Now(),
+		LastSeen:        time.Now(),
 	}
 
-	return nil, fleeterror.NewInternalError("no plugins with discovery capability available")
+	slog.Info("Plugin discovered device successfully",
+		"plugin", pluginName,
+		"device", deviceInfo.SerialNumber,
+		"model", deviceInfo.Model,
+		"manufacturer", deviceInfo.Manufacturer,
+		"type", fleetDevice.Type)
+
+	return discoveredDevice, nil
 }
 
 // convertSDKDeviceInfoToFleetDevice converts SDK DeviceInfo to Fleet pb.Device format.

@@ -32,9 +32,8 @@ import (
 
 const (
 	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations.
-	// 25 provides good parallelism for typical fleet sizes (dozens to hundreds of miners)
-	// without overwhelming the network or local resources.
-	concurrentDiscoveryLimit = 25
+	// 50 provides good parallelism for large fleet sizes while avoiding overwhelming the network.
+	concurrentDiscoveryLimit = 50
 
 	// IP address constants for network address filtering
 	networkAddressLastOctet = 0   // Network address last octet (.0)
@@ -48,16 +47,16 @@ const (
 	ipv4LastOctetMask   = 0xFF       // Mask for extracting last octet
 
 	// Discovery timeout constants
-	defaultNmapTimeoutSeconds     = 120              // Overall timeout for nmap discovery operation
-	defaultIPDiscoveryTimeoutSecs = 120              // Overall timeout for IP-based discovery (list/range)
-	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
+	defaultNmapTimeoutSeconds     = 300              // Overall timeout for nmap discovery operation (5 minutes)
+	defaultIPDiscoveryTimeoutSecs = 300              // Overall timeout for IP-based discovery (5 minutes)
+	perDeviceDiscoveryTimeout     = 30 * time.Second // Timeout for probing a single device (allows parallel plugins to complete)
 
 	// Nmap tuning parameters for faster scanning
 	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
 
 	// nmapHostTimeoutMilliseconds is the max time nmap waits for a single host to respond.
-	// 5s balances allowing slow devices to respond while keeping scans reasonably fast.
-	nmapHostTimeoutMilliseconds = 5000
+	// 10s allows slow devices to respond while keeping scans reasonably fast.
+	nmapHostTimeoutMilliseconds = 10000
 
 	// nmapMinRTTTimeoutMilliseconds sets the minimum round-trip time (RTT) for probe packets.
 	// This sets a floor on how long nmap waits before retransmitting probes. 100ms is a reasonable
