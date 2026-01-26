@@ -83,11 +83,13 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
         setHistoricalUptimeCounts: () => {},
         appendStreamingUptimeCounts: () => {},
         setAllHistoricalData: () => {},
+        setMinerStateCounts: () => {},
         clearMetrics: () => {},
         setError: () => {},
         setComponentErrorCounts: () => {},
         handleComponentErrorStream: () => {},
         clearComponentErrors: () => {},
+        minerStateCounts: undefined,
       },
     });
   }, [uptimeStatusCounts, isLoading]);

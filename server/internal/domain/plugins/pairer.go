@@ -212,6 +212,12 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
+		// Set initial device status to ACTIVE since the miner was reachable during pairing
+		// This ensures the dashboard shows correct status immediately after pairing
+		if err := p.deviceStore.UpsertDeviceStatus(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), models.MinerStatusActive, ""); err != nil {
+			return fleeterror.NewInternalErrorf("failed to set initial device status: %v", err)
+		}
+
 		return nil
 	})
 }

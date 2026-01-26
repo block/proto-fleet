@@ -924,6 +924,18 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
+	// Fetch miner state counts (OrganizationID is always set by the handler from authenticated session)
+	counts, err := s.deviceStore.GetMinerStateCounts(ctx, query.OrganizationID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get miner state counts: %w", err)
+	}
+	combinedMetrics.MinerStateCounts = &models.MinerStateCounts{
+		Hashing:  counts.HashingCount,
+		Broken:   counts.BrokenCount,
+		Offline:  counts.OfflineCount,
+		Sleeping: counts.SleepingCount,
+	}
+
 	select {
 	case updateChan <- combinedMetrics:
 		return nil

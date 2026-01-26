@@ -7,6 +7,35 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { Triangle } from "@/shared/assets/icons";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
+import SkeletonBar from "@/shared/components/SkeletonBar";
+
+const FleetHealthSkeleton = () => (
+  <ChartWidget
+    stats={[
+      { label: "Your fleet", value: undefined },
+      { label: "Healthy", value: undefined },
+      { label: "Needs Attention", value: undefined },
+      { label: "Offline", value: undefined },
+      { label: "Sleeping", value: undefined },
+    ]}
+    statsGrid="grid-cols-5 phone:grid-cols-2 phone:gap-y-6"
+    statsGap="gap-x-10 phone:gap-6"
+    statsPadding="pb-10"
+    statsSize="large"
+  >
+    <div className="w-full">
+      <div className="mb-4">
+        <SkeletonBar className="h-3 w-full" />
+      </div>
+      <div className="flex flex-wrap items-center gap-6">
+        <SkeletonBar className="h-3 w-16" />
+        <SkeletonBar className="h-3 w-24" />
+        <SkeletonBar className="h-3 w-16" />
+        <SkeletonBar className="h-3 w-16" />
+      </div>
+    </div>
+  </ChartWidget>
+);
 
 interface FleetHealthProps {
   fleetSize?: number;
@@ -23,8 +52,20 @@ const FleetHealth = ({
   offlineMiners,
   sleepingMiners,
 }: FleetHealthProps) => {
+  // Determine loading state - undefined means data hasn't loaded yet
+  const isLoading =
+    fleetSize === undefined ||
+    healthyMiners === undefined ||
+    needsAttentionMiners === undefined ||
+    offlineMiners === undefined ||
+    sleepingMiners === undefined;
+
   // Create enhanced segments with filter URLs
+  // Note: useMemo must be called unconditionally (Rules of Hooks)
   const segmentsWithFilters = useMemo(() => {
+    // Return empty array during loading to satisfy hook requirements
+    if (isLoading) return [];
+
     const totalMiners = fleetSize || 1; // prevent division by zero
 
     // Define segments with their filter configurations
@@ -73,7 +114,7 @@ const FleetHealth = ({
       filterUrl: `/miners?${encodeFilterToURL(segment.filter).toString()}`,
       percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
     }));
-  }, [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners]);
+  }, [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners, isLoading]);
 
   // Extract basic segments for CompositionBar (without extra props)
   const segments = useMemo<Segment[]>(
@@ -117,10 +158,17 @@ const FleetHealth = ({
   );
 
   // Create the title stat for ChartWidget title area
-  const titleStat = {
-    label: "Your fleet",
-    value: fleetSize !== undefined ? `${fleetSize} ${fleetSize === 1 ? "miner" : "miners"}` : undefined,
-  };
+  const titleStat = useMemo(
+    () => ({
+      label: "Your fleet",
+      value: fleetSize !== undefined ? `${fleetSize} ${fleetSize === 1 ? "miner" : "miners"}` : undefined,
+    }),
+    [fleetSize],
+  );
+
+  if (isLoading) {
+    return <FleetHealthSkeleton />;
+  }
 
   return (
     <ChartWidget

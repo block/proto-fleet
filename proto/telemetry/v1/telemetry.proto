@@ -283,5 +283,8 @@ message StreamCombinedMetricUpdatesResponse {
 
     // Real-time uptime status distribution
     repeated UptimeStatusCount uptime_status_counts = 4;
+
+    // Real-time miner state counts (hashing, broken, offline, sleeping)
+    MinerStateCounts miner_state_counts = 5;
 }
 

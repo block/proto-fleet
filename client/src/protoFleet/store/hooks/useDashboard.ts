@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type {
   Metric,
+  MinerStateCounts,
   TemperatureStatusCount,
   UptimeStatusCount,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -48,6 +49,14 @@ export const useTemperatureStatusCounts = (): TemperatureStatusCount[] | undefin
  */
 export const useUptimeStatusCounts = (): UptimeStatusCount[] | undefined => {
   return useFleetStore((state) => state.dashboard.uptimeStatusCounts);
+};
+
+/**
+ * Get miner state counts from streaming
+ * Returns undefined if data hasn't loaded yet
+ */
+export const useMinerStateCounts = (): MinerStateCounts | undefined => {
+  return useFleetStore((state) => state.dashboard.minerStateCounts);
 };
 
 /**
@@ -112,8 +121,16 @@ export const useSetAllHistoricalData = () => {
 };
 
 /**
- * Clear all metrics (used when duration changes)
+ * Set miner state counts from streaming
+ */
+export const useSetMinerStateCounts = () => {
+  return useFleetStore((state) => state.dashboard.setMinerStateCounts);
+};
+
+/**
+ * Clear duration-dependent metrics (used when duration changes)
  * Sets metrics back to undefined to indicate loading state
+ * Note: Does NOT clear minerStateCounts as those are independent of time range
  */
 export const useClearMetrics = () => {
   return useFleetStore((state) => state.dashboard.clearMetrics);

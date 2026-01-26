@@ -21,9 +21,11 @@ import {
   useClearMetrics,
   useDevicePaired,
   useDuration,
+  useMinerStateCounts,
   useSetAllHistoricalData,
   useSetDashboardError,
   useSetDuration,
+  useSetMinerStateCounts,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -41,12 +43,30 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 
 const Dashboard = () => {
   const devicePaired = useDevicePaired();
-  const { totalMiners, stateCounts } = useFleetCounts();
+  // useFleetCounts provides initial load - streaming provides real-time updates
+  const {
+    totalMiners: initialTotalMiners,
+    stateCounts: initialStateCounts,
+    hasInitialLoadCompleted,
+  } = useFleetCounts();
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors();
   const duration = useDuration();
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
+
+  // Store hooks for miner state counts from streaming
+  const streamingStateCounts = useMinerStateCounts();
+  const setMinerStateCounts = useSetMinerStateCounts();
+
+  // Use streaming counts when available, otherwise fall back to initial counts
+  const stateCounts = streamingStateCounts ?? initialStateCounts;
+  const totalMiners = streamingStateCounts
+    ? (streamingStateCounts.hashingCount ?? 0) +
+      (streamingStateCounts.brokenCount ?? 0) +
+      (streamingStateCounts.offlineCount ?? 0) +
+      (streamingStateCounts.sleepingCount ?? 0)
+    : initialTotalMiners;
 
   // Store action hooks
   const setAllHistoricalData = useSetAllHistoricalData();
@@ -135,7 +155,14 @@ const Dashboard = () => {
     appendStreamingMetrics(streamingData.metrics ?? []);
     appendStreamingTemperatureCounts(streamingData.temperatureStatusCounts ?? []);
     appendStreamingUptimeCounts(streamingData.uptimeStatusCounts ?? []);
-  }, [streamingData, appendStreamingMetrics, appendStreamingTemperatureCounts, appendStreamingUptimeCounts]);
+    setMinerStateCounts(streamingData.minerStateCounts);
+  }, [
+    streamingData,
+    appendStreamingMetrics,
+    appendStreamingTemperatureCounts,
+    appendStreamingUptimeCounts,
+    setMinerStateCounts,
+  ]);
 
   return (
     <div className="h-full">
@@ -154,11 +181,11 @@ const Dashboard = () => {
                 psuErrors={psuErrors}
               />
               <FleetHealth
-                fleetSize={totalMiners || 1} // prevent division by zero
-                healthyMiners={stateCounts?.hashingCount ?? 0}
-                needsAttentionMiners={stateCounts?.brokenCount ?? 0}
-                offlineMiners={stateCounts?.offlineCount ?? 0}
-                sleepingMiners={stateCounts?.sleepingCount ?? 0}
+                fleetSize={streamingStateCounts || hasInitialLoadCompleted ? totalMiners : undefined}
+                healthyMiners={stateCounts?.hashingCount}
+                needsAttentionMiners={stateCounts?.brokenCount}
+                offlineMiners={stateCounts?.offlineCount}
+                sleepingMiners={stateCounts?.sleepingCount}
               />
             </div>
           </section>

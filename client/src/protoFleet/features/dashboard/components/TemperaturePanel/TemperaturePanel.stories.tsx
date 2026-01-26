@@ -101,11 +101,13 @@ function MockTemperaturePanel({
         setHistoricalUptimeCounts: () => {},
         appendStreamingUptimeCounts: () => {},
         setAllHistoricalData: () => {},
+        setMinerStateCounts: () => {},
         clearMetrics: () => {},
         setError: () => {},
         setComponentErrorCounts: () => {},
         handleComponentErrorStream: () => {},
         clearComponentErrors: () => {},
+        minerStateCounts: undefined,
       },
     });
   }, [temperatureStatusCounts, isLoading]);

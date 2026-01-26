@@ -144,12 +144,14 @@ describe("FleetHealth", () => {
     const sleepingTexts = screen.getAllByText("Sleeping");
     expect(sleepingTexts.length).toBeGreaterThan(0);
 
-    // Skeleton bars should be present (5 total - one for fleet health title, one for each of 4 segments)
+    // Skeleton bars should be present:
+    // - 5 for stat values (Your fleet + 4 health categories)
+    // - 5 for composition bar area (1 bar + 4 legend items)
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
-    expect(skeletonBars.length).toBe(5);
+    expect(skeletonBars.length).toBe(10);
   });
 
-  it("renders partial loading state when some props are undefined", () => {
+  it("renders full loading state when some props are undefined", () => {
     renderWithRouter(
       <FleetHealth
         fleetSize={100}
@@ -162,15 +164,14 @@ describe("FleetHealth", () => {
     // Check title label is present
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
-    // Should show defined values
-    expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy percentage
-    expect(screen.getByText("70 miners")).toBeInTheDocument(); // Healthy count
-    expect(screen.getByText("10%")).toBeInTheDocument(); // Needs Attention percentage
-    expect(screen.getByText("10 miners")).toBeInTheDocument(); // Needs Attention count
-
-    // Undefined values should show skeleton bars (offline and sleeping)
+    // When ANY prop is undefined, show full loading skeleton
+    // This provides consistent UX rather than showing partial/incomplete data
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
-    expect(skeletonBars.length).toBe(2); // Two skeleton bars: offline and sleeping
+    expect(skeletonBars.length).toBe(10); // Full loading state (5 stats + 5 composition bar area)
+
+    // Defined values should NOT be shown (we're in loading state)
+    expect(screen.queryByText("70%")).not.toBeInTheDocument();
+    expect(screen.queryByText("70 miners")).not.toBeInTheDocument();
   });
 
   it("renders legend with correct color indicators", () => {

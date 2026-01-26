@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
@@ -781,6 +782,9 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
+		mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
@@ -856,6 +860,9 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
+		mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
@@ -897,6 +904,9 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
 
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
@@ -971,6 +981,9 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
+		mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
@@ -1017,6 +1030,9 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
 
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,

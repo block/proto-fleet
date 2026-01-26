@@ -105,6 +105,7 @@ export {
   usePanelMetrics,
   useTemperatureStatusCounts,
   useUptimeStatusCounts,
+  useMinerStateCounts,
   useDashboardError,
   useSetHistoricalMetrics,
   useAppendStreamingMetrics,
@@ -113,6 +114,7 @@ export {
   useSetHistoricalUptimeCounts,
   useAppendStreamingUptimeCounts,
   useSetAllHistoricalData,
+  useSetMinerStateCounts,
   useClearMetrics,
   useSetDashboardError,
 } from "./hooks/useDashboard";

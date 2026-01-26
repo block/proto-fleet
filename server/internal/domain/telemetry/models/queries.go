@@ -40,6 +40,7 @@ type StreamCombinedMetricsQuery struct {
 	AggregationTypes []AggregationType  `json:"aggregation_types,omitempty"`
 	Granularity      time.Duration      `json:"granularity,omitempty"`
 	UpdateInterval   time.Duration      `json:"update_interval,omitempty"`
+	OrganizationID   int64              `json:"organization_id,omitempty"`
 }
 
 type AggregatedValue struct {
@@ -58,6 +59,7 @@ type CombinedMetric struct {
 	NextPageToken           string                   `json:"next_page_token,omitempty"` // for pagination
 	TemperatureStatusCounts []TemperatureStatusCount `json:"temperature_status_counts,omitempty"`
 	UptimeStatusCounts      []UptimeStatusCount      `json:"uptime_status_counts,omitempty"`
+	MinerStateCounts        *MinerStateCounts        `json:"miner_state_counts,omitempty"`
 }
 
 // TemperatureStatusCount represents temperature status distribution at a point in time

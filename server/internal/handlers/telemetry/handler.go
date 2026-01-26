@@ -222,6 +222,9 @@ func (h *Handler) StreamCombinedMetricUpdates(
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	// Pass organization ID to enable miner state counts in stream
+	query.OrganizationID = info.OrganizationID
+
 	updateChan, err := h.telemetryService.StreamCombinedMetrics(streamCtx, query)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start combined metrics stream: %w", err))
@@ -254,10 +257,21 @@ func (h *Handler) convertCombinedMetricsToStreamResponse(combinedMetrics models.
 		return nil, err
 	}
 
-	return &telemetryv1.StreamCombinedMetricUpdatesResponse{
+	response := &telemetryv1.StreamCombinedMetricUpdatesResponse{
 		Metrics:                 metrics,
 		NextUpdateTime:          timestamppb.New(time.Now().Add(updateInterval)),
 		TemperatureStatusCounts: convertTemperatureStatusCounts(combinedMetrics.TemperatureStatusCounts),
 		UptimeStatusCounts:      convertUptimeStatusCounts(combinedMetrics.UptimeStatusCounts),
-	}, nil
+	}
+
+	if combinedMetrics.MinerStateCounts != nil {
+		response.MinerStateCounts = &telemetryv1.MinerStateCounts{
+			HashingCount:  combinedMetrics.MinerStateCounts.Hashing,
+			BrokenCount:   combinedMetrics.MinerStateCounts.Broken,
+			OfflineCount:  combinedMetrics.MinerStateCounts.Offline,
+			SleepingCount: combinedMetrics.MinerStateCounts.Sleeping,
+		}
+	}
+
+	return response, nil
 }

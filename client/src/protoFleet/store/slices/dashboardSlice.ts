@@ -3,6 +3,7 @@ import type { FleetStore } from "../useFleetStore";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type {
   Metric,
+  MinerStateCounts,
   TemperatureStatusCount,
   UptimeStatusCount,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -34,6 +35,10 @@ export interface DashboardSlice {
   temperatureStatusCounts: TemperatureStatusCount[] | undefined;
   uptimeStatusCounts: UptimeStatusCount[] | undefined;
 
+  // Miner state counts from streaming (real-time fleet health)
+  // undefined = not loaded yet
+  minerStateCounts: MinerStateCounts | undefined;
+
   // Component error tracking for dashboard display
   componentErrors: ComponentErrorState;
 
@@ -52,6 +57,7 @@ export interface DashboardSlice {
     temperatureCounts: TemperatureStatusCount[],
     uptimeCounts: UptimeStatusCount[],
   ) => void;
+  setMinerStateCounts: (counts: MinerStateCounts | undefined) => void;
   clearMetrics: () => void;
   setError: (error: Error | null) => void;
 
@@ -80,6 +86,7 @@ export const createDashboardSlice: StateCreator<FleetStore, [["zustand/immer", n
   metrics: undefined,
   temperatureStatusCounts: undefined,
   uptimeStatusCounts: undefined,
+  minerStateCounts: undefined,
   error: null,
 
   // Component error initial state
@@ -143,7 +150,16 @@ export const createDashboardSlice: StateCreator<FleetStore, [["zustand/immer", n
       state.dashboard.uptimeStatusCounts = uptimeCounts;
     }),
 
+  // Actions - Miner State Counts (from streaming, always takes latest value)
+  setMinerStateCounts: (counts) =>
+    set((state) => {
+      state.dashboard.minerStateCounts = counts;
+    }),
+
   // Actions - Utility
+  // Clear duration-dependent metrics when duration changes
+  // Note: minerStateCounts is NOT cleared because it represents current fleet state,
+  // which is independent of the selected time range
   clearMetrics: () =>
     set((state) => {
       state.dashboard.metrics = undefined;

@@ -393,6 +393,15 @@ func TestHandler_StreamCombinedMetricUpdates_Integration(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
+	// Set up the mock to return miner state counts
+	mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&telemetryv1.MinerStateCounts{
+			HashingCount:  10,
+			BrokenCount:   2,
+			OfflineCount:  3,
+			SleepingCount: 1,
+		}, nil).AnyTimes()
+
 	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 
 	// Test the streaming functionality

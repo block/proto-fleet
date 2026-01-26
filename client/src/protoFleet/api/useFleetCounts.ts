@@ -65,7 +65,7 @@ const useFleetCounts = (): UseFleetCountsReturn => {
   // Track if this is the initial load
   const hasLoadedRef = useRef(false);
 
-  // Fetch data on mount
+  // Fetch data on mount only - streaming provides real-time updates after that
   useEffect(() => {
     if (hasLoadedRef.current) {
       return;

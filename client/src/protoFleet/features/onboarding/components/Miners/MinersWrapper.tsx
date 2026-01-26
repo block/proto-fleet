@@ -12,7 +12,7 @@ import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onboarding/constants";
-import { useFleetStore, useMinerIds } from "@/protoFleet/store";
+import { useFleetStore, useMinerIds, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -77,6 +77,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   }, []);
 
   const { refetch } = useOnboardedStatus();
+  const notifyPairingCompleted = useNotifyPairingCompleted();
 
   // Get refetch callback from global store instead of creating a new useFleet instance
   // This avoids overwriting the Fleet component's refetch callback
@@ -235,6 +236,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         // Wait for fleet data to refresh with updated firmware versions before navigating
         await refetch();
         refetchFleet();
+        // Notify store that pairing completed so Dashboard and other components can refresh
+        notifyPairingCompleted();
         if (mode === "onboarding") {
           navigate("/");
         } else {
