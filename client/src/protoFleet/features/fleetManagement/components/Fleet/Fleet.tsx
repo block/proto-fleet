@@ -12,7 +12,12 @@ import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useVisibleMiners } from "@/protoFleet/hooks";
-import { useLastPairingCompletedAt, useNotifyPairingCompleted } from "@/protoFleet/store";
+import {
+  useBatchOperationCount,
+  useCleanupStaleBatches,
+  useLastPairingCompletedAt,
+  useNotifyPairingCompleted,
+} from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 // Stable reference to prevent re-renders
@@ -84,6 +89,31 @@ const Fleet = () => {
   useStreamMinerListUpdates({
     filter: currentFilter,
   });
+
+  // Reset telemetry cache when batch operations complete to refetch fresh status data
+  const batchOperationCount = useBatchOperationCount();
+  const prevBatchCountRef = useRef(batchOperationCount);
+  useEffect(() => {
+    // When batch count decreases, a batch completed - reset cache to get fresh telemetry
+    if (batchOperationCount < prevBatchCountRef.current) {
+      resetFetchedIds();
+      // Immediately refetch for visible miners
+      if (visibleMinerIds.size > 0) {
+        fetchBatchTelemetry(visibleMinerIds);
+      }
+    }
+    prevBatchCountRef.current = batchOperationCount;
+  }, [batchOperationCount, resetFetchedIds, visibleMinerIds, fetchBatchTelemetry]);
+
+  // Cleanup stale batch operations every minute
+  const cleanupStaleBatches = useCleanupStaleBatches();
+  useEffect(() => {
+    const interval = setInterval(() => {
+      cleanupStaleBatches();
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [cleanupStaleBatches]);
 
   const notifyPairingCompleted = useNotifyPairingCompleted();
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);

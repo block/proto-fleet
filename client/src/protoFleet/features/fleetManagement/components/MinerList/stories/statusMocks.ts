@@ -4,6 +4,12 @@
  */
 
 import { create } from "@bufbuild/protobuf";
+import {
+  type MinerCapabilities,
+  MinerCapabilitiesSchema,
+  type TelemetryCapabilities,
+  TelemetryCapabilitiesSchema,
+} from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   ComponentType,
@@ -18,6 +24,29 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { TemperatureStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+
+// Shared capabilities - all miners support all telemetry metrics
+const baseTelemetryCapabilities: TelemetryCapabilities = create(TelemetryCapabilitiesSchema, {
+  realtimeTelemetrySupported: true,
+  historicalDataSupported: true,
+  hashrateReported: true,
+  powerUsageReported: true,
+  temperatureReported: true,
+  fanSpeedReported: true,
+  efficiencyReported: true,
+  uptimeReported: true,
+  errorCountReported: true,
+  minerStatusReported: true,
+  poolStatsReported: true,
+  perChipStatsReported: false,
+  perBoardStatsReported: false,
+  psuStatsReported: false,
+});
+
+const baseCapabilities: MinerCapabilities = create(MinerCapabilitiesSchema, {
+  manufacturer: "Bitmain",
+  telemetry: baseTelemetryCapabilities,
+});
 
 // Shared measurement data
 const baseMeasurements = {
@@ -67,6 +96,7 @@ export const hashingMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ONLINE,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const offlineMiner: MinerStateSnapshot = {
@@ -88,6 +118,7 @@ export const offlineMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.OFFLINE,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -114,6 +145,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.INACTIVE,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 // ============================================================================
@@ -139,6 +171,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {
@@ -157,6 +190,7 @@ export const poolRequiredMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const controlBoardFailureMiner: MinerStateSnapshot = {
@@ -175,6 +209,7 @@ export const controlBoardFailureMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const hashboardFailureMiner: MinerStateSnapshot = {
@@ -193,6 +228,7 @@ export const hashboardFailureMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const psuFailureMiner: MinerStateSnapshot = {
@@ -211,6 +247,7 @@ export const psuFailureMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const fanFailureMiner: MinerStateSnapshot = {
@@ -229,6 +266,7 @@ export const fanFailureMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 // ============================================================================
@@ -251,6 +289,7 @@ export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 export const multipleComponentFailuresMiner: MinerStateSnapshot = {
@@ -269,6 +308,7 @@ export const multipleComponentFailuresMiner: MinerStateSnapshot = {
   deviceStatus: DeviceStatus.ERROR,
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
+  capabilities: baseCapabilities,
 };
 
 // ============================================================================

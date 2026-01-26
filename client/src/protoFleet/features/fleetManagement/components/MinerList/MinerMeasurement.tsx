@@ -21,6 +21,11 @@ const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProp
     return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
+  // Empty array = empty cell for pool/auth required miners
+  if (measurement.length === 0) {
+    return null;
+  }
+
   const latestValue = getLatestMeasurementWithData(measurement)?.value;
 
   // Show value if available

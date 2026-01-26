@@ -1,9 +1,17 @@
 import { useShallow } from "zustand/react/shallow";
-import type { MinerStateSnapshot } from "../slices/fleetSlice";
+import type { BatchOperation, MinerStateSnapshot } from "../slices/fleetSlice";
 import { useFleetStore } from "../useFleetStore";
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// Stable reference for empty measurement array (prevents infinite re-renders)
+const EMPTY_MEASUREMENT: Measurement[] = [];
 
 // =============================================================================
 // Fleet State Selectors
@@ -51,7 +59,11 @@ export const useMinerDeviceStatus = (deviceId: string) =>
  * Generic hook for retrieving miner measurement data with consistent loading state logic.
  * @param deviceId - The device identifier
  * @param measurementGetter - Function to extract the specific measurement from a miner
- * @returns undefined (skeleton), null (blank), or Measurement[] (data)
+ * @returns undefined (skeleton), null (dash placeholder), empty array (empty cell), or Measurement[] (data)
+ *
+ * Special cases:
+ * - Returns empty array [] for devices with NEEDS_MINING_POOL or AUTHENTICATION_NEEDED status
+ *   (components render this as truly empty cell, not dash)
  */
 const useMinerMeasurement = (
   deviceId: string,
@@ -64,6 +76,13 @@ const useMinerMeasurement = (
     // Offline miners should always show placeholder, not stale cached values
     if (miner.deviceStatus === DeviceStatus.OFFLINE) {
       return null;
+    }
+
+    // Show empty cell for devices with pool required or auth required status
+    const needsPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
+    const needsAuth = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+    if (needsPool || needsAuth) {
+      return EMPTY_MEASUREMENT; // Stable empty array reference to prevent infinite re-renders
     }
 
     const measurementData = measurementGetter(miner);
@@ -82,32 +101,36 @@ const useMinerMeasurement = (
 /**
  * Returns hashrate data for a miner.
  * - undefined: miner not in store OR (no valid telemetry data AND device is online) (show skeleton)
- * - null: no valid telemetry data AND device is offline/inactive (show blank)
- * - Measurement[]: has valid telemetry data (show value, even if 0)
+ * - null: no valid telemetry data AND device is offline/inactive (show dash)
+ * - []: miner has pool/auth required status (show empty cell)
+ * - Measurement[]: has valid telemetry data (show value)
  */
 export const useMinerHashrate = (deviceId: string) => useMinerMeasurement(deviceId, (miner) => miner.hashrate);
 
 /**
  * Returns efficiency data for a miner.
  * - undefined: miner not in store OR (no valid telemetry data AND device is online) (show skeleton)
- * - null: no valid telemetry data AND device is offline/inactive (show blank)
- * - Measurement[]: has valid telemetry data (show value, even if 0)
+ * - null: no valid telemetry data AND device is offline/inactive (show dash)
+ * - []: miner has pool/auth required status (show empty cell)
+ * - Measurement[]: has valid telemetry data (show value)
  */
 export const useMinerEfficiency = (deviceId: string) => useMinerMeasurement(deviceId, (miner) => miner.efficiency);
 
 /**
  * Returns power usage data for a miner.
  * - undefined: miner not in store OR (no valid telemetry data AND device is online) (show skeleton)
- * - null: no valid telemetry data AND device is offline/inactive (show blank)
- * - Measurement[]: has valid telemetry data (show value, even if 0)
+ * - null: no valid telemetry data AND device is offline/inactive (show dash)
+ * - []: miner has pool/auth required status (show empty cell)
+ * - Measurement[]: has valid telemetry data (show value)
  */
 export const useMinerPowerUsage = (deviceId: string) => useMinerMeasurement(deviceId, (miner) => miner.powerUsage);
 
 /**
  * Returns temperature data for a miner.
  * - undefined: miner not in store OR (no valid telemetry data AND device is online) (show skeleton)
- * - null: no valid telemetry data AND device is offline/inactive (show blank)
- * - Measurement[]: has valid telemetry data (show value, even if 0)
+ * - null: no valid telemetry data AND device is offline/inactive (show dash)
+ * - []: miner has pool/auth required status (show empty cell)
+ * - Measurement[]: has valid telemetry data (show value)
  */
 export const useMinerTemperature = (deviceId: string) => useMinerMeasurement(deviceId, (miner) => miner.temperature);
 
@@ -129,6 +152,29 @@ export const useDeviceErrors = (deviceId: string) => {
  */
 export const useMinerData = (deviceId: string): MinerStateSnapshot | undefined => {
   return useFleetStore((state) => state.fleet.miners[deviceId]);
+};
+
+// =============================================================================
+// Batch Operations Selectors
+// =============================================================================
+
+/**
+ * Hook to get active batch operations for a specific device
+ * @param deviceId The device identifier
+ * @returns Array of active batch operations for the device
+ */
+export const useMinerActiveBatches = (deviceId: string): BatchOperation[] => {
+  const result = useFleetStore(
+    useShallow((state) => {
+      const batchIds = state.fleet.batchOperations.byDeviceId[deviceId];
+      if (!batchIds || batchIds.length === 0) {
+        return [];
+      }
+
+      return batchIds.map((id) => state.fleet.batchOperations.byBatchId[id]).filter(Boolean);
+    }),
+  );
+  return result;
 };
 
 // =============================================================================
@@ -162,3 +208,18 @@ export const useSetCursor = () => useFleetStore((state) => state.fleet.setCursor
 export const useLastPairingCompletedAt = () => useFleetStore((state) => state.fleet.lastPairingCompletedAt);
 
 export const useNotifyPairingCompleted = () => useFleetStore((state) => state.fleet.notifyPairingCompleted);
+
+export const useStartBatchOperation = () => useFleetStore((state) => state.fleet.startBatchOperation);
+
+export const useCompleteBatchOperation = () => useFleetStore((state) => state.fleet.completeBatchOperation);
+
+export const useRemoveDevicesFromBatch = () => useFleetStore((state) => state.fleet.removeDevicesFromBatch);
+
+export const useCleanupStaleBatches = () => useFleetStore((state) => state.fleet.cleanupStaleBatches);
+
+/**
+ * Hook to get the current count of active batch operations
+ * @returns Number of active batch operations
+ */
+export const useBatchOperationCount = () =>
+  useFleetStore((state) => Object.keys(state.fleet.batchOperations.byBatchId).length);

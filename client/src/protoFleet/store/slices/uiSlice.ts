@@ -12,12 +12,14 @@ export interface UISlice {
   deviceTheme: ThemeColor | undefined;
   temperatureUnit: TemperatureUnit;
   duration: Duration;
+  visibleMinerIds: Set<string>;
 
   // Actions
   setTheme: (theme: Theme) => void;
   setDeviceTheme: (theme: ThemeColor) => void;
   setTemperatureUnit: (unit: TemperatureUnit) => void;
   setDuration: (duration: Duration) => void;
+  setVisibleMinerIds: (ids: Set<string>) => void;
 }
 
 // =============================================================================
@@ -30,6 +32,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   deviceTheme: undefined,
   temperatureUnit: "C",
   duration: "24h",
+  visibleMinerIds: new Set(),
 
   // Actions
   setTheme: (theme) =>
@@ -50,5 +53,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setDuration: (duration) =>
     set((state) => {
       state.ui.duration = duration;
+    }),
+
+  setVisibleMinerIds: (ids) =>
+    set((state) => {
+      state.ui.visibleMinerIds = ids;
     }),
 });

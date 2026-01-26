@@ -81,11 +81,19 @@ SELECT
     cbl.status,
     cbl.devices_count,
     CAST(COALESCE(SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS SIGNED) AS successful_devices,
-    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS SIGNED) AS failed_devices
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS SIGNED) AS failed_devices,
+    COALESCE(JSON_ARRAYAGG(
+        CASE WHEN codl.status = 'SUCCESS' THEN d.device_identifier ELSE NULL END
+    ), JSON_ARRAY()) AS success_device_identifiers,
+    COALESCE(JSON_ARRAYAGG(
+        CASE WHEN codl.status = 'FAILED' THEN d.device_identifier ELSE NULL END
+    ), JSON_ARRAY()) AS failure_device_identifiers
 FROM
     command_batch_log cbl
         LEFT JOIN
     command_on_device_log codl ON cbl.id = codl.command_batch_log_id
+        LEFT JOIN
+    device d ON codl.device_id = d.id
 WHERE
     cbl.uuid = ?
 GROUP BY
@@ -93,12 +101,14 @@ GROUP BY
 `
 
 type GetBatchStatusAndDeviceCountsRow struct {
-	ID                int64
-	Uuid              string
-	Status            CommandBatchLogStatus
-	DevicesCount      int32
-	SuccessfulDevices int64
-	FailedDevices     int64
+	ID                       int64
+	Uuid                     string
+	Status                   CommandBatchLogStatus
+	DevicesCount             int32
+	SuccessfulDevices        int64
+	FailedDevices            int64
+	SuccessDeviceIdentifiers interface{}
+	FailureDeviceIdentifiers interface{}
 }
 
 func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string) (GetBatchStatusAndDeviceCountsRow, error) {
@@ -111,6 +121,8 @@ func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string
 		&i.DevicesCount,
 		&i.SuccessfulDevices,
 		&i.FailedDevices,
+		&i.SuccessDeviceIdentifiers,
+		&i.FailureDeviceIdentifiers,
 	)
 	return i, err
 }

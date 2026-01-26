@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
-import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
@@ -77,7 +76,6 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
         )}
         <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
       </div>
-      {isStatusModalOpen && needsAuthentication && <AuthenticateMiners onClose={() => setStatusModalOpen(false)} />}
       {isStatusModalOpen && !needsAuthentication && needsMiningPool && (
         <PoolSelectionPageWrapper
           selectedMiners={[{ deviceIdentifier, deviceStatus: deviceStatusFromStore }]}

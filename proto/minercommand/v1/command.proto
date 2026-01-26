@@ -157,6 +157,8 @@ message CommandBatchUpdateDeviceCount {
   int64 total = 1;
   int64 success = 2;
   int64 failure = 3;
+  repeated string success_device_identifiers = 4;
+  repeated string failure_device_identifiers = 5;
 }
 
 message CommandBatchUpdateStatus {

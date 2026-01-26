@@ -5,16 +5,22 @@ import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import type { MinerStateSnapshot } from "../slices/fleetSlice";
 import { useFleetStore } from "../useFleetStore";
 import {
+  useCleanupStaleBatches,
+  useCompleteBatchOperation,
+  useMinerActiveBatches,
   useMinerEfficiency,
   useMinerFirmwareVersion,
   useMinerHashrate,
   useMinerModel,
   useMinerPowerUsage,
   useMinerTemperature,
+  useStartBatchOperation,
 } from "./useFleet";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus, MinerStateCountsSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { deviceActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 
 describe("useFleet measurement selectors", () => {
   beforeEach(() => {
@@ -170,6 +176,82 @@ describe("useFleet measurement selectors", () => {
       const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
       expect(result.current).toBeUndefined();
     });
+
+    it("returns empty array when miner needs pool", () => {
+      const hashrateData = [createMeasurement(100)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+        hashrate: hashrateData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
+
+    it("returns empty array when miner needs authentication", () => {
+      const hashrateData = [createMeasurement(100)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.ONLINE,
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        hashrate: hashrateData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
+
+    it("returns empty array when miner needs pool (regardless of hashrate data)", () => {
+      const hashrateData = [createMeasurement(100)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+        hashrate: hashrateData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+    });
+
+    it("returns empty array when miner needs authentication (regardless of hashrate data)", () => {
+      const hashrateData = [createMeasurement(100)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.ONLINE,
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        hashrate: hashrateData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerHashrate(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+    });
   });
 
   describe("useMinerEfficiency", () => {
@@ -252,6 +334,45 @@ describe("useFleet measurement selectors", () => {
 
       const { result } = renderHook(() => useMinerEfficiency(miner.deviceIdentifier));
       expect(result.current).toBeUndefined();
+    });
+
+    it("returns empty array when miner needs pool", () => {
+      const efficiencyData = [createMeasurement(15.5)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+        efficiency: efficiencyData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerEfficiency(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
+
+    it("returns empty array when miner needs authentication", () => {
+      const efficiencyData = [createMeasurement(15.5)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.ONLINE,
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        efficiency: efficiencyData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerEfficiency(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
     });
   });
 
@@ -336,6 +457,45 @@ describe("useFleet measurement selectors", () => {
       const { result } = renderHook(() => useMinerPowerUsage(miner.deviceIdentifier));
       expect(result.current).toBeUndefined();
     });
+
+    it("returns empty array when miner needs pool", () => {
+      const powerUsageData = [createMeasurement(3500)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+        powerUsage: powerUsageData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerPowerUsage(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
+
+    it("returns empty array when miner needs authentication", () => {
+      const powerUsageData = [createMeasurement(3500)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.ONLINE,
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        powerUsage: powerUsageData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerPowerUsage(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
   });
 
   describe("useMinerTemperature", () => {
@@ -418,6 +578,45 @@ describe("useFleet measurement selectors", () => {
 
       const { result } = renderHook(() => useMinerTemperature(miner.deviceIdentifier));
       expect(result.current).toBeUndefined();
+    });
+
+    it("returns empty array when miner needs pool", () => {
+      const temperatureData = [createMeasurement(65.5)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+        temperature: temperatureData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerTemperature(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
+    });
+
+    it("returns empty array when miner needs authentication", () => {
+      const temperatureData = [createMeasurement(65.5)];
+      const miner = createMinerSnapshot({
+        deviceStatus: DeviceStatus.ONLINE,
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        temperature: temperatureData,
+      });
+
+      useFleetStore.setState({
+        fleet: {
+          ...useFleetStore.getState().fleet,
+          miners: { [miner.deviceIdentifier]: miner },
+        },
+      });
+
+      const { result } = renderHook(() => useMinerTemperature(miner.deviceIdentifier));
+      expect(result.current).toEqual([]);
+      expect(result.current).toHaveLength(0);
     });
   });
 
@@ -582,6 +781,162 @@ describe("useFleet measurement selectors", () => {
 
       const { result } = renderHook(() => useMinerFirmwareVersion(miner.deviceIdentifier));
       expect(result.current).toBe("v1.0.0-beta");
+    });
+  });
+
+  describe("Batch Operation Hooks", () => {
+    beforeEach(() => {
+      // Reset batch operations before each test
+      useFleetStore.setState((state) => ({
+        fleet: {
+          ...state.fleet,
+          batchOperations: {
+            byBatchId: {},
+            byDeviceId: {},
+          },
+        },
+      }));
+    });
+
+    describe("useMinerActiveBatches", () => {
+      it("returns empty array when device has no active batches", () => {
+        const { result } = renderHook(() => useMinerActiveBatches("device-1"));
+        expect(result.current).toEqual([]);
+      });
+
+      it("returns active batches for a device", () => {
+        const batch1 = {
+          batchIdentifier: "batch-1",
+          action: deviceActions.reboot,
+          deviceIdentifiers: ["device-1"],
+          startedAt: Date.now(),
+          status: "in_progress" as const,
+        };
+
+        // Add batch to store
+        useFleetStore.setState((state) => ({
+          fleet: {
+            ...state.fleet,
+            batchOperations: {
+              byBatchId: { "batch-1": batch1 },
+              byDeviceId: { "device-1": ["batch-1"] },
+            },
+          },
+        }));
+
+        const { result } = renderHook(() => useMinerActiveBatches("device-1"));
+
+        expect(result.current).toHaveLength(1);
+        expect(result.current[0]).toEqual(batch1);
+      });
+
+      it("filters out invalid batch IDs", () => {
+        const batch1 = {
+          batchIdentifier: "batch-1",
+          action: deviceActions.reboot,
+          deviceIdentifiers: ["device-1"],
+          startedAt: Date.now(),
+          status: "in_progress" as const,
+        };
+
+        // Add batch with invalid IDs in byDeviceId
+        useFleetStore.setState((state) => ({
+          fleet: {
+            ...state.fleet,
+            batchOperations: {
+              byBatchId: { "batch-1": batch1 },
+              byDeviceId: { "device-1": ["batch-1", "invalid-batch"] },
+            },
+          },
+        }));
+
+        const { result } = renderHook(() => useMinerActiveBatches("device-1"));
+
+        expect(result.current).toHaveLength(1);
+        expect(result.current[0]).toEqual(batch1);
+      });
+
+      it("handles multiple batches for same device", () => {
+        const batch1 = {
+          batchIdentifier: "batch-1",
+          action: deviceActions.reboot,
+          deviceIdentifiers: ["device-1"],
+          startedAt: Date.now(),
+          status: "in_progress" as const,
+        };
+
+        const batch2 = {
+          batchIdentifier: "batch-2",
+          action: deviceActions.shutdown,
+          deviceIdentifiers: ["device-1"],
+          startedAt: Date.now(),
+          status: "in_progress" as const,
+        };
+
+        useFleetStore.setState((state) => ({
+          fleet: {
+            ...state.fleet,
+            batchOperations: {
+              byBatchId: { "batch-1": batch1, "batch-2": batch2 },
+              byDeviceId: { "device-1": ["batch-1", "batch-2"] },
+            },
+          },
+        }));
+
+        const { result } = renderHook(() => useMinerActiveBatches("device-1"));
+
+        expect(result.current).toHaveLength(2);
+        expect(result.current).toContainEqual(batch1);
+        expect(result.current).toContainEqual(batch2);
+      });
+    });
+
+    describe("useStartBatchOperation", () => {
+      it("returns a function", () => {
+        const { result } = renderHook(() => useStartBatchOperation());
+        expect(typeof result.current).toBe("function");
+      });
+
+      it("maintains referential equality across rerenders", () => {
+        const { result, rerender } = renderHook(() => useStartBatchOperation());
+        const firstRef = result.current;
+
+        rerender();
+
+        expect(result.current).toBe(firstRef);
+      });
+    });
+
+    describe("useCompleteBatchOperation", () => {
+      it("returns a function", () => {
+        const { result } = renderHook(() => useCompleteBatchOperation());
+        expect(typeof result.current).toBe("function");
+      });
+
+      it("maintains referential equality across rerenders", () => {
+        const { result, rerender } = renderHook(() => useCompleteBatchOperation());
+        const firstRef = result.current;
+
+        rerender();
+
+        expect(result.current).toBe(firstRef);
+      });
+    });
+
+    describe("useCleanupStaleBatches", () => {
+      it("returns a function", () => {
+        const { result } = renderHook(() => useCleanupStaleBatches());
+        expect(typeof result.current).toBe("function");
+      });
+
+      it("maintains referential equality across rerenders", () => {
+        const { result, rerender } = renderHook(() => useCleanupStaleBatches());
+        const firstRef = result.current;
+
+        rerender();
+
+        expect(result.current).toBe(firstRef);
+      });
     });
   });
 });

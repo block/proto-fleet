@@ -37,10 +37,12 @@ export {
   useDeviceTheme,
   useTemperatureUnit,
   useDuration,
+  useVisibleMinerIds,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
   useSetDuration,
+  useSetVisibleMinerIds,
 } from "./hooks/useUI";
 
 // =============================================================================
@@ -68,6 +70,7 @@ export {
   useMinerUrl,
   useDeviceErrors,
   useMinerData,
+  useMinerActiveBatches,
   useSetMiners,
   useAppendMiners,
   useSetTotalMiners,
@@ -82,6 +85,11 @@ export {
   useSetCursor,
   useLastPairingCompletedAt,
   useNotifyPairingCompleted,
+  useStartBatchOperation,
+  useCompleteBatchOperation,
+  useRemoveDevicesFromBatch,
+  useCleanupStaleBatches,
+  useBatchOperationCount,
 } from "./hooks/useFleet";
 
 // =============================================================================

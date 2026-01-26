@@ -29,7 +29,7 @@ const MinerStatusModalContent = ({
 
   const icon = useMemo(() => {
     if (isOffline) {
-      return <Alert className="text-text-warning" width={iconSizes.xLarge} />;
+      return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
     } else if (isSleeping) {
       return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
     } else if (needsAuthentication || needsMiningPool || haserrors) {

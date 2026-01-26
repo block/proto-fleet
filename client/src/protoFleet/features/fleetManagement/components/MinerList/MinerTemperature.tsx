@@ -21,6 +21,11 @@ const MinerTemperature = ({ deviceIdentifier }: MinerTemperatureProps) => {
     return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
+  // Empty array = empty cell for pool/auth required miners
+  if (temperature.length === 0) {
+    return null;
+  }
+
   const latestValue = getLatestMeasurementWithData(temperature)?.value;
 
   if (latestValue === undefined) {

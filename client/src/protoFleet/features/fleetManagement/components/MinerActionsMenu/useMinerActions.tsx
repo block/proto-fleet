@@ -26,9 +26,16 @@ import {
   UnpairResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import { useFleetStore } from "@/protoFleet/store";
+import {
+  useCompleteBatchOperation,
+  useFleetStore,
+  useRemoveDevicesFromBatch,
+  useStartBatchOperation,
+} from "@/protoFleet/store";
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
@@ -71,6 +78,11 @@ export const useMinerActions = ({
   const { startMining, stopMining, blinkLED, unpair, reboot, streamCommandBatchUpdates, setPowerTarget } =
     useMinerCommand();
 
+  const startBatchOperation = useStartBatchOperation();
+  const completeBatchOperation = useCompleteBatchOperation();
+  const removeDevicesFromBatch = useRemoveDevicesFromBatch();
+  const { resetFetchedIds } = useBatchTelemetry();
+
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
 
@@ -108,6 +120,8 @@ export const useMinerActions = ({
       let errorToastId: number | null = null;
       let successCount = 0;
       let totalCount = 0;
+      let successDeviceIds: string[] = [];
+      let failureDeviceIds: string[] = [];
 
       streamCommandBatchUpdates({
         streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
@@ -116,13 +130,16 @@ export const useMinerActions = ({
         onStreamData: (response) => {
           totalCount = Number(response.status?.commandBatchDeviceCount?.total || 0);
           successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
+          const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
+
+          successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
+          failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
 
           updateToast(originalToastId, {
             message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
             status: TOAST_STATUSES.success,
           });
 
-          const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
           if (failureCount > 0) {
             if (!errorToastId) {
               errorToastId = pushToast({
@@ -137,6 +154,12 @@ export const useMinerActions = ({
               });
             }
           }
+
+          // Close the stream when we've received results for all devices
+          // This triggers .finally() to clear loading states immediately
+          if (successCount + failureCount === totalCount && totalCount > 0) {
+            streamAbortController.abort();
+          }
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
@@ -145,12 +168,77 @@ export const useMinerActions = ({
           status: TOAST_STATUSES.success,
         });
 
+        // Reset telemetry cache and immediately fetch fresh status for status polling
+        resetFetchedIds();
+
+        // Immediately remove failed devices from batch (revert to their original status)
+        if (failureDeviceIds.length > 0) {
+          removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
+        }
+
+        // Keep loading state until we can confirm the action has taken effect
+        // For actions that change device state, wait for status confirmation on successful devices only
+        const shouldWaitForStatusChange =
+          (action === settingsActions.miningPool ||
+            action === deviceActions.shutdown ||
+            action === deviceActions.wakeUp ||
+            action === deviceActions.reboot) &&
+          successDeviceIds.length > 0;
+
+        if (shouldWaitForStatusChange) {
+          // Wait for device status to change to expected state
+          // Polls every 3 seconds for successful devices only. Stale batch cleanup (5 minutes) handles stuck cases.
+          const checkInterval = 3000;
+
+          let pollCount = 0;
+          const maxPolls = 60; // 3 minutes max (60 * 3000ms)
+
+          const waitForStatusChange = () => {
+            const store = useFleetStore.getState();
+            pollCount++;
+
+            // Rely entirely on telemetry stream for device status updates
+            // No need to fetch batch telemetry during polling - stream provides real-time updates
+
+            // Get batch startedAt for time-based checks (e.g., minimum reboot duration)
+            const batchOperation = store.fleet.batchOperations.byBatchId[batchIdentifier];
+            const batchStartedAt = batchOperation?.startedAt;
+
+            // Check status for all successfully queued devices (from successDeviceIds array)
+            // Note: For "select all" operations, only visible/paginated device IDs are stored client-side.
+            // This is intentional - telemetry stream updates status for all devices, but we only track
+            // loading states for devices in the current view. Non-visible devices will show updated
+            // status when they scroll into view.
+            const allSuccessfulDevicesUpdated = successDeviceIds.every((deviceId) => {
+              const miner = store.fleet.miners[deviceId];
+              if (!miner) return false;
+
+              return hasReachedExpectedStatus(action, miner.deviceStatus, batchStartedAt);
+            });
+
+            if (allSuccessfulDevicesUpdated) {
+              completeBatchOperation(batchIdentifier);
+            } else if (pollCount >= maxPolls) {
+              // After 3 minutes, complete batch to avoid stuck loading states
+              // Stale batch cleanup (5 minutes) will handle any truly stuck cases
+              completeBatchOperation(batchIdentifier);
+            } else {
+              setTimeout(waitForStatusChange, checkInterval);
+            }
+          };
+
+          waitForStatusChange();
+        } else {
+          // Complete batch immediately for actions that don't change device state (blink, unpair, etc.)
+          completeBatchOperation(batchIdentifier);
+        }
+
         if (action === deviceActions.unpair && successCount > 0) {
           useFleetStore.getState().fleet.refetchMiners?.();
         }
       });
     },
-    [streamCommandBatchUpdates],
+    [streamCommandBatchUpdates, completeBatchOperation, removeDevicesFromBatch, resetFetchedIds],
   );
 
   const handleError = useCallback((originalToastId: number, error: string) => {
@@ -162,6 +250,12 @@ export const useMinerActions = ({
 
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
+      startBatchOperation({
+        batchIdentifier: batchIdentifier,
+        action: settingsActions.miningPool,
+        deviceIdentifiers: deviceIdentifiers,
+      });
+
       const toastId = pushToast({
         message: `${loadingMessages[settingsActions.miningPool]} ${minersMessage}`,
         status: TOAST_STATUSES.loading,
@@ -172,7 +266,7 @@ export const useMinerActions = ({
       setCurrentAction(null);
       onActionComplete?.();
     },
-    [handleSuccess, onActionComplete],
+    [handleSuccess, onActionComplete, startBatchOperation, deviceIdentifiers],
   );
 
   const handleMiningPoolError = useCallback(
@@ -200,11 +294,16 @@ export const useMinerActions = ({
         onClose: () => onActionComplete?.(),
       });
 
+      // Note: setPowerTarget does NOT use batch operation tracking because:
+      // 1. Power target changes complete instantly (<1s) - no meaningful loading state to show
+      // 2. No device status change to wait for (power target is a setting, not a status)
+      // 3. Toast notification provides sufficient feedback for this quick operation
       setPowerTarget({
         deviceSelector,
         performanceMode,
-        onSuccess: (value: SetPowerTargetResponse) =>
-          handleSuccess(performanceActions.managePower, id, value.batchIdentifier),
+        onSuccess: (value: SetPowerTargetResponse) => {
+          handleSuccess(performanceActions.managePower, id, value.batchIdentifier);
+        },
         onError: handleError.bind(null, id),
       });
 
@@ -237,7 +336,14 @@ export const useMinerActions = ({
         });
         stopMining({
           stopMiningRequest: stopMiningRequest,
-          onSuccess: (value: StopMiningResponse) => handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
+          onSuccess: (value: StopMiningResponse) => {
+            startBatchOperation({
+              batchIdentifier: value.batchIdentifier,
+              action: deviceActions.shutdown,
+              deviceIdentifiers: deviceIdentifiers,
+            });
+            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier);
+          },
           onError: handleError.bind(null, id),
         });
         break;
@@ -248,7 +354,14 @@ export const useMinerActions = ({
         });
         startMining({
           startMiningRequest: startMiningRequest,
-          onSuccess: (value: StartMiningResponse) => handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
+          onSuccess: (value: StartMiningResponse) => {
+            startBatchOperation({
+              batchIdentifier: value.batchIdentifier,
+              action: deviceActions.wakeUp,
+              deviceIdentifiers: deviceIdentifiers,
+            });
+            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier);
+          },
           onError: handleError.bind(null, id),
         });
         break;
@@ -259,7 +372,14 @@ export const useMinerActions = ({
         });
         unpair({
           unpairRequest: unpairRequest,
-          onSuccess: (value: UnpairResponse) => handleSuccess(deviceActions.unpair, id, value.batchIdentifier),
+          onSuccess: (value: UnpairResponse) => {
+            startBatchOperation({
+              batchIdentifier: value.batchIdentifier,
+              action: deviceActions.unpair,
+              deviceIdentifiers: deviceIdentifiers,
+            });
+            handleSuccess(deviceActions.unpair, id, value.batchIdentifier);
+          },
           onError: handleError.bind(null, id),
         });
         break;
@@ -270,7 +390,14 @@ export const useMinerActions = ({
         });
         reboot({
           rebootRequest: rebootRequest,
-          onSuccess: (value: RebootResponse) => handleSuccess(deviceActions.reboot, id, value.batchIdentifier),
+          onSuccess: (value: RebootResponse) => {
+            startBatchOperation({
+              batchIdentifier: value.batchIdentifier,
+              action: deviceActions.reboot,
+              deviceIdentifiers: deviceIdentifiers,
+            });
+            handleSuccess(deviceActions.reboot, id, value.batchIdentifier);
+          },
           onError: handleError.bind(null, id),
         });
         break;
@@ -293,6 +420,8 @@ export const useMinerActions = ({
     reboot,
     handleSuccess,
     handleError,
+    startBatchOperation,
+    deviceIdentifiers,
   ]);
 
   const handleCancel = useCallback(() => {
@@ -317,7 +446,14 @@ export const useMinerActions = ({
 
       blinkLED({
         blinkLEDRequest,
-        onSuccess: (value: BlinkLEDResponse) => handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier),
+        onSuccess: (value: BlinkLEDResponse) => {
+          startBatchOperation({
+            batchIdentifier: value.batchIdentifier,
+            action: deviceActions.blinkLEDs,
+            deviceIdentifiers: deviceIdentifiers,
+          });
+          handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier);
+        },
         onError: handleError.bind(null, id),
       });
     };
@@ -555,7 +691,17 @@ export const useMinerActions = ({
         },
       },
     ] as BulkAction<SupportedAction>[];
-  }, [blinkLED, handleSuccess, handleError, displayCount, onActionStart, deviceSelector, deviceStatus]);
+  }, [
+    blinkLED,
+    handleSuccess,
+    handleError,
+    displayCount,
+    onActionStart,
+    deviceSelector,
+    deviceStatus,
+    startBatchOperation,
+    deviceIdentifiers,
+  ]);
 
   return {
     currentAction,

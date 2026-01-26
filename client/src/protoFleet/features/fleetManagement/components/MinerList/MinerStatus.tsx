@@ -1,7 +1,10 @@
 import { useMemo } from "react";
+import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useFleetStore, useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
+import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import { useFleetStore, useMiner, useMinerActiveBatches, useMinerDeviceStatus } from "@/protoFleet/store";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 import { useMinerStatus } from "@/shared/hooks/useStatusSummary";
@@ -15,6 +18,7 @@ type MinerStatusProps = {
 const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
+  const activeBatches = useMinerActiveBatches(deviceIdentifier);
 
   // Get errors from normalized store
   const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
@@ -50,6 +54,32 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
 
   // Status should always be clickable (even for disabled rows)
   const isClickable = !!onClick;
+
+  // Check for active batch operations FIRST (highest priority)
+  const hasActiveBatch = activeBatches.length > 0;
+  const batchAction = hasActiveBatch ? activeBatches[0].action : null;
+  const batchStartedAt = hasActiveBatch ? activeBatches[0].startedAt : undefined;
+  const batchLoadingMessage = batchAction ? statusColumnLoadingMessages[batchAction] : null;
+
+  // Check if device has reached expected status for this batch action
+  const deviceHasReachedExpectedStatus = useMemo(() => {
+    if (!batchAction) return false;
+    return hasReachedExpectedStatus(batchAction, deviceStatusFromStore, batchStartedAt);
+  }, [batchAction, deviceStatusFromStore, batchStartedAt]);
+
+  // Show loading state only if batch is active AND device hasn't reached expected status yet
+  if (hasActiveBatch && batchLoadingMessage && !deviceHasReachedExpectedStatus) {
+    return (
+      <div
+        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
+        onClick={isClickable ? onClick : undefined}
+      >
+        <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
+        <ProgressCircular size={14} indeterminate />
+        <span className="text-text-primary-50">{batchLoadingMessage}</span>
+      </div>
+    );
+  }
 
   return (
     <div

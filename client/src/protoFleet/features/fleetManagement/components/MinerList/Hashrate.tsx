@@ -30,6 +30,11 @@ const Hashrate = ({ deviceIdentifier, hashrate: hashrateProps }: HashrateProps) 
     return <>{INACTIVE_PLACEHOLDER}</>;
   }
 
+  // Empty array = empty cell for pool/auth required miners
+  if (hashrate.length === 0) {
+    return null;
+  }
+
   const latestValue = getLatestMeasurementWithData(hashrate)?.value;
 
   return (

@@ -51,6 +51,17 @@ export const loadingMessages: Record<string, string> = {
   [settingsActions.miningPool]: "Assigning pools",
 };
 
+export const statusColumnLoadingMessages: Record<string, string> = {
+  [deviceActions.blinkLEDs]: "Blinking LEDs",
+  [deviceActions.factoryReset]: "Resetting",
+  [deviceActions.reboot]: "Rebooting",
+  [deviceActions.shutdown]: "Sleeping",
+  [deviceActions.unpair]: "Unpairing",
+  [deviceActions.wakeUp]: "Waking",
+  [performanceActions.curtail]: "Curtailing",
+  [settingsActions.miningPool]: "Adding pools",
+};
+
 export const successMessages: Record<string, string> = {
   [deviceActions.blinkLEDs]: "Blinked LEDs",
   [deviceActions.factoryReset]: "Reset",

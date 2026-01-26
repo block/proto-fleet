@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -22,12 +23,46 @@ func NewStatusService(conn *sql.DB, messageQueue queue.MessageQueue) *StatusServ
 	return &StatusService{conn: conn, messageQueue: messageQueue}
 }
 
+// getIdsFromJsonArray extracts string IDs from a JSON array, filtering out null/empty values.
+// This handles the JSON_ARRAYAGG results from MySQL which may include null values.
+func getIdsFromJsonArray(jsonData any) []string {
+	if jsonData == nil {
+		return nil
+	}
+
+	jsonBytes, ok := jsonData.([]byte)
+	if !ok {
+		return nil
+	}
+
+	var ids []string
+	if err := json.Unmarshal(jsonBytes, &ids); err != nil {
+		return nil
+	}
+
+	// Filter out null/empty values from JSON_ARRAYAGG
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			filtered = append(filtered, id)
+		}
+	}
+
+	return filtered
+}
+
 func getDeviceCount(row *sqlc.GetBatchStatusAndDeviceCountsRow) *pb.CommandBatchUpdateDeviceCount {
-	return &pb.CommandBatchUpdateDeviceCount{
+	deviceCount := &pb.CommandBatchUpdateDeviceCount{
 		Total:   int64(row.DevicesCount),
 		Success: row.SuccessfulDevices,
 		Failure: row.FailedDevices,
 	}
+
+	// Parse success and failure device identifiers from JSON
+	deviceCount.SuccessDeviceIdentifiers = getIdsFromJsonArray(row.SuccessDeviceIdentifiers)
+	deviceCount.FailureDeviceIdentifiers = getIdsFromJsonArray(row.FailureDeviceIdentifiers)
+
+	return deviceCount
 }
 
 func getStatus(sqlcStatus sqlc.CommandBatchLogStatus) pb.CommandBatchUpdateStatus_CommandBatchUpdateStatusType {

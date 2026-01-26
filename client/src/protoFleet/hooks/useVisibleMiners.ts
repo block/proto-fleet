@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useFleetStore } from "@/protoFleet/store";
 import { debounce } from "@/shared/utils/utility";
 
 type UseVisibleMinersOptions = {
@@ -59,12 +60,16 @@ const useVisibleMiners = (options: UseVisibleMinersOptions = {}) => {
       setVisibleMinerIds((prev) => {
         // Early exit if sizes differ
         if (visible.size !== prev.size) {
+          // Update store
+          useFleetStore.getState().ui.setVisibleMinerIds(visible);
           return visible;
         }
 
         // Check if contents differ (iterate Set directly, no array allocation)
         for (const id of visible) {
           if (!prev.has(id)) {
+            // Update store
+            useFleetStore.getState().ui.setVisibleMinerIds(visible);
             return visible;
           }
         }

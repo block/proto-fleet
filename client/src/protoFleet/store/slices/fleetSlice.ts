@@ -47,6 +47,29 @@ export interface ErrorState {
   };
 }
 
+// Batch operation types
+export type SupportedAction = string; // This will match the action types from constants.ts
+
+export interface BatchOperation {
+  batchIdentifier: string;
+  action: SupportedAction;
+  deviceIdentifiers: string[];
+  startedAt: number;
+  status: "in_progress";
+}
+
+export interface BatchOperationInput {
+  batchIdentifier: string;
+  action: SupportedAction;
+  deviceIdentifiers: string[];
+}
+
+// Batch operations state structure
+export interface BatchOperationsState {
+  byBatchId: Record<string, BatchOperation>; // batchIdentifier → BatchOperation
+  byDeviceId: Record<string, string[]>; // deviceIdentifier → array of batchIdentifiers
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -139,6 +162,9 @@ export interface FleetSlice {
   // NEW: Normalized error state
   errors: ErrorState;
 
+  // Batch operations state
+  batchOperations: BatchOperationsState;
+
   totalMiners: number; // total number of miners in the fleet
   deviceStatusCounts: MinerStateCounts; // counts of miners by device status
 
@@ -176,6 +202,12 @@ export interface FleetSlice {
   setErrors: (errors: ErrorMessage[], scope: "all" | "devices", deviceIds?: string[]) => void;
   handleErrorStreamEvent: (event: "OPENED" | "UPDATED" | "CLOSED", error: ErrorMessage) => void;
 
+  // Batch operations actions
+  startBatchOperation: (batch: BatchOperationInput) => void;
+  completeBatchOperation: (batchIdentifier: string) => void;
+  removeDevicesFromBatch: (batchIdentifier: string, deviceIds: string[]) => void;
+  cleanupStaleBatches: () => void;
+
   // Selectors
   getMinersArray: () => MinerStateSnapshot[];
   isHashing: (deviceId: string) => boolean;
@@ -201,6 +233,10 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
       fetchedDeviceIds: [],
       activeSubscription: null,
     },
+  },
+  batchOperations: {
+    byBatchId: {},
+    byDeviceId: {},
   },
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
@@ -330,6 +366,8 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
           if (telemetry.timestamp) {
             miner.timestamp = telemetry.timestamp;
           }
+          // Only update deviceStatus if it's non-zero (falsy check)
+          // This prevents UNSPECIFIED (0) from overwriting correct statuses at page load
           if (telemetry.deviceStatus) {
             miner.deviceStatus = telemetry.deviceStatus;
           }
@@ -483,6 +521,117 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
           miner.hasErrors = true;
         }
       }
+    }),
+
+  // Batch operations actions
+  startBatchOperation: (batch) =>
+    set((state) => {
+      const batchOperation: BatchOperation = {
+        batchIdentifier: batch.batchIdentifier,
+        action: batch.action,
+        deviceIdentifiers: batch.deviceIdentifiers,
+        startedAt: Date.now(),
+        status: "in_progress",
+      };
+
+      // Add to byBatchId map
+      state.fleet.batchOperations.byBatchId[batch.batchIdentifier] = batchOperation;
+
+      // Add to byDeviceId index for each device
+      batch.deviceIdentifiers.forEach((deviceId) => {
+        if (!state.fleet.batchOperations.byDeviceId[deviceId]) {
+          state.fleet.batchOperations.byDeviceId[deviceId] = [];
+        }
+        // Only add if not already present
+        if (!state.fleet.batchOperations.byDeviceId[deviceId].includes(batch.batchIdentifier)) {
+          state.fleet.batchOperations.byDeviceId[deviceId].push(batch.batchIdentifier);
+        }
+      });
+    }),
+
+  completeBatchOperation: (batchIdentifier) =>
+    set((state) => {
+      const batch = state.fleet.batchOperations.byBatchId[batchIdentifier];
+      if (!batch) {
+        console.warn(`[Store] Batch ${batchIdentifier} not found for completion`);
+        return;
+      }
+
+      // Remove batch ID from each device's array
+      batch.deviceIdentifiers.forEach((deviceId) => {
+        if (state.fleet.batchOperations.byDeviceId[deviceId]) {
+          state.fleet.batchOperations.byDeviceId[deviceId] = state.fleet.batchOperations.byDeviceId[deviceId].filter(
+            (id) => id !== batchIdentifier,
+          );
+          // Delete empty arrays
+          if (state.fleet.batchOperations.byDeviceId[deviceId].length === 0) {
+            delete state.fleet.batchOperations.byDeviceId[deviceId];
+          }
+        }
+      });
+
+      // Delete batch from byBatchId
+      delete state.fleet.batchOperations.byBatchId[batchIdentifier];
+    }),
+
+  removeDevicesFromBatch: (batchIdentifier, deviceIds) =>
+    set((state) => {
+      const batch = state.fleet.batchOperations.byBatchId[batchIdentifier];
+      if (!batch) return;
+
+      // Remove batch ID from specified devices
+      deviceIds.forEach((deviceId) => {
+        if (state.fleet.batchOperations.byDeviceId[deviceId]) {
+          state.fleet.batchOperations.byDeviceId[deviceId] = state.fleet.batchOperations.byDeviceId[deviceId].filter(
+            (id) => id !== batchIdentifier,
+          );
+          // Delete empty arrays
+          if (state.fleet.batchOperations.byDeviceId[deviceId].length === 0) {
+            delete state.fleet.batchOperations.byDeviceId[deviceId];
+          }
+        }
+      });
+
+      // Remove devices from batch's deviceIdentifiers
+      batch.deviceIdentifiers = batch.deviceIdentifiers.filter((id) => !deviceIds.includes(id));
+
+      // If no devices left in batch, delete the batch entirely
+      if (batch.deviceIdentifiers.length === 0) {
+        delete state.fleet.batchOperations.byBatchId[batchIdentifier];
+      }
+    }),
+
+  cleanupStaleBatches: () =>
+    set((state) => {
+      const now = Date.now();
+      const staleThreshold = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+      // Find batches older than threshold
+      const staleBatchIds = Object.keys(state.fleet.batchOperations.byBatchId).filter((batchId) => {
+        const batch = state.fleet.batchOperations.byBatchId[batchId];
+        return now - batch.startedAt > staleThreshold;
+      });
+
+      // Complete each stale batch
+      staleBatchIds.forEach((batchId) => {
+        const batch = state.fleet.batchOperations.byBatchId[batchId];
+        if (!batch) return;
+
+        // Remove from device indexes
+        batch.deviceIdentifiers.forEach((deviceId) => {
+          if (state.fleet.batchOperations.byDeviceId[deviceId]) {
+            state.fleet.batchOperations.byDeviceId[deviceId] = state.fleet.batchOperations.byDeviceId[deviceId].filter(
+              (id) => id !== batchId,
+            );
+            if (state.fleet.batchOperations.byDeviceId[deviceId].length === 0) {
+              delete state.fleet.batchOperations.byDeviceId[deviceId];
+            }
+          }
+        });
+
+        // Remove from byId
+        delete state.fleet.batchOperations.byBatchId[batchId];
+      });
     }),
 
   // Selectors
