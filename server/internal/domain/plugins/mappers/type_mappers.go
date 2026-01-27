@@ -17,6 +17,8 @@ func FleetTypeToSDKType(t models.Type) sdk.DeviceType {
 		return sdk.DeviceTypeASIC
 	case models.TypeAvalon:
 		return sdk.DeviceTypeASIC
+	case models.TypeVirtual:
+		return sdk.DeviceTypeASIC
 	case models.TypeUnknown:
 		return sdk.DeviceTypeUnspecified
 	default:

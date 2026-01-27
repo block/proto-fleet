@@ -144,6 +144,8 @@ const (
 	ProtocolHTTPS
 	// ProtocolTCP is used for direct socket connections with miners
 	ProtocolTCP
+	// ProtocolVirtual is used for virtual/simulated miners that don't require network communication
+	ProtocolVirtual
 )
 
 func (p Protocol) String() string {
@@ -154,6 +156,8 @@ func (p Protocol) String() string {
 		return "https"
 	case ProtocolTCP:
 		return "tcp"
+	case ProtocolVirtual:
+		return "virtual"
 	default:
 		return "unknown"
 	}
@@ -167,6 +171,8 @@ func ProtocolFromString(s string) (Protocol, error) {
 		return ProtocolHTTPS, nil
 	case "tcp":
 		return ProtocolTCP, nil
+	case "virtual":
+		return ProtocolVirtual, nil
 	default:
 		return Protocol(-1), fleeterror.NewInvalidArgumentErrorf("unsupported protocol: %s", s)
 	}

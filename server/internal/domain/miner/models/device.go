@@ -22,6 +22,7 @@ const (
 	TypeProto
 	TypeWhatsminer
 	TypeAvalon
+	TypeVirtual
 )
 
 func (t Type) String() string {
@@ -36,6 +37,8 @@ func (t Type) String() string {
 		return "whatsminer"
 	case TypeAvalon:
 		return "avalon"
+	case TypeVirtual:
+		return "virtual"
 	default:
 		return "unknown"
 	}
@@ -56,6 +59,8 @@ func TypeFromString(s string) (Type, error) {
 		return TypeWhatsminer, nil
 	case "avalon":
 		return TypeAvalon, nil
+	case "virtual":
+		return TypeVirtual, nil
 	case "unknown", "":
 		return TypeUnknown, nil
 	default:

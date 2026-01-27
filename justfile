@@ -44,6 +44,17 @@ build-plugins-multi-arch:
   chmod +x deployment-files/server/*-plugin-*
   echo "Multi-arch plugins built successfully"
 
+# Build virtual miner plugin for Docker (Linux ARM64)
+build-virtual-plugin:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building virtual miner plugin for Docker..."
+  mkdir -p server/plugins
+  (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/virtual-plugin .)
+  cp plugin/virtual/config.json server/plugins/
+  chmod +x server/plugins/virtual-plugin
+  echo "Virtual plugin built successfully"
+
 # Update all Go dependencies across workspace
 update-go-deps:
   #!/usr/bin/env bash
@@ -54,6 +65,8 @@ update-go-deps:
   (cd plugin/proto && go get -u ./... && go mod tidy)
   echo "Updating plugin/antminer dependencies..."
   (cd plugin/antminer && go get -u ./... && go mod tidy)
+  echo "Updating plugin/virtual dependencies..."
+  (cd plugin/virtual && go get -u ./... && go mod tidy)
   echo "Updating server/fake-proto-rig dependencies..."
   (cd server/fake-proto-rig && go get -u ./... && go mod tidy)
   echo "Syncing Go workspace..."

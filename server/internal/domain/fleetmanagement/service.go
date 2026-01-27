@@ -542,7 +542,7 @@ func convertMinerTypesToProto(minerTypes []mm.Type) []pb.MinerType {
 			result = append(result, pb.MinerType_MINER_TYPE_PROTO_RIG)
 		case mm.TypeAntminer:
 			result = append(result, pb.MinerType_MINER_TYPE_BITMAIN)
-		case mm.TypeUnknown, mm.TypeWhatsminer, mm.TypeAvalon:
+		case mm.TypeUnknown, mm.TypeWhatsminer, mm.TypeAvalon, mm.TypeVirtual:
 			// Skip types that don't have corresponding proto enum values
 		}
 	}

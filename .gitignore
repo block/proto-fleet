@@ -16,6 +16,7 @@ server/miner-debug-cli
 # Plugin binaries (built artifacts should not be committed)
 plugin/proto/proto-plugin
 plugin/antminer/antminer-plugin
+plugin/virtual/virtual
 
 server/plugins/*
 

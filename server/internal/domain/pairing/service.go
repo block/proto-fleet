@@ -32,8 +32,8 @@ import (
 
 const (
 	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations.
-	// 50 provides good parallelism for large fleet sizes while avoiding overwhelming the network.
-	concurrentDiscoveryLimit = 50
+	// 100 provides good parallelism for large fleet sizes while avoiding overwhelming the network.
+	concurrentDiscoveryLimit = 100
 
 	// IP address constants for network address filtering
 	networkAddressLastOctet = 0   // Network address last octet (.0)
@@ -47,9 +47,9 @@ const (
 	ipv4LastOctetMask   = 0xFF       // Mask for extracting last octet
 
 	// Discovery timeout constants
-	defaultNmapTimeoutSeconds     = 300              // Overall timeout for nmap discovery operation (5 minutes)
-	defaultIPDiscoveryTimeoutSecs = 300              // Overall timeout for IP-based discovery (5 minutes)
-	perDeviceDiscoveryTimeout     = 30 * time.Second // Timeout for probing a single device (allows parallel plugins to complete)
+	defaultNmapTimeoutSeconds     = 600              // Overall timeout for nmap discovery operation (10 minutes)
+	defaultIPDiscoveryTimeoutSecs = 600              // Overall timeout for IP-based discovery (10 minutes)
+	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
 
 	// Nmap tuning parameters for faster scanning
 	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts

@@ -164,6 +164,11 @@ func TestManager_determineMinerTypes(t *testing.T) {
 			pluginName:    "avalon-miner",
 			expectedTypes: []models.Type{}, // Not supported in current implementation
 		},
+		{
+			name:          "virtual plugin",
+			pluginName:    "virtual-plugin",
+			expectedTypes: []models.Type{models.TypeVirtual},
+		},
 	}
 
 	for _, tt := range tests {

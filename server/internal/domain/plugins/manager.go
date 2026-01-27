@@ -261,6 +261,9 @@ func determineMinerTypes(pluginName string, caps sdk.Capabilities) []models.Type
 	if strings.Contains(pluginNameLower, "proto") {
 		types = append(types, models.TypeProto)
 	}
+	if strings.Contains(pluginNameLower, "virtual") {
+		types = append(types, models.TypeVirtual)
+	}
 
 	if len(types) == 0 && caps[sdk.CapabilityDiscovery] {
 		slog.Debug("Plugin has discovery capability but no specific type determined from name",

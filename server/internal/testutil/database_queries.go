@@ -224,6 +224,8 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 			port = "4028"
 		case models.TypeAvalon:
 			port = "4028"
+		case models.TypeVirtual:
+			port = "4028"
 		case models.TypeUnknown:
 			port = "4028"
 		default:
