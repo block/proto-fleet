@@ -83,6 +83,44 @@ services:
       retries: 5
       start_period: 3s
 
+  timescaledb:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: timescaledb
+    # Development performance optimizations
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "fsync=off"
+      - "-c"
+      - "synchronous_commit=off"
+      - "-c"
+      - "full_page_writes=off"
+      - "-c"
+      - "checkpoint_timeout=30min"
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "timescaledb.max_background_workers=4"
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+      # Use tmpfs for temporary files to speed up operations
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: 256M
+    # Faster health checks for development
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   # Development-specific services
   fake-proto-rig:
     build:
@@ -309,6 +347,7 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+  timescaledb-data:
 
 networks:
   fleet-network:

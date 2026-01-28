@@ -31,6 +31,7 @@ services:
     extra_hosts:
       - "influxdb:127.0.0.1"
       - "mysql:127.0.0.1"
+      - "timescaledb:127.0.0.1"
     logging:
       driver: "json-file"
       options:
@@ -98,10 +99,29 @@ services:
         max-file: "3"
         compress: "true"
 
+  timescaledb:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: timescaledb
+    environment:
+      POSTGRES_DB: "${DB_NAME:-fleet}"
+      POSTGRES_USER: "${DB_USERNAME:-fleet}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet}"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
 volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+  timescaledb-data:
 
 networks:
   fleet-network:
