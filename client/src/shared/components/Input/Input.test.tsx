@@ -24,4 +24,10 @@ describe("Input", () => {
     fireEvent.change(inputElement, { target: { value: userInput } });
     expect(inputElement.value).toBe(userInput);
   });
+
+  test("applies new-password autocomplete to prevent autofill", () => {
+    const inputElement = screen.getByRole("textbox") as HTMLInputElement;
+    // Uses "new-password" instead of "off" because Chrome ignores "off" on password fields
+    expect(inputElement.getAttribute("autocomplete")).toBe("new-password");
+  });
 });
