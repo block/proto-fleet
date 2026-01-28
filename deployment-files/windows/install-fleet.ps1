@@ -181,7 +181,7 @@ function Find-PreviousInstallDir {
 
     # Try to find container with fleet-api in the name
     $findContainerCmd = @"
-docker ps -a --filter 'name=${DEPLOYMENT_DIR}-fleet-api' --filter 'name=${DEPLOYMENT_DIR}_fleet-api' --format '{{.ID}}' 2>/dev/null | head -n 1 || true
+docker ps -a --filter 'name=${DEPLOYMENT_DIR}-fleet-api' --filter 'name=${DEPLOYMENT_DIR}_fleet-api' --format '{{.ID}}' 2`>/dev/null | head -n 1 || true
 "@
     $containerId = wsl bash -c $findContainerCmd
 
@@ -192,7 +192,7 @@ docker ps -a --filter 'name=${DEPLOYMENT_DIR}-fleet-api' --filter 'name=${DEPLOY
 
     # Get mount path from container
     $inspectCmd = @"
-docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' '$containerId' 2>/dev/null || true
+docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' '$containerId' 2`>/dev/null || true
 "@
     $mountPath = wsl bash -c $inspectCmd
 
@@ -451,16 +451,16 @@ function New-EnvironmentFile {
         # Custom passwords
         Write-Host ""
         $mysqlRootPass = Read-SecureInput "Enter password for Database root user"
-        wsl bash -c "echo 'MYSQL_ROOT_PASSWORD=$mysqlRootPass' >> '$envFile'"
+        wsl bash -c "echo 'MYSQL_ROOT_PASSWORD=$mysqlRootPass' `>`> '$envFile'"
 
         $dbUsername = Read-Host "Enter username for Database user [fleet_user]"
         if ([string]::IsNullOrWhiteSpace($dbUsername)) {
             $dbUsername = "fleet_user"
         }
-        wsl bash -c "echo 'DB_USERNAME=$dbUsername' >> '$envFile'"
+        wsl bash -c "echo 'DB_USERNAME=$dbUsername' `>`> '$envFile'"
 
         $dbPassword = Read-SecureInput "Enter password for Database user"
-        wsl bash -c "echo 'DB_PASSWORD=$dbPassword' >> '$envFile'"
+        wsl bash -c "echo 'DB_PASSWORD=$dbPassword' `>`> '$envFile'"
 
         Write-Host ""
         Write-Host "Auth client secret key (minimum 32 characters):"
@@ -469,7 +469,7 @@ function New-EnvironmentFile {
             Write-WarningMsg "Secret key must be at least 32 characters long (current: $($authKey.Length))"
             $authKey = Read-SecureInput "Enter Auth client secret key"
         }
-        wsl bash -c "echo 'AUTH_CLIENT_SECRET_KEY=$authKey' >> '$envFile'"
+        wsl bash -c "echo 'AUTH_CLIENT_SECRET_KEY=$authKey' `>`> '$envFile'"
 
         Write-Host ""
         Write-Host "Encryption service master key (must be 32-byte Base64-encoded):"
@@ -480,11 +480,11 @@ function New-EnvironmentFile {
 validate_key() {
     local input="`$1"
     local temp_file=`$(mktemp)
-    if ! echo "`$input" | base64 -d > "`$temp_file" 2>/dev/null; then
+    if ! echo "`$input" | base64 -d `> "`$temp_file" 2`>/dev/null; then
         rm -f "`$temp_file"
         return 1
     fi
-    local byte_length=`$(wc -c < "`$temp_file")
+    local byte_length=`$(wc -c `< "`$temp_file")
     rm -f "`$temp_file"
     if [ "`$byte_length" -ne 32 ]; then
         return 2
@@ -502,11 +502,11 @@ validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
 validate_key() {
     local input="`$1"
     local temp_file=`$(mktemp)
-    if ! echo "`$input" | base64 -d > "`$temp_file" 2>/dev/null; then
+    if ! echo "`$input" | base64 -d `> "`$temp_file" 2`>/dev/null; then
         rm -f "`$temp_file"
         return 1
     fi
-    local byte_length=`$(wc -c < "`$temp_file")
+    local byte_length=`$(wc -c `< "`$temp_file")
     rm -f "`$temp_file"
     if [ "`$byte_length" -ne 32 ]; then
         return 2
@@ -518,7 +518,7 @@ validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
             $valid = wsl bash -c $validateKeyCmd
         }
 
-        wsl bash -c "echo 'ENCRYPT_SERVICE_MASTER_KEY=$encryptKey' >> '$envFile'"
+        wsl bash -c "echo 'ENCRYPT_SERVICE_MASTER_KEY=$encryptKey' `>`> '$envFile'"
     }
     else {
         # Auto-generate passwords
@@ -531,11 +531,11 @@ validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
         $authKey = New-Base64Key
         $encryptKey = New-Base64Key
 
-        wsl bash -c "echo 'MYSQL_ROOT_PASSWORD=$mysqlRootPass' >> '$envFile'"
-        wsl bash -c "echo 'DB_USERNAME=$dbUsername' >> '$envFile'"
-        wsl bash -c "echo 'DB_PASSWORD=$dbPassword' >> '$envFile'"
-        wsl bash -c "echo 'AUTH_CLIENT_SECRET_KEY=$authKey' >> '$envFile'"
-        wsl bash -c "echo 'ENCRYPT_SERVICE_MASTER_KEY=$encryptKey' >> '$envFile'"
+        wsl bash -c "echo 'MYSQL_ROOT_PASSWORD=$mysqlRootPass' `>`> '$envFile'"
+        wsl bash -c "echo 'DB_USERNAME=$dbUsername' `>`> '$envFile'"
+        wsl bash -c "echo 'DB_PASSWORD=$dbPassword' `>`> '$envFile'"
+        wsl bash -c "echo 'AUTH_CLIENT_SECRET_KEY=$authKey' `>`> '$envFile'"
+        wsl bash -c "echo 'ENCRYPT_SERVICE_MASTER_KEY=$encryptKey' `>`> '$envFile'"
 
         Write-Success "Generated secure backend credentials"
     }
@@ -643,7 +643,7 @@ function Set-SSLConfiguration {
         wsl bash -c "sed -i 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=$cookieSecure/' '$envFile'"
     }
     else {
-        wsl bash -c "echo 'SESSION_COOKIE_SECURE=$cookieSecure' >> '$envFile'"
+        wsl bash -c "echo 'SESSION_COOKIE_SECURE=$cookieSecure' `>`> '$envFile'"
     }
 
     Write-Success "SSL/TLS configuration complete"
@@ -663,7 +663,7 @@ function New-SelfSignedCertificate {
     wsl bash -c "mkdir -p '$sslDir'"
 
     # Collect all addresses for certificate
-    $localIps = wsl bash -c "hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^127\.' | tr '\n' ' '"
+    $localIps = wsl bash -c "hostname -I 2`>/dev/null | tr ' ' '\n' | grep -v '^127\.' | tr '\n' ' '"
     $hostname = wsl bash -c "hostname"
 
     $sanEntries = "DNS:localhost,IP:127.0.0.1,IP:::1"
@@ -688,7 +688,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout '$sslKey' \
     -out '$sslCert' \
     -subj '/C=US/ST=Local/L=Local/O=ProtoFleet/CN=localhost' \
-    -addext 'subjectAltName=$sanEntries' 2>&1
+    -addext 'subjectAltName=$sanEntries' 2`>&1
 "@
 
     $result = wsl bash -c $opensslCmd
@@ -852,7 +852,7 @@ function Show-Status {
     Write-Host "  Local:  ${protocol}://localhost"
 
     # Get WSL IP addresses
-    $localIps = wsl bash -c "hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^127\.' | head -n 3"
+    $localIps = wsl bash -c "hostname -I 2`>/dev/null | tr ' ' '\n' | grep -v '^127\.' | head -n 3"
     if (-not [string]::IsNullOrWhiteSpace($localIps)) {
         foreach ($ip in ($localIps -split "`n")) {
             $ipTrimmed = $ip.Trim()

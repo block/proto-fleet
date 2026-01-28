@@ -322,33 +322,33 @@ function Set-WSLNetworkingFixes {
 
     # Fix 2: Disable IPv6 routing
     Write-Host "Disabling IPv6 routing..."
-    wsl bash -c "sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null 2>&1"
-    wsl bash -c "sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null 2>&1"
+    wsl bash -c 'sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null 2>&1'
+    wsl bash -c 'sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null 2>&1'
 
     # Make IPv6 settings persistent
-    $ipv6PersistCmd = @"
+    $ipv6PersistCmd = @'
 if ! grep -q '^net.ipv6.conf.all.disable_ipv6=1' /etc/sysctl.conf 2>/dev/null; then
     echo 'net.ipv6.conf.all.disable_ipv6=1' | sudo tee -a /etc/sysctl.conf > /dev/null
 fi
 if ! grep -q '^net.ipv6.conf.default.disable_ipv6=1' /etc/sysctl.conf 2>/dev/null; then
     echo 'net.ipv6.conf.default.disable_ipv6=1' | sudo tee -a /etc/sysctl.conf > /dev/null
 fi
-"@
+'@
     wsl bash -c $ipv6PersistCmd
 
     # Fix 3: Add Google DNS to resolv.conf
     Write-Host "Configuring DNS..."
-    $dnsConfigCmd = @"
+    $dnsConfigCmd = @'
 if ! grep -q 'nameserver 8.8.8.8' /etc/resolv.conf 2>/dev/null; then
-    sudo cp /etc/resolv.conf /etc/resolv.conf.backup.`$(date +%s) 2>/dev/null || true
+    sudo cp /etc/resolv.conf /etc/resolv.conf.backup.$(date +%s) 2>/dev/null || true
     echo 'nameserver 8.8.8.8' | sudo tee -a /etc/resolv.conf > /dev/null
 fi
-"@
+'@
     wsl bash -c $dnsConfigCmd
 
     # Fix 4: Prevent WSL from overwriting resolv.conf
     Write-Host "Configuring WSL to preserve DNS settings..."
-    $wslConfCmd = @"
+    $wslConfCmd = @'
 if grep -q 'generateResolvConf *= *false' /etc/wsl.conf 2>/dev/null; then
     : # Already configured
 elif grep -q 'generateResolvConf' /etc/wsl.conf 2>/dev/null; then
@@ -358,7 +358,7 @@ elif grep -q '^\[network\]' /etc/wsl.conf 2>/dev/null; then
 else
     printf '\n[network]\ngenerateResolvConf = false\n' | sudo tee -a /etc/wsl.conf > /dev/null
 fi
-"@
+'@
     wsl bash -c $wslConfCmd
 
     Write-Success "Networking fixes applied"
