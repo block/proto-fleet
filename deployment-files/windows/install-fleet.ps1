@@ -76,7 +76,7 @@ function Write-Success {
     Write-Host "✓ $Message" -ForegroundColor Green
 }
 
-function Write-Warning {
+function Write-WarningMsg {
     param([string]$Message)
     Write-Host "⚠ $Message" -ForegroundColor Yellow
 }
@@ -459,7 +459,7 @@ function New-EnvironmentFile {
         Write-Host "Auth client secret key (minimum 32 characters):"
         $authKey = Read-SecureInput "Enter Auth client secret key"
         while ($authKey.Length -lt 32) {
-            Write-Warning "Secret key must be at least 32 characters long (current: $($authKey.Length))"
+            Write-WarningMsg "Secret key must be at least 32 characters long (current: $($authKey.Length))"
             $authKey = Read-SecureInput "Enter Auth client secret key"
         }
         wsl bash -c "echo 'AUTH_CLIENT_SECRET_KEY=$authKey' >> '$envFile'"
@@ -488,7 +488,7 @@ validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
 "@
 
         while ($valid -ne "valid") {
-            Write-Warning "The provided key is not valid Base64 or doesn't decode to 32 bytes"
+            Write-WarningMsg "The provided key is not valid Base64 or doesn't decode to 32 bytes"
             $encryptKey = Read-SecureInput "Enter Encryption service master key"
             $valid = wsl bash -c @"
 validate_key() {
@@ -588,7 +588,7 @@ function Set-SSLConfiguration {
                     $protocolMode = "https"
                 }
                 else {
-                    Write-Warning "Falling back to HTTP mode"
+                    Write-WarningMsg "Falling back to HTTP mode"
                     $protocolMode = "http"
                 }
             }
@@ -709,7 +709,7 @@ function Invoke-MySQLVolumePrompt {
 
     if (-not [string]::IsNullOrWhiteSpace($volumeName)) {
         Write-Host ""
-        Write-Warning "Detected existing MySQL data volume: $volumeName"
+        Write-WarningMsg "Detected existing MySQL data volume: $volumeName"
         Write-Host ""
 
         if ($Force) {
@@ -729,7 +729,7 @@ function Invoke-MySQLVolumePrompt {
             Write-Success "Volume removed; new credentials will apply on next startup"
         }
         else {
-            Write-Warning "Keeping existing MySQL data. New credentials will NOT be applied."
+            Write-WarningMsg "Keeping existing MySQL data. New credentials will NOT be applied."
             Write-Host "If you want to use new credentials, run this script again and choose to remove the volume."
         }
     }
@@ -809,7 +809,7 @@ function Wait-ForHealthyServices {
         Write-Host "`r" -NoNewline
     }
 
-    Write-Warning "Services may still be starting up"
+    Write-WarningMsg "Services may still be starting up"
     return $false
 }
 

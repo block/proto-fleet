@@ -56,7 +56,7 @@ function Write-Success {
     Write-Host "✓ $Message" -ForegroundColor Green
 }
 
-function Write-Warning {
+function Write-WarningMsg {
     param([string]$Message)
     Write-Host "⚠ $Message" -ForegroundColor Yellow
 }
@@ -117,7 +117,7 @@ function Test-SystemRequirements {
     # Display warnings
     if ($warnings.Count -gt 0) {
         Write-Host ""
-        Write-Warning "System requirement warnings:"
+        Write-WarningMsg "System requirement warnings:"
         foreach ($warning in $warnings) {
             Write-Host "  - $warning" -ForegroundColor Yellow
         }
@@ -166,7 +166,7 @@ function Enable-WSLFeature {
     # Prompt for reboot if needed
     if ($needsReboot) {
         Write-Host ""
-        Write-Warning "A system reboot is required to complete WSL installation."
+        Write-WarningMsg "A system reboot is required to complete WSL installation."
         Write-Host "After rebooting, please run this script again to continue setup."
         Write-Host ""
 
@@ -199,7 +199,7 @@ function Set-WSL2AsDefault {
         Write-Success "WSL2 set as default version"
     }
     catch {
-        Write-Warning "Could not set WSL2 as default (this may be normal if WSL is not fully initialized)"
+        Write-WarningMsg "Could not set WSL2 as default (this may be normal if WSL is not fully initialized)"
     }
 }
 
@@ -389,7 +389,7 @@ fi
         wsl bash -c "docker builder prune -af > /dev/null 2>&1 || true"
     }
     else {
-        Write-Warning "Cannot reach Docker registry after $maxRetries attempts"
+        Write-WarningMsg "Cannot reach Docker registry after $maxRetries attempts"
         Write-Host ""
         Write-Host "If you continue to have connectivity issues:"
         Write-Host "1. Close this PowerShell window"
