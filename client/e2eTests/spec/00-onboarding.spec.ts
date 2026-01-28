@@ -1,6 +1,6 @@
 /* eslint-disable playwright/expect-expect */
 import { testConfig } from "../config/test.config";
-import { test } from "../fixtures/pageFixtures";
+import { expect, test } from "../fixtures/pageFixtures";
 
 test.describe("Proto Fleet - Onboarding", () => {
   test.beforeEach(async ({ page }) => {
@@ -62,22 +62,78 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  // Miners auto-authenticate now, breaking the previous logic
-  test.fixme("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
+  test("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
-    await test.step("Authenticate miners", async () => {
+    await test.step("Start authentication process", async () => {
       await homePage.validateCompleteSetupTitle();
       await homePage.clickAuthenticateMinersButton();
       await homePage.validateAuthenticateMinersModalTitle();
-      await homePage.inputMinerAuthUsername(testConfig.miners.username);
-      await homePage.inputMinerAuthPassword(testConfig.miners.password);
+    });
+
+    await test.step("Validate 4 miners need authentication - S17, S19, S19, S21", async () => {
+      await homePage.validateTextInModal("Bulk authenticate");
+      await homePage.validateTextInModal("4 miners remaining");
+      await homePage.clickShowMinersButton();
+      await homePage.validateTextInModal("Bulk authenticate");
+      await homePage.validateTextInModal("4 miners remaining");
+      const miners = await homePage.getListOfMinersToAuthenticate();
+      expect(miners.length).toBe(4);
+      expect(miners).toContain("Antminer S21 XP");
+      expect(miners).toContain("Antminer S17 XP");
+      expect(miners.filter((model) => model === "Antminer S19 XP").length).toBe(2);
+    });
+
+    await test.step("Bulk authenticate all miners with S19 credentials", async () => {
+      await homePage.inputMinerAuthUsername("root19");
+      await homePage.inputMinerAuthPassword("root19");
       await homePage.clickAuthenticateMinersConfirmButton();
-      await homePage.validateCompleteSetupTitleNotVisible();
-      await homePage.validateAuthenticateMinersButtonNotVisible();
+    });
+
+    await test.step("Validate S19 miners authenticated, but S21 and S17 not", async () => {
+      await homePage.validateTextInToast("You authenticated 2 of 4 miners.");
+      await homePage.validateCalloutInModal("Try your username and password again.");
+      await homePage.clickCalloutButton();
+      const miners = await homePage.getListOfMinersToAuthenticate();
+      expect(miners.length).toBe(2);
+      expect(miners).toContain("Antminer S21 XP");
+      expect(miners).toContain("Antminer S17 XP");
+    });
+
+    await test.step("Try authenticating S21 miner incorrectly with S17 miner's credentials", async () => {
+      await homePage.clickMinerAuthCheckbox("Antminer S17 XP");
+      await homePage.inputMinerRowUsername("Antminer S21 XP", "root17");
+      await homePage.inputMinerRowPassword("Antminer S21 XP", "root17");
+      await homePage.clickAuthenticateMinersConfirmButton();
+    });
+
+    await test.step("Validate S21 miner's authentication failed", async () => {
+      await homePage.validateTextInToast("Authentication failed. Please check your credentials and try again.");
+      await homePage.validateCalloutInModal("Try your username and password again.");
+      await homePage.clickCalloutButton();
+    });
+
+    await test.step("Authenticating S21 miner", async () => {
+      await homePage.inputMinerRowUsername("Antminer S21 XP", "root21");
+      await homePage.inputMinerRowPassword("Antminer S21 XP", "root21");
+      await homePage.clickAuthenticateMinersConfirmButton();
+    });
+
+    await test.step("Validate S21 miner successfully authenticated", async () => {
+      await homePage.validateTextInToast("1 miner authenticated.");
+      await homePage.validateNoCalloutInModal();
+    });
+
+    await test.step("Bulk authenticate last miner - S17", async () => {
+      await homePage.clickMinerAuthCheckbox("Antminer S17 XP");
+      await homePage.inputMinerAuthUsername("root17");
+      await homePage.inputMinerAuthPassword("root17");
+      await homePage.clickAuthenticateMinersConfirmButton();
     });
 
     await test.step("Validate all miners authenticated", async () => {
+      await homePage.validateTextInToast("All miners authenticated.");
+      await homePage.validateModalClosed();
       await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
     });

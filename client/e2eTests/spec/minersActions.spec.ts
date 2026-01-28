@@ -1,6 +1,9 @@
 /* eslint-disable playwright/expect-expect */
-import { testConfig } from "../config/test.config";
+import { AuthPage } from "e2eTests/pages/auth";
 import { test } from "../fixtures/pageFixtures";
+import { CommonSteps } from "../helpers/commonSteps";
+import { HomePage } from "../pages/home";
+import { MinersPage } from "../pages/miners";
 
 test.describe("Miners", () => {
   test.beforeEach(async ({ page }) => {
@@ -408,25 +411,44 @@ test.describe("Miners", () => {
     });
   });
 
-  // Miners auto-authenticate now, breaking the previous logic
-  test.fixme("CLEANUP: Re-authenticate added miners", async ({ homePage, commonSteps }) => {
-    // Workaround - re-added Antminers need authentication again
-    await commonSteps.loginAsAdmin();
+  // Cleanup - re-added Antminers might need authentication again
+  test.afterAll("CLEANUP: Re-authenticate added miners", async ({ browser }, testInfo) => {
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto("/");
 
-    await test.step("Authenticate miners", async () => {
-      await homePage.validateCompleteSetupTitle();
+    try {
+      const homePage = new HomePage(page, isMobile);
+      const authPage = new AuthPage(page, isMobile);
+      const minersPage = new MinersPage(page, isMobile);
+      const commonSteps = new CommonSteps(authPage, minersPage);
+
+      await commonSteps.loginAsAdmin();
+
       await homePage.clickAuthenticateMinersButton();
       await homePage.validateAuthenticateMinersModalTitle();
-      await homePage.inputMinerAuthUsername(testConfig.miners.username);
-      await homePage.inputMinerAuthPassword(testConfig.miners.password);
-      await homePage.clickAuthenticateMinersConfirmButton();
-      await homePage.validateCompleteSetupTitleNotVisible();
-      await homePage.validateAuthenticateMinersButtonNotVisible();
-    });
+      await homePage.clickShowMinersButton();
+      const miners = await homePage.getListOfMinersToAuthenticate();
 
-    await test.step("Validate all miners authenticated", async () => {
-      await homePage.validateCompleteSetupTitleNotVisible();
-      await homePage.validateAuthenticateMinersButtonNotVisible();
-    });
+      if (miners.some((miner) => miner.includes("S17 XP"))) {
+        await homePage.inputMinerAuthUsername("root17");
+        await homePage.inputMinerAuthPassword("root17");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      if (miners.some((miner) => miner.includes("S19 XP"))) {
+        await homePage.inputMinerAuthUsername("root19");
+        await homePage.inputMinerAuthPassword("root19");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      if (miners.some((miner) => miner.includes("S21 XP"))) {
+        await homePage.inputMinerAuthUsername("root21");
+        await homePage.inputMinerAuthPassword("root21");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      await homePage.validateModalClosed();
+    } finally {
+      await context.close();
+    }
   });
 });

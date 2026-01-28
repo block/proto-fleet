@@ -51,8 +51,8 @@ func main() {
 				Pass: "x",
 			},
 		},
-		Username:    "root",
-		Password:    "root",
+		Username:    getEnv("USERNAME", "root"),
+		Password:    getEnv("PASSWORD", "root"),
 		ErrorConfig: errorConfig,
 	}
 

@@ -138,5 +138,5 @@ test-e2e-headed: install-playwright
 
 [working-directory: 'client/e2eTests']
 test-e2e-wip: install-playwright
-  npx playwright test --grep @wip --project=desktop
+  npx playwright test --headed --grep @wip --project=desktop
   

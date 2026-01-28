@@ -1,4 +1,5 @@
 import { expect, Page } from "@playwright/test";
+import { DEFAULT_TIMEOUT } from "../config/test.config";
 
 export class BasePage {
   constructor(
@@ -49,6 +50,21 @@ export class BasePage {
 
   async validateTextIsVisible(text: string) {
     await expect(this.page.getByText(text)).toBeVisible();
+  }
+
+  async validateTextInToast(text: string) {
+    const toastLocator = this.page.locator(
+      `//*[@data-testid='toast' or @data-testid='grouped-toaster-header']//*[contains(text(),"${text}")]`,
+    );
+    await expect(toastLocator).toBeVisible();
+  }
+
+  async validateTextInModal(text: string) {
+    await expect(this.page.getByTestId("modal").getByText(text)).toBeVisible();
+  }
+
+  async validateTextNotInModal(text: string) {
+    await expect(this.page.getByTestId("modal").getByText(text)).toBeHidden();
   }
 
   async validateButtonIsVisible(text: string) {
@@ -125,7 +141,28 @@ export class BasePage {
     await this.page.getByRole("button", { name: text, disabled: false }).click();
   }
 
+  async clickUntilNotVisible(text: string) {
+    const button = this.page.getByRole("button", { name: text, disabled: false });
+
+    await expect(button).toBeVisible();
+    await expect(async () => {
+      const isVisible = await button.isVisible();
+      if (isVisible) {
+        await button.click();
+        throw new Error("Button still visible, looping until it is not or the time runs out");
+      }
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
+  }
+
   async clickIn(text: string, testId: string) {
     await this.page.getByTestId(testId).getByRole("button", { name: text, disabled: false }).click();
+  }
+
+  async validateModalIsOpen() {
+    await expect(this.page.getByTestId("modal")).toBeVisible();
+  }
+
+  async validateModalIsClosed() {
+    await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 }

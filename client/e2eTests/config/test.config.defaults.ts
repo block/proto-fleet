@@ -13,8 +13,8 @@ export const defaultTestConfig = {
     password: "root",
   },
 
-  testTimeout: 120000,
-  actionTimeout: 15000,
+  testTimeout: 180000,
+  actionTimeout: 30000,
   interval: 500,
 };
 

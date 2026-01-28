@@ -53,4 +53,50 @@ export class HomePage extends BasePage {
   async clickPowerSuppliesLink() {
     await this.page.getByRole("link", { name: "Power supplies" }).click();
   }
+
+  async getListOfMinersToAuthenticate(): Promise<string[]> {
+    return this.page.getByTestId("modal").getByTestId("model").allTextContents();
+  }
+
+  async clickShowMinersButton() {
+    await this.page.getByTestId("modal").getByRole("button", { name: "Show miners" }).click();
+  }
+
+  async validateCalloutInModal(text: string) {
+    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']").getByText(text)).toBeVisible();
+  }
+
+  async validateNoCalloutInModal() {
+    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']")).toBeHidden();
+  }
+
+  async clickCalloutButton() {
+    await this.page.getByTestId("modal").locator("[data-testid*='callout']").getByRole("button").click();
+  }
+
+  async getMinerRowByModel(model: string) {
+    return this.page
+      .getByTestId("modal")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("model").getByText(model) });
+  }
+
+  async clickMinerAuthCheckbox(model: string) {
+    const row = await this.getMinerRowByModel(model);
+    await row.locator('input[type="checkbox"]').click();
+  }
+
+  async inputMinerRowUsername(model: string, username: string) {
+    const row = await this.getMinerRowByModel(model);
+    await row.getByTestId("username").locator("input").fill(username);
+  }
+
+  async inputMinerRowPassword(model: string, password: string) {
+    const row = await this.getMinerRowByModel(model);
+    await row.getByTestId("password").locator("input").fill(password);
+  }
+
+  async validateModalClosed() {
+    await expect(this.page.getByTestId("modal")).toBeHidden();
+  }
 }

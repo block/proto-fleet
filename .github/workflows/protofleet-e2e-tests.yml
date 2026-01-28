@@ -171,8 +171,8 @@ jobs:
       - name: Start simulated miners
         working-directory: server
         run: |
-          # Scale up miner simulators (5 fake-proto-rig + 5 Antminer = 10 total)
-          docker compose up -d --scale fake-proto-rig=5 --scale fake-antminer=5
+          # Start miner simulators with default configuration (14 total: 5 MMS + 2 fake-antminer + 7 named variants)
+          docker compose up -d
 
           # Give miners time to start
           sleep 10

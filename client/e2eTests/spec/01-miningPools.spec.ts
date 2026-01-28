@@ -72,15 +72,19 @@ test.describe("Mining Pools @setup", () => {
     });
 
     await test.step("Add default mining pool", async () => {
-      await editPoolPage.clickAddDefaultMiningPool();
+      await editPoolPage.clickAddPoolButton();
       await editPoolPage.clickAddNewPool();
+      await editPoolPage.validateModalIsOpen();
       await newPoolModal.inputPoolName(poolName);
       await newPoolModal.inputPoolUrl(validPoolUrl);
       await newPoolModal.inputPoolUsername(poolUsername);
       await newPoolModal.clickTestConnection();
       await newPoolModal.validateConnectionSuccessful();
       await newPoolModal.clickSaveNewPool();
+      await editPoolPage.validateModalIsClosed();
+      await editPoolPage.validatePoolByIndex(0, poolName, validPoolUrl);
       await editPoolPage.clickAssignToXMiners(amountOfMiners);
+      await editPoolPage.validateTextInToast("Update complete");
     });
 
     await test.step("Validate the pool has been assigned", async () => {
@@ -88,7 +92,7 @@ test.describe("Mining Pools @setup", () => {
     });
   });
 
-  test("Add to first miner backup pool created from settings", async ({
+  test("Add pool created from settings and reorder", async ({
     settingsPage,
     settingsPoolsPage,
     newPoolModal,
@@ -96,8 +100,8 @@ test.describe("Mining Pools @setup", () => {
     editPoolPage,
     commonSteps,
   }) => {
-    const settingsPoolName = generateRandomText("PoolName");
-    const poolUsername = generateRandomText("PoolUsername");
+    const newPoolName = generateRandomText("PoolName");
+    const newPoolUsername = generateRandomText("PoolUsername");
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to mining pools settings", async () => {
@@ -107,17 +111,20 @@ test.describe("Mining Pools @setup", () => {
 
     await test.step("Add a pool", async () => {
       await settingsPoolsPage.clickAddPool();
-      await newPoolModal.inputPoolName(settingsPoolName);
+      await newPoolModal.inputPoolName(newPoolName);
       await newPoolModal.inputPoolUrl(validPoolUrl);
-      await newPoolModal.inputPoolUsername(poolUsername);
+      await newPoolModal.inputPoolUsername(newPoolUsername);
       await newPoolModal.clickSaveNewPool();
-      await settingsPoolsPage.validatePoolEntryByUniqueName(settingsPoolName, validPoolUrl, poolUsername);
+      await settingsPoolsPage.validatePoolEntryByUniqueName(newPoolName, validPoolUrl, newPoolUsername);
+      await settingsPoolsPage.validateTextInToast("Pool added");
     });
 
     await commonSteps.goToMinersPage();
 
     let minerIp: string;
     let minerStatus: string;
+    let existingPoolName: string;
+    let existingPoolUrl: string;
 
     await test.step("Open pool editor for first miner", async () => {
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
@@ -126,15 +133,51 @@ test.describe("Mining Pools @setup", () => {
       await minersPage.clickEditMiningPoolButton();
     });
 
-    await test.step("Select backup mining pool", async () => {
-      await editPoolPage.clickAddBackupPoolOne();
-      await editPoolPage.clickPoolRowByName(settingsPoolName);
+    await test.step("Get existing pool details", async () => {
+      await editPoolPage.validatePoolCount(1);
+      existingPoolName = await editPoolPage.getPoolNameByIndex(0);
+      existingPoolUrl = await editPoolPage.getPoolUrlByIndex(0);
+    });
+
+    await test.step("Add another pool to the miner", async () => {
+      await editPoolPage.clickAddAnotherPoolButton();
+      await editPoolPage.validateModalIsOpen();
+      await editPoolPage.clickPoolRowByName(newPoolName);
       await editPoolPage.clickSavePoolChoice();
+      await editPoolPage.validateModalIsClosed();
+    });
+
+    await test.step("Validate pool order", async () => {
+      await editPoolPage.validatePoolCount(2);
+      await editPoolPage.validatePoolByIndex(0, existingPoolName, existingPoolUrl);
+      await editPoolPage.validatePoolByIndex(1, newPoolName, validPoolUrl);
+    });
+
+    await test.step("Reorder mining pools", async () => {
+      await editPoolPage.reorderPoolByDragging(1, 0);
+    });
+
+    await test.step("Validate pool order after reorder", async () => {
+      await editPoolPage.validatePoolCount(2);
+      await editPoolPage.validatePoolByIndex(0, newPoolName, validPoolUrl);
+      await editPoolPage.validatePoolByIndex(1, existingPoolName, existingPoolUrl);
+    });
+
+    await test.step("Save pool changes", async () => {
       await editPoolPage.clickAssignToXMiners(1);
+      await editPoolPage.validateTextInToast("Update complete");
     });
 
     await test.step("Validate miner's status did not change", async () => {
       await minersPage.validateMinerStatus(minerIp, minerStatus);
+    });
+
+    await test.step("Reopen miner and validate the pools have been saved successfully", async () => {
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickEditMiningPoolButton();
+      await editPoolPage.validatePoolCount(2);
+      await editPoolPage.validatePoolByIndex(0, newPoolName, validPoolUrl);
+      await editPoolPage.validatePoolByIndex(1, existingPoolName, existingPoolUrl);
     });
   });
 });

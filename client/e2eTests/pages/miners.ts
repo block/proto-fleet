@@ -22,6 +22,8 @@ export class MinersPage extends BasePage {
 
   private async filterMinersByType(minerType: string) {
     await this.click("Type");
+    // Filter glitches if done too quickly
+    await this.waitForColumnValuesToLoad("hashrate");
     await this.page.locator(`//div[text()='${minerType}']/following-sibling::*//input`).click();
     await this.click("Apply");
   }
@@ -288,7 +290,7 @@ export class MinersPage extends BasePage {
   }
 
   async validateMinerNotPresent(ipAddress: string) {
-    const minerRow = this.page.getByTestId(`ipAddress`).getByText(ipAddress);
+    const minerRow = this.page.getByTestId(`ipAddress`).getByText(ipAddress, { exact: true });
     await expect(minerRow).toBeHidden();
   }
 

@@ -164,6 +164,7 @@ const SortablePoolRow = ({
       role="button"
       aria-label="Drag to reorder pool"
       className="cursor-grab touch-none text-text-primary-50 hover:text-text-primary active:cursor-grabbing"
+      data-testid={`reorder-handle`}
     >
       <Grip width="w-5" />
     </div>

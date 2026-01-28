@@ -42,14 +42,19 @@ const FleetPoolRow = ({ pool, priorityNumber, onUpdate, onTestConnection, onRemo
             role="button"
             aria-label="Drag to reorder pool"
             className="cursor-grab touch-none text-text-primary-50 hover:text-text-primary active:cursor-grabbing"
+            data-testid={`reorder-handle`}
           >
             <Grip width="w-5" />
           </div>
 
           {/* Pool info */}
           <div className="flex min-w-0 flex-col">
-            <div className="truncate text-text-primary">{displayTitle}</div>
-            <div className="truncate text-200 text-text-primary-70">{pool.poolUrl}</div>
+            <div className="truncate text-text-primary" data-testid="pool-name">
+              {displayTitle}
+            </div>
+            <div className="truncate text-200 text-text-primary-70" data-testid="pool-url">
+              {pool.poolUrl}
+            </div>
           </div>
         </div>
 

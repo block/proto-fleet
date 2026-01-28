@@ -1,6 +1,15 @@
+import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class EditPoolPage extends BasePage {
+  async clickAddPoolButton() {
+    await this.page.getByTestId("add-pool-button").click();
+  }
+
+  async clickAddAnotherPoolButton() {
+    await this.page.getByTestId("add-another-pool-button").click();
+  }
+
   async clickAddDefaultMiningPool() {
     await this.clickIn("Add pool", "default-pool");
   }
@@ -25,5 +34,32 @@ export class EditPoolPage extends BasePage {
     const minerCount = await Promise.resolve(count);
     const buttonText = `Assign to ${minerCount} miner${minerCount === 1 ? "" : "s"}`;
     await this.click(buttonText);
+  }
+
+  async getPoolNameByIndex(index: number): Promise<string> {
+    const poolRow = this.page.getByTestId(`pool-row-${index}`);
+    return await poolRow.getByTestId("pool-name").innerText();
+  }
+
+  async getPoolUrlByIndex(index: number): Promise<string> {
+    const poolRow = this.page.getByTestId(`pool-row-${index}`);
+    return await poolRow.getByTestId("pool-url").innerText();
+  }
+
+  async validatePoolCount(count: number) {
+    const poolRows = this.page.getByTestId(/^pool-row-\d+$/);
+    await expect(poolRows).toHaveCount(count);
+  }
+
+  async validatePoolByIndex(index: number, name: string, url: string) {
+    const poolRow = this.page.getByTestId(`pool-row-${index}`);
+    await expect(poolRow.getByTestId("pool-name")).toHaveText(name);
+    await expect(poolRow.getByTestId("pool-url")).toHaveText(url);
+  }
+
+  async reorderPoolByDragging(fromIndex: number, toIndex: number) {
+    const sourceHandle = this.page.getByTestId(`pool-row-${fromIndex}`).getByTestId("reorder-handle");
+    const targetHandle = this.page.getByTestId(`pool-row-${toIndex}`).getByTestId("reorder-handle");
+    await sourceHandle.dragTo(targetHandle);
   }
 }

@@ -117,6 +117,8 @@ services:
     environment:
       MINER_TYPE: "Antminer S19 XP"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root19"
+      PASSWORD: "root19"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 10s
@@ -188,6 +190,8 @@ services:
     environment:
       MINER_TYPE: "Antminer S21 XP"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root21"
+      PASSWORD: "root21"
       ERROR_BOARD_NOT_ALIVE: "true"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
@@ -209,6 +213,8 @@ services:
     environment:
       MINER_TYPE: "Antminer S17 XP"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root17"
+      PASSWORD: "root17"
       ERROR_POOL_NOT_ALIVE: "true"
       ERROR_POOL_GET_FAILURES: "15"
     healthcheck:

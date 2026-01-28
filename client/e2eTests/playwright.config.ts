@@ -29,7 +29,7 @@ export default defineConfig({
     baseURL: testConfig.baseUrl,
 
     /* Set a consistent viewport size for all tests */
-    viewport: { width: 1920, height: 1080 },
+    viewport: { width: 1600, height: 900 },
 
     /* Set default timeout for actions like click, fill, etc. */
     actionTimeout: testConfig.actionTimeout,
@@ -47,7 +47,7 @@ export default defineConfig({
     {
       name: "desktop",
       use: {
-        viewport: { width: 1920, height: 1080 },
+        viewport: { width: 1600, height: 900 },
         isMobile: false,
       },
     },

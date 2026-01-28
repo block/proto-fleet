@@ -92,7 +92,7 @@ const Callout = ({
   }
 
   return (
-    <div className={clsx("rounded-xl shadow-100", className)}>
+    <div className={clsx("rounded-xl shadow-100", className)} data-testid="callout">
       {header && /(information|success|warning|danger)/.test(intent) && (
         <div className={clsx("rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast", bgColor)}>{header}</div>
       )}

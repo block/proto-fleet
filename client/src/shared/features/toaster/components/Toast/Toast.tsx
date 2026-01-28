@@ -61,7 +61,10 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
       transition={{ duration: 0.3, ease: easeGentle }}
       variants={{ hover: { scale: 1, y: hoverYOffset + extraPaddingForHover } }}
     >
-      <div className="w-100 max-w-[calc(100vw-1rem)] space-x-3 rounded-lg bg-surface-elevated-base p-3 shadow-100">
+      <div
+        className="w-100 max-w-[calc(100vw-1rem)] space-x-3 rounded-lg bg-surface-elevated-base p-3 shadow-100"
+        data-testid="toast"
+      >
         <div
           className={clsx(
             "flex items-center transition-opacity duration-200 group-hover:opacity-100",
