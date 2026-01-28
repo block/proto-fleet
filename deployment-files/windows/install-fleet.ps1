@@ -180,9 +180,10 @@ function Find-PreviousInstallDir {
     Write-Step "Checking for previous Proto Fleet installations..."
 
     # Try to find container with fleet-api in the name
-    $containerId = wsl bash -c @"
+    $findContainerCmd = @"
 docker ps -a --filter 'name=${DEPLOYMENT_DIR}-fleet-api' --filter 'name=${DEPLOYMENT_DIR}_fleet-api' --format '{{.ID}}' 2>/dev/null | head -n 1 || true
 "@
+    $containerId = wsl bash -c $findContainerCmd
 
     if ([string]::IsNullOrWhiteSpace($containerId)) {
         Write-Host "No previous installation detected."
@@ -190,9 +191,10 @@ docker ps -a --filter 'name=${DEPLOYMENT_DIR}-fleet-api' --filter 'name=${DEPLOY
     }
 
     # Get mount path from container
-    $mountPath = wsl bash -c @"
+    $inspectCmd = @"
 docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' '$containerId' 2>/dev/null || true
 "@
+    $mountPath = wsl bash -c $inspectCmd
 
     if ([string]::IsNullOrWhiteSpace($mountPath)) {
         return $null
@@ -469,7 +471,7 @@ function New-EnvironmentFile {
         $encryptKey = Read-SecureInput "Enter Encryption service master key"
 
         # Validate Base64 key
-        $valid = wsl bash -c @"
+        $validateKeyCmd = @"
 validate_key() {
     local input="`$1"
     local temp_file=`$(mktemp)
@@ -486,11 +488,12 @@ validate_key() {
 }
 validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
 "@
+        $valid = wsl bash -c $validateKeyCmd
 
         while ($valid -ne "valid") {
             Write-WarningMsg "The provided key is not valid Base64 or doesn't decode to 32 bytes"
             $encryptKey = Read-SecureInput "Enter Encryption service master key"
-            $valid = wsl bash -c @"
+            $validateKeyCmd = @"
 validate_key() {
     local input="`$1"
     local temp_file=`$(mktemp)
@@ -507,6 +510,7 @@ validate_key() {
 }
 validate_key '$encryptKey' && echo 'valid' || echo 'invalid'
 "@
+            $valid = wsl bash -c $validateKeyCmd
         }
 
         wsl bash -c "echo 'ENCRYPT_SERVICE_MASTER_KEY=$encryptKey' >> '$envFile'"
