@@ -498,6 +498,6 @@ else {
     Write-Host "Troubleshooting steps:"
     Write-Host "1. Run: wsl --shutdown"
     Write-Host "2. Run this script again"
-    Write-Host "3. If issues persist, check Docker logs: wsl sudo journalctl -u docker"
+    Write-Host -- "3. If issues persist, check Docker logs: wsl sudo journalctl -u docker"
     exit 1
 }
