@@ -201,7 +201,8 @@ docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/s
     }
 
     # Extract installation directory
-    $installDir = wsl bash -c "echo '$mountPath' | sed 's|/${DEPLOYMENT_DIR}.*`$||' || true"
+    $sedCmd = "echo '$mountPath' | sed 's|/${DEPLOYMENT_DIR}.*`$||' || true"
+    $installDir = wsl bash -c $sedCmd
 
     if (-not [string]::IsNullOrWhiteSpace($installDir)) {
         Write-Success "Found previous installation at: $installDir"
@@ -281,7 +282,8 @@ function Expand-InWSL {
 
     # Check if we need to preserve existing .env file
     $envFile = "$TargetDir/$DEPLOYMENT_DIR/server/influx_config/.env"
-    $preserveEnv = wsl bash -c "[ -f '$envFile' ] && echo 'yes' || echo 'no'"
+    $checkEnvCmd = "[ -f '$envFile' ] && echo 'yes' || echo 'no'"
+    $preserveEnv = wsl bash -c $checkEnvCmd
 
     if ($preserveEnv -eq "yes") {
         Write-Host "Preserving existing InfluxDB config .env file"
@@ -312,7 +314,8 @@ function Test-PluginBinaries {
     $missingPlugins = @()
 
     foreach ($plugin in $REQUIRED_PLUGINS) {
-        $exists = wsl bash -c "[ -f '$DeploymentPath/server/$plugin' ] && echo 'yes' || echo 'no'"
+        $checkPluginCmd = "[ -f '$DeploymentPath/server/$plugin' ] && echo 'yes' || echo 'no'"
+        $exists = wsl bash -c $checkPluginCmd
         if ($exists -ne "yes") {
             $missingPlugins += $plugin
         }
@@ -348,7 +351,8 @@ function Test-EnvFileComplete {
     $allPresent = $true
 
     foreach ($key in $requiredKeys) {
-        $hasKey = wsl bash -c "grep -q '^$key=' '$EnvFilePath' 2>/dev/null && echo 'yes' || echo 'no'"
+        $checkKeyCmd = "grep -q '^$key=' '$EnvFilePath' 2>/dev/null && echo 'yes' || echo 'no'"
+        $hasKey = wsl bash -c $checkKeyCmd
         if ($hasKey -ne "yes") {
             Write-Host "Missing required key: $key" -ForegroundColor Red
             $allPresent = $false
@@ -391,7 +395,8 @@ function New-EnvironmentFile {
     $envFile = "$DeploymentPath/.env"
 
     # Check for existing complete env file
-    $existingEnvFile = wsl bash -c "[ -f '$envFile' ] && echo 'yes' || echo 'no'"
+    $checkExistingCmd = "[ -f '$envFile' ] && echo 'yes' || echo 'no'"
+    $existingEnvFile = wsl bash -c $checkExistingCmd
 
     if ($existingEnvFile -eq "yes") {
         if (Test-EnvFileComplete -EnvFilePath $envFile) {
@@ -556,7 +561,8 @@ function Set-SSLConfiguration {
     wsl bash -c "mkdir -p '$sslDir'"
 
     # Check if certificates already exist
-    $certExists = wsl bash -c "[ -f '$sslCert' ] && [ -f '$sslKey' ] && echo 'yes' || echo 'no'"
+    $checkCertCmd = "[ -f '$sslCert' ] && [ -f '$sslKey' ] && echo 'yes' || echo 'no'"
+    $certExists = wsl bash -c $checkCertCmd
 
     $protocolMode = "http"
 
@@ -630,7 +636,8 @@ function Set-SSLConfiguration {
     $envFile = "$DeploymentPath/.env"
     $cookieSecure = if ($protocolMode -eq "https") { "true" } else { "false" }
 
-    $hasSettingResult = wsl bash -c "grep -q '^SESSION_COOKIE_SECURE=' '$envFile' && echo 'yes' || echo 'no'"
+    $checkSettingCmd = "grep -q '^SESSION_COOKIE_SECURE=' '$envFile' && echo 'yes' || echo 'no'"
+    $hasSettingResult = wsl bash -c $checkSettingCmd
 
     if ($hasSettingResult -eq "yes") {
         wsl bash -c "sed -i 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=$cookieSecure/' '$envFile'"
@@ -708,8 +715,10 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 function Invoke-MySQLVolumePrompt {
     param([string]$DeploymentPath)
 
-    $projectName = wsl bash -c "basename '$DeploymentPath' | sed 's|/$DEPLOYMENT_DIR`$||'"
-    $volumeName = wsl bash -c "docker volume ls -q | grep -E '^${projectName}[-_]mysql`$' || true"
+    $baseNameCmd = "basename '$DeploymentPath' | sed 's|/$DEPLOYMENT_DIR`$||'"
+    $projectName = wsl bash -c $baseNameCmd
+    $volumeCmd = "docker volume ls -q | grep -E '^${projectName}[-_]mysql`$' || true"
+    $volumeName = wsl bash -c $volumeCmd
 
     if (-not [string]::IsNullOrWhiteSpace($volumeName)) {
         Write-Host ""
@@ -797,11 +806,13 @@ function Wait-ForHealthyServices {
         $elapsed += 2
 
         # Check service status
-        $status = wsl bash -c "cd '$DeploymentPath' && docker compose ps --format json 2>/dev/null || echo '[]'"
+        $statusCmd = "cd '$DeploymentPath' && docker compose ps --format json 2>/dev/null || echo '[]'"
+        $status = wsl bash -c $statusCmd
 
         if ($status -ne "[]") {
             # Simple check: if containers are running
-            $runningCount = wsl bash -c "cd '$DeploymentPath' && docker compose ps --format '{{.State}}' 2>/dev/null | grep -c 'running' || echo '0'"
+            $runningCmd = "cd '$DeploymentPath' && docker compose ps --format '{{.State}}' 2>/dev/null | grep -c 'running' || echo '0'"
+            $runningCount = wsl bash -c $runningCmd
 
             if ([int]$runningCount -gt 0) {
                 Write-Success "Services are running"

@@ -287,11 +287,11 @@ function Install-DockerInWSL {
 
     # Enable Docker service (try systemd first, fall back to service)
     Write-Host "Enabling Docker to start on boot..."
-    wsl bash -c "sudo systemctl enable docker 2>/dev/null || true"
+    wsl bash -c 'sudo systemctl enable docker 2>/dev/null || true'
 
     # Start Docker daemon
     Write-Host "Starting Docker daemon..."
-    wsl bash -c "sudo service docker start 2>/dev/null || sudo systemctl start docker 2>/dev/null"
+    wsl bash -c 'sudo service docker start 2>/dev/null || sudo systemctl start docker 2>/dev/null'
 
     # Wait for Docker to be ready
     Write-Host "Waiting for Docker daemon to be ready..."
@@ -317,7 +317,8 @@ function Set-WSLNetworkingFixes {
 
     # Fix 1: Configure IPv4 preference in /etc/gai.conf
     Write-Host "Configuring IPv4 preference..."
-    wsl bash -c "if ! grep -qF 'precedence ::ffff:0:0/96 100' /etc/gai.conf 2>/dev/null; then echo 'precedence ::ffff:0:0/96 100' | sudo tee -a /etc/gai.conf > /dev/null; fi"
+    $gaiConfCmd = "if ! grep -qF 'precedence ::ffff:0:0/96 100' /etc/gai.conf 2>/dev/null; then echo 'precedence ::ffff:0:0/96 100' | sudo tee -a /etc/gai.conf > /dev/null; fi"
+    wsl bash -c $gaiConfCmd
 
     # Fix 2: Disable IPv6 routing
     Write-Host "Disabling IPv6 routing..."
@@ -389,7 +390,7 @@ fi
 
         # Clear Docker build cache from any previous failed attempts
         Write-Host "Clearing Docker build cache..."
-        wsl bash -c "docker builder prune -af > /dev/null 2>&1 || true"
+        wsl bash -c 'docker builder prune -af > /dev/null 2>&1 || true'
     }
     else {
         Write-WarningMsg "Cannot reach Docker registry after $maxRetries attempts"
