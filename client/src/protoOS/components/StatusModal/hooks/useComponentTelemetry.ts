@@ -27,16 +27,16 @@ export type ComponentTelemetry =
 /**
  * Hook to fetch component telemetry data reactively
  * @param source - The error source type
- * @param componentIndex - The 0-based component index
+ * @param slot - The 1-based component slot
  * @returns Telemetry data for the component
  */
-export function useComponentTelemetry(source: ErrorSource, componentIndex: number | undefined): ComponentTelemetry {
+export function useComponentTelemetry(source: ErrorSource, slot: number | undefined): ComponentTelemetry {
   const componentType = mapErrorSourceToComponentType(source);
 
   // Get hashboard serial if needed (for hashboard type)
   const hashboardSerial = useMinerStore((state) => {
-    if (componentType === "hashboard" && componentIndex !== undefined) {
-      const hashboard = state.hardware.getHashboardBySlot(componentIndex + 1);
+    if (componentType === "hashboard" && slot !== undefined) {
+      const hashboard = state.hardware.getHashboardBySlot(slot);
       return hashboard?.serial;
     }
     return undefined;
@@ -45,14 +45,9 @@ export function useComponentTelemetry(source: ErrorSource, componentIndex: numbe
   // Telemetry data is now fetched in the parent StatusModal component
   // This hook only reads from the store
 
-  // Fetch telemetry from store based on component type
-  const fanTelemetry = useFanTelemetry(
-    componentType === "fan" && componentIndex !== undefined ? componentIndex + 1 : -1, // Pass invalid ID if not a fan
-  );
+  const fanTelemetry = useFanTelemetry(componentType === "fan" && slot !== undefined ? slot : -1);
 
-  const psuTelemetry = usePsuTelemetry(
-    componentType === "psu" && componentIndex !== undefined ? componentIndex + 1 : -1, // Pass invalid ID if not a PSU
-  );
+  const psuTelemetry = usePsuTelemetry(componentType === "psu" && slot !== undefined ? slot : -1);
 
   const hashboardTelemetry = useHashboardTelemetry(
     componentType === "hashboard" && hashboardSerial ? hashboardSerial : "", // Pass empty string if not a hashboard

@@ -61,17 +61,17 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
 
   // Stabilize component values to prevent unnecessary re-renders
   const componentSource = component?.source || "RIG";
-  const componentIndex = component?.componentIndex;
+  const componentSlot = component?.slot;
 
   // Fetch telemetry and hardware data for the selected component
-  const componentTelemetry = useComponentTelemetry(componentSource, componentIndex);
-  const componentHardware = useComponentHardware(componentSource, componentIndex);
+  const componentTelemetry = useComponentTelemetry(componentSource, componentSlot);
+  const componentHardware = useComponentHardware(componentSource, componentSlot);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {
     // Create onClick handler that navigates to component details
-    const onClickHandler = (source: ErrorSource, componentIndex?: number) => {
-      setComponent({ source, componentIndex });
+    const onClickHandler = (source: ErrorSource, slot?: number) => {
+      setComponent({ source, slot });
     };
 
     // Transform grouped errors with click handlers (using hook's grouping)
@@ -117,11 +117,11 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(
     (address: ComponentAddress): ComponentStatusData | undefined => {
-      const { source, componentIndex } = address;
+      const { source, slot } = address;
 
       // Use the telemetry and hardware data from hooks
       // Note: These hooks will be updated when the component changes
-      const props = buildComponentStatusProps(source, componentIndex, errors, componentTelemetry, componentHardware);
+      const props = buildComponentStatusProps(source, slot, errors, componentTelemetry, componentHardware);
 
       if (!props) {
         // Return undefined if component not found

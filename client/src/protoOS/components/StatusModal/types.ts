@@ -9,7 +9,8 @@ import type { ErrorSource } from "@/protoOS/store/types";
  */
 export interface ComponentAddress {
   source: ErrorSource;
-  componentIndex?: number;
+  /** The 1-based component slot */
+  slot?: number;
 }
 
 /**

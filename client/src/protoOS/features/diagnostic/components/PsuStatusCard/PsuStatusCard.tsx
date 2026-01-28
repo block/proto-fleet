@@ -11,12 +11,12 @@ import TemperatureValue from "@/shared/components/TemperatureValue";
 import VoltageValue from "@/shared/components/VoltageValue";
 
 interface PsuStatusCardProps {
-  psuId: number;
+  slot: number;
 }
 
-function PsuStatusCard({ psuId }: PsuStatusCardProps) {
+function PsuStatusCard({ slot }: PsuStatusCardProps) {
   // Fetch data directly from store
-  const psuData = useMinerPsu(psuId);
+  const psuData = useMinerPsu(slot);
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Compute display values
@@ -24,7 +24,7 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
   const outputVoltage = psuData?.outputVoltage?.latest?.value ?? 0;
   const inputPower = psuData?.inputPower?.latest?.value ?? 0;
   const outputPower = psuData?.outputPower?.latest?.value ?? 0;
-  const position = psuData?.slot ?? psuId;
+  const position = psuData?.slot ?? slot;
   const name = `PSU ${position}`;
 
   // Calculate avg and max temps from temperature array
@@ -38,7 +38,7 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
     };
   }, [psuData?.temperatureAverage, psuData?.temperatureHotspot]);
 
-  const errors = useErrorsByComponent("PSU", psuId);
+  const errors = useErrorsByComponent("PSU", slot);
   const hasErrors = errors.length > 0;
 
   return (
@@ -64,7 +64,7 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
           onClose={() => setShowComponentStatusModal(false)}
           componentAddress={{
             source: "PSU",
-            componentIndex: psuId - 1,
+            slot: slot,
           }}
           showBackButton={false}
         />

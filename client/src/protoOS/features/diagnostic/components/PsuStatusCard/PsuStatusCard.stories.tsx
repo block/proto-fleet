@@ -59,13 +59,13 @@ const storyConfigs: Record<
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {
-  const psuId = context.args.psuId;
+  const slot = context.args.slot;
 
   useEffect(() => {
     const store = useMinerStore.getState();
 
-    // Get config for this PSU ID
-    const config = storyConfigs[psuId] || {
+    // Get config for this slot
+    const config = storyConfigs[slot] || {
       slot: 1,
       inputVoltage: 220.0,
       outputVoltage: 12.5,
@@ -76,9 +76,9 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock PSU hardware data
     store.hardware.addPsu({
-      id: psuId,
+      id: slot,
       slot: config.slot,
-      serial: `PSU-${psuId.toString().padStart(6, "0")}`,
+      serial: `PSU-${slot.toString().padStart(6, "0")}`,
       manufacturer: "Murata Power Solutions",
       model: "D3K3-W-3000-12-HC4C5",
       hwRevision: "v2.1",
@@ -89,7 +89,7 @@ const StoreDecorator = (Story: any, context: any) => {
     });
 
     // Mock PSU telemetry data
-    store.telemetry.updatePsuTelemetry(psuId, {
+    store.telemetry.updatePsuTelemetry(slot, {
       inputVoltage: {
         latest: { value: config.inputVoltage, units: "V" },
         timeSeries: {
@@ -154,7 +154,7 @@ const StoreDecorator = (Story: any, context: any) => {
         },
       },
     });
-  }, [psuId]);
+  }, [slot]);
 
   return <Story />;
 };
@@ -168,9 +168,9 @@ const meta: Meta<typeof PsuStatusCard> = {
   },
   tags: ["autodocs"],
   argTypes: {
-    psuId: {
+    slot: {
       control: "number",
-      description: "PSU ID",
+      description: "PSU slot number",
     },
   },
 };
@@ -180,30 +180,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    psuId: 1,
+    slot: 1,
   },
 };
 
 export const WithWarning: Story = {
   args: {
-    psuId: 2,
+    slot: 2,
   },
 };
 
 export const HighLoad: Story = {
   args: {
-    psuId: 3,
+    slot: 3,
   },
 };
 
 export const CriticalState: Story = {
   args: {
-    psuId: 4,
+    slot: 4,
   },
 };
 
 export const Offline: Story = {
   args: {
-    psuId: 5,
+    slot: 5,
   },
 };

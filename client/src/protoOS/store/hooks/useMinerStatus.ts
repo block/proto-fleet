@@ -158,14 +158,14 @@ export const useGroupedErrors = () => {
 /**
  * Returns errors for a specific component
  * @param source - The error source (e.g., "FAN", "PSU")
- * @param componentIndex - The 0-based index of the component
+ * @param slot - The 1-based component slot
  * @returns Array of errors for that specific component
  */
-export const useErrorsByComponent = (source: ErrorSource, componentIndex: number): MinerError[] => {
+export const useErrorsByComponent = (source: ErrorSource, slot: number): MinerError[] => {
   return useMinerStore(
     useShallow((state) => {
       const allErrors = state.minerStatus.errors.errors;
-      return allErrors.filter((error) => error.source === source && error.slot === componentIndex);
+      return allErrors.filter((error) => error.source === source && error.slot === slot);
     }),
   );
 };

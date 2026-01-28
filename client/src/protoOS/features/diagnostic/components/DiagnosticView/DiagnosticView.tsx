@@ -43,7 +43,7 @@ const FansGrid = ({ occupiedSlots }: { occupiedSlots: Set<number> }) => (
     {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
       const slot = i + 1;
       if (occupiedSlots.has(slot)) {
-        return <FanStatusCard key={slot} fanId={slot} />;
+        return <FanStatusCard key={slot} slot={slot} />;
       }
       return <EmptySlotCard key={`fan-empty-${slot}`} type="fan" position={slot} title={`Fan ${slot}`} />;
     })}
@@ -123,7 +123,7 @@ const PsusSection = () => {
         {Array.from({ length: TOTAL_PSU_SLOTS }, (_, i) => {
           const slot = i + 1;
           if (occupiedSlots.has(slot)) {
-            return <PsuStatusCard key={slot} psuId={slot} />;
+            return <PsuStatusCard key={slot} slot={slot} />;
           }
           return <EmptySlotCard key={`psu-empty-${slot}`} type="psu" position={slot} title={`PSU ${slot}`} />;
         })}

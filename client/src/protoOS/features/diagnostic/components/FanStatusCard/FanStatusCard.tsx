@@ -8,21 +8,21 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 import FanValue from "@/shared/components/FanValue";
 
 interface FanStatusCardProps {
-  fanId: number;
+  slot: number;
 }
 
-function FanStatusCard({ fanId }: FanStatusCardProps) {
+function FanStatusCard({ slot }: FanStatusCardProps) {
   // Fetch data directly from store
-  const fanData = useMinerFan(fanId);
+  const fanData = useMinerFan(slot);
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
   const pwm = fanData?.percentage?.latest?.value ?? 0;
-  const position = fanData?.slot ?? fanId;
+  const position = fanData?.slot ?? slot;
   const name = `Fan ${position}`;
 
-  const errors = useErrorsByComponent("FAN", fanId);
+  const errors = useErrorsByComponent("FAN", slot);
   const hasErrors = errors.length > 0;
 
   return (
@@ -48,7 +48,7 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
           onClose={() => setShowComponentStatusModal(false)}
           componentAddress={{
             source: "FAN",
-            componentIndex: fanId - 1,
+            slot: slot,
           }}
           showBackButton={false}
         />

@@ -72,7 +72,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
           onClose={() => setShowComponentStatusModal(false)}
           componentAddress={{
             source: "HASHBOARD",
-            componentIndex: (slot ?? 1) - 1,
+            slot: slot ?? 1,
           }}
           showBackButton={false}
         />

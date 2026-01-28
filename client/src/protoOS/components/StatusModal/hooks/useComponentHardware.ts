@@ -20,16 +20,15 @@ export type ComponentHardware =
 /**
  * Hook to fetch component hardware data reactively
  * @param source - The error source type
- * @param componentIndex - The 0-based component index
+ * @param slot - The 1-based component slot
  * @returns Hardware data for the component
  */
-export function useComponentHardware(source: ErrorSource, componentIndex: number | undefined): ComponentHardware {
+export function useComponentHardware(source: ErrorSource, slot: number | undefined): ComponentHardware {
   const componentType = mapErrorSourceToComponentType(source);
 
-  // Fetch hardware data based on component type
   const hardware = useMinerStore((state) => {
-    if (componentIndex === undefined) {
-      // For control board or when no index
+    if (slot === undefined) {
+      // For control board or when no slot
       if (componentType === "controlBoard") {
         return state.hardware.controlBoard;
       }
@@ -38,11 +37,11 @@ export function useComponentHardware(source: ErrorSource, componentIndex: number
 
     switch (componentType) {
       case "fan":
-        return state.hardware.fans.get(componentIndex + 1);
+        return state.hardware.fans.get(slot);
       case "psu":
-        return state.hardware.psus.get(componentIndex + 1);
+        return state.hardware.psus.get(slot);
       case "hashboard": {
-        const hashboard = state.hardware.getHashboardBySlot(componentIndex + 1);
+        const hashboard = state.hardware.getHashboardBySlot(slot);
         return hashboard;
       }
       default:

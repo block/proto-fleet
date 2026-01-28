@@ -1,15 +1,14 @@
 import { ErrorSource } from "@/protoOS/store/types";
 
 /**
- * Get the display name for a component based on its source and index.
- * This is the single source of truth for component naming in the UI.
+ * Get the display name for a component based on its error source and slot.
+ * Used for StatusModal and error-related component naming in ProtoOS.
  *
  * @param source - The error source type
- * @param componentIndex - The component index (0-based)
+ * @param slot - The 1-based component slot
  * @returns The formatted display name
  */
-export function getComponentDisplayName(source: ErrorSource, componentIndex?: number): string {
-  // Simple direct mapping of source to display names
+export function getComponentDisplayName(source: ErrorSource, slot?: number): string {
   const displayNames: Record<ErrorSource, string> = {
     RIG: "System",
     PSU: "Power supply",
@@ -19,19 +18,20 @@ export function getComponentDisplayName(source: ErrorSource, componentIndex?: nu
 
   const baseName = displayNames[source];
 
-  // For components with an index (all indices are 0-based)
-  if (componentIndex !== undefined) {
-    return `${baseName} ${componentIndex + 1}`;
+  if (slot !== undefined) {
+    return `${baseName} ${slot}`;
   }
 
-  // For components without indices (e.g., RIG/System, or when index is undefined)
   return baseName;
 }
 
 /**
  * Hook to get component display name.
  * This is a convenience wrapper around getComponentDisplayName for use in React components.
+ *
+ * @param source - The error source type
+ * @param slot - The 1-based component slot
  */
-export function useComponentDisplayName(source: ErrorSource, componentIndex?: number): string {
-  return getComponentDisplayName(source, componentIndex);
+export function useComponentDisplayName(source: ErrorSource, slot?: number): string {
+  return getComponentDisplayName(source, slot);
 }

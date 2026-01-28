@@ -13,13 +13,13 @@ const storyConfigs: Record<number, { slot: number; rpm: number; pwm: number }> =
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {
-  const fanId = context.args.fanId;
+  const slot = context.args.slot;
 
   useEffect(() => {
     const store = useMinerStore.getState();
 
-    // Get config for this fan ID
-    const config = storyConfigs[fanId] || {
+    // Get config for this slot
+    const config = storyConfigs[slot] || {
       slot: 1,
       rpm: 5800,
       pwm: 65.0,
@@ -27,12 +27,12 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock fan hardware data
     store.hardware.addFan({
-      slot: fanId,
+      slot: slot,
       name: `Fan ${config.slot}`,
     });
 
     // Mock fan telemetry data
-    store.telemetry.updateFanTelemetry(fanId, {
+    store.telemetry.updateFanTelemetry(slot, {
       rpm: {
         latest: { value: config.rpm, units: "RPM" },
         timeSeries: {
@@ -52,7 +52,7 @@ const StoreDecorator = (Story: any, context: any) => {
         },
       },
     });
-  }, [fanId]);
+  }, [slot]);
 
   return <Story />;
 };
@@ -66,9 +66,9 @@ const meta: Meta<typeof FanStatusCard> = {
   },
   tags: ["autodocs"],
   argTypes: {
-    fanId: {
+    slot: {
       control: "number",
-      description: "Fan ID",
+      description: "Fan slot number",
     },
   },
 };
@@ -78,24 +78,24 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    fanId: 1,
+    slot: 1,
   },
 };
 
 export const WithWarning: Story = {
   args: {
-    fanId: 2,
+    slot: 2,
   },
 };
 
 export const HighPerformance: Story = {
   args: {
-    fanId: 3,
+    slot: 3,
   },
 };
 
 export const InactiveWithWarning: Story = {
   args: {
-    fanId: 4,
+    slot: 4,
   },
 };
