@@ -39,6 +39,18 @@ WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
 ORDER BY dp.id, d.id;
 
+-- name: GetFilteredDeviceIds :many
+SELECT
+    d.id as device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE d.org_id = ?
+    AND dp.pairing_status = COALESCE(sqlc.narg('pairing_status'), 'PAIRED')
+    AND d.deleted_at IS NULL
+    AND (sqlc.narg('device_status') IS NULL OR ds.status = sqlc.narg('device_status'))
+ORDER BY d.id;
+
 -- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d
@@ -387,8 +399,8 @@ FROM (
             OR (
                 ds.status IN (sqlc.slice('status_values'))
                 AND (
-                    -- For offline/sleeping filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                     -- For active status: exclude devices with errors (only show truly healthy)
                     OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
                     -- For error status: include devices with errors
@@ -475,8 +487,8 @@ FROM (
             OR (
                 ds.status IN (sqlc.slice('status_values'))
                 AND (
-                    -- For offline/sleeping filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                     -- For active status: exclude devices with errors (only show truly healthy)
                     OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
                     -- For error status: include devices with errors

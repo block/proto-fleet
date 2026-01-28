@@ -39,11 +39,19 @@ interface AssignedPoolData {
 
 interface PoolSelectionPageProps {
   deviceIdentifiers: string[];
+  numberOfMiners?: number; // Optional explicit count (for "all" mode with filters)
+  currentDevice?: string | null; // Optional single device identifier (for single miner edit)
   onAssignPools: (poolConfig: PoolConfig) => Promise<void>;
   onDismiss: () => void;
 }
 
-const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCancel }: PoolSelectionPageProps) => {
+const PoolSelectionPage = ({
+  deviceIdentifiers,
+  numberOfMiners: numberOfMinersOverride,
+  currentDevice,
+  onAssignPools,
+  onDismiss: onCancel,
+}: PoolSelectionPageProps) => {
   const [assignedPoolData, setAssignedPoolData] = useState<AssignedPoolData[]>([]);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [editingPoolIndex, setEditingPoolIndex] = useState<number | null>(null);
@@ -87,9 +95,9 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
   }, [onCancel, showSelectionModal]);
 
   useEffect(() => {
-    const currentDevice = deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null;
+    const deviceToLoad = currentDevice ?? (deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null);
 
-    if (loadedDeviceRef.current === currentDevice) {
+    if (loadedDeviceRef.current === deviceToLoad) {
       return;
     }
 
@@ -101,12 +109,12 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
         setAssignedPoolData([]);
       }
 
-      if (!currentDevice) {
-        loadedDeviceRef.current = currentDevice;
+      if (!deviceToLoad) {
+        loadedDeviceRef.current = deviceToLoad;
         return;
       }
 
-      const pools = await fetchPoolAssignments(currentDevice);
+      const pools = await fetchPoolAssignments(deviceToLoad);
       if (!isMounted) return;
 
       const poolData: AssignedPoolData[] = pools.map((pool) => ({
@@ -116,7 +124,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
         poolUsername: pool.username,
       }));
       setAssignedPoolData(poolData);
-      loadedDeviceRef.current = currentDevice;
+      loadedDeviceRef.current = deviceToLoad;
     };
 
     loadExistingPoolAssignments();
@@ -124,7 +132,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
     return () => {
       isMounted = false;
     };
-  }, [deviceIdentifiers, fetchPoolAssignments]);
+  }, [deviceIdentifiers, currentDevice, fetchPoolAssignments]);
 
   // Create a stable ID for each pool (either real poolId or synthetic for unknown pools)
   const getPoolDisplayId = useCallback((data: AssignedPoolData, index: number): string => {
@@ -281,7 +289,7 @@ const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCanc
     }
   };
 
-  const numberOfMiners = deviceIdentifiers.length;
+  const numberOfMiners = numberOfMinersOverride ?? deviceIdentifiers.length;
   const buttonText = `Assign to ${numberOfMiners} miner${numberOfMiners === 1 ? "" : "s"}`;
   const isSingleMinerEdit = numberOfMiners === 1;
   const isLoadingInitialState = isSingleMinerEdit && isLoadingAssignments;

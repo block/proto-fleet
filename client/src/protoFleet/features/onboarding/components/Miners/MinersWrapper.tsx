@@ -86,6 +86,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
     callback?.();
   };
 
+  const notifyPairingCompletedFn = useNotifyPairingCompleted();
   const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
   const processDiscoveredMiners = useCallback(
@@ -231,6 +232,11 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
             message: `Successfully added ${successCount} miner${successCount !== 1 ? "s" : ""} to fleet.`,
             status: TOAST_STATUSES.success,
           });
+        }
+
+        // Notify that pairing completed so CompleteSetup can refetch pool status
+        if (successCount > 0) {
+          notifyPairingCompletedFn();
         }
 
         // Wait for fleet data to refresh with updated firmware versions before navigating

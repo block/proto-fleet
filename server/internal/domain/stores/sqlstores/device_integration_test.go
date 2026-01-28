@@ -9,6 +9,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -988,4 +989,343 @@ func getDeviceStatusFromDB(t *testing.T, conn *sql.DB, deviceID int64) string {
 	err := conn.QueryRow(`SELECT status FROM device_status WHERE device_id = ?`, deviceID).Scan(&status)
 	require.NoError(t, err)
 	return status
+}
+
+// =============================================================================
+// GetFilteredDeviceIds Tests - Filter-Based Device Selection
+// =============================================================================
+
+// TestGetFilteredDeviceIds_WithDeviceStatusFilter verifies filtering by device status only
+func TestGetFilteredDeviceIds_WithDeviceStatusFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	// Setup test data with mixed statuses
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	tests := []struct {
+		name          string
+		deviceStatus  sqlc.DeviceStatusStatus
+		expectedCount int
+		expectedIDs   []int64
+	}{
+		{
+			name:          "Filter by NEEDS_MINING_POOL status",
+			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
+			expectedCount: 1,
+			expectedIDs:   []int64{1}, // Only device 1 (PAIRED), device 4 is AUTHENTICATION_NEEDED
+		},
+		{
+			name:          "Filter by ACTIVE status",
+			deviceStatus:  sqlc.DeviceStatusStatusACTIVE,
+			expectedCount: 1,
+			expectedIDs:   []int64{2},
+		},
+		{
+			name:          "Filter by OFFLINE status",
+			deviceStatus:  sqlc.DeviceStatusStatusOFFLINE,
+			expectedCount: 1,
+			expectedIDs:   []int64{3},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := sqlc.GetFilteredDeviceIdsParams{
+				OrgID: 1,
+				DeviceStatus: sqlc.NullDeviceStatusStatus{
+					DeviceStatusStatus: tt.deviceStatus,
+					Valid:              true,
+				},
+				PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+			}
+
+			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+			require.NoError(t, err)
+			require.Len(t, deviceIDs, tt.expectedCount)
+			require.ElementsMatch(t, tt.expectedIDs, deviceIDs)
+		})
+	}
+}
+
+// TestGetFilteredDeviceIds_WithPairingStatusFilter verifies filtering by pairing status only
+func TestGetFilteredDeviceIds_WithPairingStatusFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	tests := []struct {
+		name          string
+		pairingStatus sqlc.DevicePairingPairingStatus
+		expectedCount int
+		expectedIDs   []int64
+	}{
+		{
+			name:          "Filter by PAIRED status",
+			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			expectedCount: 3,
+			expectedIDs:   []int64{1, 2, 3},
+		},
+		{
+			name:          "Filter by AUTHENTICATION_NEEDED status",
+			pairingStatus: sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED,
+			expectedCount: 1,
+			expectedIDs:   []int64{4},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := sqlc.GetFilteredDeviceIdsParams{
+				OrgID:        1,
+				DeviceStatus: sqlc.NullDeviceStatusStatus{Valid: false},
+				PairingStatus: sqlc.NullDevicePairingPairingStatus{
+					DevicePairingPairingStatus: tt.pairingStatus,
+					Valid:                      true,
+				},
+			}
+
+			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+			require.NoError(t, err)
+			require.Len(t, deviceIDs, tt.expectedCount)
+			require.ElementsMatch(t, tt.expectedIDs, deviceIDs)
+		})
+	}
+}
+
+// TestGetFilteredDeviceIds_WithBothFilters verifies filtering by both device and pairing status
+func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	tests := []struct {
+		name          string
+		deviceStatus  sqlc.DeviceStatusStatus
+		pairingStatus sqlc.DevicePairingPairingStatus
+		expectedCount int
+		expectedIDs   []int64
+	}{
+		{
+			name:          "NEEDS_MINING_POOL and PAIRED",
+			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
+			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			expectedCount: 1,
+			expectedIDs:   []int64{1},
+		},
+		{
+			name:          "NEEDS_MINING_POOL and AUTHENTICATION_NEEDED",
+			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
+			pairingStatus: sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED,
+			expectedCount: 1,
+			expectedIDs:   []int64{4},
+		},
+		{
+			name:          "ACTIVE and PAIRED",
+			deviceStatus:  sqlc.DeviceStatusStatusACTIVE,
+			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			expectedCount: 1,
+			expectedIDs:   []int64{2},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := sqlc.GetFilteredDeviceIdsParams{
+				OrgID: 1,
+				DeviceStatus: sqlc.NullDeviceStatusStatus{
+					DeviceStatusStatus: tt.deviceStatus,
+					Valid:              true,
+				},
+				PairingStatus: sqlc.NullDevicePairingPairingStatus{
+					DevicePairingPairingStatus: tt.pairingStatus,
+					Valid:                      true,
+				},
+			}
+
+			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+			require.NoError(t, err)
+			require.Len(t, deviceIDs, tt.expectedCount)
+			require.ElementsMatch(t, tt.expectedIDs, deviceIDs)
+		})
+	}
+}
+
+// TestGetFilteredDeviceIds_NoFilters verifies returning all paired devices when no filters provided
+func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	params := sqlc.GetFilteredDeviceIdsParams{
+		OrgID:         1,
+		DeviceStatus:  sqlc.NullDeviceStatusStatus{Valid: false},
+		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+	}
+
+	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+	require.NoError(t, err)
+	// Should return all 4 devices with PAIRED status (device 4 is AUTHENTICATION_NEEDED, excluded)
+	require.Len(t, deviceIDs, 3)
+	require.ElementsMatch(t, []int64{1, 2, 3}, deviceIDs)
+}
+
+// TestGetFilteredDeviceIds_NoResults verifies empty result when no devices match filters
+func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	// Filter for a status that doesn't exist in test data
+	params := sqlc.GetFilteredDeviceIdsParams{
+		OrgID: 1,
+		DeviceStatus: sqlc.NullDeviceStatusStatus{
+			DeviceStatusStatus: sqlc.DeviceStatusStatusERROR,
+			Valid:              true,
+		},
+		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+	}
+
+	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+	require.NoError(t, err)
+	require.Empty(t, deviceIDs)
+}
+
+// TestGetFilteredDeviceIds_OnlyPairedByDefault verifies default PAIRED filter in query
+func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupFilteredDeviceIdsTestData(t, conn)
+
+	// No filters provided - should only return PAIRED devices
+	params := sqlc.GetFilteredDeviceIdsParams{
+		OrgID:         1,
+		DeviceStatus:  sqlc.NullDeviceStatusStatus{Valid: false},
+		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+	}
+
+	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+	require.NoError(t, err)
+	// Should NOT include device 4 (AUTHENTICATION_NEEDED)
+	require.Len(t, deviceIDs, 3)
+	require.ElementsMatch(t, []int64{1, 2, 3}, deviceIDs)
+	require.NotContains(t, deviceIDs, int64(4))
+}
+
+// =============================================================================
+// Test Helpers for GetFilteredDeviceIds
+// =============================================================================
+
+// setupFilteredDeviceIdsTestData creates test data with mixed device and pairing statuses
+func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	// Insert organization
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+	`)
+	require.NoError(t, err)
+
+	// Insert discovered devices
+	devices := []struct {
+		id         int64
+		identifier string
+		ipAddress  string
+	}{
+		{1, "device-001", "192.168.1.101"},
+		{2, "device-002", "192.168.1.102"},
+		{3, "device-003", "192.168.1.103"},
+		{4, "device-004", "192.168.1.104"},
+	}
+
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+		`, d.id, d.identifier, d.ipAddress)
+		require.NoError(t, err)
+	}
+
+	// Insert devices
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+		`, d.id, d.id, d.identifier)
+		require.NoError(t, err)
+	}
+
+	// Insert device pairings with mixed statuses
+	pairings := []struct {
+		deviceID int64
+		status   string
+	}{
+		{1, "PAIRED"},
+		{2, "PAIRED"},
+		{3, "PAIRED"},
+		{4, "AUTHENTICATION_NEEDED"},
+	}
+
+	for _, p := range pairings {
+		_, err := conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES (?, ?, NOW())
+		`, p.deviceID, p.status)
+		require.NoError(t, err)
+	}
+
+	// Insert device statuses with mixed values
+	statuses := []struct {
+		deviceID int64
+		status   string
+	}{
+		{1, "NEEDS_MINING_POOL"},
+		{2, "ACTIVE"},
+		{3, "OFFLINE"},
+		{4, "NEEDS_MINING_POOL"},
+	}
+
+	for _, s := range statuses {
+		_, err := conn.Exec(`
+			INSERT INTO device_status (device_id, status, status_timestamp)
+			VALUES (?, ?, NOW())
+		`, s.deviceID, s.status)
+		require.NoError(t, err)
+	}
 }

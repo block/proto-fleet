@@ -3,10 +3,16 @@ syntax = "proto3";
 package minercommand.v1;
 
 import "google/protobuf/timestamp.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
+
+message DeviceFilter {
+  repeated fleetmanagement.v1.DeviceStatus device_status = 1;
+  repeated fleetmanagement.v1.PairingStatus pairing_status = 2;
+}
 
 message DeviceSelector {
   oneof selection_type {
-    bool all_devices = 1;
+    DeviceFilter all_devices = 1;
     DeviceList include_devices = 2;
   }
 }

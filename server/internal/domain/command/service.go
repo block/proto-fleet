@@ -18,6 +18,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
@@ -213,8 +214,34 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 
 	switch x := selector.SelectionType.(type) {
 	case *pb.DeviceSelector_AllDevices:
+		filter := x.AllDevices
+		if filter == nil {
+			filter = &pb.DeviceFilter{}
+		}
+
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			return q.GetPairedDevicesIds(ctx, info.OrganizationID)
+			var deviceStatus sqlc.NullDeviceStatusStatus
+			var pairingStatus sqlc.NullDevicePairingPairingStatus
+
+			if len(filter.DeviceStatus) > 0 {
+				deviceStatus = sqlc.NullDeviceStatusStatus{
+					DeviceStatusStatus: sqlstores.ProtoDeviceStatusToSQL(filter.DeviceStatus[0]),
+					Valid:              true,
+				}
+			}
+
+			if len(filter.PairingStatus) > 0 {
+				pairingStatus = sqlc.NullDevicePairingPairingStatus{
+					DevicePairingPairingStatus: sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0]),
+					Valid:                      true,
+				}
+			}
+
+			return q.GetFilteredDeviceIds(ctx, sqlc.GetFilteredDeviceIdsParams{
+				OrgID:         info.OrganizationID,
+				DeviceStatus:  deviceStatus,
+				PairingStatus: pairingStatus,
+			})
 		})
 	case *pb.DeviceSelector_IncludeDevices:
 		if len(x.IncludeDevices.DeviceIdentifiers) == 0 {

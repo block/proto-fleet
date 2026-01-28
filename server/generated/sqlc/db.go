@@ -150,6 +150,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getErrorByIDStmt, err = db.PrepareContext(ctx, getErrorByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByID: %w", err)
 	}
+	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
+	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
 	}
@@ -573,6 +576,11 @@ func (q *Queries) Close() error {
 	if q.getErrorByIDStmt != nil {
 		if cerr := q.getErrorByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getErrorByIDStmt: %w", cerr)
+		}
+	}
+	if q.getFilteredDeviceIdsStmt != nil {
+		if cerr := q.getFilteredDeviceIdsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
 		}
 	}
 	if q.getMessagesToProcessStmt != nil {
@@ -1006,6 +1014,7 @@ type Queries struct {
 	getDiscoveredDeviceByIPAndPortStmt                  *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
+	getFilteredDeviceIdsStmt                            *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
@@ -1124,6 +1133,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDiscoveredDeviceByIPAndPortStmt:                  q.getDiscoveredDeviceByIPAndPortStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
+		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,

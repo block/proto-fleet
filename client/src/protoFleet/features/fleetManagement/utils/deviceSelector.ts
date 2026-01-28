@@ -1,18 +1,29 @@
 import { create } from "@bufbuild/protobuf";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
+  DeviceFilterSchema,
   DeviceListSchema,
   DeviceSelector,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { type SelectionMode } from "@/shared/components/List";
 
+export interface DeviceFilterCriteria {
+  deviceStatus?: DeviceStatus;
+  pairingStatus?: PairingStatus;
+}
+
 /**
  * Creates a DeviceSelector based on the selection mode.
- * - "all": uses allDevices=true to target all miners in the fleet
+ * - "all": uses allDevices with optional filter criteria to target filtered miners
  * - "subset": uses includeDevices with specific device identifiers
  * - "none": throws an error (callers should disable actions when nothing is selected)
  */
-export const createDeviceSelector = (selectionMode: SelectionMode, deviceIdentifiers: string[]): DeviceSelector => {
+export const createDeviceSelector = (
+  selectionMode: SelectionMode,
+  deviceIdentifiers: string[],
+  filterCriteria?: DeviceFilterCriteria,
+): DeviceSelector => {
   if (selectionMode === "none") {
     throw new Error("Cannot create DeviceSelector with no selection");
   }
@@ -20,7 +31,10 @@ export const createDeviceSelector = (selectionMode: SelectionMode, deviceIdentif
     return create(DeviceSelectorSchema, {
       selectionType: {
         case: "allDevices",
-        value: true,
+        value: create(DeviceFilterSchema, {
+          deviceStatus: filterCriteria?.deviceStatus ? [filterCriteria.deviceStatus] : [],
+          pairingStatus: filterCriteria?.pairingStatus ? [filterCriteria.pairingStatus] : [],
+        }),
       },
     });
   }

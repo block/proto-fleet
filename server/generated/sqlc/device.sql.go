@@ -518,6 +518,53 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
+SELECT
+    d.id as device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE d.org_id = ?
+    AND dp.pairing_status = COALESCE(?, 'PAIRED')
+    AND d.deleted_at IS NULL
+    AND (? IS NULL OR ds.status = ?)
+ORDER BY d.id
+`
+
+type GetFilteredDeviceIdsParams struct {
+	OrgID         int64
+	PairingStatus NullDevicePairingPairingStatus
+	DeviceStatus  NullDeviceStatusStatus
+}
+
+func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
+		arg.OrgID,
+		arg.PairingStatus,
+		arg.DeviceStatus,
+		arg.DeviceStatus,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOfflineDevices = `-- name: GetOfflineDevices :many
 SELECT
     d.id,
@@ -680,8 +727,8 @@ FROM (
             OR (
                 ds.status IN (/*SLICE:status_values*/?)
                 AND (
-                    -- For offline/sleeping filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                     -- For active status: exclude devices with errors (only show truly healthy)
                     OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
                     -- For error status: include devices with errors
@@ -934,8 +981,8 @@ FROM (
             OR (
                 ds.status IN (/*SLICE:status_values*/?)
                 AND (
-                    -- For offline/sleeping filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                     -- For active status: exclude devices with errors (only show truly healthy)
                     OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
                     -- For error status: include devices with errors

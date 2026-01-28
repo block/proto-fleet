@@ -6,6 +6,8 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { DeviceStatus, PairingStatus } from "../../fleetmanagement/v1/fleetmanagement_pb";
+import { file_fleetmanagement_v1_fleetmanagement } from "../../fleetmanagement/v1/fleetmanagement_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -14,9 +16,30 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_minercommand_v1_command: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxInEKDkRldmljZVNlbGVjdG9yEhUKC2FsbF9kZXZpY2VzGAEgASgISAASNgoPaW5jbHVkZV9kZXZpY2VzGAIgASgLMhsubWluZXJjb21tYW5kLnYxLkRldmljZUxpc3RIAEIQCg5zZWxlY3Rpb25fdHlwZSIoCgpEZXZpY2VMaXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSJJCg1SZWJvb3RSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIqCg5SZWJvb3RSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIk0KEVN0b3BNaW5pbmdSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIuChJTdG9wTWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJOChJTdGFydE1pbmluZ1JlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIi8KE1N0YXJ0TWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJ9ChVTZXRDb29saW5nTW9kZVJlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yEioKBG1vZGUYAiABKA4yHC5taW5lcmNvbW1hbmQudjEuQ29vbGluZ01vZGUiMgoWU2V0Q29vbGluZ01vZGVSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIo0BChVTZXRQb3dlclRhcmdldFJlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yEjoKEHBlcmZvcm1hbmNlX21vZGUYAiABKA4yIC5taW5lcmNvbW1hbmQudjEuUGVyZm9ybWFuY2VNb2RlIjIKFlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJkCg5Qb29sU2xvdENvbmZpZxIRCgdwb29sX2lkGAEgASgDSAASMAoIcmF3X3Bvb2wYAiABKAsyHC5taW5lcmNvbW1hbmQudjEuUmF3UG9vbEluZm9IAEINCgtwb29sX3NvdXJjZSJQCgtSYXdQb29sSW5mbxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSFQoIcGFzc3dvcmQYAyABKAlIAIgBAUILCglfcGFzc3dvcmQiqQIKGFVwZGF0ZU1pbmluZ1Bvb2xzUmVxdWVzdBI4Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3ISNQoMZGVmYXVsdF9wb29sGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLlBvb2xTbG90Q29uZmlnEjsKDWJhY2t1cF8xX3Bvb2wYAyABKAsyHy5taW5lcmNvbW1hbmQudjEuUG9vbFNsb3RDb25maWdIAIgBARI7Cg1iYWNrdXBfMl9wb29sGAQgASgLMh8ubWluZXJjb21tYW5kLnYxLlBvb2xTbG90Q29uZmlnSAGIAQFCEAoOX2JhY2t1cF8xX3Bvb2xCEAoOX2JhY2t1cF8yX3Bvb2wiNQoZVXBkYXRlTWluaW5nUG9vbHNSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIk8KE0Rvd25sb2FkTG9nc1JlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIjAKFERvd25sb2FkTG9nc1Jlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiSwoPQmxpbmtMRURSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIsChBCbGlua0xFRFJlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiUQoVRmlybXdhcmVVcGRhdGVSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIyChZGaXJtd2FyZVVwZGF0ZVJlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiSQoNVW5wYWlyUmVxdWVzdBI4Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3IiKgoOVW5wYWlyUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSI8CiBTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVxdWVzdBIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIq8BCiFTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIgChhjb21tYW5kX2JhdGNoX2lkZW50aWZpZXIYAiABKAkSOQoGc3RhdHVzGAMgASgLMikubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cyKYAQodQ29tbWFuZEJhdGNoVXBkYXRlRGV2aWNlQ291bnQSDQoFdG90YWwYASABKAMSDwoHc3VjY2VzcxgCIAEoAxIPCgdmYWlsdXJlGAMgASgDEiIKGnN1Y2Nlc3NfZGV2aWNlX2lkZW50aWZpZXJzGAQgAygJEiIKGmZhaWx1cmVfZGV2aWNlX2lkZW50aWZpZXJzGAUgAygJIrwDChhDb21tYW5kQmF0Y2hVcGRhdGVTdGF0dXMSawobY29tbWFuZF9iYXRjaF91cGRhdGVfc3RhdHVzGAEgASgOMkYubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cy5Db21tYW5kQmF0Y2hVcGRhdGVTdGF0dXNUeXBlElIKGmNvbW1hbmRfYmF0Y2hfZGV2aWNlX2NvdW50GAIgASgLMi4ubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZURldmljZUNvdW50It4BChxDb21tYW5kQmF0Y2hVcGRhdGVTdGF0dXNUeXBlEjAKLENPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1VOU1BFQ0lGSUVEEAASLAooQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfUEVORElORxABEi8KK0NPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1BST0NFU1NJTkcQAhItCilDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9GSU5JU0hFRBADIjsKH0dldENvbW1hbmRCYXRjaExvZ0J1bmRsZVJlcXVlc3QSGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJICiBHZXRDb21tYW5kQmF0Y2hMb2dCdW5kbGVSZXNwb25zZRISCgpjaHVua19kYXRhGAEgASgMEhAKCGZpbGVuYW1lGAIgASgJKmsKC0Nvb2xpbmdNb2RlEhwKGENPT0xJTkdfTU9ERV9VTlNQRUNJRklFRBAAEhsKF0NPT0xJTkdfTU9ERV9BSVJfQ09PTEVEEAESIQodQ09PTElOR19NT0RFX0lNTUVSU0lPTl9DT09MRUQQAip7Cg9QZXJmb3JtYW5jZU1vZGUSIAocUEVSRk9STUFOQ0VfTU9ERV9VTlNQRUNJRklFRBAAEiUKIVBFUkZPUk1BTkNFX01PREVfTUFYSU1VTV9IQVNIUkFURRABEh8KG1BFUkZPUk1BTkNFX01PREVfRUZGSUNJRU5DWRACMqcJChNNaW5lckNvbW1hbmRTZXJ2aWNlEkkKBlJlYm9vdBIeLm1pbmVyY29tbWFuZC52MS5SZWJvb3RSZXF1ZXN0Gh8ubWluZXJjb21tYW5kLnYxLlJlYm9vdFJlc3BvbnNlElUKClN0b3BNaW5pbmcSIi5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1JlcXVlc3QaIy5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1Jlc3BvbnNlElgKC1N0YXJ0TWluaW5nEiMubWluZXJjb21tYW5kLnYxLlN0YXJ0TWluaW5nUmVxdWVzdBokLm1pbmVyY29tbWFuZC52MS5TdGFydE1pbmluZ1Jlc3BvbnNlEmEKDlNldENvb2xpbmdNb2RlEiYubWluZXJjb21tYW5kLnYxLlNldENvb2xpbmdNb2RlUmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5TZXRDb29saW5nTW9kZVJlc3BvbnNlEmEKDlNldFBvd2VyVGFyZ2V0EiYubWluZXJjb21tYW5kLnYxLlNldFBvd2VyVGFyZ2V0UmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5TZXRQb3dlclRhcmdldFJlc3BvbnNlEmoKEVVwZGF0ZU1pbmluZ1Bvb2xzEikubWluZXJjb21tYW5kLnYxLlVwZGF0ZU1pbmluZ1Bvb2xzUmVxdWVzdBoqLm1pbmVyY29tbWFuZC52MS5VcGRhdGVNaW5pbmdQb29sc1Jlc3BvbnNlElsKDERvd25sb2FkTG9ncxIkLm1pbmVyY29tbWFuZC52MS5Eb3dubG9hZExvZ3NSZXF1ZXN0GiUubWluZXJjb21tYW5kLnYxLkRvd25sb2FkTG9nc1Jlc3BvbnNlEk8KCEJsaW5rTEVEEiAubWluZXJjb21tYW5kLnYxLkJsaW5rTEVEUmVxdWVzdBohLm1pbmVyY29tbWFuZC52MS5CbGlua0xFRFJlc3BvbnNlEoQBChlTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzEjEubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXF1ZXN0GjIubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXNwb25zZTABEn8KGEdldENvbW1hbmRCYXRjaExvZ0J1bmRsZRIwLm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hMb2dCdW5kbGVSZXF1ZXN0GjEubWluZXJjb21tYW5kLnYxLkdldENvbW1hbmRCYXRjaExvZ0J1bmRsZVJlc3BvbnNlEmEKDkZpcm13YXJlVXBkYXRlEiYubWluZXJjb21tYW5kLnYxLkZpcm13YXJlVXBkYXRlUmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5GaXJtd2FyZVVwZGF0ZVJlc3BvbnNlEkkKBlVucGFpchIeLm1pbmVyY29tbWFuZC52MS5VbnBhaXJSZXF1ZXN0Gh8ubWluZXJjb21tYW5kLnYxLlVucGFpclJlc3BvbnNlQtgBChNjb20ubWluZXJjb21tYW5kLnYxQgxDb21tYW5kUHJvdG9QAVpWZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9taW5lcmNvbW1hbmQvdjE7bWluZXJjb21tYW5kdjGiAgNNWFiqAg9NaW5lcmNvbW1hbmQuVjHKAg9NaW5lcmNvbW1hbmRcVjHiAhtNaW5lcmNvbW1hbmRcVjFcR1BCTWV0YWRhdGHqAhBNaW5lcmNvbW1hbmQ6OlYxYgZwcm90bzM",
-    [file_google_protobuf_timestamp],
+    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxIoIBCgxEZXZpY2VGaWx0ZXISNwoNZGV2aWNlX3N0YXR1cxgBIAMoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMSOQoOcGFpcmluZ19zdGF0dXMYAiADKA4yIS5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmluZ1N0YXR1cyKQAQoORGV2aWNlU2VsZWN0b3ISNAoLYWxsX2RldmljZXMYASABKAsyHS5taW5lcmNvbW1hbmQudjEuRGV2aWNlRmlsdGVySAASNgoPaW5jbHVkZV9kZXZpY2VzGAIgASgLMhsubWluZXJjb21tYW5kLnYxLkRldmljZUxpc3RIAEIQCg5zZWxlY3Rpb25fdHlwZSIoCgpEZXZpY2VMaXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSJJCg1SZWJvb3RSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIqCg5SZWJvb3RSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIk0KEVN0b3BNaW5pbmdSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIuChJTdG9wTWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJOChJTdGFydE1pbmluZ1JlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIi8KE1N0YXJ0TWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJ9ChVTZXRDb29saW5nTW9kZVJlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yEioKBG1vZGUYAiABKA4yHC5taW5lcmNvbW1hbmQudjEuQ29vbGluZ01vZGUiMgoWU2V0Q29vbGluZ01vZGVSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIo0BChVTZXRQb3dlclRhcmdldFJlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yEjoKEHBlcmZvcm1hbmNlX21vZGUYAiABKA4yIC5taW5lcmNvbW1hbmQudjEuUGVyZm9ybWFuY2VNb2RlIjIKFlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJkCg5Qb29sU2xvdENvbmZpZxIRCgdwb29sX2lkGAEgASgDSAASMAoIcmF3X3Bvb2wYAiABKAsyHC5taW5lcmNvbW1hbmQudjEuUmF3UG9vbEluZm9IAEINCgtwb29sX3NvdXJjZSJQCgtSYXdQb29sSW5mbxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSFQoIcGFzc3dvcmQYAyABKAlIAIgBAUILCglfcGFzc3dvcmQiqQIKGFVwZGF0ZU1pbmluZ1Bvb2xzUmVxdWVzdBI4Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3ISNQoMZGVmYXVsdF9wb29sGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLlBvb2xTbG90Q29uZmlnEjsKDWJhY2t1cF8xX3Bvb2wYAyABKAsyHy5taW5lcmNvbW1hbmQudjEuUG9vbFNsb3RDb25maWdIAIgBARI7Cg1iYWNrdXBfMl9wb29sGAQgASgLMh8ubWluZXJjb21tYW5kLnYxLlBvb2xTbG90Q29uZmlnSAGIAQFCEAoOX2JhY2t1cF8xX3Bvb2xCEAoOX2JhY2t1cF8yX3Bvb2wiNQoZVXBkYXRlTWluaW5nUG9vbHNSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIk8KE0Rvd25sb2FkTG9nc1JlcXVlc3QSOAoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIjAKFERvd25sb2FkTG9nc1Jlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiSwoPQmxpbmtMRURSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIsChBCbGlua0xFRFJlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiUQoVRmlybXdhcmVVcGRhdGVSZXF1ZXN0EjgKD2RldmljZV9zZWxlY3RvchgBIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIyChZGaXJtd2FyZVVwZGF0ZVJlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiSQoNVW5wYWlyUmVxdWVzdBI4Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3IiKgoOVW5wYWlyUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSI8CiBTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVxdWVzdBIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIq8BCiFTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIgChhjb21tYW5kX2JhdGNoX2lkZW50aWZpZXIYAiABKAkSOQoGc3RhdHVzGAMgASgLMikubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cyKYAQodQ29tbWFuZEJhdGNoVXBkYXRlRGV2aWNlQ291bnQSDQoFdG90YWwYASABKAMSDwoHc3VjY2VzcxgCIAEoAxIPCgdmYWlsdXJlGAMgASgDEiIKGnN1Y2Nlc3NfZGV2aWNlX2lkZW50aWZpZXJzGAQgAygJEiIKGmZhaWx1cmVfZGV2aWNlX2lkZW50aWZpZXJzGAUgAygJIrwDChhDb21tYW5kQmF0Y2hVcGRhdGVTdGF0dXMSawobY29tbWFuZF9iYXRjaF91cGRhdGVfc3RhdHVzGAEgASgOMkYubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cy5Db21tYW5kQmF0Y2hVcGRhdGVTdGF0dXNUeXBlElIKGmNvbW1hbmRfYmF0Y2hfZGV2aWNlX2NvdW50GAIgASgLMi4ubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZURldmljZUNvdW50It4BChxDb21tYW5kQmF0Y2hVcGRhdGVTdGF0dXNUeXBlEjAKLENPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1VOU1BFQ0lGSUVEEAASLAooQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfUEVORElORxABEi8KK0NPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1BST0NFU1NJTkcQAhItCilDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9GSU5JU0hFRBADIjsKH0dldENvbW1hbmRCYXRjaExvZ0J1bmRsZVJlcXVlc3QSGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJICiBHZXRDb21tYW5kQmF0Y2hMb2dCdW5kbGVSZXNwb25zZRISCgpjaHVua19kYXRhGAEgASgMEhAKCGZpbGVuYW1lGAIgASgJKmsKC0Nvb2xpbmdNb2RlEhwKGENPT0xJTkdfTU9ERV9VTlNQRUNJRklFRBAAEhsKF0NPT0xJTkdfTU9ERV9BSVJfQ09PTEVEEAESIQodQ09PTElOR19NT0RFX0lNTUVSU0lPTl9DT09MRUQQAip7Cg9QZXJmb3JtYW5jZU1vZGUSIAocUEVSRk9STUFOQ0VfTU9ERV9VTlNQRUNJRklFRBAAEiUKIVBFUkZPUk1BTkNFX01PREVfTUFYSU1VTV9IQVNIUkFURRABEh8KG1BFUkZPUk1BTkNFX01PREVfRUZGSUNJRU5DWRACMqcJChNNaW5lckNvbW1hbmRTZXJ2aWNlEkkKBlJlYm9vdBIeLm1pbmVyY29tbWFuZC52MS5SZWJvb3RSZXF1ZXN0Gh8ubWluZXJjb21tYW5kLnYxLlJlYm9vdFJlc3BvbnNlElUKClN0b3BNaW5pbmcSIi5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1JlcXVlc3QaIy5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1Jlc3BvbnNlElgKC1N0YXJ0TWluaW5nEiMubWluZXJjb21tYW5kLnYxLlN0YXJ0TWluaW5nUmVxdWVzdBokLm1pbmVyY29tbWFuZC52MS5TdGFydE1pbmluZ1Jlc3BvbnNlEmEKDlNldENvb2xpbmdNb2RlEiYubWluZXJjb21tYW5kLnYxLlNldENvb2xpbmdNb2RlUmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5TZXRDb29saW5nTW9kZVJlc3BvbnNlEmEKDlNldFBvd2VyVGFyZ2V0EiYubWluZXJjb21tYW5kLnYxLlNldFBvd2VyVGFyZ2V0UmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5TZXRQb3dlclRhcmdldFJlc3BvbnNlEmoKEVVwZGF0ZU1pbmluZ1Bvb2xzEikubWluZXJjb21tYW5kLnYxLlVwZGF0ZU1pbmluZ1Bvb2xzUmVxdWVzdBoqLm1pbmVyY29tbWFuZC52MS5VcGRhdGVNaW5pbmdQb29sc1Jlc3BvbnNlElsKDERvd25sb2FkTG9ncxIkLm1pbmVyY29tbWFuZC52MS5Eb3dubG9hZExvZ3NSZXF1ZXN0GiUubWluZXJjb21tYW5kLnYxLkRvd25sb2FkTG9nc1Jlc3BvbnNlEk8KCEJsaW5rTEVEEiAubWluZXJjb21tYW5kLnYxLkJsaW5rTEVEUmVxdWVzdBohLm1pbmVyY29tbWFuZC52MS5CbGlua0xFRFJlc3BvbnNlEoQBChlTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzEjEubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXF1ZXN0GjIubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXNwb25zZTABEn8KGEdldENvbW1hbmRCYXRjaExvZ0J1bmRsZRIwLm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hMb2dCdW5kbGVSZXF1ZXN0GjEubWluZXJjb21tYW5kLnYxLkdldENvbW1hbmRCYXRjaExvZ0J1bmRsZVJlc3BvbnNlEmEKDkZpcm13YXJlVXBkYXRlEiYubWluZXJjb21tYW5kLnYxLkZpcm13YXJlVXBkYXRlUmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5GaXJtd2FyZVVwZGF0ZVJlc3BvbnNlEkkKBlVucGFpchIeLm1pbmVyY29tbWFuZC52MS5VbnBhaXJSZXF1ZXN0Gh8ubWluZXJjb21tYW5kLnYxLlVucGFpclJlc3BvbnNlQtgBChNjb20ubWluZXJjb21tYW5kLnYxQgxDb21tYW5kUHJvdG9QAVpWZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9taW5lcmNvbW1hbmQvdjE7bWluZXJjb21tYW5kdjGiAgNNWFiqAg9NaW5lcmNvbW1hbmQuVjHKAg9NaW5lcmNvbW1hbmRcVjHiAhtNaW5lcmNvbW1hbmRcVjFcR1BCTWV0YWRhdGHqAhBNaW5lcmNvbW1hbmQ6OlYxYgZwcm90bzM",
+    [file_google_protobuf_timestamp, file_fleetmanagement_v1_fleetmanagement],
   );
+
+/**
+ * @generated from message minercommand.v1.DeviceFilter
+ */
+export type DeviceFilter = Message<"minercommand.v1.DeviceFilter"> & {
+  /**
+   * @generated from field: repeated fleetmanagement.v1.DeviceStatus device_status = 1;
+   */
+  deviceStatus: DeviceStatus[];
+
+  /**
+   * @generated from field: repeated fleetmanagement.v1.PairingStatus pairing_status = 2;
+   */
+  pairingStatus: PairingStatus[];
+};
+
+/**
+ * Describes the message minercommand.v1.DeviceFilter.
+ * Use `create(DeviceFilterSchema)` to create a new message.
+ */
+export const DeviceFilterSchema: GenMessage<DeviceFilter> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 0);
 
 /**
  * @generated from message minercommand.v1.DeviceSelector
@@ -28,9 +51,9 @@ export type DeviceSelector = Message<"minercommand.v1.DeviceSelector"> & {
   selectionType:
     | {
         /**
-         * @generated from field: bool all_devices = 1;
+         * @generated from field: minercommand.v1.DeviceFilter all_devices = 1;
          */
-        value: boolean;
+        value: DeviceFilter;
         case: "allDevices";
       }
     | {
@@ -49,7 +72,7 @@ export type DeviceSelector = Message<"minercommand.v1.DeviceSelector"> & {
  */
 export const DeviceSelectorSchema: GenMessage<DeviceSelector> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 0);
+  messageDesc(file_minercommand_v1_command, 1);
 
 /**
  * @generated from message minercommand.v1.DeviceList
@@ -65,7 +88,7 @@ export type DeviceList = Message<"minercommand.v1.DeviceList"> & {
  * Describes the message minercommand.v1.DeviceList.
  * Use `create(DeviceListSchema)` to create a new message.
  */
-export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 1);
+export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 2);
 
 /**
  * @generated from message minercommand.v1.RebootRequest
@@ -83,7 +106,7 @@ export type RebootRequest = Message<"minercommand.v1.RebootRequest"> & {
  */
 export const RebootRequestSchema: GenMessage<RebootRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 2);
+  messageDesc(file_minercommand_v1_command, 3);
 
 /**
  * @generated from message minercommand.v1.RebootResponse
@@ -101,7 +124,7 @@ export type RebootResponse = Message<"minercommand.v1.RebootResponse"> & {
  */
 export const RebootResponseSchema: GenMessage<RebootResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 3);
+  messageDesc(file_minercommand_v1_command, 4);
 
 /**
  * Request to stop mining on specific miners
@@ -121,7 +144,7 @@ export type StopMiningRequest = Message<"minercommand.v1.StopMiningRequest"> & {
  */
 export const StopMiningRequestSchema: GenMessage<StopMiningRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 4);
+  messageDesc(file_minercommand_v1_command, 5);
 
 /**
  * Response from stop mining request
@@ -141,7 +164,7 @@ export type StopMiningResponse = Message<"minercommand.v1.StopMiningResponse"> &
  */
 export const StopMiningResponseSchema: GenMessage<StopMiningResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 5);
+  messageDesc(file_minercommand_v1_command, 6);
 
 /**
  * Request to start mining on specific miners
@@ -161,7 +184,7 @@ export type StartMiningRequest = Message<"minercommand.v1.StartMiningRequest"> &
  */
 export const StartMiningRequestSchema: GenMessage<StartMiningRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 6);
+  messageDesc(file_minercommand_v1_command, 7);
 
 /**
  * Response from start mining request
@@ -181,7 +204,7 @@ export type StartMiningResponse = Message<"minercommand.v1.StartMiningResponse">
  */
 export const StartMiningResponseSchema: GenMessage<StartMiningResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 7);
+  messageDesc(file_minercommand_v1_command, 8);
 
 /**
  * @generated from message minercommand.v1.SetCoolingModeRequest
@@ -204,7 +227,7 @@ export type SetCoolingModeRequest = Message<"minercommand.v1.SetCoolingModeReque
  */
 export const SetCoolingModeRequestSchema: GenMessage<SetCoolingModeRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 8);
+  messageDesc(file_minercommand_v1_command, 9);
 
 /**
  * @generated from message minercommand.v1.SetCoolingModeResponse
@@ -222,7 +245,7 @@ export type SetCoolingModeResponse = Message<"minercommand.v1.SetCoolingModeResp
  */
 export const SetCoolingModeResponseSchema: GenMessage<SetCoolingModeResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 9);
+  messageDesc(file_minercommand_v1_command, 10);
 
 /**
  * @generated from message minercommand.v1.SetPowerTargetRequest
@@ -245,7 +268,7 @@ export type SetPowerTargetRequest = Message<"minercommand.v1.SetPowerTargetReque
  */
 export const SetPowerTargetRequestSchema: GenMessage<SetPowerTargetRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 10);
+  messageDesc(file_minercommand_v1_command, 11);
 
 /**
  * @generated from message minercommand.v1.SetPowerTargetResponse
@@ -263,7 +286,7 @@ export type SetPowerTargetResponse = Message<"minercommand.v1.SetPowerTargetResp
  */
 export const SetPowerTargetResponseSchema: GenMessage<SetPowerTargetResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 11);
+  messageDesc(file_minercommand_v1_command, 12);
 
 /**
  * Configuration for a single pool slot
@@ -303,7 +326,7 @@ export type PoolSlotConfig = Message<"minercommand.v1.PoolSlotConfig"> & {
  */
 export const PoolSlotConfigSchema: GenMessage<PoolSlotConfig> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 12);
+  messageDesc(file_minercommand_v1_command, 13);
 
 /**
  * Raw pool configuration for pools not stored in Fleet
@@ -333,7 +356,7 @@ export type RawPoolInfo = Message<"minercommand.v1.RawPoolInfo"> & {
  * Describes the message minercommand.v1.RawPoolInfo.
  * Use `create(RawPoolInfoSchema)` to create a new message.
  */
-export const RawPoolInfoSchema: GenMessage<RawPoolInfo> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 13);
+export const RawPoolInfoSchema: GenMessage<RawPoolInfo> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 14);
 
 /**
  * @generated from message minercommand.v1.UpdateMiningPoolsRequest
@@ -372,7 +395,7 @@ export type UpdateMiningPoolsRequest = Message<"minercommand.v1.UpdateMiningPool
  */
 export const UpdateMiningPoolsRequestSchema: GenMessage<UpdateMiningPoolsRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 14);
+  messageDesc(file_minercommand_v1_command, 15);
 
 /**
  * @generated from message minercommand.v1.UpdateMiningPoolsResponse
@@ -390,7 +413,7 @@ export type UpdateMiningPoolsResponse = Message<"minercommand.v1.UpdateMiningPoo
  */
 export const UpdateMiningPoolsResponseSchema: GenMessage<UpdateMiningPoolsResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 15);
+  messageDesc(file_minercommand_v1_command, 16);
 
 /**
  * @generated from message minercommand.v1.DownloadLogsRequest
@@ -408,7 +431,7 @@ export type DownloadLogsRequest = Message<"minercommand.v1.DownloadLogsRequest">
  */
 export const DownloadLogsRequestSchema: GenMessage<DownloadLogsRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 16);
+  messageDesc(file_minercommand_v1_command, 17);
 
 /**
  * @generated from message minercommand.v1.DownloadLogsResponse
@@ -426,7 +449,7 @@ export type DownloadLogsResponse = Message<"minercommand.v1.DownloadLogsResponse
  */
 export const DownloadLogsResponseSchema: GenMessage<DownloadLogsResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 17);
+  messageDesc(file_minercommand_v1_command, 18);
 
 /**
  * @generated from message minercommand.v1.BlinkLEDRequest
@@ -444,7 +467,7 @@ export type BlinkLEDRequest = Message<"minercommand.v1.BlinkLEDRequest"> & {
  */
 export const BlinkLEDRequestSchema: GenMessage<BlinkLEDRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 18);
+  messageDesc(file_minercommand_v1_command, 19);
 
 /**
  * @generated from message minercommand.v1.BlinkLEDResponse
@@ -462,7 +485,7 @@ export type BlinkLEDResponse = Message<"minercommand.v1.BlinkLEDResponse"> & {
  */
 export const BlinkLEDResponseSchema: GenMessage<BlinkLEDResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 19);
+  messageDesc(file_minercommand_v1_command, 20);
 
 /**
  * @generated from message minercommand.v1.FirmwareUpdateRequest
@@ -480,7 +503,7 @@ export type FirmwareUpdateRequest = Message<"minercommand.v1.FirmwareUpdateReque
  */
 export const FirmwareUpdateRequestSchema: GenMessage<FirmwareUpdateRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 20);
+  messageDesc(file_minercommand_v1_command, 21);
 
 /**
  * @generated from message minercommand.v1.FirmwareUpdateResponse
@@ -498,7 +521,7 @@ export type FirmwareUpdateResponse = Message<"minercommand.v1.FirmwareUpdateResp
  */
 export const FirmwareUpdateResponseSchema: GenMessage<FirmwareUpdateResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 21);
+  messageDesc(file_minercommand_v1_command, 22);
 
 /**
  * @generated from message minercommand.v1.UnpairRequest
@@ -516,7 +539,7 @@ export type UnpairRequest = Message<"minercommand.v1.UnpairRequest"> & {
  */
 export const UnpairRequestSchema: GenMessage<UnpairRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 22);
+  messageDesc(file_minercommand_v1_command, 23);
 
 /**
  * @generated from message minercommand.v1.UnpairResponse
@@ -534,7 +557,7 @@ export type UnpairResponse = Message<"minercommand.v1.UnpairResponse"> & {
  */
 export const UnpairResponseSchema: GenMessage<UnpairResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 23);
+  messageDesc(file_minercommand_v1_command, 24);
 
 /**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesRequest
@@ -554,7 +577,7 @@ export type StreamCommandBatchUpdatesRequest = Message<"minercommand.v1.StreamCo
  */
 export const StreamCommandBatchUpdatesRequestSchema: GenMessage<StreamCommandBatchUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 24);
+  messageDesc(file_minercommand_v1_command, 25);
 
 /**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesResponse
@@ -586,7 +609,7 @@ export type StreamCommandBatchUpdatesResponse = Message<"minercommand.v1.StreamC
  */
 export const StreamCommandBatchUpdatesResponseSchema: GenMessage<StreamCommandBatchUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 25);
+  messageDesc(file_minercommand_v1_command, 26);
 
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateDeviceCount
@@ -624,7 +647,7 @@ export type CommandBatchUpdateDeviceCount = Message<"minercommand.v1.CommandBatc
  */
 export const CommandBatchUpdateDeviceCountSchema: GenMessage<CommandBatchUpdateDeviceCount> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 26);
+  messageDesc(file_minercommand_v1_command, 27);
 
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateStatus
@@ -647,7 +670,7 @@ export type CommandBatchUpdateStatus = Message<"minercommand.v1.CommandBatchUpda
  */
 export const CommandBatchUpdateStatusSchema: GenMessage<CommandBatchUpdateStatus> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 27);
+  messageDesc(file_minercommand_v1_command, 28);
 
 /**
  * @generated from enum minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType
@@ -679,7 +702,7 @@ export enum CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
  */
 export const CommandBatchUpdateStatus_CommandBatchUpdateStatusTypeSchema: GenEnum<CommandBatchUpdateStatus_CommandBatchUpdateStatusType> =
   /*@__PURE__*/
-  enumDesc(file_minercommand_v1_command, 27, 0);
+  enumDesc(file_minercommand_v1_command, 28, 0);
 
 /**
  * @generated from message minercommand.v1.GetCommandBatchLogBundleRequest
@@ -697,7 +720,7 @@ export type GetCommandBatchLogBundleRequest = Message<"minercommand.v1.GetComman
  */
 export const GetCommandBatchLogBundleRequestSchema: GenMessage<GetCommandBatchLogBundleRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 28);
+  messageDesc(file_minercommand_v1_command, 29);
 
 /**
  * @generated from message minercommand.v1.GetCommandBatchLogBundleResponse
@@ -720,7 +743,7 @@ export type GetCommandBatchLogBundleResponse = Message<"minercommand.v1.GetComma
  */
 export const GetCommandBatchLogBundleResponseSchema: GenMessage<GetCommandBatchLogBundleResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 29);
+  messageDesc(file_minercommand_v1_command, 30);
 
 /**
  * @generated from enum minercommand.v1.CoolingMode

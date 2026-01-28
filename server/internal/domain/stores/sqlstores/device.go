@@ -562,6 +562,50 @@ func toMinerStatus(status sqlc.DeviceStatusStatus) minermodels.MinerStatus {
 	}
 }
 
+// ProtoDeviceStatusToSQL converts protobuf DeviceStatus enum to sqlc DeviceStatusStatus
+// Exported helper for use across packages (e.g., command service)
+func ProtoDeviceStatusToSQL(status fm.DeviceStatus) sqlc.DeviceStatusStatus {
+	switch status {
+	case fm.DeviceStatus_DEVICE_STATUS_UNSPECIFIED:
+		return sqlc.DeviceStatusStatusUNKNOWN
+	case fm.DeviceStatus_DEVICE_STATUS_ONLINE:
+		return sqlc.DeviceStatusStatusACTIVE
+	case fm.DeviceStatus_DEVICE_STATUS_OFFLINE:
+		return sqlc.DeviceStatusStatusOFFLINE
+	case fm.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		return sqlc.DeviceStatusStatusMAINTENANCE
+	case fm.DeviceStatus_DEVICE_STATUS_ERROR:
+		return sqlc.DeviceStatusStatusERROR
+	case fm.DeviceStatus_DEVICE_STATUS_INACTIVE:
+		return sqlc.DeviceStatusStatusINACTIVE
+	case fm.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
+		return sqlc.DeviceStatusStatusNEEDSMININGPOOL
+	default:
+		return sqlc.DeviceStatusStatusUNKNOWN
+	}
+}
+
+// ProtoPairingStatusToSQL converts protobuf PairingStatus enum to sqlc DevicePairingPairingStatus
+// Exported helper for use across packages (e.g., command service)
+func ProtoPairingStatusToSQL(status fm.PairingStatus) sqlc.DevicePairingPairingStatus {
+	switch status {
+	case fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
+		return sqlc.DevicePairingPairingStatusUNPAIRED
+	case fm.PairingStatus_PAIRING_STATUS_PAIRED:
+		return sqlc.DevicePairingPairingStatusPAIRED
+	case fm.PairingStatus_PAIRING_STATUS_UNPAIRED:
+		return sqlc.DevicePairingPairingStatusUNPAIRED
+	case fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
+		return sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED
+	case fm.PairingStatus_PAIRING_STATUS_PENDING:
+		return sqlc.DevicePairingPairingStatusPENDING
+	case fm.PairingStatus_PAIRING_STATUS_FAILED:
+		return sqlc.DevicePairingPairingStatusFAILED
+	default:
+		return sqlc.DevicePairingPairingStatusUNPAIRED
+	}
+}
+
 func (s *SQLDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]minermodels.MinerStatus, error) {
 	statusMap := make(map[models.DeviceIdentifier]minermodels.MinerStatus)
 
@@ -675,26 +719,14 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		// Filter is provided - convert proto enums to sqlc enums
 		pairingStatusFilter = true // Non-null indicates filter is active
 		for _, status := range filter.PairingStatuses {
-			switch status {
-			case fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
+			if status == fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED {
 				// UNSPECIFIED means "return all" - skip adding to filter
 				// If this is the only status, clear the filter entirely
 				continue
-			case fm.PairingStatus_PAIRING_STATUS_PAIRED:
-				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusPAIRED)
-			case fm.PairingStatus_PAIRING_STATUS_UNPAIRED:
-				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusUNPAIRED)
-			case fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
-				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED)
-			case fm.PairingStatus_PAIRING_STATUS_PENDING:
-				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusPENDING)
-			case fm.PairingStatus_PAIRING_STATUS_FAILED:
-				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusFAILED)
-			default:
-				// Unknown pairing status - skip it rather than fail the query
-				// This provides forward compatibility if new statuses are added
-				continue
 			}
+			pairingStatusValues = append(pairingStatusValues, ProtoPairingStatusToSQL(status))
+			// Note: Unknown pairing statuses will be converted to default (UNPAIRED) by helper
+			// This provides forward compatibility if new statuses are added
 		}
 
 		// If no valid pairing statuses were added (all were UNSPECIFIED or unknown),
