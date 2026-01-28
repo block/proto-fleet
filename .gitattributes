@@ -1,0 +1,16 @@
+# PowerShell scripts must have Windows line endings on checkout
+# Git will store as LF (normalized) but checkout as CRLF
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+*.psm1 text eol=crlf
+
+# Standard settings for other files
+* text=auto
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
