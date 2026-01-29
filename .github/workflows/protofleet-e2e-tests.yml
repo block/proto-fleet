@@ -208,6 +208,23 @@ jobs:
           path: client/playwright-report/
           retention-days: 30
 
+      - name: Install Testmo CLI
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        run: |
+          npm install -g @testmo/testmo-cli@1.0.0
+
+      - name: Submit test results to Testmo
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          testmo automation:run:submit \
+            --instance https://proto.testmo.net \
+            --project-id 2 \
+            --name "Nightly E2E Tests - ${{ matrix.project }} - $(date +'%Y-%m-%d')" \
+            --source "e2e-tests" \
+            --results client/e2eTests/test-results/*.xml
+
       - name: Determine report directory
         if: ${{ !cancelled() }}
         id: report-dir

@@ -16,7 +16,7 @@ export default defineConfig({
   /* Opt out of parallel tests on CI for more stability */
   workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: process.env.CI ? [["html"], ["github"]] : "html",
+  reporter: process.env.CI ? [["html"], ["github"], ["junit", { outputFile: "test-results/results.xml" }]] : "html",
   /* Global timeout for each test */
   timeout: testConfig.testTimeout,
   /* Set default timeout for all expect() assertions */
