@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "sqlc-pg/queries"
+    schema: "migrations-pg"
+    gen:
+      go:
+        package: "sqlcpg"
+        out: "generated/sqlc-pg"
+        emit_prepared_queries: true
+        sql_package: "database/sql"

@@ -1,0 +1,78 @@
+-- Proto Fleet PostgreSQL Continuous Aggregates
+-- Pre-computed aggregations for dashboard performance
+
+-- Enable TimescaleDB Toolkit for time-weighted aggregates
+-- Provides accurate energy calculations for irregular sampling intervals
+CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit;
+
+-- =====================================================
+-- Hourly device metrics aggregate
+-- Used for hourly dashboard charts
+-- =====================================================
+CREATE MATERIALIZED VIEW device_metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    device_id,
+    AVG(hash_rate_hs) AS avg_hash_rate,
+    MAX(hash_rate_hs) AS max_hash_rate,
+    MIN(hash_rate_hs) AS min_hash_rate,
+    AVG(temp_c) AS avg_temp,
+    MAX(temp_c) AS max_temp,
+    MIN(temp_c) AS min_temp,
+    AVG(fan_rpm) AS avg_fan_rpm,
+    AVG(power_w) AS avg_power,
+    SUM(power_w) AS total_power,
+    AVG(efficiency_jh) AS avg_efficiency,
+    COUNT(*) AS data_points
+FROM device_metrics
+GROUP BY bucket, device_id
+WITH NO DATA;
+
+-- Add refresh policy: refresh every 30 minutes, keep real-time data for last hour
+-- end_offset ensures we only aggregate complete buckets
+SELECT add_continuous_aggregate_policy('device_metrics_hourly',
+    start_offset => INTERVAL '1 day',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '30 minutes');
+
+-- =====================================================
+-- Daily device metrics aggregate
+-- Used for long-term dashboards and reports
+-- Uses time_weight for accurate energy calculations with irregular sampling
+-- =====================================================
+CREATE MATERIALIZED VIEW device_metrics_daily
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 day', time) AS bucket,
+    device_id,
+    AVG(hash_rate_hs) AS avg_hash_rate,
+    MAX(hash_rate_hs) AS max_hash_rate,
+    MIN(hash_rate_hs) AS min_hash_rate,
+    AVG(temp_c) AS avg_temp,
+    MAX(temp_c) AS max_temp,
+    MIN(temp_c) AS min_temp,
+    AVG(power_w) AS avg_power,
+    -- Time-weighted average power: weights each reading by its duration
+    -- LOCF = Last Observation Carried Forward (power persists until next reading)
+    average(time_weight('LOCF', time, power_w)) AS avg_power_time_weighted,
+    -- Energy in Wh: integral of power over time (watt-seconds / 3600)
+    integral(time_weight('LOCF', time, power_w)) / 3600.0 AS energy_wh,
+    AVG(efficiency_jh) AS avg_efficiency,
+    COUNT(*) AS data_points
+FROM device_metrics
+GROUP BY bucket, device_id
+WITH NO DATA;
+
+-- Add refresh policy: refresh every 6 hours
+-- end_offset ensures we only aggregate complete days
+SELECT add_continuous_aggregate_policy('device_metrics_daily',
+    start_offset => INTERVAL '7 days',
+    end_offset => INTERVAL '1 day',
+    schedule_interval => INTERVAL '6 hours');
+
+-- =====================================================
+-- Create indexes on continuous aggregates for faster queries
+-- =====================================================
+CREATE INDEX idx_device_metrics_hourly_device ON device_metrics_hourly(device_id, bucket DESC);
+CREATE INDEX idx_device_metrics_daily_device ON device_metrics_daily(device_id, bucket DESC);

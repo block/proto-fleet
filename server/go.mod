@@ -13,7 +13,6 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.13.0
 	github.com/apache/arrow-go/v18 v18.5.0
-	github.com/brianvoe/gofakeit/v7 v7.11.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -22,6 +21,7 @@ require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
+	github.com/jackc/pgx/v5 v5.5.4
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/rs/cors v1.11.1
 	github.com/sourcegraph/jsonrpc2 v0.2.1
@@ -70,6 +70,8 @@ require (
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/influxdata/line-protocol/v2 v2.2.1 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20251013123823-9fd1530e3ec3 // indirect
