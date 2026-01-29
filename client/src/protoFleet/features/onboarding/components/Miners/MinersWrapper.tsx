@@ -15,6 +15,7 @@ import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onb
 import { useFleetStore, useMinerIds, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { ManualDiscoveryTargets } from "@/shared/utils/networkDiscovery";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
@@ -160,19 +161,61 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   }, [handleDiscover]);
   void handleMdnsDiscovery;
 
-  const handleIpListDiscovery = useCallback(
-    (ipAddresses: string[]) => {
-      const discoverRequest = create(DiscoverRequestSchema, {
-        mode: {
-          case: "ipList",
-          value: {
-            ipAddresses: ipAddresses,
-            ports: defaultDiscoveryPorts,
-          },
-        },
+  const handleManualDiscovery = useCallback(
+    async (targets: ManualDiscoveryTargets) => {
+      const discoverRequests: DiscoverRequest[] = [];
+
+      if (targets.ipAddresses.length > 0) {
+        discoverRequests.push(
+          create(DiscoverRequestSchema, {
+            mode: {
+              case: "ipList",
+              value: {
+                ipAddresses: targets.ipAddresses,
+                ports: defaultDiscoveryPorts,
+              },
+            },
+          }),
+        );
+      }
+
+      targets.subnets.forEach((subnet) => {
+        discoverRequests.push(
+          create(DiscoverRequestSchema, {
+            mode: {
+              case: "nmap",
+              value: {
+                target: subnet,
+                ports: defaultDiscoveryPorts,
+              },
+            },
+          }),
+        );
       });
+
+      targets.ipRanges.forEach((range) => {
+        discoverRequests.push(
+          create(DiscoverRequestSchema, {
+            mode: {
+              case: "ipRange",
+              value: {
+                startIp: range.startIp,
+                endIp: range.endIp,
+                ports: defaultDiscoveryPorts,
+              },
+            },
+          }),
+        );
+      });
+
+      if (discoverRequests.length === 0) return;
+
       setIpListDiscoveryPending(true);
-      handleDiscover(discoverRequest).finally(() => setIpListDiscoveryPending(false));
+      try {
+        await Promise.allSettled(discoverRequests.map((request) => handleDiscover(request)));
+      } finally {
+        setIpListDiscoveryPending(false);
+      }
     },
     [handleDiscover],
   );
@@ -270,7 +313,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       ipListDiscoveryPending={ipListDiscoveryPending}
       pairingPending={pairingPending}
       onCancelScan={cancelNetworkScan}
-      onIpListModeDiscover={handleIpListDiscovery}
+      onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}
       onRescan={handleRescan}
       onClearFoundMiners={() => setFoundMiners([])}

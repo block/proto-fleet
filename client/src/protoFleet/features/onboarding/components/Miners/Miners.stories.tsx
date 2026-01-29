@@ -28,7 +28,7 @@ export const Miners = ({ minersCount }: MinersProps) => {
         ipListDiscoveryPending={false}
         pairingPending={false}
         onCancelScan={action("cancel scan")}
-        onIpListModeDiscover={() => null}
+        onManualDiscover={() => null}
         onContinue={action("continue setup")}
         onRescan={action("rescan network")}
         onClearFoundMiners={action("clear found miners")}

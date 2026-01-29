@@ -11,6 +11,7 @@ import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import Textarea from "@/shared/components/Textarea";
+import { ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
@@ -18,7 +19,7 @@ interface MinersProps {
   pairingPending: boolean;
   foundMiners: Device[];
   onCancelScan: () => void;
-  onIpListModeDiscover: (ipAddresses: string[]) => void;
+  onManualDiscover: (targets: ManualDiscoveryTargets) => void;
   onContinue: (selectedMinerIdentifiers: string[]) => void;
   onRescan: () => void;
   onClearFoundMiners: () => void;
@@ -28,21 +29,13 @@ interface MinersProps {
 // Minimum time to show the loading animation in milliseconds (only for network scan)
 const MIN_LOADING_TIME = 2000;
 
-// Parse IP addresses from text value which can contain newlines and commas
-function parseIpList(input: string): string[] {
-  return input
-    .split(/[\n,]+/)
-    .map((addr) => addr.trim())
-    .filter((addr) => addr !== "");
-}
-
 const Miners = ({
   scanDiscoveryPending,
   ipListDiscoveryPending,
   pairingPending,
   foundMiners,
   onCancelScan,
-  onIpListModeDiscover,
+  onManualDiscover,
   onContinue,
   onRescan,
   mode = "onboarding",
@@ -52,6 +45,7 @@ const Miners = ({
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showScanLoading, setShowScanLoading] = useState(false);
   const [textareaValue, setTextareaValue] = useState<string>("");
+  const [ipListError, setIpListError] = useState<string | boolean>(false);
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
   const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">("findMiners");
@@ -77,15 +71,32 @@ const Miners = ({
 
   function handleIpAddressChange(newValue: string) {
     setTextareaValue(newValue);
+    if (ipListError) {
+      setIpListError(false);
+    }
   }
 
-  function handleIpListDiscovery() {
-    const parsedAddresses = parseIpList(textareaValue);
+  function handleManualDiscovery() {
+    const { targets, invalidEntries } = parseManualTargets(textareaValue);
+    const hasTargets = targets.ipAddresses.length + targets.subnets.length + targets.ipRanges.length > 0;
 
-    // Send valid addresses to the discovery function
-    if (parsedAddresses.length > 0) {
-      onIpListModeDiscover(parsedAddresses);
+    if (!hasTargets) {
+      setIpListError("Enter at least one IP address, hostname, subnet, or IP range.");
+      return false;
     }
+
+    if (invalidEntries.length > 0) {
+      const preview = invalidEntries.slice(0, 3).join(", ");
+      const suffix = invalidEntries.length > 3 ? ` and ${invalidEntries.length - 3} more` : "";
+      setIpListError(
+        `Invalid entries: ${preview}${suffix}. Use IPs, hostnames, CIDR subnets (e.g., 192.168.1.0/24), or IP ranges (e.g., 192.168.1.1-10).`,
+      );
+      return false;
+    }
+
+    setIpListError(false);
+    onManualDiscover(targets);
+    return true;
   }
 
   function handleScanCancel() {
@@ -235,7 +246,7 @@ const Miners = ({
                     inline
                     title="Enter network info manually"
                     titleSize="text-heading-200"
-                    description="Add your IP addresses and/or hostnames, separated by commas and/or line breaks (if pasting from a spreadsheet). Example: 192.168.1.10, miner01, 192.168.1.11, miner02, etc"
+                    description="Add IPs, hostnames, subnets, or IP ranges separated by commas or line breaks. Example: 192.168.1.10, miner01, 192.168.1.0/24, 192.168.1.1-10"
                   />
                   <div>
                     <div className="space-y-4">
@@ -244,6 +255,7 @@ const Miners = ({
                         initValue={textareaValue}
                         id="ipAddresses"
                         label="IP Addresses"
+                        error={ipListError}
                       />
                     </div>
                   </div>
@@ -253,9 +265,11 @@ const Miners = ({
                       size={sizes.base}
                       loading={ipListDiscoveryPending}
                       onClick={() => {
-                        setActiveStep("pairing");
-                        setShowModal(true);
-                        handleIpListDiscovery();
+                        const shouldProceed = handleManualDiscovery();
+                        if (shouldProceed) {
+                          setActiveStep("pairing");
+                          setShowModal(true);
+                        }
                       }}
                       disabled={!textareaValue.trim()}
                     >
