@@ -75,6 +75,10 @@ func startGRPCServer(ctx context.Context, state *MinerState, port int) error {
 	systemHandler := NewSystemApiHandler(state)
 	pairingHandler := NewPairingApiHandler(state)
 
+	// Create REST API handler for ProtoOS compatibility
+	restHandler := NewRESTApiHandler(state)
+	restHandler.RegisterRoutes(mux)
+
 	// Create interceptors for auth handling
 	interceptors := connect.WithInterceptors(
 		newAuthInterceptor(state),

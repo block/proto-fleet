@@ -1,15 +1,20 @@
 # Fake Proto Rig
 
-A simulator for Proto Bitcoin mining devices, implementing the same gRPC/Connect-RPC interfaces as real Proto miners.
+A simulator for Proto Bitcoin mining devices, implementing both gRPC/Connect-RPC and REST API interfaces.
 
 ## Overview
 
 This simulator allows the fleet management system to be tested without physical hardware. It implements:
 
+**gRPC Services** (for ProtoFleet):
 - **MinerDataApi** - 14 methods for telemetry and status
 - **MinerCommandApi** - 9 methods for controlling mining operations
 - **MinerSystemApi** - 9 methods for system operations
 - **MinerPairingApi** - 3 methods for device pairing (no auth required)
+
+**REST API** (for ProtoOS):
+- ~40 endpoints matching the MDK OpenAPI spec (`proto-rig-api/openapi/MDK-API.json`)
+- Pools, mining, system, hardware, telemetry, cooling, network, and auth endpoints
 
 ## Features
 
@@ -18,6 +23,7 @@ This simulator allows the fleet management system to be tested without physical 
 - Authentication via Bearer tokens (when auth key is set)
 - Error injection via environment variables
 - HTTP/2 cleartext (h2c) support for gRPC communication
+- REST API for ProtoOS dashboard compatibility
 
 ## Usage
 
@@ -74,7 +80,42 @@ curl http://localhost:2121/health
 # Returns: OK
 ```
 
-### gRPC Services
+### REST API (for ProtoOS)
+
+The REST API implements endpoints matching the MDK OpenAPI spec:
+
+```bash
+# Mining status
+curl http://localhost:2121/api/v1/mining
+
+# System info
+curl http://localhost:2121/api/v1/system
+
+# Pool configuration
+curl http://localhost:2121/api/v1/pools
+
+# Hardware info
+curl http://localhost:2121/api/v1/hardware
+
+# Telemetry data
+curl http://localhost:2121/api/v1/telemetry?level=miner
+```
+
+**Available REST endpoints:**
+- `/api/v1/pools` - Pool configuration (GET, POST)
+- `/api/v1/pools/{id}` - Individual pool (GET, PUT, DELETE)
+- `/api/v1/mining` - Mining status (GET)
+- `/api/v1/mining/target` - Power target (GET, PUT)
+- `/api/v1/mining/start`, `/api/v1/mining/stop` - Mining control (POST)
+- `/api/v1/system` - System information (GET)
+- `/api/v1/hardware` - Hardware info (GET)
+- `/api/v1/hashboards` - Hashboard stats (GET)
+- `/api/v1/cooling` - Cooling status and control (GET, PUT)
+- `/api/v1/network` - Network configuration (GET, PUT)
+- `/api/v1/telemetry` - Telemetry data (GET)
+- `/api/v1/auth/*` - Authentication endpoints
+
+### gRPC Services (for ProtoFleet)
 
 All services are available at `http://localhost:2121`:
 
@@ -116,9 +157,45 @@ The simulator uses realistic default values for a Proto B4 miner:
 fake-proto-rig/
 ├── main.go                 # Entry point, server setup, auth interceptor
 ├── models.go               # MinerState and configuration structs
-├── data_api_handler.go     # MinerDataApi implementation (14 methods)
-├── command_api_handler.go  # MinerCommandApi implementation (9 methods)
-├── system_api_handler.go   # MinerSystemApi & MinerPairingApi (12 methods)
+├── data_api_handler.go     # MinerDataApi gRPC implementation (14 methods)
+├── command_api_handler.go  # MinerCommandApi gRPC implementation (9 methods)
+├── system_api_handler.go   # MinerSystemApi & MinerPairingApi gRPC (12 methods)
+├── rest_api_handler.go     # REST API implementation (~40 endpoints)
 ├── Dockerfile              # Docker build configuration
 └── README.md               # This file
 ```
+
+## Maintenance
+
+### Updating the REST API
+
+The REST API is manually implemented based on the OpenAPI spec at `proto-rig-api/openapi/MDK-API.json`. When the spec is updated:
+
+1. **Compare changes** to identify new/modified endpoints:
+   ```bash
+   git diff proto-rig-api/openapi/MDK-API.json
+   ```
+
+2. **Update `rest_api_handler.go`**:
+   - Add new endpoints to `RegisterRoutes()`
+   - Add corresponding handler functions
+   - Update JSON struct types if response shapes changed
+
+3. **Test the changes**:
+   ```bash
+   # Build and run
+   cd server/fake-proto-rig && GOWORK=off go build .
+
+   # Or rebuild Docker
+   cd server && docker compose build proto-sim && docker compose up proto-sim -d
+
+   # Test endpoints
+   curl http://localhost:2121/api/v1/<endpoint>
+   ```
+
+### Source of Truth
+
+- **gRPC API**: Generated from `proto-rig-api/grpc/*.proto` files
+- **REST API**: Manually implemented from `proto-rig-api/openapi/MDK-API.json`
+
+The OpenAPI spec is vendored from the private `miner-firmware` repository. See `proto-rig-api/VERSION.md` for the source commit.
