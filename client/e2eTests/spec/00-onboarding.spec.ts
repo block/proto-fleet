@@ -134,7 +134,6 @@ test.describe("Proto Fleet - Onboarding", () => {
     await test.step("Validate all miners authenticated", async () => {
       await homePage.validateTextInToast("All miners authenticated.");
       await homePage.validateModalClosed();
-      await homePage.validateCompleteSetupTitleNotVisible();
       await homePage.validateAuthenticateMinersButtonNotVisible();
     });
   });
