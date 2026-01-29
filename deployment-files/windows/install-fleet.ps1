@@ -5,7 +5,8 @@
 .DESCRIPTION
     This script automates the complete installation of Proto Fleet on Windows systems.
     It handles:
-    - Version resolution and download from S3
+    - Auto-detection of extracted deployment files (beta use case)
+    - Version resolution and download from S3 (when not using local tarball)
     - Transfer to WSL filesystem
     - Configuration management (interactive or file-based)
     - SSL/TLS certificate setup
@@ -14,6 +15,13 @@
 
 .PARAMETER Version
     Specific version to install (e.g., "v0.1.0-beta-5"). Defaults to "latest".
+    Ignored if TarballPath is specified.
+
+.PARAMETER TarballPath
+    Path to a local tarball file (proto-fleet-*.tar.gz) to install from.
+    If specified, the script will skip auto-detection and downloading from S3.
+    This is useful for automation and closed beta installations where S3 is not accessible.
+    If not specified, the script will auto-detect if running from an extracted tarball.
 
 .PARAMETER ConfigFile
     Path to a pre-created configuration file (.env format). If not specified, the script
@@ -27,11 +35,16 @@
 
 .EXAMPLE
     .\install-fleet.ps1
-    Install the latest version with interactive configuration
+    Auto-detect deployment files in current directory, or prompt for tarball path.
+    Recommended for beta customers: extract tarball, cd to deployment/windows/, then run.
 
 .EXAMPLE
-    .\install-fleet.ps1 -Version v0.1.0-beta-5
-    Install a specific version
+    .\install-fleet.ps1 -TarballPath C:\Downloads\proto-fleet-v0.1.0-beta-5.tar.gz
+    Install from specific tarball (automation mode - skips auto-detection)
+
+.EXAMPLE
+    .\install-fleet.ps1 -Force
+    Auto-detect and proceed without prompts (for automation)
 
 .EXAMPLE
     .\install-fleet.ps1 -ConfigFile .\my-config.env
@@ -43,13 +56,17 @@
 
 .NOTES
     - Requires WSL2 and Docker to be set up (run setup-wsl-docker.ps1 first)
-    - Downloads from https://proto-fleet.s3.us-east-1.amazonaws.com
+    - For beta deployments: Extract tarball, cd to deployment/windows/, and run script
+    - The script will auto-detect extracted deployment files
+    - No internet connection required when using local tarball (all files included)
+    - Supports automation with -TarballPath parameter (skips auto-detection)
     - Creates .env file with sensitive credentials (stored securely)
 #>
 
 [CmdletBinding()]
 param(
     [string]$Version = "latest",
+    [string]$TarballPath = "",
     [string]$ConfigFile = "",
     [string]$InstallDir = "~/proto-fleet",
     [switch]$Force
@@ -828,6 +845,24 @@ function Wait-ForHealthyServices {
     return $false
 }
 
+function Test-ExtractedDeployment {
+    param([string]$ScriptDir)
+
+    # Check if running from deployment/windows/ in extracted tarball
+    $parentDir = Split-Path -Parent (Split-Path -Parent $ScriptDir)
+    $dockerCompose = Join-Path $parentDir "docker-compose.yaml"
+    $serverDir = Join-Path $parentDir "server"
+    $clientDir = Join-Path $parentDir "client"
+
+    if ((Test-Path $dockerCompose) -and
+        (Test-Path $serverDir) -and
+        (Test-Path $clientDir)) {
+        return $parentDir
+    }
+
+    return $null
+}
+
 function Show-Status {
     param(
         [string]$DeploymentPath,
@@ -904,32 +939,109 @@ if (-not (Test-DockerInWSL)) {
 }
 Write-Success "Docker is running in WSL"
 
-# Resolve version
-if ($Version -eq "latest" -or [string]::IsNullOrWhiteSpace($Version)) {
-    $Version = Get-LatestVersion
+# Handle tarball acquisition (local, detected, or download)
+$skipExtraction = $false
+
+# 1. Check if -TarballPath was explicitly provided (automation case)
+if (-not [string]::IsNullOrWhiteSpace($TarballPath)) {
+    # Using local tarball
+    Write-Step "Using local tarball: $TarballPath"
+
+    if (-not (Test-Path $TarballPath)) {
+        Write-ErrorMsg "Tarball file not found: $TarballPath"
+        exit 1
+    }
+
+    $tarName = Split-Path -Leaf $TarballPath
+    if ($tarName -notmatch '^proto-fleet-.*\.tar\.gz$') {
+        Write-ErrorMsg "Invalid tarball name. Expected format: proto-fleet-*.tar.gz"
+        exit 1
+    }
+
+    # Transfer to WSL
+    $wslTempPath = "/tmp/$tarName"
+    Copy-ToWSL -WindowsFilePath $TarballPath -WSLTempPath $wslTempPath
+    Write-Success "Local tarball copied to WSL"
 }
+# 2. Check if running from extracted tarball directory
+elseif ($detectedDeployment = Test-ExtractedDeployment -ScriptDir $PSScriptRoot) {
+    if (-not $Force) {
+        Write-Host ""
+        Write-Host "Detected Proto Fleet deployment files in: $detectedDeployment"
+        Write-Host ""
+        $useDetected = Read-Host "Use these files? (Y/n)"
+    } else {
+        $useDetected = "y"
+    }
+
+    if ($useDetected -match "^[Yy]$" -or [string]::IsNullOrWhiteSpace($useDetected)) {
+        # Use detected deployment directly (no extraction needed)
+        Write-Success "Using deployment files from: $detectedDeployment"
+        $deploymentPath = $detectedDeployment
+        $skipExtraction = $true
+    } else {
+        # User declined, prompt for tarball path
+        Write-Host ""
+        $TarballPath = Read-Host "Enter path to proto-fleet-*.tar.gz tarball"
+        if ([string]::IsNullOrWhiteSpace($TarballPath) -or -not (Test-Path $TarballPath)) {
+            Write-ErrorMsg "Invalid tarball path"
+            exit 1
+        }
+
+        $tarName = Split-Path -Leaf $TarballPath
+        if ($tarName -notmatch '^proto-fleet-.*\.tar\.gz$') {
+            Write-ErrorMsg "Invalid tarball name. Expected format: proto-fleet-*.tar.gz"
+            exit 1
+        }
+
+        # Transfer to WSL
+        $wslTempPath = "/tmp/$tarName"
+        Copy-ToWSL -WindowsFilePath $TarballPath -WSLTempPath $wslTempPath
+        Write-Success "Local tarball copied to WSL"
+    }
+}
+# 3. Not detected - prompt for tarball path
 else {
-    Write-Host "Installing version: $Version" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "No deployment files detected in current directory."
+    Write-Host ""
+    Write-Host "Please provide the path to your proto-fleet-*.tar.gz tarball."
+    Write-Host ""
+
+    if (-not $Force) {
+        $TarballPath = Read-Host "Enter tarball path"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($TarballPath) -or -not (Test-Path $TarballPath)) {
+        Write-ErrorMsg "Invalid or missing tarball path"
+        exit 1
+    }
+
+    # Validate tarball name
+    $tarName = Split-Path -Leaf $TarballPath
+    if ($tarName -notmatch '^proto-fleet-.*\.tar\.gz$') {
+        Write-ErrorMsg "Invalid tarball name. Expected format: proto-fleet-*.tar.gz"
+        exit 1
+    }
+
+    # Transfer to WSL
+    $wslTempPath = "/tmp/$tarName"
+    Copy-ToWSL -WindowsFilePath $TarballPath -WSLTempPath $wslTempPath
+    Write-Success "Local tarball copied to WSL"
 }
 
-# Get download URL
-$url, $tarName = Get-DownloadUrl -Ver $Version
+# Handle extraction or convert detected path to WSL path
+if ($skipExtraction) {
+    # Using detected deployment directory - convert Windows path to WSL path
+    $wslDeploymentPath = ConvertTo-WSLPath -WindowsPath $deploymentPath
+    $deploymentPath = "$wslDeploymentPath/$DEPLOYMENT_DIR"
+} else {
+    # Determine installation directory
+    $finalInstallDir = Set-InstallDirectory -DefaultDir $InstallDir
 
-# Download tarball
-$windowsTarPath = Download-ProtoFleet -Url $url -TarName $tarName
-
-# Transfer to WSL
-$wslTempPath = "/tmp/$tarName"
-Copy-ToWSL -WindowsFilePath $windowsTarPath -WSLTempPath $wslTempPath
-
-# Clean up Windows temp file
-Remove-Item $windowsTarPath -Force
-
-# Determine installation directory
-$finalInstallDir = Set-InstallDirectory -DefaultDir $InstallDir
-
-# Extract tarball
-$deploymentPath = Expand-InWSL -TarPath $wslTempPath -TargetDir $finalInstallDir
+    # Extract tarball
+    $deploymentPath = Expand-InWSL -TarPath $wslTempPath -TargetDir $finalInstallDir
+}
 
 # Validate plugin binaries
 Test-PluginBinaries -DeploymentPath $deploymentPath
