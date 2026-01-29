@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { BulkAction } from "../BulkActions/types";
 import {
   deviceActions,
   loadingMessages,
@@ -13,6 +12,8 @@ import {
 import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
+  CommandType,
+  DeviceSelector,
   PerformanceMode,
   RebootRequestSchema,
   RebootResponse,
@@ -28,6 +29,10 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import {
+  BulkAction,
+  type UnsupportedMinersInfo,
+} from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
@@ -68,6 +73,46 @@ interface UseMinerActionsParams {
   onActionComplete?: () => void;
 }
 
+/**
+ * Metadata for actions that require capability checking.
+ * Contains both the description for the unsupported miners modal and the proto CommandType.
+ * Actions not in this map don't require capability checking (e.g., unpair).
+ */
+const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: string; commandType: CommandType }>> = {
+  [deviceActions.shutdown]: { description: "Sleep mode changes", commandType: CommandType.STOP_MINING },
+  [deviceActions.wakeUp]: { description: "Wake-up", commandType: CommandType.START_MINING },
+  [deviceActions.reboot]: { description: "Reboot", commandType: CommandType.REBOOT },
+  [deviceActions.blinkLEDs]: { description: "LED blinking", commandType: CommandType.BLINK_LED },
+  [deviceActions.factoryReset]: { description: "Factory reset", commandType: CommandType.UNSPECIFIED },
+  [deviceActions.downloadLogs]: { description: "Log downloads", commandType: CommandType.DOWNLOAD_LOGS },
+  [settingsActions.miningPool]: { description: "Pool switching", commandType: CommandType.UPDATE_MINING_POOLS },
+  [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
+};
+
+/**
+ * Callback for pending actions that may receive a filtered device selector.
+ * When called after the unsupported miners modal, receives the filtered selector
+ * containing only supported miners.
+ */
+type PendingActionCallback = (filteredSelector?: DeviceSelector, filteredDeviceIdentifiers?: string[]) => void;
+
+/**
+ * Internal state for unsupported miners modal, extends UnsupportedMinersInfo with pendingAction.
+ */
+interface UnsupportedMinersState extends UnsupportedMinersInfo {
+  pendingAction: PendingActionCallback | null;
+}
+
+const initialUnsupportedMinersState: UnsupportedMinersState = {
+  show: false,
+  actionDescription: "",
+  unsupportedGroups: [],
+  totalUnsupportedCount: 0,
+  noneSupported: false,
+  pendingAction: null,
+  supportedDeviceIdentifiers: [],
+};
+
 export const useMinerActions = ({
   selectedMiners,
   selectionMode,
@@ -75,8 +120,16 @@ export const useMinerActions = ({
   onActionStart,
   onActionComplete,
 }: UseMinerActionsParams) => {
-  const { startMining, stopMining, blinkLED, unpair, reboot, streamCommandBatchUpdates, setPowerTarget } =
-    useMinerCommand();
+  const {
+    startMining,
+    stopMining,
+    blinkLED,
+    unpair,
+    reboot,
+    streamCommandBatchUpdates,
+    setPowerTarget,
+    checkCommandCapabilities,
+  } = useMinerCommand();
 
   const startBatchOperation = useStartBatchOperation();
   const completeBatchOperation = useCompleteBatchOperation();
@@ -85,6 +138,8 @@ export const useMinerActions = ({
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
+  const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
+    useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -112,6 +167,62 @@ export const useMinerActions = ({
 
     return allHaveSameStatus ? firstStatus : undefined;
   }, [selectedMiners]);
+
+  // Check for unsupported miners using server-side capability checking.
+  // Returns a promise that resolves to true if the modal was shown.
+  const checkAndShowUnsupportedMinersModal = useCallback(
+    async (action: SupportedAction, proceedAction: PendingActionCallback): Promise<boolean> => {
+      const metadata = actionCapabilityMetadata[action];
+      if (!metadata || metadata.commandType === CommandType.UNSPECIFIED || !deviceSelector) return false;
+
+      return new Promise((resolve) => {
+        checkCommandCapabilities({
+          deviceSelector,
+          commandType: metadata.commandType,
+          onSuccess: (result) => {
+            if (result.allSupported) {
+              resolve(false);
+              return;
+            }
+
+            setUnsupportedMinersInfo({
+              show: true,
+              actionDescription: metadata.description,
+              unsupportedGroups: result.unsupportedGroups,
+              totalUnsupportedCount: result.unsupportedCount,
+              noneSupported: result.noneSupported,
+              pendingAction: result.noneSupported ? null : proceedAction,
+              supportedDeviceIdentifiers: result.supportedDeviceIdentifiers,
+            });
+
+            resolve(true);
+          },
+          onError: () => {
+            // On error, proceed without showing modal (fail-open for capability check)
+            resolve(false);
+          },
+        });
+      });
+    },
+    [deviceSelector, checkCommandCapabilities],
+  );
+
+  // Handle continuing from unsupported miners modal
+  // Creates a filtered device selector with only supported miners
+  const handleUnsupportedMinersContinue = useCallback(() => {
+    const { pendingAction, supportedDeviceIdentifiers } = unsupportedMinersInfo;
+    const filteredSelector =
+      supportedDeviceIdentifiers.length > 0 ? createDeviceSelector("subset", supportedDeviceIdentifiers) : undefined;
+    setUnsupportedMinersInfo(initialUnsupportedMinersState);
+    pendingAction?.(filteredSelector, supportedDeviceIdentifiers);
+  }, [unsupportedMinersInfo]);
+
+  // Handle dismissing unsupported miners modal
+  const handleUnsupportedMinersDismiss = useCallback(() => {
+    setUnsupportedMinersInfo(initialUnsupportedMinersState);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
 
   const handleSuccess = useCallback(
     (action: SupportedAction, originalToastId: number, batchIdentifier: string) => {
@@ -318,111 +429,121 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
-  const handleConfirmation = useCallback(async () => {
-    if (currentAction === null || !deviceSelector) return;
+  const handleConfirmation = useCallback(
+    async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
+      // Use filtered selector/identifiers if provided (from unsupported miners modal),
+      // otherwise use the default selector/identifiers for all selected miners
+      const selectorToUse = filteredSelector ?? deviceSelector;
+      const deviceIdsToUse = filteredDeviceIds ?? deviceIdentifiers;
+      // Use actionOverride when called from unsupported miners modal (where currentAction is null)
+      const action = actionOverride ?? currentAction;
 
-    const id = pushToast({
-      message: `${loadingMessages[currentAction]} ${minersMessage}`,
-      status: TOAST_STATUSES.loading,
-      longRunning: true,
-      onClose: () => onActionComplete?.(),
-    });
+      if (action === null || !selectorToUse) return;
 
-    // Handle device action API calls
-    switch (currentAction) {
-      case deviceActions.shutdown: {
-        const stopMiningRequest = create(StopMiningRequestSchema, {
-          deviceSelector,
-        });
-        stopMining({
-          stopMiningRequest: stopMiningRequest,
-          onSuccess: (value: StopMiningResponse) => {
-            startBatchOperation({
-              batchIdentifier: value.batchIdentifier,
-              action: deviceActions.shutdown,
-              deviceIdentifiers: deviceIdentifiers,
-            });
-            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier);
-          },
-          onError: handleError.bind(null, id),
-        });
-        break;
+      const id = pushToast({
+        message: `${loadingMessages[action]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
+
+      // Handle device action API calls
+      switch (action) {
+        case deviceActions.shutdown: {
+          const stopMiningRequest = create(StopMiningRequestSchema, {
+            deviceSelector: selectorToUse,
+          });
+          stopMining({
+            stopMiningRequest: stopMiningRequest,
+            onSuccess: (value: StopMiningResponse) => {
+              startBatchOperation({
+                batchIdentifier: value.batchIdentifier,
+                action: deviceActions.shutdown,
+                deviceIdentifiers: deviceIdsToUse,
+              });
+              handleSuccess(deviceActions.shutdown, id, value.batchIdentifier);
+            },
+            onError: handleError.bind(null, id),
+          });
+          break;
+        }
+        case deviceActions.wakeUp: {
+          const startMiningRequest = create(StartMiningRequestSchema, {
+            deviceSelector: selectorToUse,
+          });
+          startMining({
+            startMiningRequest: startMiningRequest,
+            onSuccess: (value: StartMiningResponse) => {
+              startBatchOperation({
+                batchIdentifier: value.batchIdentifier,
+                action: deviceActions.wakeUp,
+                deviceIdentifiers: deviceIdsToUse,
+              });
+              handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier);
+            },
+            onError: handleError.bind(null, id),
+          });
+          break;
+        }
+        case deviceActions.unpair: {
+          const unpairRequest = create(UnpairRequestSchema, {
+            deviceSelector: selectorToUse,
+          });
+          unpair({
+            unpairRequest: unpairRequest,
+            onSuccess: (value: UnpairResponse) => {
+              startBatchOperation({
+                batchIdentifier: value.batchIdentifier,
+                action: deviceActions.unpair,
+                deviceIdentifiers: deviceIdsToUse,
+              });
+              handleSuccess(deviceActions.unpair, id, value.batchIdentifier);
+            },
+            onError: handleError.bind(null, id),
+          });
+          break;
+        }
+        case deviceActions.reboot: {
+          const rebootRequest = create(RebootRequestSchema, {
+            deviceSelector: selectorToUse,
+          });
+          reboot({
+            rebootRequest: rebootRequest,
+            onSuccess: (value: RebootResponse) => {
+              startBatchOperation({
+                batchIdentifier: value.batchIdentifier,
+                action: deviceActions.reboot,
+                deviceIdentifiers: deviceIdsToUse,
+              });
+              handleSuccess(deviceActions.reboot, id, value.batchIdentifier);
+            },
+            onError: handleError.bind(null, id),
+          });
+          break;
+        }
+        default:
+          // TODO remove this once all actions are implemented
+          updateToast(id, {
+            message: "Unimplemented action",
+            status: TOAST_STATUSES.error,
+          });
       }
-      case deviceActions.wakeUp: {
-        const startMiningRequest = create(StartMiningRequestSchema, {
-          deviceSelector,
-        });
-        startMining({
-          startMiningRequest: startMiningRequest,
-          onSuccess: (value: StartMiningResponse) => {
-            startBatchOperation({
-              batchIdentifier: value.batchIdentifier,
-              action: deviceActions.wakeUp,
-              deviceIdentifiers: deviceIdentifiers,
-            });
-            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier);
-          },
-          onError: handleError.bind(null, id),
-        });
-        break;
-      }
-      case deviceActions.unpair: {
-        const unpairRequest = create(UnpairRequestSchema, {
-          deviceSelector,
-        });
-        unpair({
-          unpairRequest: unpairRequest,
-          onSuccess: (value: UnpairResponse) => {
-            startBatchOperation({
-              batchIdentifier: value.batchIdentifier,
-              action: deviceActions.unpair,
-              deviceIdentifiers: deviceIdentifiers,
-            });
-            handleSuccess(deviceActions.unpair, id, value.batchIdentifier);
-          },
-          onError: handleError.bind(null, id),
-        });
-        break;
-      }
-      case deviceActions.reboot: {
-        const rebootRequest = create(RebootRequestSchema, {
-          deviceSelector,
-        });
-        reboot({
-          rebootRequest: rebootRequest,
-          onSuccess: (value: RebootResponse) => {
-            startBatchOperation({
-              batchIdentifier: value.batchIdentifier,
-              action: deviceActions.reboot,
-              deviceIdentifiers: deviceIdentifiers,
-            });
-            handleSuccess(deviceActions.reboot, id, value.batchIdentifier);
-          },
-          onError: handleError.bind(null, id),
-        });
-        break;
-      }
-      default:
-        // TODO remove this once all actions are implemented
-        updateToast(id, {
-          message: "Unimplemented action",
-          status: TOAST_STATUSES.error,
-        });
-    }
-    setCurrentAction(null);
-  }, [
-    currentAction,
-    onActionComplete,
-    deviceSelector,
-    startMining,
-    stopMining,
-    unpair,
-    reboot,
-    handleSuccess,
-    handleError,
-    startBatchOperation,
-    deviceIdentifiers,
-  ]);
+      setCurrentAction(null);
+    },
+    [
+      currentAction,
+      onActionComplete,
+      deviceSelector,
+      startMining,
+      stopMining,
+      unpair,
+      reboot,
+      handleSuccess,
+      handleError,
+      startBatchOperation,
+      deviceIdentifiers,
+    ],
+  );
 
   const handleCancel = useCallback(() => {
     setCurrentAction(null);
@@ -480,19 +601,47 @@ export const useMinerActions = ({
     //   onActionStart?.();
     // };
 
-    const handleReboot = () => {
-      setCurrentAction(deviceActions.reboot);
+    const handleReboot = async () => {
       onActionStart?.();
+      // Check for unsupported miners first - only show confirmation dialog if all supported
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        deviceActions.reboot,
+        (filteredSelector, filteredDeviceIds) => {
+          // This will be called when user clicks Continue on unsupported miners modal
+          // The confirmation dialog will not be shown, action executes directly
+          handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.reboot);
+        },
+      );
+      // Only show confirmation dialog if capability modal was not shown
+      if (!modalShown) {
+        setCurrentAction(deviceActions.reboot);
+      }
     };
 
-    const handleShutDown = () => {
-      setCurrentAction(deviceActions.shutdown);
+    const handleShutDown = async () => {
       onActionStart?.();
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        deviceActions.shutdown,
+        (filteredSelector, filteredDeviceIds) => {
+          handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.shutdown);
+        },
+      );
+      if (!modalShown) {
+        setCurrentAction(deviceActions.shutdown);
+      }
     };
 
-    const handleWakeUp = () => {
-      setCurrentAction(deviceActions.wakeUp);
+    const handleWakeUp = async () => {
       onActionStart?.();
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        deviceActions.wakeUp,
+        (filteredSelector, filteredDeviceIds) => {
+          handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.wakeUp);
+        },
+      );
+      if (!modalShown) {
+        setCurrentAction(deviceActions.wakeUp);
+      }
     };
 
     const handleUnpair = () => {
@@ -699,9 +848,14 @@ export const useMinerActions = ({
     onActionStart,
     deviceSelector,
     deviceStatus,
+    checkAndShowUnsupportedMinersModal,
+    handleConfirmation,
     startBatchOperation,
     deviceIdentifiers,
   ]);
+
+  // Extract public UnsupportedMinersInfo (omit internal pendingAction)
+  const { pendingAction: _, ...publicUnsupportedMinersInfo } = unsupportedMinersInfo;
 
   return {
     currentAction,
@@ -715,5 +869,8 @@ export const useMinerActions = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    unsupportedMinersInfo: publicUnsupportedMinersInfo,
+    handleUnsupportedMinersContinue,
+    handleUnsupportedMinersDismiss,
   };
 };

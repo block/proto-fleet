@@ -55,6 +55,7 @@ beforeEach(async () => {
     reboot: vi.fn(),
     updateMiningPools: vi.fn(),
     setPowerTarget: vi.fn(),
+    checkCommandCapabilities: vi.fn(),
   });
 
   vi.mocked(useLastPairingCompletedAt).mockReturnValue(0);

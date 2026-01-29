@@ -70,6 +70,9 @@ const (
 	// MinerCommandServiceUnpairProcedure is the fully-qualified name of the MinerCommandService's
 	// Unpair RPC.
 	MinerCommandServiceUnpairProcedure = "/minercommand.v1.MinerCommandService/Unpair"
+	// MinerCommandServiceCheckCommandCapabilitiesProcedure is the fully-qualified name of the
+	// MinerCommandService's CheckCommandCapabilities RPC.
+	MinerCommandServiceCheckCommandCapabilitiesProcedure = "/minercommand.v1.MinerCommandService/CheckCommandCapabilities"
 )
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
@@ -93,6 +96,9 @@ type MinerCommandServiceClient interface {
 	// Unpairs devices from the fleet
 	// Updates pairing status to UNPAIRED and clears credentials on the device
 	Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error)
+	// Checks if selected devices support a command before execution
+	// Returns capability check results with unsupported miners grouped by model/firmware
+	CheckCommandCapabilities(context.Context, *connect.Request[v1.CheckCommandCapabilitiesRequest]) (*connect.Response[v1.CheckCommandCapabilitiesResponse], error)
 }
 
 // NewMinerCommandServiceClient constructs a client for the minercommand.v1.MinerCommandService
@@ -165,6 +171,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceUnpairProcedure,
 			opts...,
 		),
+		checkCommandCapabilities: connect.NewClient[v1.CheckCommandCapabilitiesRequest, v1.CheckCommandCapabilitiesResponse](
+			httpClient,
+			baseURL+MinerCommandServiceCheckCommandCapabilitiesProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -182,6 +193,7 @@ type minerCommandServiceClient struct {
 	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
 	firmwareUpdate            *connect.Client[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse]
 	unpair                    *connect.Client[v1.UnpairRequest, v1.UnpairResponse]
+	checkCommandCapabilities  *connect.Client[v1.CheckCommandCapabilitiesRequest, v1.CheckCommandCapabilitiesResponse]
 }
 
 // Reboot calls minercommand.v1.MinerCommandService.Reboot.
@@ -244,6 +256,11 @@ func (c *minerCommandServiceClient) Unpair(ctx context.Context, req *connect.Req
 	return c.unpair.CallUnary(ctx, req)
 }
 
+// CheckCommandCapabilities calls minercommand.v1.MinerCommandService.CheckCommandCapabilities.
+func (c *minerCommandServiceClient) CheckCommandCapabilities(ctx context.Context, req *connect.Request[v1.CheckCommandCapabilitiesRequest]) (*connect.Response[v1.CheckCommandCapabilitiesResponse], error) {
+	return c.checkCommandCapabilities.CallUnary(ctx, req)
+}
+
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
 // service.
 type MinerCommandServiceHandler interface {
@@ -266,6 +283,9 @@ type MinerCommandServiceHandler interface {
 	// Unpairs devices from the fleet
 	// Updates pairing status to UNPAIRED and clears credentials on the device
 	Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error)
+	// Checks if selected devices support a command before execution
+	// Returns capability check results with unsupported miners grouped by model/firmware
+	CheckCommandCapabilities(context.Context, *connect.Request[v1.CheckCommandCapabilitiesRequest]) (*connect.Response[v1.CheckCommandCapabilitiesResponse], error)
 }
 
 // NewMinerCommandServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -334,6 +354,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.Unpair,
 		opts...,
 	)
+	minerCommandServiceCheckCommandCapabilitiesHandler := connect.NewUnaryHandler(
+		MinerCommandServiceCheckCommandCapabilitiesProcedure,
+		svc.CheckCommandCapabilities,
+		opts...,
+	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerCommandServiceRebootProcedure:
@@ -360,6 +385,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceFirmwareUpdateHandler.ServeHTTP(w, r)
 		case MinerCommandServiceUnpairProcedure:
 			minerCommandServiceUnpairHandler.ServeHTTP(w, r)
+		case MinerCommandServiceCheckCommandCapabilitiesProcedure:
+			minerCommandServiceCheckCommandCapabilitiesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -415,4 +442,8 @@ func (UnimplementedMinerCommandServiceHandler) FirmwareUpdate(context.Context, *
 
 func (UnimplementedMinerCommandServiceHandler) Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.Unpair is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) CheckCommandCapabilities(context.Context, *connect.Request[v1.CheckCommandCapabilitiesRequest]) (*connect.Response[v1.CheckCommandCapabilitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.CheckCommandCapabilities is not implemented"))
 }

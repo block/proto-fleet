@@ -158,6 +158,63 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 	return i, err
 }
 
+const getAllDeviceInfoForCapabilityCheck = `-- name: GetAllDeviceInfoForCapabilityCheck :many
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.manufacturer,
+    dd.model,
+    dd.type,
+    dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE d.org_id = ?
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status = 'PAIRED'
+`
+
+type GetAllDeviceInfoForCapabilityCheckRow struct {
+	ID               int64
+	DeviceIdentifier string
+	Manufacturer     sql.NullString
+	Model            sql.NullString
+	Type             string
+	FirmwareVersion  sql.NullString
+}
+
+// Returns device information for all paired devices in an organization.
+// Used when checking capabilities for "select all" operations.
+func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID int64) ([]GetAllDeviceInfoForCapabilityCheckRow, error) {
+	rows, err := q.query(ctx, q.getAllDeviceInfoForCapabilityCheckStmt, getAllDeviceInfoForCapabilityCheck, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllDeviceInfoForCapabilityCheckRow
+	for rows.Next() {
+		var i GetAllDeviceInfoForCapabilityCheckRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.Manufacturer,
+			&i.Model,
+			&i.Type,
+			&i.FirmwareVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAllPairedDeviceIdentifiers = `-- name: GetAllPairedDeviceIdentifiers :many
 SELECT d.device_identifier
 FROM device d
@@ -421,6 +478,80 @@ func (q *Queries) GetDeviceIdentifierByID(ctx context.Context, id int64) (string
 	var device_identifier string
 	err := row.Scan(&device_identifier)
 	return device_identifier, err
+}
+
+const getDeviceInfoForCapabilityCheck = `-- name: GetDeviceInfoForCapabilityCheck :many
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.manufacturer,
+    dd.model,
+    dd.type,
+    dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE d.device_identifier IN (/*SLICE:device_identifiers*/?)
+  AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND dp.pairing_status = 'PAIRED'
+`
+
+type GetDeviceInfoForCapabilityCheckParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetDeviceInfoForCapabilityCheckRow struct {
+	ID               int64
+	DeviceIdentifier string
+	Manufacturer     sql.NullString
+	Model            sql.NullString
+	Type             string
+	FirmwareVersion  sql.NullString
+}
+
+// Returns device information needed for capability checking.
+// Used when checking if specific devices support a command.
+func (q *Queries) GetDeviceInfoForCapabilityCheck(ctx context.Context, arg GetDeviceInfoForCapabilityCheckParams) ([]GetDeviceInfoForCapabilityCheckRow, error) {
+	query := getDeviceInfoForCapabilityCheck
+	var queryParams []interface{}
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.OrgID)
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceInfoForCapabilityCheckRow
+	for rows.Next() {
+		var i GetDeviceInfoForCapabilityCheckRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.Manufacturer,
+			&i.Model,
+			&i.Type,
+			&i.FirmwareVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getDevicePairingStatusByDeviceDatabaseID = `-- name: GetDevicePairingStatusByDeviceDatabaseID :one

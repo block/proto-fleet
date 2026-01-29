@@ -27,6 +27,18 @@ const mockBlinkLED = vi.fn();
 const mockUnpair = vi.fn();
 const mockReboot = vi.fn();
 const mockSetPowerTarget = vi.fn();
+const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
+  // Default to all supported (no modal shown)
+  onSuccess({
+    allSupported: true,
+    noneSupported: false,
+    supportedCount: 1,
+    unsupportedCount: 0,
+    totalCount: 1,
+    unsupportedGroups: [],
+    supportedDeviceIdentifiers: [],
+  });
+});
 
 // Mock dependencies
 vi.mock("@/protoFleet/api/useMinerCommand", () => ({
@@ -38,6 +50,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     reboot: mockReboot,
     streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
     setPowerTarget: mockSetPowerTarget,
+    checkCommandCapabilities: mockCheckCommandCapabilities,
   }),
 }));
 
@@ -217,7 +230,7 @@ describe("useMinerActions", () => {
   });
 
   describe("Action handlers - Setting current action", () => {
-    it("should set currentAction when reboot action handler is called", () => {
+    it("should set currentAction when reboot action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -230,15 +243,15 @@ describe("useMinerActions", () => {
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
-      act(() => {
-        rebootAction?.actionHandler();
+      await act(async () => {
+        await rebootAction?.actionHandler();
       });
 
       expect(result.current.currentAction).toBe(deviceActions.reboot);
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should set currentAction when shutdown action handler is called", () => {
+    it("should set currentAction when shutdown action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -251,15 +264,15 @@ describe("useMinerActions", () => {
 
       const shutdownAction = result.current.popoverActions.find((a) => a.action === deviceActions.shutdown);
 
-      act(() => {
-        shutdownAction?.actionHandler();
+      await act(async () => {
+        await shutdownAction?.actionHandler();
       });
 
       expect(result.current.currentAction).toBe(deviceActions.shutdown);
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should set currentAction when wake up action handler is called", () => {
+    it("should set currentAction when wake up action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -272,8 +285,8 @@ describe("useMinerActions", () => {
 
       const wakeUpAction = result.current.popoverActions.find((a) => a.action === deviceActions.wakeUp);
 
-      act(() => {
-        wakeUpAction?.actionHandler();
+      await act(async () => {
+        await wakeUpAction?.actionHandler();
       });
 
       expect(result.current.currentAction).toBe(deviceActions.wakeUp);
@@ -475,8 +488,8 @@ describe("useMinerActions", () => {
       // Set current action to shutdown
       const shutdownAction = result.current.popoverActions.find((a) => a.action === deviceActions.shutdown);
 
-      act(() => {
-        shutdownAction?.actionHandler();
+      await act(async () => {
+        await shutdownAction?.actionHandler();
       });
 
       // Call handleConfirmation
@@ -507,8 +520,8 @@ describe("useMinerActions", () => {
 
       const wakeUpAction = result.current.popoverActions.find((a) => a.action === deviceActions.wakeUp);
 
-      act(() => {
-        wakeUpAction?.actionHandler();
+      await act(async () => {
+        await wakeUpAction?.actionHandler();
       });
 
       await act(async () => {
@@ -567,8 +580,8 @@ describe("useMinerActions", () => {
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
-      act(() => {
-        rebootAction?.actionHandler();
+      await act(async () => {
+        await rebootAction?.actionHandler();
       });
 
       await act(async () => {
@@ -585,7 +598,7 @@ describe("useMinerActions", () => {
   });
 
   describe("handleCancel", () => {
-    it("should reset currentAction to null and call onActionComplete", () => {
+    it("should reset currentAction to null and call onActionComplete", async () => {
       const onActionComplete = vi.fn();
 
       const { result } = renderHook(() =>
@@ -599,8 +612,8 @@ describe("useMinerActions", () => {
       // Set an action first
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
-      act(() => {
-        rebootAction?.actionHandler();
+      await act(async () => {
+        await rebootAction?.actionHandler();
       });
 
       expect(result.current.currentAction).toBe(deviceActions.reboot);
@@ -616,7 +629,7 @@ describe("useMinerActions", () => {
   });
 
   describe("Callbacks", () => {
-    it("should call onActionStart when confirmation action is triggered", () => {
+    it("should call onActionStart when confirmation action is triggered", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -629,8 +642,8 @@ describe("useMinerActions", () => {
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
-      act(() => {
-        rebootAction?.actionHandler();
+      await act(async () => {
+        await rebootAction?.actionHandler();
       });
 
       expect(onActionStart).toHaveBeenCalled();
@@ -822,8 +835,8 @@ describe("useMinerActions", () => {
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
-      act(() => {
-        rebootAction?.actionHandler();
+      await act(async () => {
+        await rebootAction?.actionHandler();
       });
 
       await act(async () => {
@@ -889,6 +902,265 @@ describe("useMinerActions", () => {
           expect(shouldRefetch).toBe(false);
         }
       }
+    });
+  });
+
+  describe("Unsupported miners modal flow", () => {
+    it("should show unsupported miners modal when some miners do not support the action", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 2,
+          totalCount: 3,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 2 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.totalUnsupportedCount).toBe(2);
+      expect(result.current.unsupportedMinersInfo.noneSupported).toBe(false);
+      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
+      expect(result.current.unsupportedMinersInfo.unsupportedGroups).toHaveLength(1);
+    });
+
+    it("should show unsupported miners modal with noneSupported flag when no miners support the action", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: true,
+          supportedCount: 0,
+          unsupportedCount: 2,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 2 }],
+          supportedDeviceIdentifiers: [],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.noneSupported).toBe(true);
+      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual([]);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("should not show confirmation dialog when unsupported miners modal is shown", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("should execute action with filtered device selector when continuing from unsupported modal", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
+
+      await act(async () => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      // Verify reboot was called
+      expect(mockReboot).toHaveBeenCalled();
+      // Verify batch operation was started with only the supported device identifier
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier: "batch-reboot",
+        action: deviceActions.reboot,
+        deviceIdentifiers: ["device-1"],
+      });
+    });
+
+    it("should reset state when dismissing unsupported miners modal", async () => {
+      const onActionComplete = vi.fn();
+
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+
+      act(() => {
+        result.current.handleUnsupportedMinersDismiss();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should proceed without modal when all miners support the action", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: true,
+          noneSupported: false,
+          supportedCount: 2,
+          unsupportedCount: 0,
+          totalCount: 2,
+          unsupportedGroups: [],
+          supportedDeviceIdentifiers: ["device-1", "device-2"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.reboot);
+    });
+
+    it("should proceed without modal when capability check fails (fail-open)", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onError }: any) => {
+        onError(new Error("Network error"));
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.reboot);
     });
   });
 });

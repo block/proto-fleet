@@ -40,6 +40,9 @@ const MinerActionsMenu = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    unsupportedMinersInfo,
+    handleUnsupportedMinersContinue,
+    handleUnsupportedMinersDismiss,
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
@@ -65,6 +68,9 @@ const MinerActionsMenu = ({
           />
         )}
         testId="actions-menu"
+        unsupportedMinersInfo={unsupportedMinersInfo}
+        onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
+        onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
       />
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper

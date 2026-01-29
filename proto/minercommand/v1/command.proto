@@ -189,6 +189,44 @@ message GetCommandBatchLogBundleResponse {
   string filename = 2;
 }
 
+// Command type enum for capability checking
+enum CommandType {
+  COMMAND_TYPE_UNSPECIFIED = 0;
+  COMMAND_TYPE_REBOOT = 1;
+  COMMAND_TYPE_START_MINING = 2;
+  COMMAND_TYPE_STOP_MINING = 3;
+  COMMAND_TYPE_BLINK_LED = 4;
+  COMMAND_TYPE_SET_COOLING_MODE = 5;
+  COMMAND_TYPE_UPDATE_MINING_POOLS = 6;
+  COMMAND_TYPE_DOWNLOAD_LOGS = 7;
+  COMMAND_TYPE_FIRMWARE_UPDATE = 8;
+}
+
+// Request to check command capabilities for selected devices
+message CheckCommandCapabilitiesRequest {
+  CommandType command_type = 1;
+  DeviceSelector device_selector = 2;
+}
+
+// Group of unsupported miners with same firmware and model
+message UnsupportedMinerGroup {
+  string firmware_version = 1;
+  string model = 2;
+  int32 count = 3;
+}
+
+// Response with capability check results
+message CheckCommandCapabilitiesResponse {
+  int32 supported_count = 1;
+  int32 unsupported_count = 2;
+  int32 total_count = 3;
+  bool all_supported = 4;
+  bool none_supported = 5;
+  repeated UnsupportedMinerGroup unsupported_groups = 6;
+  // Device identifiers that support the command (for filtered execution)
+  repeated string supported_device_identifiers = 7;
+}
+
 // Service for executing Miner commands
 service MinerCommandService {
   rpc Reboot(RebootRequest) returns (RebootResponse);
@@ -221,4 +259,8 @@ service MinerCommandService {
   // Unpairs devices from the fleet
   // Updates pairing status to UNPAIRED and clears credentials on the device
   rpc Unpair(UnpairRequest) returns (UnpairResponse);
+
+  // Checks if selected devices support a command before execution
+  // Returns capability check results with unsupported miners grouped by model/firmware
+  rpc CheckCommandCapabilities(CheckCommandCapabilitiesRequest) returns (CheckCommandCapabilitiesResponse);
 }

@@ -81,6 +81,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
 	}
+	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
+	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
@@ -116,6 +119,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceIdentifierByIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifierByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifierByID: %w", err)
+	}
+	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
 	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
@@ -463,6 +469,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getAllDeviceInfoForCapabilityCheckStmt != nil {
+		if cerr := q.getAllDeviceInfoForCapabilityCheckStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceInfoForCapabilityCheckStmt: %w", cerr)
+		}
+	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
@@ -521,6 +532,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceIdentifierByIDStmt != nil {
 		if cerr := q.getDeviceIdentifierByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIdentifierByIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceInfoForCapabilityCheckStmt != nil {
+		if cerr := q.getDeviceInfoForCapabilityCheckStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceInfoForCapabilityCheckStmt: %w", cerr)
 		}
 	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
@@ -991,6 +1007,7 @@ type Queries struct {
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
+	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getAvailableMinerTypesStmt                          *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -1003,6 +1020,7 @@ type Queries struct {
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
+	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDeviceStatusStmt                                 *sql.Stmt
 	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
@@ -1110,6 +1128,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
+		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getAvailableMinerTypesStmt:                          q.getAvailableMinerTypesStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
@@ -1122,6 +1141,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
+		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
 		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,

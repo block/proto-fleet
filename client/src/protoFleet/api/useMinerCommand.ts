@@ -5,6 +5,9 @@ import { minerCommandClient } from "@/protoFleet/api/clients";
 import {
   BlinkLEDRequest,
   BlinkLEDResponse,
+  CheckCommandCapabilitiesRequestSchema,
+  CheckCommandCapabilitiesResponse,
+  CommandType,
   DeviceSelector,
   PerformanceMode,
   type PoolSlotConfig,
@@ -84,6 +87,13 @@ interface SetPowerTargetProps {
   deviceSelector: DeviceSelector;
   performanceMode: PerformanceMode;
   onSuccess: (value: SetPowerTargetResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface CheckCommandCapabilitiesProps {
+  deviceSelector: DeviceSelector;
+  commandType: CommandType;
+  onSuccess: (value: CheckCommandCapabilitiesResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -268,6 +278,28 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const checkCommandCapabilities = useCallback(
+    async ({ deviceSelector, commandType, onSuccess, onError }: CheckCommandCapabilitiesProps) => {
+      const request = create(CheckCommandCapabilitiesRequestSchema, {
+        deviceSelector,
+        commandType,
+      });
+
+      await minerCommandClient
+        .checkCommandCapabilities(request)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   return useMemo(
     () => ({
       blinkLED,
@@ -278,8 +310,19 @@ const useMinerCommand = () => {
       streamCommandBatchUpdates,
       updateMiningPools,
       setPowerTarget,
+      checkCommandCapabilities,
     }),
-    [blinkLED, startMining, stopMining, unpair, reboot, streamCommandBatchUpdates, updateMiningPools, setPowerTarget],
+    [
+      blinkLED,
+      startMining,
+      stopMining,
+      unpair,
+      reboot,
+      streamCommandBatchUpdates,
+      updateMiningPools,
+      setPowerTarget,
+      checkCommandCapabilities,
+    ],
   );
 };
 

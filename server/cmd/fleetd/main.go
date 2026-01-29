@@ -298,7 +298,7 @@ func start(config *Config) error {
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, telemetryService)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, telemetryService, pluginService)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 

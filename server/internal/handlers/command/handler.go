@@ -172,3 +172,15 @@ func (h *Handler) GetCommandBatchLogBundle(
 
 	return connect.NewResponse(resp), nil
 }
+
+func (h *Handler) CheckCommandCapabilities(
+	ctx context.Context,
+	req *connect.Request[pb.CheckCommandCapabilitiesRequest],
+) (*connect.Response[pb.CheckCommandCapabilitiesResponse], error) {
+	resp, err := h.commandSvc.CheckCommandCapabilities(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}

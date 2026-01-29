@@ -527,3 +527,38 @@ WHERE
         OR pairing_status IN (sqlc.slice('pairing_status_values'))
     );
 
+-- name: GetDeviceInfoForCapabilityCheck :many
+-- Returns device information needed for capability checking.
+-- Used when checking if specific devices support a command.
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.manufacturer,
+    dd.model,
+    dd.type,
+    dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE d.device_identifier IN (sqlc.slice('device_identifiers'))
+  AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND dp.pairing_status = 'PAIRED';
+
+-- name: GetAllDeviceInfoForCapabilityCheck :many
+-- Returns device information for all paired devices in an organization.
+-- Used when checking capabilities for "select all" operations.
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.manufacturer,
+    dd.model,
+    dd.type,
+    dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE d.org_id = ?
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status = 'PAIRED';
+

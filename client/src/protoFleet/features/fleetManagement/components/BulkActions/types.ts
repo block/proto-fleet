@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { UnsupportedMinerGroup } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { type ButtonVariant } from "@/shared/components/Button";
 
 export type BulkAction<ActionType> = {
@@ -18,4 +19,13 @@ export type ActionWarnDialogOptions = {
     variant: ButtonVariant;
   };
   testId: string;
+};
+
+export type UnsupportedMinersInfo = {
+  show: boolean;
+  actionDescription: string;
+  unsupportedGroups: UnsupportedMinerGroup[];
+  totalUnsupportedCount: number;
+  noneSupported: boolean;
+  supportedDeviceIdentifiers: string[];
 };

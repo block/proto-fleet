@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
-import { BulkAction } from "../BulkActions/types";
+import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
+import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import ManagePowerModal from "./ManagePowerModal";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
@@ -35,16 +36,17 @@ const SingleMinerActionsMenu = ({
 
   const {
     currentAction,
-    setCurrentAction,
     popoverActions,
     handleConfirmation,
     handleCancel,
-    numberOfMiners,
     handleMiningPoolSuccess,
     handleMiningPoolError,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    unsupportedMinersInfo,
+    handleUnsupportedMinersContinue,
+    handleUnsupportedMinersDismiss,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
@@ -78,6 +80,12 @@ const SingleMinerActionsMenu = ({
     handleCancel();
   };
 
+  // Prevent confirmation dialog flash when continuing from unsupported miners modal
+  const handleUnsupportedMinersContinueWithReset = useCallback(() => {
+    setShowWarnDialog(false);
+    handleUnsupportedMinersContinue();
+  }, [handleUnsupportedMinersContinue]);
+
   return (
     <PopoverProvider>
       <SingleMinerActionsMenuInner
@@ -86,13 +94,10 @@ const SingleMinerActionsMenu = ({
         showWarnDialog={showWarnDialog}
         currentAction={currentAction}
         popoverActions={popoverActions}
-        numberOfMiners={numberOfMiners}
         onClickOutside={onClickOutside}
         handleAction={handleAction}
         handleConfirmationClick={handleConfirmationClick}
         handleCancelClick={handleCancelClick}
-        setCurrentAction={setCurrentAction}
-        onActionComplete={onActionComplete}
         selectedMiners={selectedMiners}
         handleMiningPoolSuccess={handleMiningPoolSuccess}
         handleMiningPoolError={handleMiningPoolError}
@@ -101,6 +106,9 @@ const SingleMinerActionsMenu = ({
         handleManagePowerConfirm={handleManagePowerConfirm}
         handleManagePowerDismiss={handleManagePowerDismiss}
         disabled={disabled}
+        unsupportedMinersInfo={unsupportedMinersInfo}
+        handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
+        handleUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
       />
     </PopoverProvider>
   );
@@ -112,13 +120,10 @@ interface SingleMinerActionsMenuInnerProps {
   showWarnDialog: boolean;
   currentAction: SupportedAction | null;
   popoverActions: BulkAction<SupportedAction>[];
-  numberOfMiners: number;
   onClickOutside: () => void;
   handleAction: (action: BulkAction<SupportedAction>) => void;
   handleConfirmationClick: () => void;
   handleCancelClick: () => void;
-  setCurrentAction: (action: SupportedAction | null) => void;
-  onActionComplete?: () => void;
   selectedMiners: MinerSelection[];
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
@@ -127,6 +132,9 @@ interface SingleMinerActionsMenuInnerProps {
   handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
   handleManagePowerDismiss: () => void;
   disabled?: boolean;
+  unsupportedMinersInfo: UnsupportedMinersInfo;
+  handleUnsupportedMinersContinue: () => void;
+  handleUnsupportedMinersDismiss: () => void;
 }
 
 const SingleMinerActionsMenuInner = ({
@@ -135,13 +143,10 @@ const SingleMinerActionsMenuInner = ({
   showWarnDialog,
   currentAction,
   popoverActions,
-  numberOfMiners: _numberOfMiners,
   onClickOutside,
   handleAction,
   handleConfirmationClick,
   handleCancelClick,
-  setCurrentAction: _setCurrentAction,
-  onActionComplete: _onActionComplete,
   selectedMiners,
   handleMiningPoolSuccess,
   handleMiningPoolError,
@@ -150,6 +155,9 @@ const SingleMinerActionsMenuInner = ({
   handleManagePowerConfirm,
   handleManagePowerDismiss,
   disabled = false,
+  unsupportedMinersInfo,
+  handleUnsupportedMinersContinue,
+  handleUnsupportedMinersDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -201,15 +209,23 @@ const SingleMinerActionsMenuInner = ({
           ))}
         </Popover>
       )}
+      {/* Unsupported miners modal - shown when the action is not supported */}
+      <UnsupportedMinersModal
+        {...unsupportedMinersInfo}
+        onContinue={handleUnsupportedMinersContinue}
+        onDismiss={handleUnsupportedMinersDismiss}
+      />
+      {/* Confirmation dialog - shown when the action is supported */}
       {popoverActions
         .filter((action) => action.requiresConfirmation)
         .map((action) => {
           if (action.confirmation === undefined) return null;
+          const showDialog = currentAction === action.action && showWarnDialog && !unsupportedMinersInfo.show;
           return (
             <BulkActionConfirmDialog
               key={action.action}
               actionConfirmation={action.confirmation}
-              show={currentAction === action.action && showWarnDialog}
+              show={showDialog}
               onConfirmation={handleConfirmationClick}
               onCancel={handleCancelClick}
               testId="single-miner-actions-dialog"

@@ -45,6 +45,7 @@ type Service struct {
 	filesService      *files.Service
 	deviceStore       stores.DeviceStore
 	telemetryListener TelemetryListener
+	capabilityChecker *CapabilityChecker
 }
 
 const defaultPoolPriority uint32 = 0
@@ -56,7 +57,7 @@ type Command struct {
 }
 
 // NewService creates a new command service instance
-func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, telemetryListener TelemetryListener) *Service {
+func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider) *Service {
 	return &Service{
 		config:            config,
 		conn:              conn,
@@ -67,6 +68,7 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 		filesService:      filesService,
 		deviceStore:       deviceStore,
 		telemetryListener: telemetryListener,
+		capabilityChecker: NewCapabilityChecker(conn, capabilitiesProvider),
 	}
 }
 
@@ -580,4 +582,15 @@ func (s *Service) GetCommandBatchLogBundle(batchUUID string) (*pb.GetCommandBatc
 		Filename:  file.Filename,
 		ChunkData: file.Data,
 	}, nil
+}
+
+// CheckCommandCapabilities validates command support for selected devices.
+// Returns capability check results with unsupported miners grouped by model/firmware.
+func (s *Service) CheckCommandCapabilities(ctx context.Context, req *pb.CheckCommandCapabilitiesRequest) (*pb.CheckCommandCapabilitiesResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	return s.capabilityChecker.CheckCapabilities(ctx, req.DeviceSelector, req.CommandType, info.OrganizationID)
 }
