@@ -596,10 +596,23 @@ func (c *Client) BlinkLED(ctx context.Context, duration time.Duration) error {
 	return nil
 }
 
-// GetLogs retrieves device logs
+// GetLogs retrieves device logs from the kernel log endpoint.
+// The since parameter is not used as Antminer doesn't support time-based filtering.
+// The maxLines parameter is not used as Antminer returns the full log.
+// Returns the log content, a boolean indicating if there are more logs (always false for Antminer),
+// and any error encountered.
 func (c *Client) GetLogs(ctx context.Context, _ *time.Time, _ int) (string, bool, error) {
-	// This would typically involve web API calls to retrieve logs
-	return "", false, fmt.Errorf("log retrieval not implemented for Antminer")
+	if c.credentials == nil {
+		return "", false, fmt.Errorf("credentials required for log download")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	logs, err := c.webClient.GetKernelLog(ctx, connInfo)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get kernel log: %w", err)
+	}
+
+	return logs, false, nil
 }
 
 // Reboot reboots the device

@@ -27,6 +27,7 @@ const (
 	endpointReboot       = "/cgi-bin/reboot.cgi"
 	endpointBlink        = "/cgi-bin/blink.cgi"
 	endpointStats        = "/cgi-bin/stats.cgi"
+	endpointKernelLog    = "/cgi-bin/get_kernel_log.cgi"
 )
 
 // BitmainWorkMode represents the operating mode of an Antminer device
@@ -50,6 +51,7 @@ type WebAPIClient interface {
 	Reboot(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	StartBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	StopBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
+	GetKernelLog(ctx context.Context, connInfo *AntminerConnectionInfo) (string, error)
 }
 
 var _ WebAPIClient = &Service{}
@@ -281,6 +283,41 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 	return nil
 }
 
+func (s *Service) requestRaw(ctx context.Context, connInfo *AntminerConnectionInfo, opts RequestOptions) (string, error) {
+	reqURL := s.buildURL(connInfo, opts.Endpoint)
+
+	req, err := http.NewRequestWithContext(ctx, opts.Method, reqURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if connInfo.Creds.Username != "" && connInfo.Creds.Password != "" {
+		if err := s.addDigestAuth(req, connInfo.Creds); err != nil {
+			return "", fmt.Errorf("failed to add digest auth: %w", err)
+		}
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return "", sdk.NewErrorAuthenticationFailed(connInfo.GetURL().String())
+		}
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return string(body), nil
+}
+
 func (s *Service) GetSystemInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*SystemInfo, error) {
 	var systemInfo SystemInfo
 	err := s.request(ctx, connInfo, RequestOptions{
@@ -378,6 +415,13 @@ func (s *Service) setBlink(ctx context.Context, connInfo *AntminerConnectionInfo
 		Method:   http.MethodPost,
 		Endpoint: endpointBlink,
 		Body:     blinkData,
+	})
+}
+
+func (s *Service) GetKernelLog(ctx context.Context, connInfo *AntminerConnectionInfo) (string, error) {
+	return s.requestRaw(ctx, connInfo, RequestOptions{
+		Method:   http.MethodGet,
+		Endpoint: endpointKernelLog,
 	})
 }
 

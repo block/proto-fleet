@@ -187,13 +187,57 @@ func TestClient_Reboot(t *testing.T) {
 func TestClient_NotImplementedMethods(t *testing.T) {
 	client := createTestClient(t)
 
+	err := client.UpdateFirmware(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not implemented")
+}
+
+func TestClient_GetLogs_NoCredentials(t *testing.T) {
+	client := createTestClient(t)
+
 	_, _, err := client.GetLogs(t.Context(), nil, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not implemented")
+	assert.Contains(t, err.Error(), "credentials required")
+}
 
-	err = client.UpdateFirmware(t.Context())
+func TestClient_GetLogs_Success(t *testing.T) {
+	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer rpcCtrl.Finish()
+	defer webCtrl.Finish()
+
+	client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
+	err := client.SetCredentials(sdk.UsernamePassword{Username: "root", Password: "root"})
+	require.NoError(t, err)
+
+	expectedLogs := "kernel log content here\nmore log lines"
+	mockWebClient.EXPECT().
+		GetKernelLog(gomock.Any(), gomock.Any()).
+		Return(expectedLogs, nil)
+
+	logs, hasMore, err := client.GetLogs(t.Context(), nil, 0)
+	require.NoError(t, err)
+	assert.Equal(t, expectedLogs, logs)
+	assert.False(t, hasMore)
+}
+
+func TestClient_GetLogs_WebAPIError(t *testing.T) {
+	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer rpcCtrl.Finish()
+	defer webCtrl.Finish()
+
+	client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
+	err := client.SetCredentials(sdk.UsernamePassword{Username: "root", Password: "root"})
+	require.NoError(t, err)
+
+	mockWebClient.EXPECT().
+		GetKernelLog(gomock.Any(), gomock.Any()).
+		Return("", fmt.Errorf("connection timeout"))
+
+	_, _, err = client.GetLogs(t.Context(), nil, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not implemented")
+	assert.Contains(t, err.Error(), "failed to get kernel log")
 }
 
 func TestClient_GetDeviceInfo(t *testing.T) {

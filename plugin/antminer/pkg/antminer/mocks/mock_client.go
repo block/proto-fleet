@@ -95,6 +95,22 @@ func (mr *MockAntminerClientMockRecorder) GetDevs(ctx interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevs", reflect.TypeOf((*MockAntminerClient)(nil).GetDevs), ctx)
 }
 
+// GetLogs mocks base method.
+func (m *MockAntminerClient) GetLogs(ctx context.Context, since *time.Time, maxLines int) (string, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLogs", ctx, since, maxLines)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetLogs indicates an expected call of GetLogs.
+func (mr *MockAntminerClientMockRecorder) GetLogs(ctx, since, maxLines interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLogs", reflect.TypeOf((*MockAntminerClient)(nil).GetLogs), ctx, since, maxLines)
+}
+
 // GetMinerConfig mocks base method.
 func (m *MockAntminerClient) GetMinerConfig(ctx context.Context) (*web.MinerConfig, error) {
 	m.ctrl.T.Helper()

@@ -103,7 +103,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityCoolingModeImmerse: false,
 		sdk.CapabilityPoolConfig:         true,
 		sdk.CapabilityPoolPriority:       true,
-		sdk.CapabilityLogsDownload:       false,
+		sdk.CapabilityLogsDownload:       true,
 
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true,

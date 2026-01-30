@@ -82,7 +82,7 @@ func TestDescribeDriver(t *testing.T) {
 	assert.False(t, capabilities[sdk.CapabilityCoolingModeImmerse])
 	assert.True(t, capabilities[sdk.CapabilityPoolConfig])
 	assert.True(t, capabilities[sdk.CapabilityPoolPriority])
-	assert.False(t, capabilities[sdk.CapabilityLogsDownload])
+	assert.True(t, capabilities[sdk.CapabilityLogsDownload])
 
 	// Check telemetry capabilities
 	assert.True(t, capabilities[sdk.CapabilityRealtimeTelemetry])

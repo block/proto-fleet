@@ -452,6 +452,43 @@ func TestGetStatsInfo(t *testing.T) {
 	assert.InEpsilon(t, 73.0, stats.STATS[0].Chain[0].TempChip[2], 0.01)
 }
 
+func TestGetKernelLog(t *testing.T) {
+	expectedLog := `[    0.000000] Booting Linux on physical CPU 0x0
+[    0.000000] Linux version 4.9.113 (root@builder) (gcc version 6.4.0)
+[   12.345678] cgminer: Starting mining operations
+[   12.456789] cgminer: Connected to pool stratum+tcp://pool.example.com:3333
+[   45.678901] Temperature warning: Chain 0 reached 75C`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/cgi-bin/get_kernel_log.cgi", r.URL.Path)
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(expectedLog))
+		if err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	service := web.NewService()
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+	log, err := service.GetKernelLog(t.Context(), connInfo)
+
+	require.NoError(t, err)
+	assert.Equal(t, expectedLog, log)
+	assert.Contains(t, log, "cgminer")
+	assert.Contains(t, log, "Temperature warning")
+}
+
 func TestErrorHandling(t *testing.T) {
 	testCases := []struct {
 		name       string

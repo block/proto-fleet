@@ -28,6 +28,7 @@ type AntminerClient interface {
 	GetDeviceInfo(ctx context.Context) (*DeviceInfo, error)
 	GetStatus(ctx context.Context) (*Status, error)
 	GetTelemetry(ctx context.Context) (*Telemetry, error)
+	GetLogs(ctx context.Context, since *time.Time, maxLines int) (string, bool, error)
 	Pair(ctx context.Context, credentials sdk.UsernamePassword) error
 	StopMining(ctx context.Context) error
 	StartMining(ctx context.Context) error

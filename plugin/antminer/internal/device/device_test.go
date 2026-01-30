@@ -642,6 +642,23 @@ func TestDevice_BlinkLED(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDevice_DownloadLogs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	expectedLogs := "[    0.000000] Booting Linux on physical CPU 0x0\n[    1.200000] cgminer: Starting cgminer"
+	mockClient.EXPECT().GetLogs(gomock.Any(), nil, 0).Return(expectedLogs, false, nil)
+
+	logs, hasMore, err := device.DownloadLogs(t.Context(), nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, expectedLogs, logs)
+	assert.False(t, hasMore)
+}
+
 func TestDevice_GetErrors(t *testing.T) {
 	ctx := t.Context()
 

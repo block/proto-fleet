@@ -452,3 +452,62 @@ func md5Hash(text string) string {
 	hash := md5.Sum([]byte(text))
 	return hex.EncodeToString(hash[:])
 }
+
+func createKernelLogHandler(state *MinerState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		state.mu.RLock()
+		minerType := state.MinerType
+		serialNumber := state.SerialNumber
+		state.mu.RUnlock()
+
+		// Use a single timestamp for consistency within the response
+		currentTimestamp := time.Now().Unix() % 10000
+
+		// Generate realistic kernel log output
+		kernelLog := fmt.Sprintf(`[    0.000000] Booting Linux on physical CPU 0x0
+[    0.000000] Linux version 4.9.113 (root@builder) (gcc version 6.4.0 (Buildroot 2018.02.1)) #1 SMP PREEMPT Thu Jul 11 17:01:13 CST 2024
+[    0.000000] CPU: ARMv7 Processor [410fc075] revision 5 (ARMv7), cr=10c5387d
+[    0.000000] Machine model: Bitmain %s
+[    0.000000] Memory policy: Data cache writealloc
+[    0.000000] cma: Reserved 64 MiB at 0x1c000000
+[    0.000000] PERCPU: Embedded 14 pages/cpu @dbb36000 s26752 r8192 d22400 u57344
+[    0.000000] Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 129920
+[    0.000000] Kernel command line: console=ttyS0,115200 rootfstype=squashfs root=/dev/ram0 coherent_pool=1M
+[    0.000000] PID hash table entries: 2048 (order: 1, 8192 bytes)
+[    0.000000] Dentry cache hash table entries: 65536 (order: 6, 262144 bytes)
+[    0.000000] Inode-cache hash table entries: 32768 (order: 5, 131072 bytes)
+[    0.000000] Memory: 420928K/524288K available (7168K kernel code, 393K rwdata, 2060K rodata, 1024K init, 257K bss, 37824K reserved, 65536K cma-reserved, 0K highmem)
+[    0.040000] Console: colour dummy device 80x30
+[    0.044000] Calibrating delay loop... 1996.80 BogoMIPS (lpj=9984000)
+[    0.120028] pid_max: default: 32768 minimum: 301
+[    0.124892] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.131550] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.139401] CPU: Testing write buffer coherency: ok
+[    0.144918] Setting up static identity map for 0x100000 - 0x100058
+[    1.200000] cgminer[1234]: Starting cgminer 4.11.1 for %s
+[    1.210000] cgminer[1234]: Serial Number: %s
+[    1.220000] cgminer[1234]: Initializing mining hardware...
+[    1.500000] cgminer[1234]: Detected 3 hashboards
+[    1.600000] cgminer[1234]: Chain 0: 108 ASICs detected, SN=SMTTYRHBDJAAI019D
+[    1.700000] cgminer[1234]: Chain 1: 108 ASICs detected, SN=SMTTYRHBDJAAI019N
+[    1.800000] cgminer[1234]: Chain 2: 108 ASICs detected, SN=SMTTYRHBDJAAI019S
+[    2.000000] cgminer[1234]: All hashboards initialized successfully
+[    2.100000] cgminer[1234]: Connecting to pool stratum+tcp://btc.example.com:3333
+[    2.500000] cgminer[1234]: Pool connection established
+[    2.600000] cgminer[1234]: Mining started, target hashrate: 110 TH/s
+[   %d.000000] cgminer[1234]: Current hashrate: 110.5 TH/s, Temperature: 45C
+[   %d.100000] cgminer[1234]: Fan speeds: 7000 7050 6980 7020 RPM
+`, minerType, minerType, serialNumber, currentTimestamp, currentTimestamp)
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(kernelLog)); err != nil {
+			log.Printf("Failed to write kernel log response: %v", err)
+		}
+	}
+}

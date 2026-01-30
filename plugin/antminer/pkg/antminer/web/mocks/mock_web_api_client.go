@@ -35,6 +35,21 @@ func (m *MockWebAPIClient) EXPECT() *MockWebAPIClientMockRecorder {
 	return m.recorder
 }
 
+// GetKernelLog mocks base method.
+func (m *MockWebAPIClient) GetKernelLog(ctx context.Context, connInfo *web.AntminerConnectionInfo) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetKernelLog", ctx, connInfo)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetKernelLog indicates an expected call of GetKernelLog.
+func (mr *MockWebAPIClientMockRecorder) GetKernelLog(ctx, connInfo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKernelLog", reflect.TypeOf((*MockWebAPIClient)(nil).GetKernelLog), ctx, connInfo)
+}
+
 // GetMinerConfig mocks base method.
 func (m *MockWebAPIClient) GetMinerConfig(ctx context.Context, connInfo *web.AntminerConnectionInfo) (*web.MinerConfig, error) {
 	m.ctrl.T.Helper()

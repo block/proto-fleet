@@ -137,7 +137,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityCoolingModeImmerse: false, // Immersion cooling mode not supported
 		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
 		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
-		sdk.CapabilityLogsDownload:       false, // Logs download not supported
+		sdk.CapabilityLogsDownload:       true,
 
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true,  // We support real-time telemetry
@@ -441,8 +441,13 @@ func (d *Device) BlinkLED(ctx context.Context) error {
 }
 
 // DownloadLogs implements the SDK Device interface.
-func (d *Device) DownloadLogs(ctx context.Context, _ *time.Time, _ string) (string, bool, error) {
-	return "", false, fmt.Errorf("log download not supported via RPC API - requires web API implementation")
+// Retrieves kernel logs from the Antminer device via the web API.
+func (d *Device) DownloadLogs(ctx context.Context, since *time.Time, _ string) (string, bool, error) {
+	logs, hasMore, err := d.client.GetLogs(ctx, since, 0)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to download logs: %w", err)
+	}
+	return logs, hasMore, nil
 }
 
 // Reboot implements the SDK Device interface.

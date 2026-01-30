@@ -17,6 +17,7 @@ This is a fake Antminer implementation that simulates both the cgminer API (port
   - `/cgi-bin/summary.cgi`: Get mining summary
   - `/cgi-bin/get_miner_conf.cgi`: Get miner configuration
   - `/cgi-bin/get_network_info.cgi`: Get network configuration
+  - `/cgi-bin/get_kernel_log.cgi`: Get kernel log
   - `/cgi-bin/set_miner_conf.cgi`: Set miner configuration
   - `/cgi-bin/reboot.cgi`: Reboot miner
   - `/cgi-bin/blink.cgi`: Control LED blinking
