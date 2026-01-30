@@ -66,8 +66,9 @@ services:
       - fleet-network
 
   # TimescaleDB (PostgreSQL with time-series extension) - future replacement for MySQL/InfluxDB
+  # Using HA image which includes timescaledb_toolkit for time_weight() and other advanced functions
   timescaledb:
-    image: timescale/timescaledb:2.24.0-pg17
+    image: timescale/timescaledb-ha:pg17-ts2.18-v1.14.0
     restart: always
     environment:
       POSTGRES_DB: "fleet"

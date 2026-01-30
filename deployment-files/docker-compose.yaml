@@ -100,6 +100,8 @@ services:
         compress: "true"
 
   timescaledb:
+    profiles:
+      - migration  # Only start during migration, not normal operation
     extends:
       file: ./server/docker-compose.base.yaml
       service: timescaledb

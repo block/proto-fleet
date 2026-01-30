@@ -59,43 +59,42 @@ CREATE TRIGGER update_errors_updated_at
 -- Time-series data for device telemetry
 -- =====================================================
 CREATE TABLE device_metrics (
-    time             TIMESTAMPTZ NOT NULL,
-    device_id        BIGINT NOT NULL,
-    hash_rate_hs     DOUBLE PRECISION,
-    hash_rate_hs_kind TEXT,
-    temp_c           DOUBLE PRECISION,
-    temp_c_kind      TEXT,
-    fan_rpm          DOUBLE PRECISION,
-    fan_rpm_kind     TEXT,
-    power_w          DOUBLE PRECISION,
-    power_w_kind     TEXT,
-    efficiency_jh    DOUBLE PRECISION,
+    time               TIMESTAMPTZ NOT NULL,
+    device_identifier  TEXT NOT NULL,
+    hash_rate_hs       DOUBLE PRECISION,
+    hash_rate_hs_kind  TEXT,
+    temp_c             DOUBLE PRECISION,
+    temp_c_kind        TEXT,
+    fan_rpm            DOUBLE PRECISION,
+    fan_rpm_kind       TEXT,
+    power_w            DOUBLE PRECISION,
+    power_w_kind       TEXT,
+    efficiency_jh      DOUBLE PRECISION,
     efficiency_jh_kind TEXT,
-    voltage_v        DOUBLE PRECISION,
-    voltage_v_kind   TEXT,
-    current_a        DOUBLE PRECISION,
-    current_a_kind   TEXT,
-    inlet_temp_c     DOUBLE PRECISION,
-    outlet_temp_c    DOUBLE PRECISION,
-    ambient_temp_c   DOUBLE PRECISION,
-    chip_count       INTEGER,
-    chip_count_kind  TEXT,
+    voltage_v          DOUBLE PRECISION,
+    voltage_v_kind     TEXT,
+    current_a          DOUBLE PRECISION,
+    current_a_kind     TEXT,
+    inlet_temp_c       DOUBLE PRECISION,
+    outlet_temp_c      DOUBLE PRECISION,
+    ambient_temp_c     DOUBLE PRECISION,
+    chip_count         INTEGER,
+    chip_count_kind    TEXT,
     chip_frequency_mhz DOUBLE PRECISION,
-    health           TEXT,
+    health             TEXT,
 
-    PRIMARY KEY (time, device_id)
+    PRIMARY KEY (time, device_identifier)
 );
 
 -- Convert to TimescaleDB hypertable with 1-day chunks
 SELECT create_hypertable('device_metrics', by_range('time', INTERVAL '1 day'));
 
--- Create index for device_id queries
-CREATE INDEX idx_device_metrics_device_id ON device_metrics(device_id, time DESC);
+CREATE INDEX idx_device_metrics_device_identifier ON device_metrics(device_identifier, time DESC);
 
 -- Enable compression on chunks older than 7 days
 ALTER TABLE device_metrics SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'device_id',
+    timescaledb.compress_segmentby = 'device_identifier',
     timescaledb.compress_orderby = 'time DESC'
 );
 
