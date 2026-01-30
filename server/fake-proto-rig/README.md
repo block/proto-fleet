@@ -193,6 +193,44 @@ The REST API is manually implemented based on the OpenAPI spec at `proto-rig-api
    curl http://localhost:2121/api/v1/<endpoint>
    ```
 
+### OpenAPI Compliance Checklist
+
+When implementing or updating endpoints, verify these common patterns from the OpenAPI spec:
+
+| Pattern | Correct | Incorrect |
+|---------|---------|-----------|
+| **Slot numbering** | 1-based (`"slot": 1, 2, 3`) | 0-based (`"slot": 0, 1, 2`) |
+| **Status field name** | `"status": "Mining"` | `"state": "Mining"` |
+| **Response wrappers** | Check if response uses wrapper (e.g., `"mining-status": {...}`) | Flat response when wrapper expected |
+| **PSU serial field** | `"psu_sn"` | `"serial_number"` |
+| **PSU firmware** | Nested object: `"firmware": {"app_version": "...", "bootloader_version": "..."}` | Flat string: `"firmware_version": "..."` |
+| **Hashboards list wrapper** | `"hashboards-info": [...]` | `"hashboards": [...]` |
+| **PSUs list wrapper** | `"psus-info": [...]` | `"psus": [...]` |
+| **Hashboard status enum** | `"Running"`, `"Stopped"`, `"Error"`, `"Overheated"`, `"Unknown"` | `"Mining"`, `"Off"` |
+| **Mining status enum** | `"PoweringOn"`, `"Uninitialized"` | `"Starting"`, `"Unknown"` |
+| **PerformanceMode enum** | `"MaximumHashrate"`, `"Efficiency"` | `"MaximumEfficiency"` |
+| **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
+| **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
+
+**Wrapper patterns in OpenAPI spec:**
+- `MiningStatus` → wrapped in `"mining-status"`
+- `SystemInfo` → wrapped in `"system-info"`
+- `CoolingStatus` → wrapped in `"cooling-status"`
+- `HardwareInfo` → wrapped in `"hardware-info"`
+- `HashboardsInfo` → wrapped in `"hashboards-info"`
+- `HashboardStats` → wrapped in `"hashboard-stats"`
+- `PsusInfo` → wrapped in `"psus-info"`
+- `LogsResponse` → wrapped in `"logs"`
+- `MiningTargetResponse` → **NO wrapper** (flat fields at top level)
+
+### Cross-Reference with miner-firmware
+
+The reference implementation is in the private `miner-firmware` repository at:
+- `crates/miner-api-server/src/models/` - Rust struct definitions with `#[serde(rename = "...")]`
+- `crates/miner-api-server/src/controllers/` - Handler implementations
+
+When in doubt, check the Rust models to see the exact JSON field names expected
+
 ### Source of Truth
 
 - **gRPC API**: Generated from `proto-rig-api/grpc/*.proto` files

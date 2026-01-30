@@ -76,6 +76,9 @@ type MinerState struct {
 	// Authentication
 	AuthPublicKey string
 
+	// Onboarding status - set to true when pools are configured
+	Onboarded bool
+
 	// Mining state
 	MiningState     miner_data_api.MiningState
 	CoolingMode     miner_data_api.CoolingMode
@@ -288,6 +291,20 @@ func (s *MinerState) ClearAuthKey() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.AuthPublicKey = ""
+}
+
+// SetOnboarded sets the onboarding status.
+func (s *MinerState) SetOnboarded(onboarded bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Onboarded = onboarded
+}
+
+// IsOnboarded returns the current onboarding status.
+func (s *MinerState) IsOnboarded() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Onboarded
 }
 
 // AddPool adds a pool to the configuration.

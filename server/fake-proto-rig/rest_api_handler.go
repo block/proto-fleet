@@ -33,17 +33,13 @@ type AuthTokens struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// PoolConfig is the pool configuration for creating/updating pools
-type PoolConfig struct {
-	Pools []PoolConfigInner `json:"pools"`
-}
-
-// PoolConfigInner is a single pool configuration
+// PoolConfigInner is a single pool configuration (matches OpenAPI PoolConfig_inner)
 type PoolConfigInner struct {
+	Name     string `json:"name,omitempty"`
 	URL      string `json:"url"`
-	User     string `json:"user"`
+	Username string `json:"username"`
 	Password string `json:"password,omitempty"`
-	Enabled  *bool  `json:"enabled,omitempty"`
+	Priority *int   `json:"priority,omitempty"`
 }
 
 // PoolResponse is a single pool response
@@ -76,13 +72,24 @@ type SystemInfo struct {
 
 // SystemInfoInner contains the inner system info
 type SystemInfoInner struct {
-	ProductName   string       `json:"product_name"`
-	Board         string       `json:"board"`
-	CBSN          string       `json:"cb_sn"`
-	SOC           string       `json:"soc"`
-	UptimeSeconds int64        `json:"uptime_seconds"`
-	OS            OSInfo       `json:"os"`
-	SWUpdateState UpdateStatus `json:"sw_update_status"`
+	ProductName       string       `json:"product_name"`
+	Board             string       `json:"board"`
+	CBSN              string       `json:"cb_sn"`
+	SOC               string       `json:"soc"`
+	UptimeSeconds     int64        `json:"uptime_seconds"`
+	OS                OSInfo       `json:"os"`
+	SWUpdateState     UpdateStatus `json:"sw_update_status"`
+	MiningDriverSW    *SWInfo      `json:"mining_driver_sw,omitempty"`
+	WebServer         *SWInfo      `json:"web_server,omitempty"`
+	WebDashboard      *SWInfo      `json:"web_dashboard,omitempty"`
+	PoolInterfaceSW   *SWInfo      `json:"pool_interface_sw,omitempty"`
+	HashboardFirmware *SWInfo      `json:"hashboard_firmware,omitempty"`
+}
+
+// SWInfo contains software component information
+type SWInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // OSInfo contains OS information
@@ -107,6 +114,18 @@ type SystemStatuses struct {
 	PasswordSet bool `json:"password_set"`
 }
 
+// LogsResponse contains the logs response wrapper
+type LogsResponse struct {
+	Logs LogsData `json:"logs"`
+}
+
+// LogsData contains log content and metadata
+type LogsData struct {
+	Content []string `json:"content"`
+	Lines   int      `json:"lines"`
+	Source  string   `json:"source"`
+}
+
 // MiningStatus contains mining status information
 type MiningStatus struct {
 	MiningStatus MiningStatusInner `json:"mining-status"`
@@ -114,7 +133,7 @@ type MiningStatus struct {
 
 // MiningStatusInner contains the inner mining status
 type MiningStatusInner struct {
-	State               string  `json:"state"`
+	Status              string  `json:"status"`
 	RebootUptimeS       int64   `json:"reboot_uptime_s"`
 	MiningUptimeS       int64   `json:"mining_uptime_s"`
 	HashrateGHS         float64 `json:"hashrate_ghs"`
@@ -129,17 +148,14 @@ type MiningStatusInner struct {
 	HWErrors            int64   `json:"hw_errors"`
 }
 
-// MiningTarget contains mining target configuration
-type MiningTarget struct {
-	MiningTarget MiningTargetInner `json:"mining-target"`
-}
-
-// MiningTargetInner contains inner mining target
-type MiningTargetInner struct {
-	PowerTargetWatts    int    `json:"power_target_watts"`
-	PowerTargetMinWatts int    `json:"power_target_min_watts"`
-	PowerTargetMaxWatts int    `json:"power_target_max_watts"`
-	PerformanceMode     string `json:"performance_mode"`
+// MiningTargetResponse contains mining target configuration (matches OpenAPI MiningTargetResponse)
+type MiningTargetResponse struct {
+	PowerTargetWatts        int    `json:"power_target_watts"`
+	PowerTargetMinWatts     int    `json:"power_target_min_watts"`
+	PowerTargetMaxWatts     int    `json:"power_target_max_watts"`
+	DefaultPowerTargetWatts int    `json:"default_power_target_watts"`
+	PerformanceMode         string `json:"performance_mode"`
+	BalanceBays             bool   `json:"balance_bays,omitempty"`
 }
 
 // MiningTargetRequest is the request to set mining target
@@ -173,9 +189,9 @@ type CoolingConfig struct {
 	SpeedPercentage *int   `json:"speed_percentage,omitempty"`
 }
 
-// HashboardsResponse contains all hashboard stats
+// HashboardsResponse contains all hashboard info (matches OpenAPI HashboardsInfo)
 type HashboardsResponse struct {
-	Hashboards []HashboardStatsInner `json:"hashboards"`
+	Hashboards []HashboardInfo `json:"hashboards-info"`
 }
 
 // HashboardStats contains stats for a single hashboard
@@ -187,7 +203,7 @@ type HashboardStats struct {
 type HashboardStatsInner struct {
 	HBSN             string      `json:"hb_sn"`
 	Slot             int         `json:"slot"`
-	State            string      `json:"state"`
+	Status           string      `json:"status"`
 	HashrateGHS      float64     `json:"hashrate_ghs"`
 	IdealHashrateGHS float64     `json:"ideal_hashrate_ghs"`
 	PowerUsageWatts  float64     `json:"power_usage_watts"`
@@ -216,12 +232,12 @@ type HardwareInfo struct {
 	HardwareInfo HardwareInfoInner `json:"hardware-info"`
 }
 
-// HardwareInfoInner contains inner hardware info
+// HardwareInfoInner contains inner hardware info (matches OpenAPI HardwareInfo_hardware-info)
 type HardwareInfoInner struct {
-	ControlBoard ControlBoardInfo `json:"control_board"`
-	Hashboards   []HashboardInfo  `json:"hashboards"`
-	PSUs         []PSUInfo        `json:"psus"`
-	Fans         []FanInfo        `json:"fans"`
+	ControlBoard ControlBoardInfo `json:"cb-info,omitempty"`
+	Hashboards   []HashboardInfo  `json:"hashboards-info,omitempty"`
+	PSUs         []PSUInfo        `json:"psus-info,omitempty"`
+	Fans         []FanInfo        `json:"fans-info,omitempty"`
 }
 
 // ControlBoardInfo contains control board information
@@ -231,22 +247,31 @@ type ControlBoardInfo struct {
 	SerialNumber string `json:"serial_number"`
 }
 
-// HashboardInfo contains hashboard hardware info
+// HashboardInfo contains hashboard hardware info (matches OpenAPI HashboardInfo)
 type HashboardInfo struct {
-	Slot            int    `json:"slot"`
-	SerialNumber    string `json:"serial_number"`
-	ChipID          string `json:"chip_id"`
-	ASICCount       int    `json:"asic_count"`
-	FirmwareVersion string `json:"firmware_version"`
+	Slot         int    `json:"slot"`
+	Port         int    `json:"port"`
+	SerialNumber string `json:"hb_sn,omitempty"`
+	ChipID       string `json:"chip_id,omitempty"`
+	ASICCount    int    `json:"mining_asic_count,omitempty"`
+	MiningASIC   string `json:"mining_asic,omitempty"`
+	Board        string `json:"board,omitempty"`
 }
 
-// PSUInfo contains PSU hardware info
+// PSUFirmwareInfo contains PSU firmware version info (matches OpenAPI PsuInfo.firmware)
+type PSUFirmwareInfo struct {
+	AppVersion        string `json:"app_version,omitempty"`
+	BootloaderVersion string `json:"bootloader_version,omitempty"`
+}
+
+// PSUInfo contains PSU hardware info (matches OpenAPI PsuInfo)
 type PSUInfo struct {
-	Slot            int    `json:"slot"`
-	SerialNumber    string `json:"serial_number"`
-	Vendor          string `json:"vendor"`
-	Model           string `json:"model"`
-	FirmwareVersion string `json:"firmware_version"`
+	Slot         int              `json:"slot"`
+	PSUSN        string           `json:"psu_sn,omitempty"`
+	Manufacturer string           `json:"manufacturer,omitempty"`
+	HWRevision   string           `json:"hw_revision,omitempty"`
+	Model        string           `json:"model,omitempty"`
+	Firmware     *PSUFirmwareInfo `json:"firmware,omitempty"`
 }
 
 // FanInfo contains fan hardware info
@@ -303,7 +328,7 @@ type NotificationError struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// TelemetryResponse contains telemetry data
+// TelemetryResponse contains telemetry data (matches OpenAPI TelemetryData)
 type TelemetryResponse struct {
 	Timestamp  string               `json:"timestamp"`
 	Miner      *MinerTelemetry      `json:"miner,omitempty"`
@@ -311,45 +336,76 @@ type TelemetryResponse struct {
 	PSUs       []PSUTelemetry       `json:"psus,omitempty"`
 }
 
-// MinerTelemetry contains miner-level telemetry
+// MetricValue represents a metric with value and unit
+type MetricValue struct {
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+// MinerTelemetry contains miner-level telemetry (matches OpenAPI MinerTelemetry)
 type MinerTelemetry struct {
-	HashrateTHS   float64 `json:"hashrate_ths"`
-	TemperatureC  float64 `json:"temperature_c"`
-	PowerW        float64 `json:"power_w"`
-	EfficiencyJTH float64 `json:"efficiency_jth"`
+	Hashrate    MetricValue `json:"hashrate"`
+	Temperature MetricValue `json:"temperature"`
+	Power       MetricValue `json:"power"`
+	Efficiency  MetricValue `json:"efficiency"`
 }
 
-// HashboardTelemetry contains hashboard-level telemetry
+// HashboardTemperature contains hashboard temperature readings
+type HashboardTemperature struct {
+	Unit    string  `json:"unit"`
+	Inlet   float64 `json:"inlet"`
+	Outlet  float64 `json:"outlet"`
+	Average float64 `json:"average"`
+}
+
+// HashboardTelemetry contains hashboard-level telemetry (matches OpenAPI HashboardTelemetry)
 type HashboardTelemetry struct {
-	Index               int            `json:"index"`
-	SerialNumber        string         `json:"serial_number"`
-	HashrateTHS         float64        `json:"hashrate_ths"`
-	InletTemperatureC   float64        `json:"inlet_temperature_c"`
-	OutletTemperatureC  float64        `json:"outlet_temperature_c"`
-	AverageTemperatureC float64        `json:"average_temperature_c"`
-	PowerW              float64        `json:"power_w"`
-	EfficiencyJTH       float64        `json:"efficiency_jth"`
-	ASICs               *ASICTelemetry `json:"asics,omitempty"`
+	Index        int                  `json:"index"`
+	SerialNumber string               `json:"serial_number"`
+	Hashrate     MetricValue          `json:"hashrate"`
+	Temperature  HashboardTemperature `json:"temperature"`
+	Power        MetricValue          `json:"power"`
+	Efficiency   MetricValue          `json:"efficiency"`
+	Voltage      *MetricValue         `json:"voltage,omitempty"`
+	Current      *MetricValue         `json:"current,omitempty"`
+	ASICs        *ASICTelemetry       `json:"asics,omitempty"`
 }
 
-// ASICTelemetry contains ASIC-level telemetry
+// ASICTelemetry contains ASIC-level telemetry (matches OpenAPI AsicTelemetry)
 type ASICTelemetry struct {
-	HashrateTHS  []float64 `json:"hashrate_ths"`
-	TemperatureC []float64 `json:"temperature_c"`
+	Hashrate    MetricArray `json:"hashrate"`
+	Temperature MetricArray `json:"temperature"`
 }
 
-// PSUTelemetry contains PSU-level telemetry
+// MetricArray represents an array of metric values with unit
+type MetricArray struct {
+	Unit   string    `json:"unit"`
+	Values []float64 `json:"values"`
+}
+
+// PsuInputOutputMetric represents PSU metric with input and output values
+type PsuInputOutputMetric struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
+	Unit   string  `json:"unit"`
+}
+
+// PsuTemperature represents PSU temperature measurements
+type PsuTemperature struct {
+	Ambient float64 `json:"ambient"`
+	Average float64 `json:"average"`
+	Hotspot float64 `json:"hotspot"`
+	Unit    string  `json:"unit"`
+}
+
+// PSUTelemetry contains PSU-level telemetry (matches OpenAPI PsuTelemetry)
 type PSUTelemetry struct {
-	Index               int     `json:"index"`
-	SerialNumber        string  `json:"serial_number"`
-	InputVoltageV       float64 `json:"input_voltage_v"`
-	OutputVoltageV      float64 `json:"output_voltage_v"`
-	InputCurrentA       float64 `json:"input_current_a"`
-	OutputCurrentA      float64 `json:"output_current_a"`
-	InputPowerW         float64 `json:"input_power_w"`
-	OutputPowerW        float64 `json:"output_power_w"`
-	HotspotTemperatureC float64 `json:"hotspot_temperature_c"`
-	AmbientTemperatureC float64 `json:"ambient_temperature_c"`
+	Index        int                  `json:"index"`
+	SerialNumber string               `json:"serial_number,omitempty"`
+	Voltage      PsuInputOutputMetric `json:"voltage"`
+	Current      PsuInputOutputMetric `json:"current"`
+	Power        PsuInputOutputMetric `json:"power"`
+	Temperature  PsuTemperature       `json:"temperature"`
 }
 
 // RESTApiHandler handles REST API requests
@@ -455,15 +511,19 @@ func (h *RESTApiHandler) miningStateToString(state miner_data_api.MiningState) s
 	case miner_data_api.MiningState_MINING_STATE_NO_POOLS:
 		return "NoPools"
 	case miner_data_api.MiningState_MINING_STATE_POWERING_ON:
-		return "Starting"
+		return "PoweringOn"
 	case miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING:
 		return "DegradedMining"
 	case miner_data_api.MiningState_MINING_STATE_POWERING_OFF:
 		return "PoweringOff"
 	case miner_data_api.MiningState_MINING_STATE_ERROR:
 		return "Error"
+	case miner_data_api.MiningState_MINING_STATE_UNINITIALIZED:
+		return "Uninitialized"
+	case miner_data_api.MiningState_MINING_STATE_UNKNOWN:
+		return "Uninitialized"
 	default:
-		return "Unknown"
+		return "Uninitialized"
 	}
 }
 
@@ -545,8 +605,9 @@ func (h *RESTApiHandler) getPools(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
-	var config PoolConfig
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+	// OpenAPI spec defines PoolConfig as an array of PoolConfigInner
+	var pools []PoolConfigInner
+	if err := json.NewDecoder(r.Body).Decode(&pools); err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
@@ -557,11 +618,11 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 	h.state.mu.Unlock()
 
 	// Add new pools
-	for i, p := range config.Pools {
+	for i, p := range pools {
 		pool := &miner_data_api.Pool{
 			Idx:      uint32(i),
 			Url:      p.URL,
-			Username: p.User,
+			Username: p.Username,
 			Password: p.Password,
 			Statistics: &miner_data_api.PoolStatistics{
 				AcceptedShares:    defaultPoolAcceptedShares,
@@ -570,6 +631,11 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		h.state.AddPool(pool)
+	}
+
+	// Mark device as onboarded when pools are configured (mimics ensure_onboarded() in real miner)
+	if len(pools) > 0 {
+		h.state.SetOnboarded(true)
 	}
 
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Pools configured successfully"})
@@ -646,8 +712,8 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 			if config.URL != "" {
 				p.Url = config.URL
 			}
-			if config.User != "" {
-				p.Username = config.User
+			if config.Username != "" {
+				p.Username = config.Username
 			}
 			if config.Password != "" {
 				p.Password = config.Password
@@ -711,6 +777,11 @@ func (h *RESTApiHandler) handleSetPassword(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	// Set a mock auth key to indicate password is set
+	// In a real system, this would hash and store the password
+	h.state.SetAuthKey("mock-password-hash")
+
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Password set successfully"})
 }
 
@@ -750,6 +821,26 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 				State:          "idle",
 				CurrentVersion: defaultFirmwareVersion,
 			},
+			MiningDriverSW: &SWInfo{
+				Name:    "mcdd",
+				Version: defaultFirmwareVersion,
+			},
+			WebServer: &SWInfo{
+				Name:    "miner-api-server",
+				Version: defaultFirmwareVersion,
+			},
+			WebDashboard: &SWInfo{
+				Name:    "miner-web",
+				Version: defaultFirmwareVersion,
+			},
+			PoolInterfaceSW: &SWInfo{
+				Name:    "stratum-client",
+				Version: defaultFirmwareVersion,
+			},
+			HashboardFirmware: &SWInfo{
+				Name:    "hashboard-fw",
+				Version: defaultFirmwareVersion,
+			},
 		},
 	})
 }
@@ -764,7 +855,7 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 	passwordSet := h.state.GetAuthKey() != ""
 
 	h.writeJSON(w, http.StatusOK, SystemStatuses{
-		Onboarded:   len(h.state.GetPools()) > 0,
+		Onboarded:   h.state.IsOnboarded(),
 		PasswordSet: passwordSet,
 	})
 }
@@ -803,10 +894,48 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	// Return empty logs
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Proto Miner Simulator Logs\n[INFO] System running normally\n"))
+
+	// Parse query parameters
+	query := r.URL.Query()
+	linesStr := query.Get("lines")
+	source := query.Get("source")
+	if source == "" {
+		source = "miner_sw"
+	}
+
+	lines := 100 // default
+	if linesStr != "" {
+		if parsed, err := strconv.Atoi(linesStr); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+
+	// Generate simulated log content
+	logContent := []string{
+		"[INFO] Proto Miner Simulator started",
+		"[INFO] Mining driver initialized",
+		"[INFO] Connected to pool: stratum+tcp://pool.example.com:3333",
+		"[INFO] Hashboard 0 online - 35.2 TH/s",
+		"[INFO] Hashboard 1 online - 35.1 TH/s",
+		"[INFO] Hashboard 2 online - 34.9 TH/s",
+		"[INFO] Hashboard 3 online - 35.0 TH/s",
+		"[INFO] Total hashrate: 140.2 TH/s",
+		"[INFO] System temperature: 55°C",
+		"[INFO] Fan speed: 4500 RPM (60%)",
+	}
+
+	// Limit to requested number of lines
+	if lines < len(logContent) {
+		logContent = logContent[:lines]
+	}
+
+	h.writeJSON(w, http.StatusOK, LogsResponse{
+		Logs: LogsData{
+			Content: logContent,
+			Lines:   len(logContent),
+			Source:  source,
+		},
+	})
 }
 
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -893,7 +1022,7 @@ func (h *RESTApiHandler) handleMining(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, MiningStatus{
 		MiningStatus: MiningStatusInner{
-			State:               h.miningStateToString(miningState),
+			Status:              h.miningStateToString(miningState),
 			RebootUptimeS:       uptime,
 			MiningUptimeS:       uptime,
 			HashrateGHS:         hashrate * 1000, // TH/s to GH/s
@@ -920,16 +1049,15 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 
 		modeStr := "MaximumHashrate"
 		if perfMode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
-			modeStr = "MaximumEfficiency"
+			modeStr = "Efficiency"
 		}
 
-		h.writeJSON(w, http.StatusOK, MiningTarget{
-			MiningTarget: MiningTargetInner{
-				PowerTargetWatts:    int(powerTarget),
-				PowerTargetMinWatts: defaultPowerTargetMin,
-				PowerTargetMaxWatts: defaultPowerTargetMax,
-				PerformanceMode:     modeStr,
-			},
+		h.writeJSON(w, http.StatusOK, MiningTargetResponse{
+			PowerTargetWatts:        int(powerTarget),
+			PowerTargetMinWatts:     defaultPowerTargetMin,
+			PowerTargetMaxWatts:     defaultPowerTargetMax,
+			DefaultPowerTargetWatts: defaultPowerTargetW,
+			PerformanceMode:         modeStr,
 		})
 
 	case http.MethodPut:
@@ -948,7 +1076,25 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 			h.state.SetPowerTarget(uint32(req.PowerTargetWatts), perfMode)
 		}
 
-		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Mining target updated"})
+		// Read back the updated values
+		h.state.mu.RLock()
+		updatedPowerTarget := h.state.PowerTargetW
+		updatedPerfMode := h.state.PerformanceMode
+		h.state.mu.RUnlock()
+
+		updatedModeStr := "MaximumHashrate"
+		if updatedPerfMode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
+			updatedModeStr = "Efficiency"
+		}
+
+		// Return the full MiningTargetResponse (not just a message)
+		h.writeJSON(w, http.StatusOK, MiningTargetResponse{
+			PowerTargetWatts:        int(updatedPowerTarget),
+			PowerTargetMinWatts:     defaultPowerTargetMin,
+			PowerTargetMaxWatts:     defaultPowerTargetMax,
+			DefaultPowerTargetWatts: defaultPowerTargetW,
+			PerformanceMode:         updatedModeStr,
+		})
 
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
@@ -988,11 +1134,13 @@ func (h *RESTApiHandler) handleHardware(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		hashboards = append(hashboards, HashboardInfo{
-			Slot:            i,
-			SerialNumber:    fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
-			ChipID:          "BM1370",
-			ASICCount:       defaultASICCount,
-			FirmwareVersion: defaultFirmwareVersion,
+			Slot:         i + 1, // 1-based slot number
+			Port:         i,     // 0-based USB port number
+			SerialNumber: fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
+			ChipID:       "BM1370",
+			ASICCount:    defaultASICCount,
+			MiningASIC:   "BZM",
+			Board:        "B4",
 		})
 	}
 
@@ -1003,11 +1151,15 @@ func (h *RESTApiHandler) handleHardware(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		psus = append(psus, PSUInfo{
-			Slot:            i,
-			SerialNumber:    fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
-			Vendor:          "Proto",
-			Model:           "PSU-3600W",
-			FirmwareVersion: "1.2.0",
+			Slot:         i + 1, // 1-based slot number
+			PSUSN:        fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
+			Manufacturer: "Proto",
+			Model:        "PSU-3600W",
+			HWRevision:   "v1.0",
+			Firmware: &PSUFirmwareInfo{
+				AppVersion:        "1.2.0",
+				BootloaderVersion: "1.0.0",
+			},
 		})
 	}
 
@@ -1017,7 +1169,7 @@ func (h *RESTApiHandler) handleHardware(w http.ResponseWriter, r *http.Request) 
 		minRPM := 1000
 		maxRPM := 6000
 		fans[i] = FanInfo{
-			Slot:   i,
+			Slot:   i + 1, // 1-based slot number
 			Name:   fmt.Sprintf("Fan %d", i+1),
 			MinRPM: &minRPM,
 			MaxRPM: &maxRPM,
@@ -1050,15 +1202,19 @@ func (h *RESTApiHandler) handleHardwarePSUs(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		psus = append(psus, PSUInfo{
-			Slot:            i,
-			SerialNumber:    fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
-			Vendor:          "Proto",
-			Model:           "PSU-3600W",
-			FirmwareVersion: "1.2.0",
+			Slot:         i + 1, // 1-based slot number
+			PSUSN:        fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
+			Manufacturer: "Proto",
+			Model:        "PSU-3600W",
+			HWRevision:   "v1.0",
+			Firmware: &PSUFirmwareInfo{
+				AppVersion:        "1.2.0",
+				BootloaderVersion: "1.0.0",
+			},
 		})
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string][]PSUInfo{"psus": psus})
+	h.writeJSON(w, http.StatusOK, map[string][]PSUInfo{"psus-info": psus})
 }
 
 func (h *RESTApiHandler) handleHashboards(w http.ResponseWriter, r *http.Request) {
@@ -1067,38 +1223,22 @@ func (h *RESTApiHandler) handleHashboards(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	miningState := h.state.GetMiningState()
-	hashboards := make([]HashboardStatsInner, 0, defaultHashboardCount)
+	// /api/v1/hashboards returns hardware info (HashboardInfo), not stats
+	hashboards := make([]HashboardInfo, 0, defaultHashboardCount)
 
 	for i := range defaultHashboardCount {
 		if h.state.IsHashboardMissing(i) {
 			continue
 		}
 
-		state := "Mining"
-		if h.state.IsHashboardInError(i) {
-			state = "Error"
-		} else if miningState != miner_data_api.MiningState_MINING_STATE_MINING {
-			state = "Off"
-		}
-
-		hbHashrate := applyVariation(defaultHashboardHashrate, telemetryVariation)
-		if state != "Mining" {
-			hbHashrate = 0
-		}
-
-		hashboards = append(hashboards, HashboardStatsInner{
-			HBSN:             fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
-			Slot:             i,
-			State:            state,
-			HashrateGHS:      hbHashrate * 1000, // TH/s to GH/s
-			IdealHashrateGHS: defaultHashboardHashrate * 1000,
-			PowerUsageWatts:  applyVariation(defaultHashboardPower, telemetryVariation),
-			EfficiencyJTH:    applyVariation(defaultEfficiencyJTH, telemetryVariation),
-			InletTempC:       applyVariation(defaultHashboardInletTemp, telemetryVariation),
-			OutletTempC:      applyVariation(defaultHashboardOutletTemp, telemetryVariation),
-			AvgASICTempC:     applyVariation(defaultASICTemperature, telemetryVariation),
-			MaxASICTempC:     applyVariation(defaultASICTemperature+5, telemetryVariation),
+		hashboards = append(hashboards, HashboardInfo{
+			Slot:         i + 1, // 1-based slot number
+			Port:         i,     // 0-based USB port number
+			SerialNumber: fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
+			ChipID:       "BM1370",
+			ASICCount:    defaultASICCount,
+			MiningASIC:   "BZM",
+			Board:        "B4",
 		})
 	}
 
@@ -1131,22 +1271,22 @@ func (h *RESTApiHandler) handleHashboardByID(w http.ResponseWriter, r *http.Requ
 	}
 
 	miningState := h.state.GetMiningState()
-	state := "Mining"
+	state := "Running"
 	if h.state.IsHashboardInError(idx) {
 		state = "Error"
 	} else if miningState != miner_data_api.MiningState_MINING_STATE_MINING {
-		state = "Off"
+		state = "Stopped"
 	}
 
 	hbHashrate := applyVariation(defaultHashboardHashrate, telemetryVariation)
-	if state != "Mining" {
+	if state != "Running" {
 		hbHashrate = 0
 	}
 
 	hbStats := HashboardStatsInner{
 		HBSN:             hbSN,
-		Slot:             idx,
-		State:            state,
+		Slot:             idx + 1, // 1-based slot number
+		Status:           state,
 		HashrateGHS:      hbHashrate * 1000,
 		IdealHashrateGHS: defaultHashboardHashrate * 1000,
 		PowerUsageWatts:  applyVariation(defaultHashboardPower, telemetryVariation),
@@ -1346,7 +1486,7 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 			rpm := int(applyVariation(float64(defaultFanSpeedRPM), telemetryVariation))
 			pct := int(speedPct)
 			fans[i] = FanStatus{
-				Slot:            i,
+				Slot:            i + 1, // 1-based slot number
 				RPM:             rpm,
 				SpeedPercentage: &pct,
 			}
@@ -1442,14 +1582,22 @@ func (h *RESTApiHandler) handleTelemetry(w http.ResponseWriter, r *http.Request)
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 
+	// Parse levels - handle both comma-separated and multiple params
+	var parsedLevels []string
 	for _, level := range levels {
+		for _, l := range strings.Split(level, ",") {
+			parsedLevels = append(parsedLevels, strings.TrimSpace(l))
+		}
+	}
+
+	for _, level := range parsedLevels {
 		switch strings.ToLower(level) {
 		case "miner":
 			response.Miner = &MinerTelemetry{
-				HashrateTHS:   hashrate,
-				TemperatureC:  temperature,
-				PowerW:        power,
-				EfficiencyJTH: efficiency,
+				Hashrate:    MetricValue{Value: hashrate, Unit: "TH/s"},
+				Temperature: MetricValue{Value: temperature, Unit: "°C"},
+				Power:       MetricValue{Value: power, Unit: "W"},
+				Efficiency:  MetricValue{Value: efficiency, Unit: "J/TH"},
 			}
 
 		case "hashboard":
@@ -1480,14 +1628,19 @@ func (h *RESTApiHandler) generateHashboardsTelemetry(miningState miner_data_api.
 		}
 
 		hb := HashboardTelemetry{
-			Index:               i,
-			SerialNumber:        fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
-			HashrateTHS:         hbHashrate,
-			InletTemperatureC:   applyVariation(defaultHashboardInletTemp, telemetryVariation),
-			OutletTemperatureC:  applyVariation(defaultHashboardOutletTemp, telemetryVariation),
-			AverageTemperatureC: applyVariation(defaultHashboardAvgTemp, telemetryVariation),
-			PowerW:              applyVariation(defaultHashboardPower, telemetryVariation),
-			EfficiencyJTH:       applyVariation(defaultEfficiencyJTH, telemetryVariation),
+			Index:        i,
+			SerialNumber: fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
+			Hashrate:     MetricValue{Value: hbHashrate, Unit: "TH/s"},
+			Temperature: HashboardTemperature{
+				Unit:    "°C",
+				Inlet:   applyVariation(defaultHashboardInletTemp, telemetryVariation),
+				Outlet:  applyVariation(defaultHashboardOutletTemp, telemetryVariation),
+				Average: applyVariation(defaultHashboardAvgTemp, telemetryVariation),
+			},
+			Power:      MetricValue{Value: applyVariation(defaultHashboardPower, telemetryVariation), Unit: "W"},
+			Efficiency: MetricValue{Value: applyVariation(defaultEfficiencyJTH, telemetryVariation), Unit: "J/TH"},
+			Voltage:    &MetricValue{Value: applyVariation(defaultHashboardVoltage, telemetryVariation), Unit: "V"},
+			Current:    &MetricValue{Value: applyVariation(defaultHashboardCurrent, telemetryVariation), Unit: "A"},
 		}
 
 		if includeASICs {
@@ -1514,8 +1667,8 @@ func (h *RESTApiHandler) generateASICsTelemetry(miningState miner_data_api.Minin
 	}
 
 	return &ASICTelemetry{
-		HashrateTHS:  hashrates,
-		TemperatureC: temps,
+		Hashrate:    MetricArray{Unit: "TH/s", Values: hashrates},
+		Temperature: MetricArray{Unit: "°C", Values: temps},
 	}
 }
 
@@ -1527,17 +1680,34 @@ func (h *RESTApiHandler) generatePSUsTelemetry() []PSUTelemetry {
 			continue
 		}
 
+		hotspotTemp := applyVariation(defaultPSUHotspotTemp, telemetryVariation)
+		ambientTemp := applyVariation(defaultPSUAmbientTemp, telemetryVariation)
+		avgTemp := (hotspotTemp + ambientTemp) / 2
+
 		psus = append(psus, PSUTelemetry{
-			Index:               i,
-			SerialNumber:        fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
-			InputVoltageV:       applyVariation(defaultPSUInputVoltage, telemetryVariation),
-			OutputVoltageV:      applyVariation(defaultPSUOutputVoltage, telemetryVariation),
-			InputCurrentA:       applyVariation(defaultPSUInputCurrent, telemetryVariation),
-			OutputCurrentA:      applyVariation(defaultPSUOutputCurrent, telemetryVariation),
-			InputPowerW:         applyVariation(defaultPSUInputPower, telemetryVariation),
-			OutputPowerW:        applyVariation(defaultPSUOutputPower, telemetryVariation),
-			HotspotTemperatureC: applyVariation(defaultPSUHotspotTemp, telemetryVariation),
-			AmbientTemperatureC: applyVariation(defaultPSUAmbientTemp, telemetryVariation),
+			Index:        i,
+			SerialNumber: fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, i),
+			Voltage: PsuInputOutputMetric{
+				Input:  applyVariation(defaultPSUInputVoltage, telemetryVariation),
+				Output: applyVariation(defaultPSUOutputVoltage, telemetryVariation),
+				Unit:   "V",
+			},
+			Current: PsuInputOutputMetric{
+				Input:  applyVariation(defaultPSUInputCurrent, telemetryVariation),
+				Output: applyVariation(defaultPSUOutputCurrent, telemetryVariation),
+				Unit:   "A",
+			},
+			Power: PsuInputOutputMetric{
+				Input:  applyVariation(defaultPSUInputPower, telemetryVariation),
+				Output: applyVariation(defaultPSUOutputPower, telemetryVariation),
+				Unit:   "W",
+			},
+			Temperature: PsuTemperature{
+				Hotspot: hotspotTemp,
+				Ambient: ambientTemp,
+				Average: avgTemp,
+				Unit:    "°C",
+			},
 		})
 	}
 
@@ -1550,9 +1720,480 @@ func (h *RESTApiHandler) handleTimeseries(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Return empty time series data
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"data":     []interface{}{},
-		"duration": "1h",
-	})
+	// Parse request body
+	var req TimeSeriesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	// Validate required fields per OpenAPI spec
+	if req.StartTime == "" {
+		h.writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "start_time is required")
+		return
+	}
+	if len(req.Levels) == 0 {
+		h.writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "levels is required and must have at least one item")
+		return
+	}
+
+	// Generate mock time series response
+	response := h.generateTimeSeriesResponse(req)
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// TimeSeriesRequest is the request for time series data
+type TimeSeriesRequest struct {
+	StartTime   string                  `json:"start_time"`
+	EndTime     string                  `json:"end_time,omitempty"`
+	Duration    string                  `json:"duration,omitempty"`
+	Interval    string                  `json:"interval,omitempty"`
+	Aggregation string                  `json:"aggregation,omitempty"`
+	Levels      []TimeSeriesLevelConfig `json:"levels"`
+}
+
+// TimeSeriesLevelConfig is the configuration for a level in time series query
+type TimeSeriesLevelConfig struct {
+	Type    string   `json:"type"`
+	Fields  []string `json:"fields"`
+	Indexes []int    `json:"indexes,omitempty"`
+}
+
+// TimeSeriesResponse is the response for time series data
+type TimeSeriesResponse struct {
+	Data *TimeSeriesData `json:"data,omitempty"`
+	Meta *TimeSeriesMeta `json:"meta,omitempty"`
+}
+
+// TimeSeriesData contains hierarchical data organized by level
+type TimeSeriesData struct {
+	Miner      map[string]*TimeSeriesMetricData `json:"miner,omitempty"`
+	Hashboards []TimeSeriesHashboardData        `json:"hashboards,omitempty"`
+	ASICs      []TimeSeriesASICData             `json:"asics,omitempty"`
+	PSUs       []TimeSeriesPSUData              `json:"psus,omitempty"`
+}
+
+// TimeSeriesHashboardData contains hashboard-level time series data
+type TimeSeriesHashboardData struct {
+	Index        int                              `json:"index"`
+	SerialNumber string                           `json:"serial_number,omitempty"`
+	Metrics      map[string]*TimeSeriesMetricData `json:"-"`
+}
+
+// MarshalJSON implements custom JSON marshaling for TimeSeriesHashboardData
+func (d TimeSeriesHashboardData) MarshalJSON() ([]byte, error) {
+	result := map[string]any{
+		"index":         d.Index,
+		"serial_number": d.SerialNumber,
+	}
+	for k, v := range d.Metrics {
+		result[k] = v
+	}
+	return json.Marshal(result)
+}
+
+// TimeSeriesASICData contains ASIC-level time series data
+type TimeSeriesASICData struct {
+	HashboardIndex int                              `json:"hashboard_index"`
+	ASICIndex      int                              `json:"asic_index"`
+	Metrics        map[string]*TimeSeriesMetricData `json:"-"`
+}
+
+// MarshalJSON implements custom JSON marshaling for TimeSeriesASICData
+func (d TimeSeriesASICData) MarshalJSON() ([]byte, error) {
+	result := map[string]any{
+		"hashboard_index": d.HashboardIndex,
+		"asic_index":      d.ASICIndex,
+	}
+	for k, v := range d.Metrics {
+		result[k] = v
+	}
+	return json.Marshal(result)
+}
+
+// TimeSeriesPSUData contains PSU-level time series data
+type TimeSeriesPSUData struct {
+	Index        int                              `json:"index"`
+	SerialNumber string                           `json:"serial_number,omitempty"`
+	Metrics      map[string]*TimeSeriesMetricData `json:"-"`
+}
+
+// MarshalJSON implements custom JSON marshaling for TimeSeriesPSUData
+func (d TimeSeriesPSUData) MarshalJSON() ([]byte, error) {
+	result := map[string]any{
+		"index":         d.Index,
+		"serial_number": d.SerialNumber,
+	}
+	for k, v := range d.Metrics {
+		result[k] = v
+	}
+	return json.Marshal(result)
+}
+
+// TimeSeriesMetricData contains data series for a specific metric
+type TimeSeriesMetricData struct {
+	Unit       string                `json:"unit,omitempty"`
+	Values     []float64             `json:"values,omitempty"`
+	Aggregates *TimeSeriesAggregates `json:"aggregates,omitempty"`
+}
+
+// TimeSeriesAggregates contains statistical aggregates
+type TimeSeriesAggregates struct {
+	Avg float64 `json:"avg,omitempty"`
+	Max float64 `json:"max,omitempty"`
+	Min float64 `json:"min,omitempty"`
+}
+
+// TimeSeriesMeta contains metadata about the time series response
+type TimeSeriesMeta struct {
+	StartTime   string                  `json:"start_time,omitempty"`
+	EndTime     string                  `json:"end_time,omitempty"`
+	Interval    string                  `json:"interval,omitempty"`
+	Aggregation string                  `json:"aggregation,omitempty"`
+	Levels      []TimeSeriesLevelConfig `json:"levels,omitempty"`
+}
+
+func (h *RESTApiHandler) generateTimeSeriesResponse(req TimeSeriesRequest) *TimeSeriesResponse {
+	now := time.Now()
+
+	// Default values
+	aggregation := "mean"
+	if req.Aggregation != "" {
+		aggregation = req.Aggregation
+	}
+
+	interval := "PT5M"
+	if req.Interval != "" {
+		interval = req.Interval
+	}
+
+	// Generate 12 data points (1 hour of 5-minute intervals)
+	const numPoints = 12
+
+	response := &TimeSeriesResponse{
+		Meta: &TimeSeriesMeta{
+			StartTime:   now.Add(-time.Hour).Format(time.RFC3339),
+			EndTime:     now.Format(time.RFC3339),
+			Interval:    interval,
+			Aggregation: aggregation,
+			Levels:      req.Levels,
+		},
+		Data: &TimeSeriesData{},
+	}
+
+	// Process each level
+	for _, level := range req.Levels {
+		switch level.Type {
+		case "miner":
+			response.Data.Miner = h.generateMinerTimeSeries(level.Fields, numPoints)
+		case "hashboard":
+			response.Data.Hashboards = h.generateHashboardTimeSeries(level.Fields, level.Indexes, numPoints)
+		case "asic":
+			response.Data.ASICs = h.generateASICTimeSeries(level.Fields, level.Indexes, numPoints)
+		case "psu":
+			response.Data.PSUs = h.generatePSUTimeSeries(level.Fields, level.Indexes, numPoints)
+		}
+	}
+
+	return response
+}
+
+func (h *RESTApiHandler) generateMinerTimeSeries(fields []string, numPoints int) map[string]*TimeSeriesMetricData {
+	result := make(map[string]*TimeSeriesMetricData)
+
+	fieldUnits := map[string]string{
+		"hashrate":    "TH/s",
+		"temperature": "°C",
+		"power":       "W",
+		"efficiency":  "J/TH",
+	}
+
+	fieldBaseValues := map[string]float64{
+		"hashrate":    defaultHashrateTHS,
+		"temperature": defaultTemperatureC,
+		"power":       defaultPowerW,
+		"efficiency":  defaultEfficiencyJTH,
+	}
+
+	for _, field := range fields {
+		unit, ok := fieldUnits[field]
+		if !ok {
+			continue
+		}
+		baseValue := fieldBaseValues[field]
+
+		values := make([]float64, numPoints)
+		var sum, min, max float64
+		min = baseValue * 2 // Start high for min
+
+		for i := range numPoints {
+			values[i] = applyVariation(baseValue, telemetryVariation)
+			sum += values[i]
+			if values[i] < min {
+				min = values[i]
+			}
+			if values[i] > max {
+				max = values[i]
+			}
+		}
+
+		result[field] = &TimeSeriesMetricData{
+			Unit:   unit,
+			Values: values,
+			Aggregates: &TimeSeriesAggregates{
+				Avg: sum / float64(numPoints),
+				Min: min,
+				Max: max,
+			},
+		}
+	}
+
+	return result
+}
+
+func (h *RESTApiHandler) generateHashboardTimeSeries(fields []string, indexes []int, numPoints int) []TimeSeriesHashboardData {
+	var result []TimeSeriesHashboardData
+
+	// If no indexes specified, include all hashboards
+	if len(indexes) == 0 {
+		for i := range defaultHashboardCount {
+			indexes = append(indexes, i)
+		}
+	}
+
+	fieldUnits := map[string]string{
+		"hashrate":   "TH/s",
+		"inletTemp":  "°C",
+		"outletTemp": "°C",
+		"power":      "W",
+		"efficiency": "J/TH",
+	}
+
+	for _, idx := range indexes {
+		if h.state.IsHashboardMissing(idx) {
+			continue
+		}
+
+		hbData := TimeSeriesHashboardData{
+			Index:        idx,
+			SerialNumber: fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, idx),
+			Metrics:      make(map[string]*TimeSeriesMetricData),
+		}
+
+		for _, field := range fields {
+			unit, ok := fieldUnits[field]
+			if !ok {
+				continue
+			}
+
+			var baseValue float64
+			switch field {
+			case "hashrate":
+				baseValue = defaultHashboardHashrate
+			case "inletTemp":
+				baseValue = defaultHashboardInletTemp
+			case "outletTemp":
+				baseValue = defaultHashboardOutletTemp
+			case "power":
+				baseValue = defaultHashboardPower
+			case "efficiency":
+				baseValue = defaultEfficiencyJTH
+			}
+
+			values := make([]float64, numPoints)
+			var sum, min, max float64
+			min = baseValue * 2
+
+			for i := range numPoints {
+				values[i] = applyVariation(baseValue, telemetryVariation)
+				sum += values[i]
+				if values[i] < min {
+					min = values[i]
+				}
+				if values[i] > max {
+					max = values[i]
+				}
+			}
+
+			hbData.Metrics[field] = &TimeSeriesMetricData{
+				Unit:   unit,
+				Values: values,
+				Aggregates: &TimeSeriesAggregates{
+					Avg: sum / float64(numPoints),
+					Min: min,
+					Max: max,
+				},
+			}
+		}
+
+		result = append(result, hbData)
+	}
+
+	return result
+}
+
+func (h *RESTApiHandler) generateASICTimeSeries(fields []string, indexes []int, numPoints int) []TimeSeriesASICData {
+	var result []TimeSeriesASICData
+
+	// ASIC-level data: for each hashboard, for each ASIC
+	// If no indexes specified, include all ASICs from all hashboards
+	fieldUnits := map[string]string{
+		"hashrate":    "TH/s",
+		"temperature": "°C",
+	}
+
+	fieldBaseValues := map[string]float64{
+		"hashrate":    defaultASICHashrate,
+		"temperature": defaultASICTemperature,
+	}
+
+	for hbIdx := range defaultHashboardCount {
+		if h.state.IsHashboardMissing(hbIdx) {
+			continue
+		}
+
+		// For each ASIC on the hashboard
+		for asicIdx := range defaultASICCount {
+			// If indexes specified, filter by ASIC index
+			if len(indexes) > 0 {
+				found := false
+				for _, idx := range indexes {
+					if idx == asicIdx {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+
+			asicData := TimeSeriesASICData{
+				HashboardIndex: hbIdx,
+				ASICIndex:      asicIdx,
+				Metrics:        make(map[string]*TimeSeriesMetricData),
+			}
+
+			for _, field := range fields {
+				unit, ok := fieldUnits[field]
+				if !ok {
+					continue
+				}
+				baseValue := fieldBaseValues[field]
+
+				values := make([]float64, numPoints)
+				var sum, min, max float64
+				min = baseValue * 2
+
+				for i := range numPoints {
+					values[i] = applyVariation(baseValue, telemetryVariation)
+					sum += values[i]
+					if values[i] < min {
+						min = values[i]
+					}
+					if values[i] > max {
+						max = values[i]
+					}
+				}
+
+				asicData.Metrics[field] = &TimeSeriesMetricData{
+					Unit:   unit,
+					Values: values,
+					Aggregates: &TimeSeriesAggregates{
+						Avg: sum / float64(numPoints),
+						Min: min,
+						Max: max,
+					},
+				}
+			}
+
+			result = append(result, asicData)
+		}
+	}
+
+	return result
+}
+
+func (h *RESTApiHandler) generatePSUTimeSeries(fields []string, indexes []int, numPoints int) []TimeSeriesPSUData {
+	var result []TimeSeriesPSUData
+
+	// If no indexes specified, include all PSUs
+	if len(indexes) == 0 {
+		for i := range defaultPSUCount {
+			indexes = append(indexes, i)
+		}
+	}
+
+	fieldUnits := map[string]string{
+		"outputVoltage": "V",
+		"outputCurrent": "A",
+		"outputPower":   "W",
+		"inputVoltage":  "V",
+		"inputCurrent":  "A",
+		"inputPower":    "W",
+		"hotspotTemp":   "°C",
+		"ambientTemp":   "°C",
+		"averageTemp":   "°C",
+	}
+
+	fieldBaseValues := map[string]float64{
+		"outputVoltage": defaultPSUOutputVoltage,
+		"outputCurrent": defaultPSUOutputCurrent,
+		"outputPower":   defaultPSUOutputPower,
+		"inputVoltage":  defaultPSUInputVoltage,
+		"inputCurrent":  defaultPSUInputCurrent,
+		"inputPower":    defaultPSUInputPower,
+		"hotspotTemp":   defaultPSUHotspotTemp,
+		"ambientTemp":   defaultPSUAmbientTemp,
+		"averageTemp":   (defaultPSUHotspotTemp + defaultPSUAmbientTemp) / 2,
+	}
+
+	for _, idx := range indexes {
+		if h.state.IsPSUMissing(idx) {
+			continue
+		}
+
+		psuData := TimeSeriesPSUData{
+			Index:        idx,
+			SerialNumber: fmt.Sprintf("PSU-%s-%d", h.state.SerialNumber, idx),
+			Metrics:      make(map[string]*TimeSeriesMetricData),
+		}
+
+		for _, field := range fields {
+			unit, ok := fieldUnits[field]
+			if !ok {
+				continue
+			}
+			baseValue := fieldBaseValues[field]
+
+			values := make([]float64, numPoints)
+			var sum, min, max float64
+			min = baseValue * 2
+
+			for i := range numPoints {
+				values[i] = applyVariation(baseValue, telemetryVariation)
+				sum += values[i]
+				if values[i] < min {
+					min = values[i]
+				}
+				if values[i] > max {
+					max = values[i]
+				}
+			}
+
+			psuData.Metrics[field] = &TimeSeriesMetricData{
+				Unit:   unit,
+				Values: values,
+				Aggregates: &TimeSeriesAggregates{
+					Avg: sum / float64(numPoints),
+					Min: min,
+					Max: max,
+				},
+			}
+		}
+
+		result = append(result, psuData)
+	}
+
+	return result
 }

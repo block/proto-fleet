@@ -29,14 +29,18 @@ The generated code is placed in `server/generated/miner-api/`.
 
 ### OpenAPI Specification
 
-Used by the client to generate TypeScript types for the ProtoOS dashboard:
+Used by:
+1. **Client** - To generate TypeScript types for the ProtoOS dashboard
+2. **Simulator** - As reference for the fake-proto-rig REST API implementation
 
 ```bash
 # Generate TypeScript client
-cd client && npm run gen-api
+cd client && npm run generate-api-types
 ```
 
 The generated code is placed in `client/src/protoOS/api/generatedApi.ts`.
+
+The simulator (`server/fake-proto-rig/`) manually implements these endpoints - see its README for maintenance guidelines.
 
 ## Versioning
 
@@ -53,6 +57,10 @@ When the miner API changes:
 
 1. Update the appropriate specification files
 2. Update the VERSION.md with new commit information
-3. Regenerate all dependent code
-4. Run tests to verify compatibility
-5. Commit all changes together
+3. Regenerate all dependent code:
+   - `cd client && npm run generate-api-types` (TypeScript types)
+   - `cd server && just gen` (Go gRPC code)
+4. Update the simulator REST API if OpenAPI spec changed:
+   - See `server/fake-proto-rig/README.md` for maintenance checklist
+5. Run tests to verify compatibility
+6. Commit all changes together
