@@ -103,6 +103,8 @@ services:
     extends:
       file: ./server/docker-compose.base.yaml
       service: timescaledb
+    profiles:
+      - disabled  # prevent pulling image or running container. TODO(DASH-1206) remove custom profile in PR 4 of migration
     environment:
       POSTGRES_DB: "${DB_NAME:-fleet}"
       POSTGRES_USER: "${DB_USERNAME:-fleet}"
