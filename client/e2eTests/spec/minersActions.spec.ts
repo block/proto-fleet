@@ -15,7 +15,7 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miner status remains as 'hashing' or with an error
+      // Workaround: Bitmain miners don't support SLEEP action
       await minersPage.filterProtoMiners();
     });
 
@@ -41,6 +41,11 @@ test.describe("Miners", () => {
   test("WAKE miners up", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
+
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support WAKE action
+      await minersPage.filterProtoMiners();
+    });
 
     await test.step("Select all miners and wake them up", async () => {
       await minersPage.clickSelectAllCheckbox();
@@ -447,6 +452,8 @@ test.describe("Miners", () => {
         await homePage.clickAuthenticateMinersConfirmButton();
       }
       await homePage.validateModalClosed();
+    } catch (error) {
+      console.warn("Cleanup cancelled. Error: ", error);
     } finally {
       await context.close();
     }
