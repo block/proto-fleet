@@ -133,8 +133,9 @@ type DeviceKey struct {
 // ComponentKey identifies a unique component with its worst severity for cursor-based pagination.
 // Used by ResultViewComponent to paginate by component rather than by error.
 type ComponentKey struct {
-	DeviceID         int64    // Internal database ID (for keyset pagination)
-	DeviceIdentifier string   // External identifier (for filtering)
-	ComponentID      *string  // nil = NULL/device-level errors, non-nil = component-specific
-	WorstSeverity    Severity // For keyset pagination ordering
+	DeviceID         int64         // Internal database ID (for keyset pagination)
+	DeviceIdentifier string        // External identifier (for filtering)
+	ComponentType    ComponentType // Component type (PSU, hashboard, fan, control board, etc.)
+	ComponentID      *string       // nil = NULL/device-level errors, non-nil = component-specific
+	WorstSeverity    Severity      // For keyset pagination ordering
 }

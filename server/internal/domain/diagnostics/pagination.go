@@ -115,37 +115,39 @@ func BuildNextDevicePageToken(devices []models.DeviceKey, pageSize int) string {
 // ============================================================================
 
 // componentCursorData holds the serializable cursor state for component pagination.
-// Includes severity to preserve sort order (worst_severity ASC, device_id ASC, component_id ASC).
+// Includes severity to preserve sort order (worst_severity ASC, device_id ASC, component_type ASC, component_id ASC).
 type componentCursorData struct {
-	Severity    int     `json:"s"` // worst_severity for keyset pagination
-	DeviceID    int64   `json:"d"`
-	ComponentID *string `json:"c,omitempty"` // nil = NULL/device-level, non-nil = component-specific
+	Severity      int                  `json:"s"` // worst_severity for keyset pagination
+	DeviceID      int64                `json:"d"`
+	ComponentType models.ComponentType `json:"t"`
+	ComponentID   *string              `json:"c,omitempty"` // nil = NULL/device-level, non-nil = component-specific
 }
 
-// EncodeComponentCursor creates a base64 page token from severity, device ID and component ID.
+// EncodeComponentCursor creates a base64 page token from severity, device ID, component type and component ID.
 // Pass nil for componentID when the component is NULL (device-level errors).
 // All fields are required for correct keyset pagination.
-func EncodeComponentCursor(severity models.Severity, deviceID int64, componentID *string) string {
+func EncodeComponentCursor(severity models.Severity, deviceID int64, componentType models.ComponentType, componentID *string) string {
 	data := componentCursorData{
-		Severity:    int(severity), // #nosec G115 -- Severity enum bounded (max 4), safe for int
-		DeviceID:    deviceID,
-		ComponentID: componentID,
+		Severity:      int(severity), // #nosec G115 -- Severity enum bounded (max 4), safe for int
+		DeviceID:      deviceID,
+		ComponentType: componentType,
+		ComponentID:   componentID,
 	}
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		slog.Error("failed to encode component cursor", "error", err, "deviceID", deviceID, "componentID", componentID)
+		slog.Error("failed to encode component cursor", "error", err, "deviceID", deviceID, "componentType", componentType, "componentID", componentID)
 		return ""
 	}
 	return base64.URLEncoding.EncodeToString(jsonBytes)
 }
 
 // BuildNextComponentPageToken creates a cursor from SQL-ordered component keys.
-// This preserves the SQL sort order (worst_severity ASC, device_id ASC, component_id ASC).
+// This preserves the SQL sort order (worst_severity ASC, device_id ASC, component_type ASC, component_id ASC).
 // Returns empty string if components slice is empty or if the page is not full.
 func BuildNextComponentPageToken(components []models.ComponentKey, pageSize int) string {
 	if len(components) == 0 || len(components) < pageSize {
 		return ""
 	}
 	lastComponent := components[len(components)-1]
-	return EncodeComponentCursor(lastComponent.WorstSeverity, lastComponent.DeviceID, lastComponent.ComponentID)
+	return EncodeComponentCursor(lastComponent.WorstSeverity, lastComponent.DeviceID, lastComponent.ComponentType, lastComponent.ComponentID)
 }

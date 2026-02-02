@@ -43,7 +43,7 @@ func (q *Queries) CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsPara
 
 const countComponentsWithErrors = `-- name: CountComponentsWithErrors :one
 SELECT COUNT(*) as total FROM (
-    SELECT DISTINCT e.device_id, e.component_id
+    SELECT DISTINCT e.device_id, e.component_type, e.component_id
     FROM errors e
     JOIN device d ON e.device_id = d.id
     JOIN discovered_device dd ON d.discovered_device_id = dd.id
@@ -80,7 +80,7 @@ type CountComponentsWithErrorsParams struct {
 	ComponentIds        []sql.NullString
 }
 
-// Counts distinct (device_id, component_id) pairs that have errors matching filter criteria.
+// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 // TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error) {
 	query := countComponentsWithErrors
@@ -601,6 +601,7 @@ const queryComponentKeysWithErrors = `-- name: QueryComponentKeysWithErrors :man
 SELECT
     e.device_id,
     d.device_identifier,
+    e.component_type,
     e.component_id,
     MIN(e.severity) as worst_severity
 FROM errors e
@@ -617,19 +618,20 @@ WHERE e.org_id = ?
     AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
     AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
     AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
-    -- Component cursor: keyset pagination using (worst_severity, device_id, component_id) compound key
-    -- Must skip rows where (worst_severity, device_id, component_id) <= cursor position in sort order
-GROUP BY e.device_id, d.device_identifier, e.component_id
+    -- Component cursor: keyset pagination using (worst_severity, device_id, component_type, component_id) compound key
+    -- Must skip rows where (worst_severity, device_id, component_type, component_id) <= cursor position in sort order
+GROUP BY e.device_id, d.device_identifier, e.component_type, e.component_id
 HAVING (
     ? IS NULL
     OR MIN(e.severity) > ?
     OR (MIN(e.severity) = ? AND e.device_id > ?)
-    OR (MIN(e.severity) = ? AND e.device_id = ? AND (
+    OR (MIN(e.severity) = ? AND e.device_id = ? AND e.component_type > ?)
+    OR (MIN(e.severity) = ? AND e.device_id = ? AND e.component_type = ? AND (
         e.component_id > ?
         OR (? IS NULL AND e.component_id IS NOT NULL)
     ))
 )
-ORDER BY worst_severity ASC, e.device_id ASC, e.component_id ASC
+ORDER BY worst_severity ASC, e.device_id ASC, e.component_type ASC, e.component_id ASC
 LIMIT ?
 `
 
@@ -652,6 +654,7 @@ type QueryComponentKeysWithErrorsParams struct {
 	ComponentIds        []sql.NullString
 	CursorSeverity      sql.NullInt32
 	CursorDeviceID      sql.NullInt64
+	CursorComponentType sql.NullInt32
 	CursorComponentID   sql.NullString
 	Limit               int32
 }
@@ -659,6 +662,7 @@ type QueryComponentKeysWithErrorsParams struct {
 type QueryComponentKeysWithErrorsRow struct {
 	DeviceID         int64
 	DeviceIdentifier string
+	ComponentType    sql.NullInt32
 	ComponentID      sql.NullString
 	WorstSeverity    interface{}
 }
@@ -666,8 +670,8 @@ type QueryComponentKeysWithErrorsRow struct {
 // ============================================================================
 // Component-Based Pagination Queries
 // ============================================================================
-// Gets distinct (device_id, component_id) pairs that have errors, sorted by worst severity.
-// Uses cursor-based pagination on (device_id, component_id) for ResultViewComponent pagination.
+// Gets distinct (device_id, component_type, component_id) tuples that have errors, sorted by worst severity.
+// Uses cursor-based pagination on (device_id, component_type, component_id) for ResultViewComponent pagination.
 // Returns device_identifier (for re-filtering) alongside device_id (for keyset pagination).
 // TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) QueryComponentKeysWithErrors(ctx context.Context, arg QueryComponentKeysWithErrorsParams) ([]QueryComponentKeysWithErrorsRow, error) {
@@ -739,6 +743,10 @@ func (q *Queries) QueryComponentKeysWithErrors(ctx context.Context, arg QueryCom
 	queryParams = append(queryParams, arg.CursorDeviceID)
 	queryParams = append(queryParams, arg.CursorSeverity)
 	queryParams = append(queryParams, arg.CursorDeviceID)
+	queryParams = append(queryParams, arg.CursorComponentType)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorDeviceID)
+	queryParams = append(queryParams, arg.CursorComponentType)
 	queryParams = append(queryParams, arg.CursorComponentID)
 	queryParams = append(queryParams, arg.CursorComponentID)
 	queryParams = append(queryParams, arg.Limit)
@@ -753,6 +761,7 @@ func (q *Queries) QueryComponentKeysWithErrors(ctx context.Context, arg QueryCom
 		if err := rows.Scan(
 			&i.DeviceID,
 			&i.DeviceIdentifier,
+			&i.ComponentType,
 			&i.ComponentID,
 			&i.WorstSeverity,
 		); err != nil {

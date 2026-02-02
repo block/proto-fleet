@@ -257,20 +257,22 @@ func GroupByDevice(errors []models.ErrorMessage, deviceKeyMap map[string]models.
 // ============================================================================
 
 // buildComponentKeyFromError creates a unique key for grouping errors by component.
-// Returns "{deviceIdentifier}_{componentID}" or "{deviceIdentifier}_device" if no component ID.
+// Returns "{deviceIdentifier}_{componentType}_{componentID}" or "{deviceIdentifier}_{componentType}_device" if no component ID.
 // Uses device identifier string (not numeric ID) as the key prefix.
+// Includes component_type to distinguish errors on the same component_id but different component_types.
 func buildComponentKeyFromError(err models.ErrorMessage) string {
 	if err.ComponentID != nil && *err.ComponentID != "" {
-		return fmt.Sprintf("%s_%s", err.DeviceID, *err.ComponentID)
+		return fmt.Sprintf("%s_%d_%s", err.DeviceID, err.ComponentType, *err.ComponentID)
 	}
-	return fmt.Sprintf("%s_%s", err.DeviceID, deviceLevelComponentKey)
+	return fmt.Sprintf("%s_%d_%s", err.DeviceID, err.ComponentType, deviceLevelComponentKey)
 }
 
 // buildComponentKeyFromKey creates a unique key from a ComponentKey for map lookups.
-// Returns "{deviceIdentifier}_{componentID}" or "{deviceIdentifier}_device" if no component ID.
+// Returns "{deviceIdentifier}_{componentType}_{componentID}" or "{deviceIdentifier}_{componentType}_device" if no component ID.
+// Includes component_type to distinguish components with the same component_id but different component_types.
 func buildComponentKeyFromKey(key models.ComponentKey) string {
 	if key.ComponentID != nil && *key.ComponentID != "" {
-		return fmt.Sprintf("%s_%s", key.DeviceIdentifier, *key.ComponentID)
+		return fmt.Sprintf("%s_%d_%s", key.DeviceIdentifier, key.ComponentType, *key.ComponentID)
 	}
-	return fmt.Sprintf("%s_%s", key.DeviceIdentifier, deviceLevelComponentKey)
+	return fmt.Sprintf("%s_%d_%s", key.DeviceIdentifier, key.ComponentType, deviceLevelComponentKey)
 }

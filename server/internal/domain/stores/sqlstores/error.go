@@ -812,9 +812,15 @@ func (s *SQLErrorStore) QueryComponentKeys(ctx context.Context, opts *models.Que
 		if severity, ok := row.WorstSeverity.(int64); ok {
 			worstSeverity = safeInt32ToSeverity(int32(severity)) // #nosec G115 -- Severity bounded 0-4
 		}
+		// ComponentType comes from SQL as sql.NullInt32
+		var componentType models.ComponentType
+		if row.ComponentType.Valid {
+			componentType = models.ComponentType(row.ComponentType.Int32) // #nosec G115 -- ComponentType enum bounded (0-6)
+		}
 		keys[i] = models.ComponentKey{
 			DeviceID:         row.DeviceID,
 			DeviceIdentifier: row.DeviceIdentifier,
+			ComponentType:    componentType,
 			ComponentID:      componentID,
 			WorstSeverity:    worstSeverity,
 		}
@@ -901,11 +907,12 @@ func buildComponentQueryParams(opts *models.QueryOptions) sqlc.QueryComponentKey
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
 	assignFilterParams(applyFilterToParams(filter), &params)
 
-	// Apply component cursor (severity, device_id, component_id)
-	cursorSeverity, cursorDeviceID, cursorComponentID, _ := models.DecodeComponentCursor(opts.PageToken)
+	// Apply component cursor (severity, device_id, component_type, component_id)
+	cursorSeverity, cursorDeviceID, cursorComponentType, cursorComponentID, _ := models.DecodeComponentCursor(opts.PageToken)
 	if cursorDeviceID > 0 {
 		params.CursorSeverity = sql.NullInt32{Int32: int32(cursorSeverity), Valid: true} // #nosec G115 -- Severity enum bounded (max 4)
 		params.CursorDeviceID = sql.NullInt64{Int64: cursorDeviceID, Valid: true}
+		params.CursorComponentType = sql.NullInt32{Int32: int32(cursorComponentType), Valid: true} // #nosec G115 -- ComponentType enum bounded (max 4)
 		if cursorComponentID != nil {
 			params.CursorComponentID = sql.NullString{String: *cursorComponentID, Valid: true}
 		}

@@ -430,8 +430,8 @@ func TestGroupByComponent_WithComponentID_ShouldGroupByComponent(t *testing.T) {
 		{DeviceID: "proto-123", ComponentID: &hashboard1, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityMinor, LastSeenAt: now},
 	}
 	componentKeyMap := map[string]models.ComponentKey{
-		"proto-123_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hashboard0},
-		"proto-123_HB1": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hashboard1},
+		"proto-123_2_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeHashBoards, ComponentID: &hashboard0},
+		"proto-123_2_HB1": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeHashBoards, ComponentID: &hashboard1},
 	}
 
 	// Act
@@ -449,7 +449,7 @@ func TestGroupByComponent_WithoutComponentID_ShouldGroupByDevice(t *testing.T) {
 		{DeviceID: "proto-123", ComponentType: models.ComponentTypeUnspecified, DeviceType: "S19", Severity: models.SeverityMinor, LastSeenAt: now},
 	}
 	componentKeyMap := map[string]models.ComponentKey{
-		"proto-123_device": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: nil},
+		"proto-123_0_device": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeUnspecified, ComponentID: nil},
 	}
 
 	// Act
@@ -470,8 +470,8 @@ func TestGroupByComponent_SortsByStatus(t *testing.T) {
 		{DeviceID: "proto-123", ComponentID: &psu, ComponentType: models.ComponentTypePSU, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
 	}
 	componentKeyMap := map[string]models.ComponentKey{
-		"proto-123_PSU0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &psu},
-		"proto-123_FAN0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &fan},
+		"proto-123_1_PSU0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypePSU, ComponentID: &psu},
+		"proto-123_3_FAN0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeFans, ComponentID: &fan},
 	}
 
 	// Act
@@ -511,7 +511,7 @@ func TestGroupByComponent_WithMixedKeysInMap_ShouldOnlyIncludeMatched(t *testing
 		{DeviceID: "proto-123", ComponentID: &hb1, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
 	}
 	componentKeyMap := map[string]models.ComponentKey{
-		"proto-123_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hb0},
+		"proto-123_2_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeHashBoards, ComponentID: &hb0},
 	}
 
 	// Act
@@ -522,4 +522,53 @@ func TestGroupByComponent_WithMixedKeysInMap_ShouldOnlyIncludeMatched(t *testing
 	assert.Equal(t, int64(123), result[0].DeviceID)
 	assert.Len(t, result[0].Errors, 1)
 	assert.Equal(t, "HB0", result[0].ComponentID)
+}
+
+// TestGroupByComponent_WithSameComponentIDButDifferentTypes_ShouldKeepSeparate verifies the fix for DASH-1210.
+// This test ensures that errors with the same component_id but different component_types (e.g., pool errors
+// vs hashboard errors both with component_id='0') are kept separate and not incorrectly grouped together.
+func TestGroupByComponent_WithSameComponentIDButDifferentTypes_ShouldKeepSeparate(t *testing.T) {
+	// Arrange - device has errors with same component_id but different component_types
+	now := time.Now()
+	componentID0 := "0"
+
+	errors := []models.ErrorMessage{
+		// Pool error with component_type=Unspecified and component_id='0'
+		{DeviceID: "proto-123", ComponentID: &componentID0, ComponentType: models.ComponentTypeUnspecified, DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
+		// Hashboard error with component_type=HashBoards and component_id='0'
+		{DeviceID: "proto-123", ComponentID: &componentID0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+	}
+
+	// Key map includes component_type to distinguish the two components
+	componentKeyMap := map[string]models.ComponentKey{
+		"proto-123_0_0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeUnspecified, ComponentID: &componentID0},
+		"proto-123_2_0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeHashBoards, ComponentID: &componentID0},
+	}
+
+	// Act
+	result := GroupByComponent(errors, componentKeyMap)
+
+	// Assert - should have 2 separate component groups, not 1
+	assert.Len(t, result, 2, "Errors with same component_id but different component_types should be kept separate")
+
+	// Verify each component group has the correct type and errors
+	var poolComponent, hashboardComponent *models.ComponentErrors
+	for i := range result {
+		if result[i].ComponentType == models.ComponentTypeUnspecified {
+			poolComponent = &result[i]
+		} else if result[i].ComponentType == models.ComponentTypeHashBoards {
+			hashboardComponent = &result[i]
+		}
+	}
+
+	assert.NotNil(t, poolComponent, "Pool component should be present")
+	assert.NotNil(t, hashboardComponent, "Hashboard component should be present")
+
+	assert.Equal(t, models.ComponentTypeUnspecified, poolComponent.ComponentType)
+	assert.Len(t, poolComponent.Errors, 1, "Pool component should have 1 error")
+	assert.Equal(t, models.SeverityMajor, poolComponent.Errors[0].Severity)
+
+	assert.Equal(t, models.ComponentTypeHashBoards, hashboardComponent.ComponentType)
+	assert.Len(t, hashboardComponent.Errors, 1, "Hashboard component should have 1 error")
+	assert.Equal(t, models.SeverityCritical, hashboardComponent.Errors[0].Severity)
 }

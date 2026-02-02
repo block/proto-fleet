@@ -85,27 +85,28 @@ func DecodeDeviceCursor(token string) (Severity, int64, error) {
 
 // componentCursorData holds the serializable cursor state for component pagination.
 type componentCursorData struct {
-	Severity    int     `json:"s"`
-	DeviceID    int64   `json:"d"`
-	ComponentID *string `json:"c,omitempty"`
+	Severity      int           `json:"s"`
+	DeviceID      int64         `json:"d"`
+	ComponentType ComponentType `json:"t"`
+	ComponentID   *string       `json:"c,omitempty"`
 }
 
-// DecodeComponentCursor parses a base64 page token into severity, device ID and component ID.
-// Returns (0, 0, nil, nil) if token is empty. Returns error for invalid tokens.
-func DecodeComponentCursor(token string) (Severity, int64, *string, error) {
+// DecodeComponentCursor parses a base64 page token into severity, device ID, component type and component ID.
+// Returns (0, 0, 0, nil, nil) if token is empty. Returns error for invalid tokens.
+func DecodeComponentCursor(token string) (Severity, int64, ComponentType, *string, error) {
 	if token == "" {
-		return 0, 0, nil, nil
+		return 0, 0, 0, nil, nil
 	}
 
 	jsonBytes, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("invalid component cursor encoding: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("invalid component cursor encoding: %w", err)
 	}
 
 	var data componentCursorData
 	if err := json.Unmarshal(jsonBytes, &data); err != nil {
-		return 0, 0, nil, fmt.Errorf("invalid component cursor format: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("invalid component cursor format: %w", err)
 	}
 
-	return Severity(data.Severity), data.DeviceID, data.ComponentID, nil // #nosec G115 -- Severity comes from our own encoded cursor
+	return Severity(data.Severity), data.DeviceID, data.ComponentType, data.ComponentID, nil // #nosec G115 -- Severity and ComponentType come from our own encoded cursor
 }

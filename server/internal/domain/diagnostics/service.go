@@ -166,7 +166,7 @@ func validateDeviceCursor(pageToken string) error {
 // validateComponentCursor validates a component-based cursor token.
 // Returns an error with InvalidArgument status if the token is invalid.
 func validateComponentCursor(pageToken string) error {
-	_, _, _, err := DecodeComponentCursor(pageToken)
+	_, _, _, _, err := DecodeComponentCursor(pageToken)
 	if err != nil {
 		return fleeterror.NewInvalidArgumentError("invalid page token: " + err.Error())
 	}

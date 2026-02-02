@@ -190,13 +190,14 @@ WHERE e.org_id = sqlc.arg('org_id')
 -- ============================================================================
 
 -- name: QueryComponentKeysWithErrors :many
--- Gets distinct (device_id, component_id) pairs that have errors, sorted by worst severity.
--- Uses cursor-based pagination on (device_id, component_id) for ResultViewComponent pagination.
+-- Gets distinct (device_id, component_type, component_id) tuples that have errors, sorted by worst severity.
+-- Uses cursor-based pagination on (device_id, component_type, component_id) for ResultViewComponent pagination.
 -- Returns device_identifier (for re-filtering) alongside device_id (for keyset pagination).
 -- TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 SELECT
     e.device_id,
     d.device_identifier,
+    e.component_type,
     e.component_id,
     MIN(e.severity) as worst_severity
 FROM errors e
@@ -213,26 +214,27 @@ WHERE e.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('miner_error_filter') IS NULL OR e.miner_error IN (sqlc.slice('miner_errors')))
     AND (sqlc.narg('component_type_filter') IS NULL OR e.component_type IN (sqlc.slice('component_types')))
     AND (sqlc.narg('component_id_filter') IS NULL OR e.component_id IN (sqlc.slice('component_ids')))
-    -- Component cursor: keyset pagination using (worst_severity, device_id, component_id) compound key
-    -- Must skip rows where (worst_severity, device_id, component_id) <= cursor position in sort order
-GROUP BY e.device_id, d.device_identifier, e.component_id
+    -- Component cursor: keyset pagination using (worst_severity, device_id, component_type, component_id) compound key
+    -- Must skip rows where (worst_severity, device_id, component_type, component_id) <= cursor position in sort order
+GROUP BY e.device_id, d.device_identifier, e.component_type, e.component_id
 HAVING (
     sqlc.narg('cursor_severity') IS NULL
     OR MIN(e.severity) > sqlc.narg('cursor_severity')
     OR (MIN(e.severity) = sqlc.narg('cursor_severity') AND e.device_id > sqlc.narg('cursor_device_id'))
-    OR (MIN(e.severity) = sqlc.narg('cursor_severity') AND e.device_id = sqlc.narg('cursor_device_id') AND (
+    OR (MIN(e.severity) = sqlc.narg('cursor_severity') AND e.device_id = sqlc.narg('cursor_device_id') AND e.component_type > sqlc.narg('cursor_component_type'))
+    OR (MIN(e.severity) = sqlc.narg('cursor_severity') AND e.device_id = sqlc.narg('cursor_device_id') AND e.component_type = sqlc.narg('cursor_component_type') AND (
         e.component_id > sqlc.narg('cursor_component_id')
         OR (sqlc.narg('cursor_component_id') IS NULL AND e.component_id IS NOT NULL)
     ))
 )
-ORDER BY worst_severity ASC, e.device_id ASC, e.component_id ASC
+ORDER BY worst_severity ASC, e.device_id ASC, e.component_type ASC, e.component_id ASC
 LIMIT ?;
 
 -- name: CountComponentsWithErrors :one
--- Counts distinct (device_id, component_id) pairs that have errors matching filter criteria.
+-- Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 -- TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 SELECT COUNT(*) as total FROM (
-    SELECT DISTINCT e.device_id, e.component_id
+    SELECT DISTINCT e.device_id, e.component_type, e.component_id
     FROM errors e
     JOIN device d ON e.device_id = d.id
     JOIN discovered_device dd ON d.discovered_device_id = dd.id

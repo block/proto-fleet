@@ -381,7 +381,7 @@ func TestQuery_WithComponentView_ShouldGroupByComponent(t *testing.T) {
 		{ErrorID: "ERR2", Severity: models.SeverityMajor, LastSeenAt: now, DeviceID: "proto-123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19"},
 	}
 	mockComponentKeys := []models.ComponentKey{
-		{DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hb0, WorstSeverity: models.SeverityCritical},
+		{DeviceID: 123, DeviceIdentifier: "proto-123", ComponentType: models.ComponentTypeHashBoards, ComponentID: &hb0, WorstSeverity: models.SeverityCritical},
 	}
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
