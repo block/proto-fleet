@@ -49,7 +49,7 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   };
 
   return (
-    <div className="flex w-full items-center justify-between">
+    <div className="flex w-full items-center justify-between gap-3">
       <div>
         {url ? (
           <>
