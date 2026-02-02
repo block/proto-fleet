@@ -74,32 +74,34 @@ func (SubPsuId) EnumDescriptor() ([]byte, []int) {
 type PsuErrorCode int32
 
 const (
-	PsuErrorCode_PSU_ERROR_CODE_PROBE_FAILURE              PsuErrorCode = 0
-	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE        PsuErrorCode = 1
-	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_CURRENT        PsuErrorCode = 2
-	PsuErrorCode_PSU_ERROR_CODE_OVER_TEMPERATURE           PsuErrorCode = 3
-	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_UNDER_VOLTAGE       PsuErrorCode = 4
-	PsuErrorCode_PSU_ERROR_CODE_FANS                       PsuErrorCode = 5
-	PsuErrorCode_PSU_ERROR_CODE_INPUT                      PsuErrorCode = 6
-	PsuErrorCode_PSU_ERROR_CODE_UNKNOWN                    PsuErrorCode = 7
-	PsuErrorCode_PSU_ERROR_CODE_OFF                        PsuErrorCode = 8
-	PsuErrorCode_PSU_ERROR_CODE_POWER_GOOD                 PsuErrorCode = 9
-	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_POWER          PsuErrorCode = 10
-	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_FAILURE             PsuErrorCode = 11
-	PsuErrorCode_PSU_ERROR_CODE_BUSY                       PsuErrorCode = 12
-	PsuErrorCode_PSU_ERROR_CODE_COMM_LOST                  PsuErrorCode = 13
-	PsuErrorCode_PSU_ERROR_CODE_GPIO_FAILURE               PsuErrorCode = 14
-	PsuErrorCode_PSU_ERROR_CODE_UNDER_TEMPERATURE          PsuErrorCode = 15
-	PsuErrorCode_PSU_ERROR_CODE_RECOVERY                   PsuErrorCode = 16
-	PsuErrorCode_PSU_ERROR_CODE_POWER_NO_GOOD              PsuErrorCode = 17
-	PsuErrorCode_PSU_ERROR_CODE_PFC_FAILURE                PsuErrorCode = 18
-	PsuErrorCode_PSU_ERROR_CODE_NO_INPUT_VOLTAGE           PsuErrorCode = 19
-	PsuErrorCode_PSU_ERROR_CODE_SW_ENABLE_FAIL             PsuErrorCode = 20
-	PsuErrorCode_PSU_ERROR_CODE_SW_SET_OUTPUT_VOLTAGE_FAIL PsuErrorCode = 21
-	PsuErrorCode_PSU_ERROR_CODE_FIRMWARE_MISMATCH          PsuErrorCode = 22
-	PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_VOLTAGE         PsuErrorCode = 23
-	PsuErrorCode_PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE        PsuErrorCode = 24
-	PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_CURRENT         PsuErrorCode = 25
+	PsuErrorCode_PSU_ERROR_CODE_PROBE_FAILURE        PsuErrorCode = 0  // PSU failed to initialize during probe
+	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE  PsuErrorCode = 1  // [PMBUS] (PMBUS_STATUS_VOUT)		      Output voltage exceeds safe threshold
+	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_CURRENT  PsuErrorCode = 2  // [PMBUS] (PMBUS_STATUS_IOUT)		      Output current exceeds safe threshold
+	PsuErrorCode_PSU_ERROR_CODE_OVER_TEMPERATURE     PsuErrorCode = 3  // [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature exceeds safe threshold
+	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_UNDER_VOLTAGE PsuErrorCode = 4  // [PMBUS] (PMBUS_STATUS_VOUT)		      Output voltage below minimum threshold
+	PsuErrorCode_PSU_ERROR_CODE_FANS                 PsuErrorCode = 5  // [PMBUS] (PMBUS_STATUS_FANS_1_2)		  PSU fan fault detected
+	PsuErrorCode_PSU_ERROR_CODE_INPUT                PsuErrorCode = 6  // [PMBUS] (PMBUS_STATUS_INPUT)		      Input-side fault (generic)
+	PsuErrorCode_PSU_ERROR_CODE_UNKNOWN              PsuErrorCode = 7  // Catch-all for unrecognized errors
+	PsuErrorCode_PSU_ERROR_CODE_OFF                  PsuErrorCode = 8  // [PMBUS] (PMBUS_STATUS_WORD:OFF)		  PSU is powered off (status indicator)
+	PsuErrorCode_PSU_ERROR_CODE_POWER_GOOD           PsuErrorCode = 9  // [PMBUS] (PMBUS_STATUS_WORD:PG)	  	  Power good signal status indicator
+	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_POWER    PsuErrorCode = 10 // [PMBUS] (PMBUS_STATUS_IOUT:POUT)		  Output power exceeds rated capacity
+	PsuErrorCode_PSU_ERROR_CODE_OUTPUT_FAILURE       PsuErrorCode = 11 // [PMBUS] (PMBUS_STATUS_VOUT)		      Output stage failure
+	PsuErrorCode_PSU_ERROR_CODE_BUSY                 PsuErrorCode = 12 // [PMBUS] (PMBUS_STATUS_WORD:BUSY)		  PSU busy processing a command
+	PsuErrorCode_PSU_ERROR_CODE_COMM_LOST            PsuErrorCode = 13 // [PMBUS] (PMBUS_STATUS_CML)		        Communication with PSU lost (I2C/PMBus)
+	PsuErrorCode_PSU_ERROR_CODE_GPIO_FAILURE         PsuErrorCode = 14 // PSU_EN GPIO control failure
+	PsuErrorCode_PSU_ERROR_CODE_UNDER_TEMPERATURE    PsuErrorCode = 15 // [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature below minimum threshold
+	PsuErrorCode_PSU_ERROR_CODE_RECOVERY             PsuErrorCode = 16 // PSU is in recovery mode
+	PsuErrorCode_PSU_ERROR_CODE_POWER_NO_GOOD        PsuErrorCode = 17 // [PMBUS] (PMBUS_STATUS_WORD:PG)		    Power good signal not asserted
+	PsuErrorCode_PSU_ERROR_CODE_PFC_FAILURE          PsuErrorCode = 18 // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure
+	PsuErrorCode_PSU_ERROR_CODE_NO_INPUT_VOLTAGE     PsuErrorCode = 19 // [PMBUS] (PMBUS_STATUS_INPUT)		      No input AC/DC voltage detected
+	// Software detected errors
+	PsuErrorCode_PSU_ERROR_CODE_SW_ENABLE_FAIL             PsuErrorCode = 20 // Failed to enable PSU output
+	PsuErrorCode_PSU_ERROR_CODE_SW_SET_OUTPUT_VOLTAGE_FAIL PsuErrorCode = 21 // Failed to set output voltage
+	PsuErrorCode_PSU_ERROR_CODE_FIRMWARE_MISMATCH          PsuErrorCode = 22 // PSU firmware version mismatch detected
+	// Input-side faults
+	PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_VOLTAGE  PsuErrorCode = 23 // [PMBUS] (PMBUS_STATUS_INPUT)		      Input voltage exceeds safe threshold
+	PsuErrorCode_PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE PsuErrorCode = 24 // [PMBUS] (PMBUS_STATUS_INPUT)		      Input voltage below minimum threshold
+	PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_CURRENT  PsuErrorCode = 25 // [PMBUS] (PMBUS_STATUS_INPUT)		      Input current exceeds safe threshold
 )
 
 // Enum value maps for PsuErrorCode.
@@ -189,29 +191,30 @@ func (PsuErrorCode) EnumDescriptor() ([]byte, []int) {
 	return file_miner_psu_api_proto_rawDescGZIP(), []int{1}
 }
 
-// PSU fault types
+// PSU fault types reported via MCDD PSU API
+// TODO: When cutting over to psu-service, remove entirely
 type PsuFaultType int32
 
 const (
-	PsuFaultType_PSU_FAULT_TYPE_NONE              PsuFaultType = 0
-	PsuFaultType_PSU_FAULT_TYPE_OVER_VOLTAGE      PsuFaultType = 1
-	PsuFaultType_PSU_FAULT_TYPE_OVER_CURRENT      PsuFaultType = 2
-	PsuFaultType_PSU_FAULT_TYPE_OVER_TEMPERATURE  PsuFaultType = 3
-	PsuFaultType_PSU_FAULT_TYPE_UNDER_VOLTAGE     PsuFaultType = 4
-	PsuFaultType_PSU_FAULT_TYPE_FANS              PsuFaultType = 5
-	PsuFaultType_PSU_FAULT_TYPE_INPUT             PsuFaultType = 6
-	PsuFaultType_PSU_FAULT_TYPE_UNKNOWN           PsuFaultType = 7
-	PsuFaultType_PSU_FAULT_TYPE_OFF               PsuFaultType = 8
-	PsuFaultType_PSU_FAULT_TYPE_POWER_GOOD        PsuFaultType = 9
-	PsuFaultType_PSU_FAULT_TYPE_OVER_POWER        PsuFaultType = 10
-	PsuFaultType_PSU_FAULT_TYPE_OUTPUT            PsuFaultType = 11
-	PsuFaultType_PSU_FAULT_TYPE_BUSY              PsuFaultType = 12
-	PsuFaultType_PSU_FAULT_TYPE_COMMS             PsuFaultType = 13
-	PsuFaultType_PSU_FAULT_TYPE_GPIO_FAILURE      PsuFaultType = 14
-	PsuFaultType_PSU_FAULT_TYPE_UNDER_TEMPERATURE PsuFaultType = 15
-	PsuFaultType_PSU_FAULT_TYPE_POWER_NO_GOOD     PsuFaultType = 16
-	PsuFaultType_PSU_FAULT_TYPE_PFC_FAILURE       PsuFaultType = 17
-	PsuFaultType_PSU_FAULT_TYPE_NO_INPUT_VOLTAGE  PsuFaultType = 18
+	PsuFaultType_PSU_FAULT_TYPE_NONE              PsuFaultType = 0  // No fault present
+	PsuFaultType_PSU_FAULT_TYPE_OVER_VOLTAGE      PsuFaultType = 1  // [PMBUS] (PMBUS_STATUS_VOUT)		      Output voltage exceeds safe threshold
+	PsuFaultType_PSU_FAULT_TYPE_OVER_CURRENT      PsuFaultType = 2  // [PMBUS] (PMBUS_STATUS_IOUT)		      Output current exceeds safe threshold
+	PsuFaultType_PSU_FAULT_TYPE_OVER_TEMPERATURE  PsuFaultType = 3  // [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature exceeds safe threshold
+	PsuFaultType_PSU_FAULT_TYPE_UNDER_VOLTAGE     PsuFaultType = 4  // [PMBUS] (PMBUS_STATUS_VOUT)		      Output voltage below minimum threshold
+	PsuFaultType_PSU_FAULT_TYPE_FANS              PsuFaultType = 5  // [PMBUS] (PMBUS_STATUS_FANS_1_2)		  PSU fan fault detected
+	PsuFaultType_PSU_FAULT_TYPE_INPUT             PsuFaultType = 6  // [PMBUS] (PMBUS_STATUS_INPUT)		      Input-side fault (generic)
+	PsuFaultType_PSU_FAULT_TYPE_UNKNOWN           PsuFaultType = 7  // Catch-all for unrecognized faults
+	PsuFaultType_PSU_FAULT_TYPE_OFF               PsuFaultType = 8  // [PMBUS] (PMBUS_STATUS_WORD:OFF)		  PSU is powered off
+	PsuFaultType_PSU_FAULT_TYPE_POWER_GOOD        PsuFaultType = 9  // [PMBUS] (PMBUS_STATUS_WORD:PG)	  	  Power good signal status
+	PsuFaultType_PSU_FAULT_TYPE_OVER_POWER        PsuFaultType = 10 // [PMBUS] (PMBUS_STATUS_IOUT:POUT)		  Output power exceeds rated capacity
+	PsuFaultType_PSU_FAULT_TYPE_OUTPUT            PsuFaultType = 11 // [PMBUS] (PMBUS_STATUS_VOUT)		      Output stage failure
+	PsuFaultType_PSU_FAULT_TYPE_BUSY              PsuFaultType = 12 // [PMBUS] (PMBUS_STATUS_WORD:BUSY)		  PSU busy processing a command
+	PsuFaultType_PSU_FAULT_TYPE_COMMS             PsuFaultType = 13 // [PMBUS] (PMBUS_STATUS_CML)		        Communication with PSU lost
+	PsuFaultType_PSU_FAULT_TYPE_GPIO_FAILURE      PsuFaultType = 14 // GPIO control failure (non-PMBus)
+	PsuFaultType_PSU_FAULT_TYPE_UNDER_TEMPERATURE PsuFaultType = 15 // [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature below minimum threshold
+	PsuFaultType_PSU_FAULT_TYPE_POWER_NO_GOOD     PsuFaultType = 16 // [PMBUS] (PMBUS_STATUS_WORD:PG)		    Power good signal not asserted
+	PsuFaultType_PSU_FAULT_TYPE_PFC_FAILURE       PsuFaultType = 17 // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure
+	PsuFaultType_PSU_FAULT_TYPE_NO_INPUT_VOLTAGE  PsuFaultType = 18 // [PMBUS] (PMBUS_STATUS_INPUT)		      No input AC/DC voltage detected
 )
 
 // Enum value maps for PsuFaultType.
