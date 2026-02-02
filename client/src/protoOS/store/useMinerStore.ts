@@ -184,7 +184,7 @@ const useMinerStore = create<MinerStore>()(
       {
         name: "miner-store",
         serialize: {
-          replacer: (_: string, value: any) => {
+          replacer: (_: string, value: unknown) => {
             // Handle Maps
             if (value instanceof Map) {
               return Object.fromEntries(value);
@@ -196,7 +196,7 @@ const useMinerStore = create<MinerStore>()(
             return value;
           },
         },
-      },
+      } as Parameters<typeof devtools>[1],
     ),
   ),
 );

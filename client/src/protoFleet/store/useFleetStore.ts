@@ -181,6 +181,6 @@ export const useFleetStore = create<FleetStore>()(
           return value;
         },
       },
-    },
+    } as Parameters<typeof devtools>[1],
   ),
 );
