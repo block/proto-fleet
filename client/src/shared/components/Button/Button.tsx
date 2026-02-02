@@ -8,6 +8,8 @@ export type ButtonVariant = keyof typeof variants;
 
 interface ButtonProps {
   ariaLabel?: string;
+  ariaHasPopup?: boolean | "menu" | "dialog" | "listbox" | "tree" | "grid";
+  ariaExpanded?: boolean;
   borderColor?: string;
   className?: string;
   children?: ReactNode;
@@ -25,6 +27,8 @@ interface ButtonProps {
 
 const Button = ({
   ariaLabel,
+  ariaHasPopup,
+  ariaExpanded,
   borderColor = "border-core-accent-fill",
   className,
   children,
@@ -56,6 +60,8 @@ const Button = ({
     <button
       type="button"
       aria-label={ariaLabel}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
       className={clsx(
         "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-0",
         {

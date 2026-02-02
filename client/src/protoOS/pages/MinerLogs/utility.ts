@@ -75,3 +75,19 @@ export const downloadLogs = (items: string[], filename: string) => {
 export const formatLogType = (logType: logType | null) => {
   return logType?.split("|")[1].trim();
 };
+
+export const CSV_HEADERS = "Time,Type,Message";
+
+/**
+ * Format logs into CSV rows with proper quoting and escaping
+ * Follows RFC 4180 CSV format specification
+ */
+export const formatLogsToCSV = (logs: string[]): string[] => {
+  const formattedLogs = formatLogs(logs);
+  return [
+    CSV_HEADERS,
+    ...formattedLogs.map(
+      (log) => `${log.timestamp},${formatLogType(log.logType)},"${log.message.replace(/"/g, '""')}"`,
+    ),
+  ];
+};

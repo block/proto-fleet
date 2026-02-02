@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { logTypes } from "./constants";
 import LogBadges from "./LogBadges";
 import { LogInfo, logType } from "./types";
-import { downloadLogs, formatLogs, formatLogType, getErrorWarningCount } from "./utility";
+import { downloadLogs, formatLogs, formatLogsToCSV, getErrorWarningCount } from "./utility";
 import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
 import { DismissTiny } from "@/shared/assets/icons";
 
@@ -15,8 +15,6 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { padLeft } from "@/shared/utils/stringUtils";
 import { getFileName } from "@/shared/utils/utility";
-
-const CSV_HEADERS = "Time,Type,Message";
 
 interface LogsProps {
   logsData?: LogsResponseLogs;
@@ -142,13 +140,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
         setIsExporting(true);
         const exportLogs = await fetchMaxLogs();
         if (exportLogs?.content) {
-          const formattedExportLogs = formatLogs(exportLogs.content);
-          const csvData = [
-            CSV_HEADERS,
-            ...formattedExportLogs.map(
-              (log) => `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
-            ),
-          ];
+          const csvData = formatLogsToCSV(exportLogs.content);
           downloadLogs(csvData, getFileName("miner-logs", "csv"));
         }
       } catch (error) {

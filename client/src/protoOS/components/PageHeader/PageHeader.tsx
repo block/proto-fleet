@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 
+import GlobalActionsWidget from "./GlobalActions";
 import MinerStatus from "./MinerStatus";
 import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
@@ -28,6 +29,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
             <>
               <MinerStatus />
               <PowerWidget />
+              <GlobalActionsWidget />
             </>
           )}
         </div>
@@ -64,6 +66,7 @@ const DesktopHeader = ({ customButtons }: { customButtons: PageHeaderProps["cust
               <PowerTarget />
               <PoolStatus />
               <PowerWidget />
+              <GlobalActionsWidget />
             </>
           )}
         </div>

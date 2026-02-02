@@ -11,6 +11,9 @@ interface WidgetWrapperProps {
   variant?: ButtonVariant;
   textColor?: string;
   borderColor?: string;
+  ariaLabel?: string;
+  ariaHasPopup?: boolean | "menu" | "dialog" | "listbox" | "tree" | "grid";
+  ariaExpanded?: boolean;
 }
 
 const WidgetWrapper = ({
@@ -21,6 +24,9 @@ const WidgetWrapper = ({
   variant,
   textColor,
   borderColor,
+  ariaLabel,
+  ariaHasPopup,
+  ariaExpanded,
 }: WidgetWrapperProps) => {
   const baseClasses = "flex h-7 items-center rounded-2xl px-2 py-1 whitespace-nowrap";
 
@@ -33,6 +39,9 @@ const WidgetWrapper = ({
       className={clsx(baseClasses, className)}
       onClick={onClick}
       testId={testId}
+      ariaLabel={ariaLabel}
+      ariaHasPopup={ariaHasPopup}
+      ariaExpanded={ariaExpanded}
     >
       <div className="flex gap-2">{children}</div>
     </Button>

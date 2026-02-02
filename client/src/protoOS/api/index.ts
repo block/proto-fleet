@@ -1,12 +1,14 @@
 import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "./constants";
 import { useCoolingStatus } from "./hooks/useCoolingStatus";
 import { useCreatePools } from "./hooks/useCreatePools";
+import { useDownloadLogs } from "./hooks/useDownloadLogs";
 import { useEditPool } from "./hooks/useEditPool";
 import { useErrors } from "./hooks/useErrors";
 import { useFirmwareUpdate } from "./hooks/useFirmwareUpdate";
 import { useHardware } from "./hooks/useHardware";
 import { useHashboards } from "./hooks/useHashboards";
 import { useHashboardStatus } from "./hooks/useHashboardStatus";
+import { useLocateSystem } from "./hooks/useLocateSystem";
 import { useLogin } from "./hooks/useLogin";
 import { useMiningStart } from "./hooks/useMiningStart";
 import { useMiningStatus } from "./hooks/useMiningStatus";
@@ -32,12 +34,14 @@ export {
   TOTAL_PSU_SLOTS,
   useCoolingStatus,
   useCreatePools,
+  useDownloadLogs,
   useEditPool,
   useErrors,
   useFirmwareUpdate,
   useHashboards,
   useHashboardStatus,
   useHardware,
+  useLocateSystem,
   useLogin,
   useMiningStart,
   useMiningStatus,
