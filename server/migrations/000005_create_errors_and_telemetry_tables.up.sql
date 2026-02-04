@@ -96,6 +96,3 @@ ALTER TABLE device_metrics SET (
 
 SELECT add_compression_policy('device_metrics', INTERVAL '7 days');
 
--- Optional: Add retention policy (drop data older than 1 year)
--- Uncomment if you want automatic data retention
--- SELECT add_retention_policy('device_metrics', INTERVAL '1 year');
