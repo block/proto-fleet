@@ -11,7 +11,9 @@ import { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/
 let mockedOnboardingStatus: FleetOnboardingStatus | null = null;
 vi.mock("@/protoFleet/api/useOnboardedStatus", () => ({
   useOnboardedStatus: vi.fn(() => ({
-    status: mockedOnboardingStatus,
+    poolConfigured: mockedOnboardingStatus?.poolConfigured ?? false,
+    devicePaired: mockedOnboardingStatus?.devicePaired ?? false,
+    statusLoaded: true,
     refetch: vi.fn(() => Promise.resolve(mockedOnboardingStatus)),
   })),
 }));

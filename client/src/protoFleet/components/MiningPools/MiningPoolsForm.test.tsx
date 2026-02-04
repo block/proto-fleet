@@ -19,7 +19,9 @@ vi.mock("@/protoFleet/api/usePools", () => ({
 
 vi.mock("@/protoFleet/api/useOnboardedStatus", () => ({
   useOnboardedStatus: () => ({
-    status: null,
+    poolConfigured: false,
+    devicePaired: false,
+    statusLoaded: true,
     refetch: vi.fn(),
   }),
 }));

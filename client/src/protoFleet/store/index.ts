@@ -99,10 +99,12 @@ export {
 export {
   usePoolConfigured,
   useDevicePaired,
+  useOnboardingStatusLoaded,
   useOnboardingComplete,
   useSetOnboardingStatus,
   useSetPoolConfigured,
   useSetDevicePaired,
+  useResetOnboardingStatus,
 } from "./hooks/useOnboarding";
 
 // =============================================================================

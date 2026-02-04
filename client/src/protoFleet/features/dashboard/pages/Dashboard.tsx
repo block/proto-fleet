@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { GetCombinedMetricsResponse, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
+import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
@@ -19,7 +20,6 @@ import {
   useAppendStreamingTemperatureCounts,
   useAppendStreamingUptimeCounts,
   useClearMetrics,
-  useDevicePaired,
   useDuration,
   useMinerStateCounts,
   useSetAllHistoricalData,
@@ -28,6 +28,7 @@ import {
   useSetMinerStateCounts,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 import { buildVersionInfo } from "@/shared/utils/version";
 
@@ -42,7 +43,7 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 ];
 
 const Dashboard = () => {
-  const devicePaired = useDevicePaired();
+  const { devicePaired, statusLoaded } = useOnboardedStatus();
   // useFleetCounts provides initial load - streaming provides real-time updates
   const {
     totalMiners: initialTotalMiners,
@@ -163,6 +164,14 @@ const Dashboard = () => {
     appendStreamingUptimeCounts,
     setMinerStateCounts,
   ]);
+
+  if (!statusLoaded) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full">

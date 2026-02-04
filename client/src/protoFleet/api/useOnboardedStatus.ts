@@ -5,7 +5,9 @@ import {
   useAuthErrors,
   useDevicePaired,
   useIsAuthenticated,
+  useOnboardingStatusLoaded,
   usePoolConfigured,
+  useResetOnboardingStatus,
   useSetOnboardingStatus,
 } from "@/protoFleet/store";
 
@@ -13,19 +15,18 @@ const useOnboardedStatus = () => {
   const isAuthenticated = useIsAuthenticated();
   const poolConfigured = usePoolConfigured();
   const devicePaired = useDevicePaired();
+  const statusLoaded = useOnboardingStatusLoaded();
   const setStatus = useSetOnboardingStatus();
+  const resetStatus = useResetOnboardingStatus();
   const { handleAuthErrors } = useAuthErrors();
 
   const fetchStatus = useCallback(async (): Promise<FleetOnboardingStatus | null> => {
     try {
       const response = await onboardingClient.getFleetOnboardingStatus({});
-
-      if (response.status) {
-        setStatus(response.status);
-        return response.status;
-      }
-      return null;
+      setStatus(response.status ?? null);
+      return response.status ?? null;
     } catch (err: any) {
+      setStatus(null);
       handleAuthErrors({
         error: err,
         onError: () => {
@@ -39,16 +40,17 @@ const useOnboardedStatus = () => {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setStatus(null);
+      resetStatus();
       return;
     }
 
     fetchStatus();
-  }, [fetchStatus, isAuthenticated, setStatus]);
+  }, [fetchStatus, isAuthenticated, resetStatus]);
 
   return {
     poolConfigured,
     devicePaired,
+    statusLoaded,
     refetch: fetchStatus,
   };
 };

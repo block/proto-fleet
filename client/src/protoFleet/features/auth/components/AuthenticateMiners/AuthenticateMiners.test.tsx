@@ -79,6 +79,7 @@ beforeEach(() => {
   vi.mocked(useOnboardedStatus).mockReturnValue({
     poolConfigured: false,
     devicePaired: true,
+    statusLoaded: true,
     refetch: mockRefetchOnboardingStatus,
   });
 

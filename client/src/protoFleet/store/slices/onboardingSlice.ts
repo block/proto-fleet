@@ -9,11 +9,13 @@ import type { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboardin
 export interface OnboardingSlice {
   poolConfigured: boolean;
   devicePaired: boolean;
+  statusLoaded: boolean;
 
   // Actions
   setStatus: (status: FleetOnboardingStatus | null) => void;
   setPoolConfigured: (configured: boolean) => void;
   setDevicePaired: (paired: boolean) => void;
+  resetStatus: () => void;
 }
 
 // =============================================================================
@@ -26,10 +28,12 @@ export const createOnboardingSlice: StateCreator<FleetStore, [["zustand/immer", 
   // Initial state
   poolConfigured: false,
   devicePaired: false,
+  statusLoaded: false,
 
   // Actions
   setStatus: (status) =>
     set((state) => {
+      state.onboarding.statusLoaded = true;
       if (status) {
         state.onboarding.poolConfigured = status.poolConfigured;
         state.onboarding.devicePaired = status.devicePaired;
@@ -47,5 +51,12 @@ export const createOnboardingSlice: StateCreator<FleetStore, [["zustand/immer", 
   setDevicePaired: (paired) =>
     set((state) => {
       state.onboarding.devicePaired = paired;
+    }),
+
+  resetStatus: () =>
+    set((state) => {
+      state.onboarding.poolConfigured = false;
+      state.onboarding.devicePaired = false;
+      state.onboarding.statusLoaded = false;
     }),
 });
