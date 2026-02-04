@@ -13,47 +13,47 @@ func TestProtoDeviceStatusToSQL(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    fm.DeviceStatus
-		expected sqlc.DeviceStatusStatus
+		expected sqlc.DeviceStatusEnum
 	}{
 		{
 			name:     "UNSPECIFIED maps to UNKNOWN",
 			input:    fm.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
-			expected: sqlc.DeviceStatusStatusUNKNOWN,
+			expected: sqlc.DeviceStatusEnumUNKNOWN,
 		},
 		{
 			name:     "ONLINE maps to ACTIVE",
 			input:    fm.DeviceStatus_DEVICE_STATUS_ONLINE,
-			expected: sqlc.DeviceStatusStatusACTIVE,
+			expected: sqlc.DeviceStatusEnumACTIVE,
 		},
 		{
 			name:     "OFFLINE maps to OFFLINE",
 			input:    fm.DeviceStatus_DEVICE_STATUS_OFFLINE,
-			expected: sqlc.DeviceStatusStatusOFFLINE,
+			expected: sqlc.DeviceStatusEnumOFFLINE,
 		},
 		{
 			name:     "MAINTENANCE maps to MAINTENANCE",
 			input:    fm.DeviceStatus_DEVICE_STATUS_MAINTENANCE,
-			expected: sqlc.DeviceStatusStatusMAINTENANCE,
+			expected: sqlc.DeviceStatusEnumMAINTENANCE,
 		},
 		{
 			name:     "ERROR maps to ERROR",
 			input:    fm.DeviceStatus_DEVICE_STATUS_ERROR,
-			expected: sqlc.DeviceStatusStatusERROR,
+			expected: sqlc.DeviceStatusEnumERROR,
 		},
 		{
 			name:     "INACTIVE maps to INACTIVE",
 			input:    fm.DeviceStatus_DEVICE_STATUS_INACTIVE,
-			expected: sqlc.DeviceStatusStatusINACTIVE,
+			expected: sqlc.DeviceStatusEnumINACTIVE,
 		},
 		{
 			name:     "NEEDS_MINING_POOL maps to NEEDSMININGPOOL",
 			input:    fm.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL,
-			expected: sqlc.DeviceStatusStatusNEEDSMININGPOOL,
+			expected: sqlc.DeviceStatusEnumNEEDSMININGPOOL,
 		},
 		{
 			name:     "Unknown value (out of range) maps to UNKNOWN",
 			input:    fm.DeviceStatus(999),
-			expected: sqlc.DeviceStatusStatusUNKNOWN,
+			expected: sqlc.DeviceStatusEnumUNKNOWN,
 		},
 	}
 
@@ -70,42 +70,42 @@ func TestProtoPairingStatusToSQL(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    fm.PairingStatus
-		expected sqlc.DevicePairingPairingStatus
+		expected sqlc.PairingStatusEnum
 	}{
 		{
 			name:     "UNSPECIFIED maps to UNPAIRED",
 			input:    fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED,
-			expected: sqlc.DevicePairingPairingStatusUNPAIRED,
+			expected: sqlc.PairingStatusEnumUNPAIRED,
 		},
 		{
 			name:     "PAIRED maps to PAIRED",
 			input:    fm.PairingStatus_PAIRING_STATUS_PAIRED,
-			expected: sqlc.DevicePairingPairingStatusPAIRED,
+			expected: sqlc.PairingStatusEnumPAIRED,
 		},
 		{
 			name:     "UNPAIRED maps to UNPAIRED",
 			input:    fm.PairingStatus_PAIRING_STATUS_UNPAIRED,
-			expected: sqlc.DevicePairingPairingStatusUNPAIRED,
+			expected: sqlc.PairingStatusEnumUNPAIRED,
 		},
 		{
 			name:     "AUTHENTICATION_NEEDED maps to AUTHENTICATIONNEEDED",
 			input:    fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-			expected: sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED,
+			expected: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
 		},
 		{
 			name:     "PENDING maps to PENDING",
 			input:    fm.PairingStatus_PAIRING_STATUS_PENDING,
-			expected: sqlc.DevicePairingPairingStatusPENDING,
+			expected: sqlc.PairingStatusEnumPENDING,
 		},
 		{
 			name:     "FAILED maps to FAILED",
 			input:    fm.PairingStatus_PAIRING_STATUS_FAILED,
-			expected: sqlc.DevicePairingPairingStatusFAILED,
+			expected: sqlc.PairingStatusEnumFAILED,
 		},
 		{
 			name:     "Unknown value (out of range) maps to UNPAIRED",
 			input:    fm.PairingStatus(999),
-			expected: sqlc.DevicePairingPairingStatusUNPAIRED,
+			expected: sqlc.PairingStatusEnumUNPAIRED,
 		},
 	}
 

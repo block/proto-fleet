@@ -17,7 +17,7 @@ import (
 )
 
 // TestGetOfflineDevices_DatabaseIntegration tests the GetOfflineDevices query
-// against a real MySQL database to validate SQL syntax and JOIN conditions
+// against a real PostgreSQL database to validate SQL syntax and JOIN conditions
 func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -679,7 +679,7 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
 			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
-			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
 	}
@@ -688,7 +688,7 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 	for _, device := range setup.devices {
 		_, err := conn.Exec(`
 			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+			VALUES ($1, 1, $2, $3, 'AA:BB:CC:DD:EE:FF')
 		`, device.id, device.id, device.identifier)
 		require.NoError(t, err)
 	}
@@ -697,7 +697,7 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 	for _, device := range setup.devices {
 		_, err := conn.Exec(`
 			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, device.id, device.pairingStatus)
 		require.NoError(t, err)
 	}
@@ -706,7 +706,7 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 	for _, device := range setup.devices {
 		_, err := conn.Exec(`
 			INSERT INTO device_status (device_id, status, status_timestamp)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, device.id, device.status)
 		require.NoError(t, err)
 	}
@@ -732,7 +732,7 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 
 	_, err := conn.Exec(`
 		INSERT INTO errors (error_id, org_id, device_id, miner_error, severity, summary, first_seen_at, last_seen_at, closed_at)
-		VALUES (?, ?, ?, 1000, ?, 'Test error', ?, ?, ?)
+		VALUES ($1, $2, $3, 1000, $4, 'Test error', $5, $6, $7)
 	`, errorID, orgID, deviceID, severity, now, now, closedAt)
 	require.NoError(t, err)
 }
@@ -924,25 +924,25 @@ func setupUpsertDeviceStatusesTestData(t *testing.T, conn *sql.DB, devices []tes
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
 			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
-			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
 
 		_, err = conn.Exec(`
 			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+			VALUES ($1, 1, $2, $3, 'AA:BB:CC:DD:EE:FF')
 		`, device.id, device.id, device.identifier)
 		require.NoError(t, err)
 
 		_, err = conn.Exec(`
 			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, device.id, device.pairingStatus)
 		require.NoError(t, err)
 
 		_, err = conn.Exec(`
 			INSERT INTO device_status (device_id, status, status_timestamp)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, device.id, device.status)
 		require.NoError(t, err)
 	}
@@ -964,19 +964,19 @@ func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devic
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
 			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
-			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
 
 		_, err = conn.Exec(`
 			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+			VALUES ($1, 1, $2, $3, 'AA:BB:CC:DD:EE:FF')
 		`, device.id, device.id, device.identifier)
 		require.NoError(t, err)
 
 		_, err = conn.Exec(`
 			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, device.id, device.pairingStatus)
 		require.NoError(t, err)
 	}
@@ -986,7 +986,7 @@ func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devic
 func getDeviceStatusFromDB(t *testing.T, conn *sql.DB, deviceID int64) string {
 	t.Helper()
 	var status string
-	err := conn.QueryRow(`SELECT status FROM device_status WHERE device_id = ?`, deviceID).Scan(&status)
+	err := conn.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, deviceID).Scan(&status)
 	require.NoError(t, err)
 	return status
 }
@@ -1010,25 +1010,25 @@ func TestGetFilteredDeviceIds_WithDeviceStatusFilter(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		deviceStatus  sqlc.DeviceStatusStatus
+		deviceStatus  sqlc.DeviceStatusEnum
 		expectedCount int
 		expectedIDs   []int64
 	}{
 		{
 			name:          "Filter by NEEDS_MINING_POOL status",
-			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
+			deviceStatus:  sqlc.DeviceStatusEnumNEEDSMININGPOOL,
 			expectedCount: 1,
 			expectedIDs:   []int64{1}, // Only device 1 (PAIRED), device 4 is AUTHENTICATION_NEEDED
 		},
 		{
 			name:          "Filter by ACTIVE status",
-			deviceStatus:  sqlc.DeviceStatusStatusACTIVE,
+			deviceStatus:  sqlc.DeviceStatusEnumACTIVE,
 			expectedCount: 1,
 			expectedIDs:   []int64{2},
 		},
 		{
 			name:          "Filter by OFFLINE status",
-			deviceStatus:  sqlc.DeviceStatusStatusOFFLINE,
+			deviceStatus:  sqlc.DeviceStatusEnumOFFLINE,
 			expectedCount: 1,
 			expectedIDs:   []int64{3},
 		},
@@ -1038,11 +1038,11 @@ func TestGetFilteredDeviceIds_WithDeviceStatusFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
 				OrgID: 1,
-				DeviceStatus: sqlc.NullDeviceStatusStatus{
-					DeviceStatusStatus: tt.deviceStatus,
-					Valid:              true,
+				DeviceStatus: sql.NullString{
+					String: string(tt.deviceStatus),
+					Valid:  true,
 				},
-				PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+				PairingStatus: sql.NullString{Valid: false},
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1067,19 +1067,19 @@ func TestGetFilteredDeviceIds_WithPairingStatusFilter(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		pairingStatus sqlc.DevicePairingPairingStatus
+		pairingStatus sqlc.PairingStatusEnum
 		expectedCount int
 		expectedIDs   []int64
 	}{
 		{
 			name:          "Filter by PAIRED status",
-			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			pairingStatus: sqlc.PairingStatusEnumPAIRED,
 			expectedCount: 3,
 			expectedIDs:   []int64{1, 2, 3},
 		},
 		{
 			name:          "Filter by AUTHENTICATION_NEEDED status",
-			pairingStatus: sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED,
+			pairingStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
 			expectedCount: 1,
 			expectedIDs:   []int64{4},
 		},
@@ -1089,10 +1089,10 @@ func TestGetFilteredDeviceIds_WithPairingStatusFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
 				OrgID:        1,
-				DeviceStatus: sqlc.NullDeviceStatusStatus{Valid: false},
-				PairingStatus: sqlc.NullDevicePairingPairingStatus{
-					DevicePairingPairingStatus: tt.pairingStatus,
-					Valid:                      true,
+				DeviceStatus: sql.NullString{Valid: false},
+				PairingStatus: sql.NullString{
+					String: string(tt.pairingStatus),
+					Valid:  true,
 				},
 			}
 
@@ -1118,29 +1118,29 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		deviceStatus  sqlc.DeviceStatusStatus
-		pairingStatus sqlc.DevicePairingPairingStatus
+		deviceStatus  sqlc.DeviceStatusEnum
+		pairingStatus sqlc.PairingStatusEnum
 		expectedCount int
 		expectedIDs   []int64
 	}{
 		{
 			name:          "NEEDS_MINING_POOL and PAIRED",
-			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
-			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			deviceStatus:  sqlc.DeviceStatusEnumNEEDSMININGPOOL,
+			pairingStatus: sqlc.PairingStatusEnumPAIRED,
 			expectedCount: 1,
 			expectedIDs:   []int64{1},
 		},
 		{
 			name:          "NEEDS_MINING_POOL and AUTHENTICATION_NEEDED",
-			deviceStatus:  sqlc.DeviceStatusStatusNEEDSMININGPOOL,
-			pairingStatus: sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED,
+			deviceStatus:  sqlc.DeviceStatusEnumNEEDSMININGPOOL,
+			pairingStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
 			expectedCount: 1,
 			expectedIDs:   []int64{4},
 		},
 		{
 			name:          "ACTIVE and PAIRED",
-			deviceStatus:  sqlc.DeviceStatusStatusACTIVE,
-			pairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+			deviceStatus:  sqlc.DeviceStatusEnumACTIVE,
+			pairingStatus: sqlc.PairingStatusEnumPAIRED,
 			expectedCount: 1,
 			expectedIDs:   []int64{2},
 		},
@@ -1150,13 +1150,13 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
 				OrgID: 1,
-				DeviceStatus: sqlc.NullDeviceStatusStatus{
-					DeviceStatusStatus: tt.deviceStatus,
-					Valid:              true,
+				DeviceStatus: sql.NullString{
+					String: string(tt.deviceStatus),
+					Valid:  true,
 				},
-				PairingStatus: sqlc.NullDevicePairingPairingStatus{
-					DevicePairingPairingStatus: tt.pairingStatus,
-					Valid:                      true,
+				PairingStatus: sql.NullString{
+					String: string(tt.pairingStatus),
+					Valid:  true,
 				},
 			}
 
@@ -1182,8 +1182,8 @@ func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
 
 	params := sqlc.GetFilteredDeviceIdsParams{
 		OrgID:         1,
-		DeviceStatus:  sqlc.NullDeviceStatusStatus{Valid: false},
-		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+		DeviceStatus:  sql.NullString{Valid: false},
+		PairingStatus: sql.NullString{Valid: false},
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1208,11 +1208,11 @@ func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
 	// Filter for a status that doesn't exist in test data
 	params := sqlc.GetFilteredDeviceIdsParams{
 		OrgID: 1,
-		DeviceStatus: sqlc.NullDeviceStatusStatus{
-			DeviceStatusStatus: sqlc.DeviceStatusStatusERROR,
-			Valid:              true,
+		DeviceStatus: sql.NullString{
+			String: string(sqlc.DeviceStatusEnumERROR),
+			Valid:  true,
 		},
-		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+		PairingStatus: sql.NullString{Valid: false},
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1235,8 +1235,8 @@ func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
 	// No filters provided - should only return PAIRED devices
 	params := sqlc.GetFilteredDeviceIdsParams{
 		OrgID:         1,
-		DeviceStatus:  sqlc.NullDeviceStatusStatus{Valid: false},
-		PairingStatus: sqlc.NullDevicePairingPairingStatus{Valid: false},
+		DeviceStatus:  sql.NullString{Valid: false},
+		PairingStatus: sql.NullString{Valid: false},
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1277,7 +1277,7 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 	for _, d := range devices {
 		_, err := conn.Exec(`
 			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
-			VALUES (?, 1, ?, 'proto', 'test-manufacturer', 'proto', ?, '50051', 'grpc', TRUE)
+			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, d.id, d.identifier, d.ipAddress)
 		require.NoError(t, err)
 	}
@@ -1286,7 +1286,7 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 	for _, d := range devices {
 		_, err := conn.Exec(`
 			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-			VALUES (?, 1, ?, ?, 'AA:BB:CC:DD:EE:FF')
+			VALUES ($1, 1, $2, $3, 'AA:BB:CC:DD:EE:FF')
 		`, d.id, d.id, d.identifier)
 		require.NoError(t, err)
 	}
@@ -1305,7 +1305,7 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 	for _, p := range pairings {
 		_, err := conn.Exec(`
 			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, p.deviceID, p.status)
 		require.NoError(t, err)
 	}
@@ -1324,7 +1324,7 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 	for _, s := range statuses {
 		_, err := conn.Exec(`
 			INSERT INTO device_status (device_id, status, status_timestamp)
-			VALUES (?, ?, NOW())
+			VALUES ($1, $2, NOW())
 		`, s.deviceID, s.status)
 		require.NoError(t, err)
 	}

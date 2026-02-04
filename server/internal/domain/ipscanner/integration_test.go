@@ -186,7 +186,7 @@ func verifyIPAssignmentUpdated(t *testing.T, conn *sql.DB, deviceID int64, expec
 		SELECT dd.ip_address, dd.port, dd.url_scheme
 		FROM device d
 		JOIN discovered_device dd ON d.discovered_device_id = dd.id
-		WHERE d.id = ?
+		WHERE d.id = $1
 		LIMIT 1
 	`, deviceID).Scan(&ipAddress, &port, &urlScheme)
 

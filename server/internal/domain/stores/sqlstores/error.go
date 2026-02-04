@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/sqlc-dev/pqtype"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -110,7 +112,7 @@ func (s *SQLErrorStore) insertNewError(
 ) (*models.ErrorMessage, error) {
 	errorID := id.GenerateID()
 
-	result, err := q.InsertError(ctx, sqlc.InsertErrorParams{
+	insertedID, err := q.InsertError(ctx, sqlc.InsertErrorParams{
 		ErrorID:           errorID,
 		OrgID:             orgID,
 		DeviceID:          deviceID,
@@ -126,16 +128,11 @@ func (s *SQLErrorStore) insertNewError(
 		ComponentType:     componentType,
 		VendorCode:        toNullString(errMsg.VendorCode),
 		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             extra,
+		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
 		ClosedAt:          toNullTime(errMsg.ClosedAt),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to insert error: %v", err)
-	}
-
-	insertedID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get last insert ID: %v", err)
 	}
 
 	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
@@ -166,7 +163,7 @@ func (s *SQLErrorStore) updateExistingError(
 		RecommendedAction: toNullString(errMsg.RecommendedAction),
 		VendorCode:        toNullString(errMsg.VendorCode),
 		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             extra,
+		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
 		ClosedAt:          toNullTime(errMsg.ClosedAt),
 		ID:                existingError.ID,
 	})
@@ -214,7 +211,7 @@ type errorFields struct {
 	FirstSeenAt       time.Time
 	LastSeenAt        time.Time
 	ClosedAt          sql.NullTime
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	ComponentID       sql.NullString
 	ComponentType     sql.NullInt32
 	Impact            sql.NullString
@@ -237,8 +234,8 @@ func buildErrorMessage(fields errorFields) *models.ErrorMessage {
 	componentID := nullStringToPtr(fields.ComponentID)
 
 	var vendorAttrs map[string]string
-	if len(fields.Extra) > 0 {
-		if err := json.Unmarshal(fields.Extra, &vendorAttrs); err != nil {
+	if fields.Extra.Valid && len(fields.Extra.RawMessage) > 0 {
+		if err := json.Unmarshal(fields.Extra.RawMessage, &vendorAttrs); err != nil {
 			slog.Warn("failed to unmarshal vendor attributes", "error_id", fields.ErrorID, "error", err)
 		}
 	}
@@ -397,18 +394,18 @@ func (s *SQLErrorStore) CountErrors(ctx context.Context, opts *models.QueryOptio
 // Filter flags use any to allow nil (SQL NULL) when filter is not active.
 // When a filter is active, the flag is set to true; otherwise it remains nil.
 type filterParams struct {
-	DeviceFilter        any
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    any
-	DeviceTypes         []sql.NullString
-	SeverityFilter      any
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    any
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter any
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   any
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 }
 
 // applyFilterToParams populates filter parameters from a QueryFilter.
@@ -417,33 +414,33 @@ func applyFilterToParams(filter *models.QueryFilter) filterParams {
 	var fp filterParams
 
 	if len(filter.DeviceIdentifiers) > 0 {
-		fp.DeviceFilter = true
+		fp.DeviceFilter = sql.NullString{String: "active", Valid: true}
 		fp.DeviceIdentifiers = filter.DeviceIdentifiers
 	}
 
 	if len(filter.DeviceTypes) > 0 {
-		fp.DeviceTypeFilter = true
-		fp.DeviceTypes = stringsToNullStrings(filter.DeviceTypes)
+		fp.DeviceTypeFilter = sql.NullString{String: "active", Valid: true}
+		fp.DeviceTypes = filter.DeviceTypes
 	}
 
 	if len(filter.Severities) > 0 {
-		fp.SeverityFilter = true
+		fp.SeverityFilter = sql.NullString{String: "active", Valid: true}
 		fp.Severities = severitiesToInt32s(filter.Severities)
 	}
 
 	if len(filter.MinerErrors) > 0 {
-		fp.MinerErrorFilter = true
+		fp.MinerErrorFilter = sql.NullString{String: "active", Valid: true}
 		fp.MinerErrors = minerErrorsToInt32s(filter.MinerErrors)
 	}
 
 	if len(filter.ComponentTypes) > 0 {
-		fp.ComponentTypeFilter = true
-		fp.ComponentTypes = componentTypesToNullInt32s(filter.ComponentTypes)
+		fp.ComponentTypeFilter = sql.NullString{String: "active", Valid: true}
+		fp.ComponentTypes = componentTypesToInt32s(filter.ComponentTypes)
 	}
 
 	if len(filter.ComponentIDs) > 0 {
-		fp.ComponentIDFilter = true
-		fp.ComponentIds = stringsToNullStrings(filter.ComponentIDs)
+		fp.ComponentIDFilter = sql.NullString{String: "active", Valid: true}
+		fp.ComponentIds = filter.ComponentIDs
 	}
 
 	return fp
@@ -622,7 +619,7 @@ func convertRowsToMessages(rows []sqlc.QueryErrorsRow) []models.ErrorMessage {
 			row.ComponentType,
 			row.VendorCode,
 			row.Firmware,
-			row.Extra,
+			row.Extra.RawMessage,
 			row.DeviceIdentifier,
 			row.DeviceType,
 		))
@@ -664,6 +661,13 @@ func queryRowToMessage(
 		}
 	}
 
+	var compType models.ComponentType
+	if componentType.Valid {
+		compType = safeInt32ToComponentType(componentType.Int32)
+	} else {
+		compType = models.ComponentTypeUnspecified
+	}
+
 	return models.ErrorMessage{
 		ErrorID:           errorID,
 		MinerError:        safeInt32ToMinerError(minerError),
@@ -678,7 +682,7 @@ func queryRowToMessage(
 		DeviceID:          deviceIdentifier,
 		DeviceType:        deviceType.String,
 		ComponentID:       componentIDPtr,
-		ComponentType:     safeInt32ToComponentType(componentType.Int32),
+		ComponentType:     compType,
 		VendorCode:        vendorCode.String,
 		Firmware:          firmware.String,
 		VendorAttributes:  vendorAttrs,
@@ -728,10 +732,10 @@ func minerErrorsToInt32s(errors []models.MinerError) []int32 {
 }
 
 // componentTypesToNullInt32s converts ComponentType slice to sql.NullInt32 slice.
-func componentTypesToNullInt32s(types []models.ComponentType) []sql.NullInt32 {
-	result := make([]sql.NullInt32, len(types))
+func componentTypesToInt32s(types []models.ComponentType) []int32 {
+	result := make([]int32, len(types))
 	for i, t := range types {
-		result[i] = sql.NullInt32{Int32: int32(t), Valid: true} // #nosec G115 -- ComponentType enum bounded (max 4)
+		result[i] = int32(t) // #nosec G115 -- ComponentType enum bounded (max 4)
 	}
 	return result
 }

@@ -62,7 +62,7 @@ func (s *SQLDiscoveredDeviceStore) decodeCursor(encoded string) (int64, error) {
 
 // Save stores or updates a discovered device and returns the saved device
 func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-	result, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
+	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
@@ -78,15 +78,9 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %v", err)
 	}
 
-	// Get the ID of the inserted/updated row
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get last insert ID: %v", err)
-	}
-
 	// Fetch the complete record to get timestamps and other fields
 	dbDevice, err := s.getQueries(ctx).GetDiscoveredDeviceByID(ctx, sqlc.GetDiscoveredDeviceByIDParams{
-		ID:    id,
+		ID:    insertedID,
 		OrgID: doi.OrgID,
 	})
 	if err != nil {
@@ -184,8 +178,8 @@ func (s *SQLDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context,
 	return devices, nextCursor, nil
 }
 
-// toDiscoveredDeviceFromRow converts a GetActiveUnpairedDiscoveredDevicesRow to a domain DiscoveredDevice
-func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesRow) *discoverymodels.DiscoveredDevice {
+// toDiscoveredDeviceFromRow converts a DiscoveredDevice to a domain DiscoveredDevice
+func toDiscoveredDeviceFromRow(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,

@@ -13,7 +13,7 @@ import (
 const getRoleByID = `-- name: GetRoleByID :one
 SELECT id, name, description, created_at, updated_at, deleted_at
 FROM role
-WHERE id = ?
+WHERE id = $1
   AND deleted_at IS NULL
 `
 
@@ -33,7 +33,7 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 
 const getRoleByName = `-- name: GetRoleByName :one
 SELECT id, name, description, created_at, updated_at, deleted_at FROM role
-WHERE name = ?
+WHERE name = $1
 `
 
 func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) {
@@ -88,8 +88,8 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 
 const softDeleteRole = `-- name: SoftDeleteRole :exec
 UPDATE role
-SET deleted_at = CURRENT_TIMESTAMP(6)
-WHERE id = ?
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1
 `
 
 func (q *Queries) SoftDeleteRole(ctx context.Context, id int64) error {
@@ -100,7 +100,7 @@ func (q *Queries) SoftDeleteRole(ctx context.Context, id int64) error {
 const undeleteRole = `-- name: UndeleteRole :exec
 UPDATE role
 SET deleted_at = NULL
-WHERE id = ?
+WHERE id = $1
 `
 
 func (q *Queries) UndeleteRole(ctx context.Context, id int64) error {
@@ -110,9 +110,9 @@ func (q *Queries) UndeleteRole(ctx context.Context, id int64) error {
 
 const updateRole = `-- name: UpdateRole :exec
 UPDATE role
-SET name        = ?,
-    description = ?
-WHERE id = ?
+SET name        = $1,
+    description = $2
+WHERE id = $3
 `
 
 type UpdateRoleParams struct {
@@ -126,13 +126,13 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) error {
 	return err
 }
 
-const upsertRole = `-- name: UpsertRole :execresult
+const upsertRole = `-- name: UpsertRole :one
 INSERT INTO role (name, description)
-VALUES (?, ?)
-ON DUPLICATE KEY UPDATE
-    description = VALUES(description),
-    deleted_at = NULL,
-    id = LAST_INSERT_ID(id)
+VALUES ($1, $2)
+ON CONFLICT (name) DO UPDATE SET
+    description = EXCLUDED.description,
+    deleted_at = NULL
+RETURNING id
 `
 
 type UpsertRoleParams struct {
@@ -140,6 +140,10 @@ type UpsertRoleParams struct {
 	Description sql.NullString
 }
 
-func (q *Queries) UpsertRole(ctx context.Context, arg UpsertRoleParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertRoleStmt, upsertRole, arg.Name, arg.Description)
+// PostgreSQL version returns the id using RETURNING
+func (q *Queries) UpsertRole(ctx context.Context, arg UpsertRoleParams) (int64, error) {
+	row := q.queryRow(ctx, q.upsertRoleStmt, upsertRole, arg.Name, arg.Description)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

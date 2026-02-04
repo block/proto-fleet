@@ -11,8 +11,10 @@ import (
 // component-level metrics for hashboards, PSUs, fans, control boards, and sensors.
 type DeviceMetrics struct {
 	// Identity
-	DeviceID  string    `json:"device_id"`
-	Timestamp time.Time `json:"timestamp"`
+	// DeviceIdentifier is the unique device identifier string (e.g., "proto-miner-001"),
+	// not the database primary key (device.id BIGINT).
+	DeviceIdentifier string    `json:"device_identifier"`
+	Timestamp        time.Time `json:"timestamp"`
 
 	// Device-level health
 	Health       HealthStatus `json:"health"`

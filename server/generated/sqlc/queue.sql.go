@@ -8,7 +8,8 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+
+	"github.com/sqlc-dev/pqtype"
 )
 
 const createQueueMessage = `-- name: CreateQueueMessage :exec
@@ -20,12 +21,12 @@ INSERT INTO queue_message (
     retry_count,
     payload
 ) VALUES (
-     ?,
-     ?,
-     ?,
-     ?,
-     ?,
-     ?
+     $1,
+     $2,
+     $3,
+     $4,
+     $5,
+     $6
 )
 `
 
@@ -33,9 +34,9 @@ type CreateQueueMessageParams struct {
 	CommandBatchLogUuid string
 	CommandType         string
 	DeviceID            int64
-	Status              QueueMessageStatus
+	Status              QueueStatusEnum
 	RetryCount          int32
-	Payload             json.RawMessage
+	Payload             pqtype.NullRawMessage
 }
 
 func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error {
@@ -51,10 +52,10 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
-SELECT m.id, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.created_at, m.updated_at, m.payload, m.command_batch_log_uuid
+SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at
 FROM queue_message m
 WHERE m.status = 'PENDING'
-  AND m.retry_count < ?
+  AND m.retry_count < $1
   AND NOT EXISTS (
     SELECT 1
     FROM queue_message earlier
@@ -63,7 +64,7 @@ WHERE m.status = 'PENDING'
       AND earlier.created_at < m.created_at
 )
 ORDER BY m.created_at
-LIMIT ?
+LIMIT $2
 `
 
 type GetMessagesToProcessParams struct {
@@ -82,15 +83,15 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 		var i QueueMessage
 		if err := rows.Scan(
 			&i.ID,
+			&i.CommandBatchLogUuid,
 			&i.DeviceID,
 			&i.CommandType,
 			&i.Status,
 			&i.RetryCount,
 			&i.ErrorInfo,
+			&i.Payload,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Payload,
-			&i.CommandBatchLogUuid,
 		); err != nil {
 			return nil, err
 		}
@@ -113,12 +114,12 @@ SELECT
         ELSE false
     END AS is_finished
 FROM queue_message
-WHERE command_batch_log_uuid = ?
+WHERE command_batch_log_uuid = $1
 `
 
-func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (int32, error) {
+func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error) {
 	row := q.queryRow(ctx, q.isBatchFinishedStmt, isBatchFinished, commandBatchLogUuid)
-	var is_finished int32
+	var is_finished bool
 	err := row.Scan(&is_finished)
 	return is_finished, err
 }
@@ -130,13 +131,13 @@ SELECT
         ELSE false
         END AS is_processing
 FROM queue_message
-WHERE command_batch_log_uuid = ?
+WHERE command_batch_log_uuid = $1
   AND status = 'PROCESSING'
 `
 
-func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (int32, error) {
+func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (bool, error) {
 	row := q.queryRow(ctx, q.isBatchProcessingStmt, isBatchProcessing, commandBatchLogUuid)
-	var is_processing int32
+	var is_processing bool
 	err := row.Scan(&is_processing)
 	return is_processing, err
 }
@@ -144,13 +145,13 @@ func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid str
 const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :exec
 UPDATE queue_message
 SET status = CASE
-        WHEN retry_count + 1 >= ? THEN 'FAILED'
-        ELSE 'PENDING'
+        WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
+        ELSE 'PENDING'::queue_status_enum
         END,
     retry_count = retry_count + 1,
-    error_info = ?,
-    updated_at = CURRENT_TIMESTAMP(6)
-WHERE id = ?
+    error_info = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
 `
 
 type UpdateMessageAfterFailureParams struct {
@@ -166,13 +167,13 @@ func (q *Queries) UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessa
 
 const updateMessageStatus = `-- name: UpdateMessageStatus :exec
 UPDATE queue_message
-SET status = ?,
-    updated_at = CURRENT_TIMESTAMP(6)
-WHERE id = ?
+SET status = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
 `
 
 type UpdateMessageStatusParams struct {
-	Status QueueMessageStatus
+	Status QueueStatusEnum
 	ID     int64
 }
 

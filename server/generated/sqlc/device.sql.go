@@ -8,39 +8,28 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"strings"
+
+	"github.com/lib/pq"
 )
 
 const allDevicesBelongToOrg = `-- name: AllDevicesBelongToOrg :one
-SELECT COUNT(*) = ? as all_belong
+SELECT COUNT(*) = $2 as all_belong
 FROM device
-WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
-  AND org_id = ?
+WHERE device_identifier = ANY($3::text[])
+  AND org_id = $1
   AND deleted_at IS NULL
 `
 
 type AllDevicesBelongToOrgParams struct {
+	OrgID             int64
 	ExpectedCount     interface{}
 	DeviceIdentifiers []string
-	OrgID             int64
 }
 
 // Returns true if all provided device identifiers belong to the specified organization.
 // Used for authorization checks - fails fast if any device is not owned by the org.
 func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error) {
-	query := allDevicesBelongToOrg
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.ExpectedCount)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.OrgID)
-	row := q.queryRow(ctx, nil, query, queryParams...)
+	row := q.queryRow(ctx, q.allDevicesBelongToOrgStmt, allDevicesBelongToOrg, arg.OrgID, arg.ExpectedCount, pq.Array(arg.DeviceIdentifiers))
 	var all_belong bool
 	err := row.Scan(&all_belong)
 	return all_belong, err
@@ -49,22 +38,22 @@ func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelon
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
     -- Offline: OFFLINE or NULL status - highest priority (regardless of errors or auth)
-    SUM(CASE
+    COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE' OR ds.status IS NULL
         THEN 1
         ELSE 0
-    END) as offline_count,
+    END), 0)::bigint as offline_count,
 
     -- Sleeping: MAINTENANCE or INACTIVE - second priority (if not offline, regardless of errors or auth)
-    SUM(CASE
+    COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
         THEN 1
         ELSE 0
-    END) as sleeping_count,
+    END), 0)::bigint as sleeping_count,
 
     -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR status OR auth needed OR actionable errors
     -- Only if not offline or sleeping
-    SUM(CASE
+    COALESCE(SUM(CASE
         WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
              AND ds.status IS NOT NULL
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL')
@@ -72,16 +61,16 @@ SELECT
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
-    END) as broken_count,
+    END), 0)::bigint as broken_count,
 
     -- Hashing: ACTIVE + no auth needed + no actionable errors (if none of the above)
-    SUM(CASE
+    COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
              AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
-    END) as hashing_count
+    END), 0)::bigint as hashing_count
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -89,16 +78,16 @@ LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN (
     SELECT DISTINCT device_id
     FROM errors
-    WHERE errors.org_id = ?
+    WHERE errors.org_id = $1
       AND errors.closed_at IS NULL
       AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
 ) open_errors ON d.id = open_errors.device_id
 WHERE d.deleted_at IS NULL
-  AND d.org_id = ?
+  AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-  AND (? is null OR FIND_IN_SET(ds.status, ?))
-  AND (? is null OR FIND_IN_SET(dd.type, ?))
+  AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
+  AND ($3::text IS NULL OR dd.type = ANY(string_to_array($3, ',')))
 `
 
 type CountMinersByStateParams struct {
@@ -108,10 +97,10 @@ type CountMinersByStateParams struct {
 }
 
 type CountMinersByStateRow struct {
-	OfflineCount  interface{}
-	SleepingCount interface{}
-	BrokenCount   interface{}
-	HashingCount  interface{}
+	OfflineCount  int64
+	SleepingCount int64
+	BrokenCount   int64
+	HashingCount  int64
 }
 
 // Counts miners by their operational state for fleet health dashboard.
@@ -140,14 +129,7 @@ type CountMinersByStateRow struct {
 // - Offline/sleeping status takes precedence over errors
 // Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
 func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
-	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
-		arg.OrgID,
-		arg.OrgID,
-		arg.StatusFilter,
-		arg.StatusFilter,
-		arg.TypeFilter,
-		arg.TypeFilter,
-	)
+	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState, arg.OrgID, arg.StatusFilter, arg.TypeFilter)
 	var i CountMinersByStateRow
 	err := row.Scan(
 		&i.OfflineCount,
@@ -169,7 +151,7 @@ SELECT
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE d.org_id = ?
+WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
 `
@@ -253,7 +235,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
-  AND d.org_id = ?
+  AND d.org_id = $1
   AND dd.type IS NOT NULL
 ORDER BY dd.type
 `
@@ -282,10 +264,10 @@ func (q *Queries) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]st
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, created_at, updated_at, deleted_at, org_id, discovered_device_id
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at
 FROM device
-WHERE device_identifier = ?
-  AND org_id = ?
+WHERE device_identifier = $1
+  AND org_id = $2
   AND deleted_at IS NULL
     LIMIT 1
 `
@@ -303,20 +285,20 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.DeviceIdentifier,
 		&i.MacAddress,
 		&i.SerialNumber,
+		&i.OrgID,
+		&i.DiscoveredDeviceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.OrgID,
-		&i.DiscoveredDeviceID,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, created_at, updated_at, deleted_at, org_id, discovered_device_id
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at
 FROM device
-WHERE id = ?
-  AND org_id = ?
+WHERE id = $1
+  AND org_id = $2
   AND deleted_at IS NULL
 LIMIT 1
 `
@@ -334,11 +316,11 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.DeviceIdentifier,
 		&i.MacAddress,
 		&i.SerialNumber,
+		&i.OrgID,
+		&i.DiscoveredDeviceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.OrgID,
-		&i.DiscoveredDeviceID,
 	)
 	return i, err
 }
@@ -346,8 +328,8 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 const getDeviceByIdentifier = `-- name: GetDeviceByIdentifier :one
 SELECT id, device_identifier
 FROM device
-WHERE device_identifier = ?
-    AND org_id = ?
+WHERE device_identifier = $1
+    AND org_id = $2
 LIMIT 1
 `
 
@@ -371,7 +353,7 @@ func (q *Queries) GetDeviceByIdentifier(ctx context.Context, arg GetDeviceByIden
 const getDeviceIDByDeviceIdentifier = `-- name: GetDeviceIDByDeviceIdentifier :one
 SELECT id
 FROM device
-WHERE device_identifier = ?
+WHERE device_identifier = $1
 LIMIT 1
 `
 
@@ -385,21 +367,11 @@ func (q *Queries) GetDeviceIDByDeviceIdentifier(ctx context.Context, deviceIdent
 const getDeviceIDsByDeviceIdentifiers = `-- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device
-WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
+WHERE device_identifier = ANY($1::text[])
 `
 
 func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
-	query := getDeviceIDsByDeviceIdentifiers
-	var queryParams []interface{}
-	if len(deviceIdentifiers) > 0 {
-		for _, v := range deviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.getDeviceIDsByDeviceIdentifiersStmt, getDeviceIDsByDeviceIdentifiers, pq.Array(deviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +396,7 @@ func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIde
 const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
 SELECT id, device_identifier
 FROM device
-WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
+WHERE device_identifier = ANY($1::text[])
 `
 
 type GetDeviceIDsWithIdentifiersRow struct {
@@ -434,17 +406,7 @@ type GetDeviceIDsWithIdentifiersRow struct {
 
 // Returns device IDs mapped to their identifiers for batch operations.
 func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceIDsWithIdentifiersRow, error) {
-	query := getDeviceIDsWithIdentifiers
-	var queryParams []interface{}
-	if len(deviceIdentifiers) > 0 {
-		for _, v := range deviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.getDeviceIDsWithIdentifiersStmt, getDeviceIDsWithIdentifiers, pq.Array(deviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +431,7 @@ func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentif
 const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device
-WHERE id = ?
+WHERE id = $1
 LIMIT 1
 `
 
@@ -491,9 +453,9 @@ SELECT
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE d.device_identifier IN (/*SLICE:device_identifiers*/?)
+WHERE d.device_identifier = ANY($1::text[])
   AND d.deleted_at IS NULL
-  AND d.org_id = ?
+  AND d.org_id = $2
   AND dp.pairing_status = 'PAIRED'
 `
 
@@ -514,18 +476,7 @@ type GetDeviceInfoForCapabilityCheckRow struct {
 // Returns device information needed for capability checking.
 // Used when checking if specific devices support a command.
 func (q *Queries) GetDeviceInfoForCapabilityCheck(ctx context.Context, arg GetDeviceInfoForCapabilityCheckParams) ([]GetDeviceInfoForCapabilityCheckRow, error) {
-	query := getDeviceInfoForCapabilityCheck
-	var queryParams []interface{}
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.OrgID)
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.getDeviceInfoForCapabilityCheckStmt, getDeviceInfoForCapabilityCheck, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -558,13 +509,13 @@ const getDevicePairingStatusByDeviceDatabaseID = `-- name: GetDevicePairingStatu
 SELECT
     dp.pairing_status
 FROM device_pairing dp
-WHERE dp.device_id = ?
+WHERE dp.device_id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, deviceID int64) (DevicePairingPairingStatus, error) {
+func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, deviceID int64) (PairingStatusEnum, error) {
 	row := q.queryRow(ctx, q.getDevicePairingStatusByDeviceDatabaseIDStmt, getDevicePairingStatusByDeviceDatabaseID, deviceID)
-	var pairing_status DevicePairingPairingStatus
+	var pairing_status PairingStatusEnum
 	err := row.Scan(&pairing_status)
 	return pairing_status, err
 }
@@ -573,13 +524,13 @@ const getDeviceStatus = `-- name: GetDeviceStatus :one
 SELECT
     ds.status
 FROM device_status ds
-WHERE ds.device_id = ?
+WHERE ds.device_id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetDeviceStatus(ctx context.Context, deviceID int64) (DeviceStatusStatus, error) {
+func (q *Queries) GetDeviceStatus(ctx context.Context, deviceID int64) (DeviceStatusEnum, error) {
 	row := q.queryRow(ctx, q.getDeviceStatusStmt, getDeviceStatus, deviceID)
-	var status DeviceStatusStatus
+	var status DeviceStatusEnum
 	err := row.Scan(&status)
 	return status, err
 }
@@ -589,14 +540,14 @@ SELECT
     ds.status
 FROM device_status ds
 JOIN device d ON ds.device_id = d.id
-WHERE d.device_identifier = ?
+WHERE d.device_identifier = $1
   AND d.deleted_at IS NULL
 LIMIT 1
 `
 
-func (q *Queries) GetDeviceStatusByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (DeviceStatusStatus, error) {
+func (q *Queries) GetDeviceStatusByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (DeviceStatusEnum, error) {
 	row := q.queryRow(ctx, q.getDeviceStatusByDeviceIdentifierStmt, getDeviceStatusByDeviceIdentifier, deviceIdentifier)
-	var status DeviceStatusStatus
+	var status DeviceStatusEnum
 	err := row.Scan(&status)
 	return status, err
 }
@@ -607,27 +558,17 @@ SELECT
     ds.status
 FROM device_status ds
 JOIN device d ON ds.device_id = d.id
-WHERE d.device_identifier IN (/*SLICE:device_identifiers*/?)
+WHERE d.device_identifier = ANY($1::text[])
   AND d.deleted_at IS NULL
 `
 
 type GetDeviceStatusForDeviceIdentifiersRow struct {
 	DeviceIdentifier string
-	Status           DeviceStatusStatus
+	Status           DeviceStatusEnum
 }
 
 func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceStatusForDeviceIdentifiersRow, error) {
-	query := getDeviceStatusForDeviceIdentifiers
-	var queryParams []interface{}
-	if len(deviceIdentifiers) > 0 {
-		for _, v := range deviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.getDeviceStatusForDeviceIdentifiersStmt, getDeviceStatusForDeviceIdentifiers, pq.Array(deviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -655,26 +596,23 @@ SELECT
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE d.org_id = ?
-    AND dp.pairing_status = COALESCE(?, 'PAIRED')
+WHERE d.org_id = $1
+    AND dp.pairing_status::text = COALESCE($2::text, 'PAIRED')
     AND d.deleted_at IS NULL
-    AND (? IS NULL OR ds.status = ?)
+    AND ($3::text IS NULL OR ds.status::text = $3::text)
 ORDER BY d.id
 `
 
 type GetFilteredDeviceIdsParams struct {
 	OrgID         int64
-	PairingStatus NullDevicePairingPairingStatus
-	DeviceStatus  NullDeviceStatusStatus
+	PairingStatus sql.NullString
+	DeviceStatus  sql.NullString
 }
 
+// Returns device IDs filtered by pairing status and optional device status.
+// Used for bulk command operations.
 func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
-		arg.OrgID,
-		arg.PairingStatus,
-		arg.DeviceStatus,
-		arg.DeviceStatus,
-	)
+	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds, arg.OrgID, arg.PairingStatus, arg.DeviceStatus)
 	if err != nil {
 		return nil, err
 	}
@@ -717,7 +655,7 @@ WHERE dp.pairing_status = 'PAIRED'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
 ORDER BY ds.status_timestamp DESC
-LIMIT ?
+LIMIT $1
 `
 
 type GetOfflineDevicesRow struct {
@@ -771,7 +709,7 @@ SELECT
 from device d
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
-    AND d.org_id = ?
+    AND d.org_id = $1
     AND d.deleted_at IS NULL
 ORDER BY dp.id, d.id
 `
@@ -805,7 +743,7 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'AUTHENTICATION_NEEDED'
     AND d.deleted_at IS NULL
-    AND d.org_id = ?
+    AND d.org_id = $1
 `
 
 func (q *Queries) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
@@ -816,151 +754,96 @@ func (q *Queries) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (
 }
 
 const getTotalMinerStateSnapshots = `-- name: GetTotalMinerStateSnapshots :one
-SELECT COUNT(DISTINCT device_id) as total
-FROM (
-    SELECT
-        dd.id as device_id,
-        CASE
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
-            ELSE 'UNPAIRED'
-        END as pairing_status
-    FROM discovered_device dd
-    LEFT JOIN device d ON dd.id = d.discovered_device_id
-        AND d.deleted_at IS NULL
-        AND d.org_id = ?
-    LEFT JOIN device_pairing dp ON d.id = dp.device_id
-    LEFT JOIN device_status ds ON d.id = ds.device_id
-    -- Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
-    LEFT JOIN (
-        SELECT DISTINCT device_id
-        FROM errors
-        WHERE errors.org_id = ?
-          AND errors.closed_at IS NULL
-          AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
-    ) open_errors ON d.id = open_errors.device_id
-    -- Always include errors join to support component type filtering
-    LEFT JOIN errors e ON d.id = e.device_id
-        AND e.closed_at IS NULL
-        AND (
-            ? IS NULL
-            OR e.component_type IN (/*SLICE:error_component_type_values*/?)
-        )
-    WHERE dd.org_id = ?
-        AND dd.is_active = TRUE
-        AND dd.deleted_at IS NULL
-        -- Status filter (only applies to paired devices with status)
-        -- Priority: offline/sleeping status takes precedence over errors
-        AND (
-            ? IS NULL
-            OR (
-                ds.status IN (/*SLICE:status_values*/?)
-                AND (
-                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                    -- For active status: exclude devices with errors (only show truly healthy)
-                    OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
-                    -- For error status: include devices with errors
-                    OR (? = TRUE)
-                )
+SELECT COUNT(*) as total
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id
+    AND d.deleted_at IS NULL
+    AND d.org_id = $1
+LEFT JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dd.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    -- Pairing status filter
+    AND (
+        $2::text IS NULL
+        OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
+           = ANY($3::text[])
+    )
+    -- Type filter
+    AND ($4::text IS NULL OR dd.type = ANY($5::text[]))
+    -- Status filter with error handling
+    AND (
+        $6::text IS NULL
+        OR (
+            ds.status::text = ANY($7::text[])
+            AND (
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+                    SELECT 1 FROM errors
+                    WHERE errors.device_id = d.id
+                      AND errors.org_id = $1
+                      AND errors.closed_at IS NULL
+                      AND errors.severity IN (1, 2, 3)
+                ))
+                OR ($8::boolean = TRUE)
             )
-            -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
-            OR (? = TRUE
-                AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                AND ds.status IS NOT NULL)
-            -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
-            -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
-            -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
-            -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
-            OR (? = TRUE
-                AND open_errors.device_id IS NOT NULL
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                AND ds.status IS NOT NULL)
         )
-        -- Type filter
-        AND (
-            ? IS NULL
-            OR dd.type IN (/*SLICE:type_values*/?)
+        OR ($8::boolean = TRUE
+            AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+            AND ds.status IS NOT NULL)
+        OR ($8::boolean = TRUE
+            AND EXISTS (
+                SELECT 1 FROM errors
+                WHERE errors.device_id = d.id
+                  AND errors.org_id = $1
+                  AND errors.closed_at IS NULL
+                  AND errors.severity IN (1, 2, 3)
+            )
+            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+            AND ds.status IS NOT NULL)
+    )
+    -- Component error filter
+    AND (
+        $9::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM errors
+            WHERE errors.device_id = d.id
+              AND errors.closed_at IS NULL
+              AND errors.component_type = ANY($10::int[])
         )
-        -- Component error filter - only include devices with matching errors when filter is provided
-        AND (
-            ? IS NULL
-            OR e.id IS NOT NULL
-        )
-) AS devices_with_status
-WHERE
-    -- Pairing status filter - if no filter provided (NULL), return all
-    (
-        ? IS NULL
-        OR pairing_status IN (/*SLICE:pairing_status_values*/?)
     )
 `
 
 type GetTotalMinerStateSnapshotsParams struct {
 	OrgID                     int64
-	ErrorComponentTypesFilter interface{}
-	ErrorComponentTypeValues  []sql.NullInt32
-	StatusFilter              interface{}
-	StatusValues              []DeviceStatusStatus
-	NeedsAttentionFilter      interface{}
-	TypeFilter                interface{}
+	PairingStatusFilter       sql.NullString
+	PairingStatusValues       []string
+	TypeFilter                sql.NullString
 	TypeValues                []string
-	PairingStatusFilter       interface{}
-	PairingStatusValues       []DevicePairingPairingStatus
+	StatusFilter              sql.NullString
+	StatusValues              []string
+	NeedsAttentionFilter      sql.NullBool
+	ErrorComponentTypesFilter sql.NullString
+	ErrorComponentTypeValues  []int32
 }
 
 // Unified query that supports all filters including component error filtering
-// Uses same structure as ListMinerStateSnapshots for consistency
+// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
 func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalMinerStateSnapshotsParams) (int64, error) {
-	query := getTotalMinerStateSnapshots
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
-	if len(arg.ErrorComponentTypeValues) > 0 {
-		for _, v := range arg.ErrorComponentTypeValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", strings.Repeat(",?", len(arg.ErrorComponentTypeValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.StatusFilter)
-	if len(arg.StatusValues) > 0 {
-		for _, v := range arg.StatusValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:status_values*/?", strings.Repeat(",?", len(arg.StatusValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.TypeFilter)
-	if len(arg.TypeValues) > 0 {
-		for _, v := range arg.TypeValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:type_values*/?", strings.Repeat(",?", len(arg.TypeValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
-	queryParams = append(queryParams, arg.PairingStatusFilter)
-	if len(arg.PairingStatusValues) > 0 {
-		for _, v := range arg.PairingStatusValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", strings.Repeat(",?", len(arg.PairingStatusValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", "NULL", 1)
-	}
-	row := q.queryRow(ctx, nil, query, queryParams...)
+	row := q.queryRow(ctx, q.getTotalMinerStateSnapshotsStmt, getTotalMinerStateSnapshots,
+		arg.OrgID,
+		arg.PairingStatusFilter,
+		pq.Array(arg.PairingStatusValues),
+		arg.TypeFilter,
+		pq.Array(arg.TypeValues),
+		arg.StatusFilter,
+		pq.Array(arg.StatusValues),
+		arg.NeedsAttentionFilter,
+		arg.ErrorComponentTypesFilter,
+		pq.Array(arg.ErrorComponentTypeValues),
+	)
 	var total int64
 	err := row.Scan(&total)
 	return total, err
@@ -974,10 +857,10 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
     AND d.deleted_at IS NULL
-    AND d.org_id = ?
+    AND d.org_id = $1
     AND dd.is_active = TRUE
-    AND (? is null OR FIND_IN_SET(ds.status, ?))
-    AND (? is null OR FIND_IN_SET(dd.type, ?))
+    AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
+    AND ($3::text IS NULL OR dd.type = ANY(string_to_array($3, ',')))
 `
 
 type GetTotalPairedDevicesParams struct {
@@ -987,19 +870,13 @@ type GetTotalPairedDevicesParams struct {
 }
 
 func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedDevicesParams) (int64, error) {
-	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices,
-		arg.OrgID,
-		arg.StatusFilter,
-		arg.StatusFilter,
-		arg.TypeFilter,
-		arg.TypeFilter,
-	)
+	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices, arg.OrgID, arg.StatusFilter, arg.TypeFilter)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
-const insertDevice = `-- name: InsertDevice :execresult
+const insertDevice = `-- name: InsertDevice :one
 INSERT INTO device (
     org_id,
     discovered_device_id,
@@ -1007,12 +884,13 @@ INSERT INTO device (
     mac_address,
     serial_number
 ) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
 )
+RETURNING id
 `
 
 type InsertDeviceParams struct {
@@ -1023,151 +901,121 @@ type InsertDeviceParams struct {
 	SerialNumber       sql.NullString
 }
 
-func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (sql.Result, error) {
-	return q.exec(ctx, q.insertDeviceStmt, insertDevice,
+func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (int64, error) {
+	row := q.queryRow(ctx, q.insertDeviceStmt, insertDevice,
 		arg.OrgID,
 		arg.DiscoveredDeviceID,
 		arg.DeviceIdentifier,
 		arg.MacAddress,
 		arg.SerialNumber,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listMinerStateSnapshots = `-- name: ListMinerStateSnapshots :many
-SELECT DISTINCT
-    device_identifier,
-    mac_address,
-    serial_number,
-    model,
-    manufacturer,
-    type,
-    firmware_version,
-    device_status,
-    status_timestamp,
-    status_details,
-    ip_address,
-    port,
-    url_scheme,
-    pairing_status,
-    cursor_id,
-    device_id
-FROM (
-    SELECT
-        dd.device_identifier,
-        COALESCE(d.mac_address, '') as mac_address,
-        d.serial_number,
-        dd.model,
-        dd.manufacturer,
-        dd.type,
-        dd.firmware_version,
-        ds.status as device_status,
-        ds.status_timestamp,
-        ds.status_details,
-        dd.ip_address,
-        dd.port,
-        dd.url_scheme,
-        dd.id as cursor_id,
-        COALESCE(d.id, 0) as device_id,
-        CASE
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
-            WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
-            ELSE 'UNPAIRED'
-        END as pairing_status,
-        e.id as error_id
-    FROM discovered_device dd
-    LEFT JOIN device d ON dd.id = d.discovered_device_id
-        AND d.deleted_at IS NULL
-        AND d.org_id = ?
-    LEFT JOIN device_pairing dp ON d.id = dp.device_id
-    LEFT JOIN device_status ds ON d.id = ds.device_id
-    -- Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
-    LEFT JOIN (
-        SELECT DISTINCT device_id
-        FROM errors
-        WHERE errors.org_id = ?
-          AND errors.closed_at IS NULL
-          AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
-    ) open_errors ON d.id = open_errors.device_id
-    -- Always include errors join to support component type filtering
-    LEFT JOIN errors e ON d.id = e.device_id
-        AND e.closed_at IS NULL
-        AND (
-            ? IS NULL
-            OR e.component_type IN (/*SLICE:error_component_type_values*/?)
-        )
-    WHERE dd.org_id = ?
-        AND dd.is_active = TRUE
-        AND dd.deleted_at IS NULL
-        -- Cursor pagination (applied early for performance)
-        AND (
-            COALESCE(?, 0) = 0
-            OR dd.id > ?
-        )
-        -- Status filter (only applies to paired devices with status)
-        -- Priority: offline/sleeping status takes precedence over errors
-        AND (
-            ? IS NULL
-            OR (
-                ds.status IN (/*SLICE:status_values*/?)
-                AND (
-                    -- For offline/sleeping/needs-pool filters: include devices regardless of errors
-                    ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                    -- For active status: exclude devices with errors (only show truly healthy)
-                    OR (ds.status = 'ACTIVE' AND open_errors.device_id IS NULL)
-                    -- For error status: include devices with errors
-                    OR (? = TRUE)
-                )
-            )
-            -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
-            OR (? = TRUE
-                AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                AND ds.status IS NOT NULL)
-            -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
-            -- Note: This catches ACTIVE devices with errors. They don't match the first branch (line 379)
-            -- because ds.status IN ('ERROR') would be FALSE (status is 'ACTIVE', not 'ERROR').
-            -- Instead, they're caught here by checking open_errors.device_id IS NOT NULL.
-            OR (? = TRUE
-                AND open_errors.device_id IS NOT NULL
-                AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                AND ds.status IS NOT NULL)
-        )
-        -- Type filter
-        AND (
-            ? IS NULL
-            OR dd.type IN (/*SLICE:type_values*/?)
-        )
-        -- Component error filter - only include devices with matching errors when filter is provided
-        AND (
-            ? IS NULL
-            OR e.id IS NOT NULL
-        )
-) AS devices_with_status
-WHERE
-    -- Pairing status filter - if no filter provided (NULL), return all
-    (
-        ? IS NULL
-        OR pairing_status IN (/*SLICE:pairing_status_values*/?)
+SELECT
+    dd.device_identifier,
+    COALESCE(d.mac_address, '') as mac_address,
+    d.serial_number,
+    dd.model,
+    dd.manufacturer,
+    dd.type,
+    dd.firmware_version,
+    ds.status as device_status,
+    ds.status_timestamp,
+    ds.status_details,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END as pairing_status,
+    dd.id as cursor_id,
+    COALESCE(d.id, 0) as device_id
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id
+    AND d.deleted_at IS NULL
+    AND d.org_id = $2
+LEFT JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dd.org_id = $2
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    -- Cursor pagination (applied early for performance)
+    AND ($3::bigint IS NULL OR dd.id > $3)
+    -- Pairing status filter
+    AND (
+        $4::text IS NULL
+        OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
+           = ANY($5::text[])
     )
-ORDER BY cursor_id
-LIMIT ?
+    -- Type filter
+    AND ($6::text IS NULL OR dd.type = ANY($7::text[]))
+    -- Status filter with error handling
+    -- Priority: offline/sleeping status takes precedence over errors
+    AND (
+        $8::text IS NULL
+        OR (
+            ds.status::text = ANY($9::text[])
+            AND (
+                -- For offline/sleeping filters: include devices regardless of errors
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                -- For active status: exclude devices with errors (only show truly healthy)
+                OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+                    SELECT 1 FROM errors
+                    WHERE errors.device_id = d.id
+                      AND errors.org_id = $2
+                      AND errors.closed_at IS NULL
+                      AND errors.severity IN (1, 2, 3)
+                ))
+                -- For error status: include devices with errors
+                OR ($10::boolean = TRUE)
+            )
+        )
+        -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
+        OR ($10::boolean = TRUE
+            AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+            AND ds.status IS NOT NULL)
+        -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
+        OR ($10::boolean = TRUE
+            AND EXISTS (
+                SELECT 1 FROM errors
+                WHERE errors.device_id = d.id
+                  AND errors.org_id = $2
+                  AND errors.closed_at IS NULL
+                  AND errors.severity IN (1, 2, 3)
+            )
+            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+            AND ds.status IS NOT NULL)
+    )
+    -- Component error filter - only include devices with matching errors when filter is provided
+    AND (
+        $11::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM errors
+            WHERE errors.device_id = d.id
+              AND errors.closed_at IS NULL
+              AND errors.component_type = ANY($12::int[])
+        )
+    )
+ORDER BY dd.id
+LIMIT $1
 `
 
 type ListMinerStateSnapshotsParams struct {
-	OrgID                     int64
-	ErrorComponentTypesFilter interface{}
-	ErrorComponentTypeValues  []sql.NullInt32
-	CursorID                  sql.NullInt64
-	StatusFilter              interface{}
-	StatusValues              []DeviceStatusStatus
-	NeedsAttentionFilter      interface{}
-	TypeFilter                interface{}
-	TypeValues                []string
-	PairingStatusFilter       interface{}
-	PairingStatusValues       []DevicePairingPairingStatus
 	Limit                     int32
+	OrgID                     int64
+	CursorID                  sql.NullInt64
+	PairingStatusFilter       sql.NullString
+	PairingStatusValues       []string
+	TypeFilter                sql.NullString
+	TypeValues                []string
+	StatusFilter              sql.NullString
+	StatusValues              []string
+	NeedsAttentionFilter      sql.NullBool
+	ErrorComponentTypesFilter sql.NullString
+	ErrorComponentTypeValues  []int32
 }
 
 type ListMinerStateSnapshotsRow struct {
@@ -1178,7 +1026,7 @@ type ListMinerStateSnapshotsRow struct {
 	Manufacturer     sql.NullString
 	Type             string
 	FirmwareVersion  sql.NullString
-	DeviceStatus     NullDeviceStatusStatus
+	DeviceStatus     NullDeviceStatusEnum
 	StatusTimestamp  sql.NullTime
 	StatusDetails    sql.NullString
 	IpAddress        string
@@ -1190,57 +1038,22 @@ type ListMinerStateSnapshotsRow struct {
 }
 
 // Unified query that supports all filters including component error filtering
-// Uses LEFT JOIN with errors table to support filtering by component types when needed
+// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
 func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStateSnapshotsParams) ([]ListMinerStateSnapshotsRow, error) {
-	query := listMinerStateSnapshots
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
-	if len(arg.ErrorComponentTypeValues) > 0 {
-		for _, v := range arg.ErrorComponentTypeValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", strings.Repeat(",?", len(arg.ErrorComponentTypeValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:error_component_type_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.CursorID)
-	queryParams = append(queryParams, arg.CursorID)
-	queryParams = append(queryParams, arg.StatusFilter)
-	if len(arg.StatusValues) > 0 {
-		for _, v := range arg.StatusValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:status_values*/?", strings.Repeat(",?", len(arg.StatusValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.NeedsAttentionFilter)
-	queryParams = append(queryParams, arg.TypeFilter)
-	if len(arg.TypeValues) > 0 {
-		for _, v := range arg.TypeValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:type_values*/?", strings.Repeat(",?", len(arg.TypeValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ErrorComponentTypesFilter)
-	queryParams = append(queryParams, arg.PairingStatusFilter)
-	if len(arg.PairingStatusValues) > 0 {
-		for _, v := range arg.PairingStatusValues {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", strings.Repeat(",?", len(arg.PairingStatusValues))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.Limit)
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.listMinerStateSnapshotsStmt, listMinerStateSnapshots,
+		arg.Limit,
+		arg.OrgID,
+		arg.CursorID,
+		arg.PairingStatusFilter,
+		pq.Array(arg.PairingStatusValues),
+		arg.TypeFilter,
+		pq.Array(arg.TypeValues),
+		arg.StatusFilter,
+		pq.Array(arg.StatusValues),
+		arg.NeedsAttentionFilter,
+		arg.ErrorComponentTypesFilter,
+		pq.Array(arg.ErrorComponentTypeValues),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1280,13 +1093,14 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStat
 }
 
 const updateDeviceIPAssignment = `-- name: UpdateDeviceIPAssignment :exec
-UPDATE discovered_device dd
-INNER JOIN device d ON dd.id = d.discovered_device_id
+UPDATE discovered_device
 SET
-  dd.ip_address = ?,
-  dd.port = ?,
-  dd.url_scheme = ?
-WHERE d.id = ?
+  ip_address = $1,
+  port = $2,
+  url_scheme = $3
+FROM device d
+WHERE discovered_device.id = d.discovered_device_id
+  AND d.id = $4
 `
 
 type UpdateDeviceIPAssignmentParams struct {
@@ -1296,6 +1110,7 @@ type UpdateDeviceIPAssignmentParams struct {
 	ID        int64
 }
 
+// PostgreSQL equivalent of UPDATE with INNER JOIN
 func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error {
 	_, err := q.exec(ctx, q.updateDeviceIPAssignmentStmt, updateDeviceIPAssignment,
 		arg.IpAddress,
@@ -1309,10 +1124,10 @@ func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDevice
 const updateDeviceInfo = `-- name: UpdateDeviceInfo :exec
 UPDATE device
 SET
-    mac_address = ?,
-    serial_number = ?
-WHERE device_identifier = ?
-  AND org_id = ?
+    mac_address = $1,
+    serial_number = $2
+WHERE device_identifier = $3
+  AND org_id = $4
   AND deleted_at IS NULL
 `
 
@@ -1334,18 +1149,20 @@ func (q *Queries) UpdateDeviceInfo(ctx context.Context, arg UpdateDeviceInfoPara
 }
 
 const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :exec
-UPDATE device_pairing dp
-INNER JOIN device d ON dp.device_id = d.id
-SET dp.pairing_status = ?
-WHERE d.device_identifier = ?
+UPDATE device_pairing
+SET pairing_status = $1
+FROM device d
+WHERE device_pairing.device_id = d.id
+  AND d.device_identifier = $2
   AND d.deleted_at IS NULL
 `
 
 type UpdateDevicePairingStatusByIdentifierParams struct {
-	PairingStatus    DevicePairingPairingStatus
+	PairingStatus    PairingStatusEnum
 	DeviceIdentifier string
 }
 
+// PostgreSQL equivalent of UPDATE with INNER JOIN
 func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
 	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
 	return err
@@ -1357,19 +1174,19 @@ INSERT INTO device_pairing (
     pairing_status,
     paired_at
 ) VALUES (
-    ?,
-    ?,
-    CURRENT_TIMESTAMP(6)
+    $1,
+    $2,
+    CURRENT_TIMESTAMP
 )
-ON DUPLICATE KEY UPDATE
-    pairing_status = VALUES(pairing_status),
-    paired_at = CURRENT_TIMESTAMP(6),
+ON CONFLICT (device_id) DO UPDATE SET
+    pairing_status = EXCLUDED.pairing_status,
+    paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL
 `
 
 type UpsertDevicePairingParams struct {
 	DeviceID      int64
-	PairingStatus DevicePairingPairingStatus
+	PairingStatus PairingStatusEnum
 }
 
 func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error) {
@@ -1383,20 +1200,20 @@ INSERT INTO device_status (
     status_timestamp,
     status_details
 ) VALUES (
-    ?,
-    ?,
-    ?,
-    ?
+    $1,
+    $2,
+    $3,
+    $4
 )
-ON DUPLICATE KEY UPDATE
-    status = VALUES(status),
-    status_timestamp = VALUES(status_timestamp),
-    status_details = VALUES(status_details)
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    status_details = EXCLUDED.status_details
 `
 
 type UpsertDeviceStatusParams struct {
 	DeviceID        int64
-	Status          DeviceStatusStatus
+	Status          DeviceStatusEnum
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 }

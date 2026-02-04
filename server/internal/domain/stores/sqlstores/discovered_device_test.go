@@ -25,15 +25,15 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldInsertNewDevice(t *testing.T) {
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org",
+		Name:                "Test Org",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -86,15 +86,15 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldUpdateExistingDevice(t *testing.T) 
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org",
+		Name:                "Test Org",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -143,15 +143,15 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnExistingDevice(t *testin
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org 2",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-2",
+		Name:                "Test Org 2",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -204,15 +204,15 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldAllowSettingIsActiveToTrue(t *testi
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org Active",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-active",
+		Name:                "Test Org Active",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -256,11 +256,11 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnErrorForNonExistentDevic
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org 3",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-3",
+		Name:                "Test Org 3",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -291,15 +291,15 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldReturnUnpairedD
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org Unpaired",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-unpaired",
+		Name:                "Test Org Unpaired",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -351,15 +351,15 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldSupportPaginati
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org Pagination",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-pagination",
+		Name:                "Test Org Pagination",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
@@ -422,16 +422,16 @@ func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrect
 	ctx := t.Context()
 
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org Count",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-count",
+		Name:                "Test Org Count",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM device WHERE org_id = ?", orgID)
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = ?", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM device WHERE org_id = $1", orgID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 

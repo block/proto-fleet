@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +21,13 @@ import (
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+)
+
+const (
+	// ambiguousASICType is skipped when returning available miner types.
+	// Devices with type="asic" are resolved to specific types (proto/antminer)
+	// via the model field elsewhere.
+	ambiguousASICType = "asic"
 )
 
 var _ stores.DeviceStore = &SQLDeviceStore{}
@@ -202,7 +208,7 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 	}
 	_, err = s.getQueries(ctx).UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
 		DeviceID:      dbDevice.ID,
-		PairingStatus: sqlc.DevicePairingPairingStatus(pairingStatus),
+		PairingStatus: sqlc.PairingStatusEnum(pairingStatus),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
@@ -212,7 +218,7 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 
 func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error {
 	err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
-		PairingStatus:    sqlc.DevicePairingPairingStatus(pairingStatus),
+		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
 		DeviceIdentifier: deviceIdentifier,
 	})
 	if err != nil {
@@ -325,35 +331,11 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
 	}
 
-	// Helper to convert interface{} to int32, handling both int64 and []byte from MySQL
-	toInt32 := func(v interface{}) int32 {
-		switch val := v.(type) {
-		case int64:
-			return int32(val) //nolint:gosec // Miner counts bounded by fleet size (<millions)
-		case []byte:
-			// MySQL SUM returns decimal as []byte, parse it with strconv for robustness
-			if len(val) == 0 {
-				return 0
-			}
-			parsed, err := strconv.ParseInt(string(val), 10, 64)
-			if err != nil {
-				// Log and return 0 as safe default. This should never happen with valid MySQL SUM results,
-				// but if it does, returning 0 prevents cascading errors in fleet health calculations.
-				// The error is logged so it can be monitored and investigated if it occurs in production.
-				slog.Error("failed to parse miner count from database", "error", err, "raw_value", string(val))
-				return 0
-			}
-			return int32(parsed) //nolint:gosec // Miner counts bounded by fleet size (<millions)
-		default:
-			return 0
-		}
-	}
-
 	return &tm.MinerStateCounts{
-		HashingCount:  toInt32(counts.HashingCount),
-		BrokenCount:   toInt32(counts.BrokenCount),
-		OfflineCount:  toInt32(counts.OfflineCount),
-		SleepingCount: toInt32(counts.SleepingCount),
+		HashingCount:  int32(counts.HashingCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		BrokenCount:   int32(counts.BrokenCount),   //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		OfflineCount:  int32(counts.OfflineCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		SleepingCount: int32(counts.SleepingCount), //nolint:gosec // Miner counts bounded by fleet size (<millions)
 	}, nil
 }
 
@@ -365,9 +347,7 @@ func (s *SQLDeviceStore) GetAvailableMinerTypes(ctx context.Context, orgID int64
 
 	types := make([]minermodels.Type, 0, len(typeStrings))
 	for _, typeStr := range typeStrings {
-		// Skip "asic" type as it's ambiguous - devices with type="asic" will be
-		// resolved to specific types (proto/antminer) via model field elsewhere
-		if typeStr == "asic" {
+		if typeStr == ambiguousASICType {
 			continue
 		}
 		minerType, err := minermodels.TypeFromString(typeStr)
@@ -444,21 +424,28 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 		idMap[row.DeviceIdentifier] = row.ID
 	}
 
-	// Collect valid updates with their device IDs for sorting
+	// Collect valid updates with their device IDs, deduplicating by device_id.
+	// PostgreSQL's ON CONFLICT DO UPDATE cannot affect the same row twice in one INSERT,
+	// so we keep only the last update for each device_id (last-write-wins semantics).
 	type deviceStatusUpdateWithID struct {
 		deviceID int64
 		update   stores.DeviceStatusUpdate
 	}
-	validUpdates := make([]deviceStatusUpdateWithID, 0, len(updates))
+	dedupedByDeviceID := make(map[int64]deviceStatusUpdateWithID)
+	notFoundCount := 0
 	for _, u := range updates {
 		deviceID, found := idMap[u.DeviceIdentifier.String()]
 		if !found {
+			notFoundCount++
 			continue
 		}
-		validUpdates = append(validUpdates, deviceStatusUpdateWithID{deviceID: deviceID, update: u})
+		dedupedByDeviceID[deviceID] = deviceStatusUpdateWithID{deviceID: deviceID, update: u}
 	}
 
-	notFoundCount := len(updates) - len(validUpdates)
+	validUpdates := make([]deviceStatusUpdateWithID, 0, len(dedupedByDeviceID))
+	for _, v := range dedupedByDeviceID {
+		validUpdates = append(validUpdates, v)
+	}
 	if notFoundCount > 0 {
 		slog.Warn("some devices not found for status update",
 			"not_found", notFoundCount,
@@ -492,70 +479,70 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 	return nil
 }
 
-// buildDeviceStatusBulkUpsert builds a bulk INSERT ... ON DUPLICATE KEY UPDATE query.
+// buildDeviceStatusBulkUpsert builds a bulk INSERT ... ON CONFLICT DO UPDATE query for PostgreSQL.
 //
 // We use a manual query instead of:
 //   - N individual queries in a transaction: Creates long-running transactions that hold
 //     locks and exhaust DB connections under load.
-//   - sqlc :copyfrom: Uses LOAD DATA which doesn't support ON DUPLICATE KEY UPDATE,
+//   - sqlc :copyfrom: Uses COPY which doesn't support ON CONFLICT DO UPDATE,
 //     requiring DELETE+INSERT which is slower and not atomic.
 //
-// A single bulk INSERT with ON DUPLICATE KEY UPDATE is both fast (1 round-trip) and atomic.
+// A single bulk INSERT with ON CONFLICT DO UPDATE is both fast (1 round-trip) and atomic.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
-	const placeholder = "(?, ?, ?, ?)"
-
 	var b strings.Builder
+	paramNum := 1
 	for i := range rowCount {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(placeholder)
+		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d)", paramNum, paramNum+1, paramNum+2, paramNum+3)
+		paramNum += 4
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO device_status (device_id, status, status_timestamp, status_details) VALUES %s "+
-			"AS new_vals ON DUPLICATE KEY UPDATE "+
-			"status = new_vals.status, "+
-			"status_timestamp = new_vals.status_timestamp, "+
-			"status_details = new_vals.status_details",
+			"ON CONFLICT (device_id) DO UPDATE SET "+
+			"status = EXCLUDED.status, "+
+			"status_timestamp = EXCLUDED.status_timestamp, "+
+			"status_details = EXCLUDED.status_details",
 		b.String(),
 	)
 }
 
-func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusStatus {
+func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusEnum {
 	//nolint:exhaustive // We handle all known statuses, but we may not handle all possible statuses.
 	switch status {
 	case minermodels.MinerStatusActive:
-		return sqlc.DeviceStatusStatusACTIVE
+		return sqlc.DeviceStatusEnumACTIVE
 	case minermodels.MinerStatusOffline:
-		return sqlc.DeviceStatusStatusOFFLINE
+		return sqlc.DeviceStatusEnumOFFLINE
 	case minermodels.MinerStatusInactive:
-		return sqlc.DeviceStatusStatusINACTIVE
+		return sqlc.DeviceStatusEnumINACTIVE
 	case minermodels.MinerStatusMaintenance:
-		return sqlc.DeviceStatusStatusMAINTENANCE
+		return sqlc.DeviceStatusEnumMAINTENANCE
 	case minermodels.MinerStatusError:
-		return sqlc.DeviceStatusStatusERROR
+		return sqlc.DeviceStatusEnumERROR
 	case minermodels.MinerStatusNeedsMiningPool:
-		return sqlc.DeviceStatusStatusNEEDSMININGPOOL
+		return sqlc.DeviceStatusEnumNEEDSMININGPOOL
 	default:
-		return sqlc.DeviceStatusStatusUNKNOWN
+		return sqlc.DeviceStatusEnumUNKNOWN
 	}
 }
 
-func toMinerStatus(status sqlc.DeviceStatusStatus) minermodels.MinerStatus {
+func toMinerStatus(status sqlc.DeviceStatusEnum) minermodels.MinerStatus {
 	//nolint:exhaustive // We handle all known statuses, but we may not handle all possible statuses.
 	switch status {
-	case sqlc.DeviceStatusStatusACTIVE:
+	case sqlc.DeviceStatusEnumACTIVE:
 		return minermodels.MinerStatusActive
-	case sqlc.DeviceStatusStatusOFFLINE:
+	case sqlc.DeviceStatusEnumOFFLINE:
 		return minermodels.MinerStatusOffline
-	case sqlc.DeviceStatusStatusINACTIVE:
+	case sqlc.DeviceStatusEnumINACTIVE:
 		return minermodels.MinerStatusInactive
-	case sqlc.DeviceStatusStatusMAINTENANCE:
+	case sqlc.DeviceStatusEnumMAINTENANCE:
 		return minermodels.MinerStatusMaintenance
-	case sqlc.DeviceStatusStatusERROR:
+	case sqlc.DeviceStatusEnumERROR:
 		return minermodels.MinerStatusError
-	case sqlc.DeviceStatusStatusNEEDSMININGPOOL:
+	case sqlc.DeviceStatusEnumNEEDSMININGPOOL:
 		return minermodels.MinerStatusNeedsMiningPool
 	default:
 		return minermodels.MinerStatusUnknown
@@ -564,45 +551,45 @@ func toMinerStatus(status sqlc.DeviceStatusStatus) minermodels.MinerStatus {
 
 // ProtoDeviceStatusToSQL converts protobuf DeviceStatus enum to sqlc DeviceStatusStatus
 // Exported helper for use across packages (e.g., command service)
-func ProtoDeviceStatusToSQL(status fm.DeviceStatus) sqlc.DeviceStatusStatus {
+func ProtoDeviceStatusToSQL(status fm.DeviceStatus) sqlc.DeviceStatusEnum {
 	switch status {
 	case fm.DeviceStatus_DEVICE_STATUS_UNSPECIFIED:
-		return sqlc.DeviceStatusStatusUNKNOWN
+		return sqlc.DeviceStatusEnumUNKNOWN
 	case fm.DeviceStatus_DEVICE_STATUS_ONLINE:
-		return sqlc.DeviceStatusStatusACTIVE
+		return sqlc.DeviceStatusEnumACTIVE
 	case fm.DeviceStatus_DEVICE_STATUS_OFFLINE:
-		return sqlc.DeviceStatusStatusOFFLINE
+		return sqlc.DeviceStatusEnumOFFLINE
 	case fm.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
-		return sqlc.DeviceStatusStatusMAINTENANCE
+		return sqlc.DeviceStatusEnumMAINTENANCE
 	case fm.DeviceStatus_DEVICE_STATUS_ERROR:
-		return sqlc.DeviceStatusStatusERROR
+		return sqlc.DeviceStatusEnumERROR
 	case fm.DeviceStatus_DEVICE_STATUS_INACTIVE:
-		return sqlc.DeviceStatusStatusINACTIVE
+		return sqlc.DeviceStatusEnumINACTIVE
 	case fm.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
-		return sqlc.DeviceStatusStatusNEEDSMININGPOOL
+		return sqlc.DeviceStatusEnumNEEDSMININGPOOL
 	default:
-		return sqlc.DeviceStatusStatusUNKNOWN
+		return sqlc.DeviceStatusEnumUNKNOWN
 	}
 }
 
 // ProtoPairingStatusToSQL converts protobuf PairingStatus enum to sqlc DevicePairingPairingStatus
 // Exported helper for use across packages (e.g., command service)
-func ProtoPairingStatusToSQL(status fm.PairingStatus) sqlc.DevicePairingPairingStatus {
+func ProtoPairingStatusToSQL(status fm.PairingStatus) sqlc.PairingStatusEnum {
 	switch status {
 	case fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
-		return sqlc.DevicePairingPairingStatusUNPAIRED
+		return sqlc.PairingStatusEnumUNPAIRED
 	case fm.PairingStatus_PAIRING_STATUS_PAIRED:
-		return sqlc.DevicePairingPairingStatusPAIRED
+		return sqlc.PairingStatusEnumPAIRED
 	case fm.PairingStatus_PAIRING_STATUS_UNPAIRED:
-		return sqlc.DevicePairingPairingStatusUNPAIRED
+		return sqlc.PairingStatusEnumUNPAIRED
 	case fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
-		return sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED
+		return sqlc.PairingStatusEnumAUTHENTICATIONNEEDED
 	case fm.PairingStatus_PAIRING_STATUS_PENDING:
-		return sqlc.DevicePairingPairingStatusPENDING
+		return sqlc.PairingStatusEnumPENDING
 	case fm.PairingStatus_PAIRING_STATUS_FAILED:
-		return sqlc.DevicePairingPairingStatusFAILED
+		return sqlc.PairingStatusEnumFAILED
 	default:
-		return sqlc.DevicePairingPairingStatusUNPAIRED
+		return sqlc.PairingStatusEnumUNPAIRED
 	}
 }
 
@@ -686,13 +673,13 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	}
 
 	// Build filter parameters
-	var statusFilter interface{}
-	var statusValues []sqlc.DeviceStatusStatus
+	var statusFilter sql.NullString
+	var statusValues []string
 	needsAttentionFilter := false
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
-		statusFilter = true // Non-null indicates filter is active
+		statusFilter = sql.NullString{String: "active", Valid: true}
 		for _, status := range filter.DeviceStatusFilter {
-			statusValues = append(statusValues, toDeviceStatus(status))
+			statusValues = append(statusValues, string(toDeviceStatus(status)))
 			// Special case: if ERROR status is requested, also include AUTHENTICATION_NEEDED devices
 			// This implements "needs attention" = ERROR status OR AUTHENTICATION_NEEDED pairing
 			if status == minermodels.MinerStatusError {
@@ -701,10 +688,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		}
 	}
 
-	var typeFilter interface{}
+	var typeFilter sql.NullString
 	var typeValues []string
 	if filter != nil && len(filter.MinerType) > 0 {
-		typeFilter = true // Non-null indicates filter is active
+		typeFilter = sql.NullString{String: "active", Valid: true}
 		for _, t := range filter.MinerType {
 			typeValues = append(typeValues, t.String())
 		}
@@ -712,19 +699,19 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 
 	// Parse pairing status filter - convert proto enums to database enum strings
 	// Pass the list of statuses directly to SQL instead of boolean flags
-	var pairingStatusFilter interface{}
-	var pairingStatusValues []sqlc.DevicePairingPairingStatus
+	var pairingStatusFilter sql.NullString
+	var pairingStatusValues []string
 
 	if filter != nil && len(filter.PairingStatuses) > 0 {
 		// Filter is provided - convert proto enums to sqlc enums
-		pairingStatusFilter = true // Non-null indicates filter is active
+		pairingStatusFilter = sql.NullString{String: "active", Valid: true}
 		for _, status := range filter.PairingStatuses {
 			if status == fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED {
 				// UNSPECIFIED means "return all" - skip adding to filter
 				// If this is the only status, clear the filter entirely
 				continue
 			}
-			pairingStatusValues = append(pairingStatusValues, ProtoPairingStatusToSQL(status))
+			pairingStatusValues = append(pairingStatusValues, string(ProtoPairingStatusToSQL(status)))
 			// Note: Unknown pairing statuses will be converted to default (UNPAIRED) by helper
 			// This provides forward compatibility if new statuses are added
 		}
@@ -732,21 +719,21 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		// If no valid pairing statuses were added (all were UNSPECIFIED or unknown),
 		// clear the filter to return all devices
 		if len(pairingStatusValues) == 0 {
-			pairingStatusFilter = nil
+			pairingStatusFilter = sql.NullString{}
 		}
 	}
 
 	// If no pairing statuses provided at all, filter remains nil (return all)
 
 	// Build component type filter parameters
-	var errorComponentTypesFilter interface{}
-	var errorComponentTypeValues []sql.NullInt32
+	var errorComponentTypesFilter sql.NullString
+	var errorComponentTypeValues []int32
 	if filter != nil && len(filter.ErrorComponentTypes) > 0 {
-		errorComponentTypesFilter = true // Non-null indicates filter is active
-		errorComponentTypeValues = make([]sql.NullInt32, len(filter.ErrorComponentTypes))
+		errorComponentTypesFilter = sql.NullString{String: "active", Valid: true}
+		errorComponentTypeValues = make([]int32, len(filter.ErrorComponentTypes))
 		for i, ct := range filter.ErrorComponentTypes {
 			// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
-			errorComponentTypeValues[i] = sql.NullInt32{Int32: int32(ct), Valid: true}
+			errorComponentTypeValues[i] = int32(ct)
 		}
 	}
 

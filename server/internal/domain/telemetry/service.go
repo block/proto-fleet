@@ -47,7 +47,7 @@ devices.
 workers: A pool of goroutines (sized by ConcurrencyLimit) that fetch
 telemetry and status from individual miners. Each worker pulls a device
 from the tasks channel, makes network calls to the miner, stores telemetry
-in InfluxDB, and sends the status result to statusResults. Workers are
+in TimescaleDB, and sends the status result to statusResults. Workers are
 simple and stateless - no batching logic.
 
 statusWriterRoutine: A single goroutine that collects status updates from
@@ -198,7 +198,6 @@ type TelemetryDataStore interface {
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
 	Ping(ctx context.Context) error
-	Close() error
 }
 type MinerGetter interface {
 	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
@@ -618,8 +617,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 
 		// Write new statuses to DB in a single bulk INSERT.
-		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB,
-		// well under MySQL's default 64MB max_allowed_packet.
+		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB.
 		if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
 			slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
 			clear(pendingUpdates)
@@ -789,10 +787,10 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 				}
 				for deviceID, status := range statuses {
 					update := models.TelemetryUpdate{
-						Type:         models.UpdateTypeDeviceStatus,
-						DeviceID:     deviceID,
-						Timestamp:    time.Now(),
-						DeviceStatus: &status,
+						Type:             models.UpdateTypeDeviceStatus,
+						DeviceIdentifier: deviceID,
+						Timestamp:        time.Now(),
+						DeviceStatus:     &status,
 					}
 					select {
 					case updateChan <- update:
@@ -1132,14 +1130,14 @@ func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, d
 		return nil, fmt.Errorf("failed to get batch time series telemetry: %w", err)
 	}
 
-	// Group results by device ID
+	// Group results by device identifier
 	result := make(map[string][]*commonpb.Measurement)
 	for _, dm := range deviceMetrics {
 		value, timestamp, ok := dm.ExtractRawMeasurement(measurementType)
 		if !ok {
 			continue
 		}
-		result[dm.DeviceID] = append(result[dm.DeviceID], &commonpb.Measurement{
+		result[dm.DeviceIdentifier] = append(result[dm.DeviceIdentifier], &commonpb.Measurement{
 			Value:     value,
 			Timestamp: timestamppb.New(timestamp),
 		})
@@ -1350,7 +1348,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 
 		return &pb.StreamMinerUpdatesResponse{
 			Timestamp:        timestamppb.New(update.Timestamp),
-			DeviceIdentifier: string(update.DeviceID),
+			DeviceIdentifier: string(update.DeviceIdentifier),
 			Update: &pb.StreamMinerUpdatesResponse_Measurement{
 				Measurement: &pb.MeasurementUpdate{
 					MeasurementType: pbMeasurementType,
@@ -1365,7 +1363,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 	case models.UpdateTypeHeartbeat:
 		return &pb.StreamMinerUpdatesResponse{
 			Timestamp:        timestamppb.New(update.Timestamp),
-			DeviceIdentifier: string(update.DeviceID),
+			DeviceIdentifier: string(update.DeviceIdentifier),
 			Update: &pb.StreamMinerUpdatesResponse_Heartbeat{
 				Heartbeat: &pb.Heartbeat{},
 			},
@@ -1373,7 +1371,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 
 	case models.UpdateTypeError:
 		if update.Error != nil {
-			slog.Warn("telemetry stream error", "error", *update.Error, "deviceID", update.DeviceID)
+			slog.Warn("telemetry stream error", "error", *update.Error, "deviceIdentifier", update.DeviceIdentifier)
 		}
 		return nil
 

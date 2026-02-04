@@ -7,36 +7,36 @@ INSERT INTO queue_message (
     retry_count,
     payload
 ) VALUES (
-     ?,
-     ?,
-     ?,
-     ?,
-     ?,
-     ?
+     $1,
+     $2,
+     $3,
+     $4,
+     $5,
+     $6
 );
 
 -- name: UpdateMessageStatus :exec
 UPDATE queue_message
-SET status = ?,
-    updated_at = CURRENT_TIMESTAMP(6)
-WHERE id = ?;
+SET status = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2;
 
 -- name: UpdateMessageAfterFailure :exec
 UPDATE queue_message
 SET status = CASE
-        WHEN retry_count + 1 >= ? THEN 'FAILED'
-        ELSE 'PENDING'
+        WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
+        ELSE 'PENDING'::queue_status_enum
         END,
     retry_count = retry_count + 1,
-    error_info = ?,
-    updated_at = CURRENT_TIMESTAMP(6)
-WHERE id = ?;
+    error_info = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3;
 
 -- name: GetMessagesToProcess :many
 SELECT m.*
 FROM queue_message m
 WHERE m.status = 'PENDING'
-  AND m.retry_count < ?
+  AND m.retry_count < $1
   AND NOT EXISTS (
     SELECT 1
     FROM queue_message earlier
@@ -45,7 +45,7 @@ WHERE m.status = 'PENDING'
       AND earlier.created_at < m.created_at
 )
 ORDER BY m.created_at
-LIMIT ?;
+LIMIT $2;
 
 -- name: IsBatchFinished :one
 SELECT
@@ -55,7 +55,7 @@ SELECT
         ELSE false
     END AS is_finished
 FROM queue_message
-WHERE command_batch_log_uuid = ?;
+WHERE command_batch_log_uuid = $1;
 
 -- name: IsBatchProcessing :one
 SELECT
@@ -64,5 +64,5 @@ SELECT
         ELSE false
         END AS is_processing
 FROM queue_message
-WHERE command_batch_log_uuid = ?
+WHERE command_batch_log_uuid = $1
   AND status = 'PROCESSING';

@@ -64,7 +64,7 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 		password = encryptedPassword
 	}
 
-	result, err := s.GetQueries(ctx).CreatePool(ctx, sqlc.CreatePoolParams{
+	poolID, err := s.GetQueries(ctx).CreatePool(ctx, sqlc.CreatePoolParams{
 		PoolName:    config.PoolName,
 		Url:         config.Url,
 		Username:    config.Username,
@@ -74,11 +74,6 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("error creating pool: %v", err)
-	}
-
-	poolID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting pool id: %v", err)
 	}
 
 	return poolID, nil

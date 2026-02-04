@@ -9,8 +9,8 @@ import (
 // This mapper translates between the plugin SDK format and the internal telemetry format.
 func SDKDeviceMetricsToV2(sdkMetrics sdk.DeviceMetrics) modelsV2.DeviceMetrics {
 	return modelsV2.DeviceMetrics{
-		DeviceID:  sdkMetrics.DeviceID,
-		Timestamp: sdkMetrics.Timestamp,
+		DeviceIdentifier: sdkMetrics.DeviceID,
+		Timestamp:        sdkMetrics.Timestamp,
 
 		Health:       mapHealthStatus(sdkMetrics.Health),
 		HealthReason: sdkMetrics.HealthReason,

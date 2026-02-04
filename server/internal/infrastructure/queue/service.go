@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/sqlc-dev/pqtype"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -36,9 +38,9 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID s
 				CommandBatchLogUuid: commandBatchLogUUID,
 				CommandType:         commandType.String(),
 				DeviceID:            deviceID,
-				Status:              sqlc.QueueMessageStatusPENDING,
+				Status:              sqlc.QueueStatusEnumPENDING,
 				RetryCount:          0,
-				Payload:             payloadBytes,
+				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to enqueue message: %v", err)
@@ -62,7 +64,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 		for _, dbMsg := range dbMessages {
 			err := q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
 				ID:     dbMsg.ID,
-				Status: sqlc.QueueMessageStatusPROCESSING,
+				Status: sqlc.QueueStatusEnumPROCESSING,
 			})
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to update message status: %v", err)
@@ -78,7 +80,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 				BatchLogUUID: dbMsg.CommandBatchLogUuid,
 				CommandType:  cmdType,
 				DeviceID:     dbMsg.DeviceID,
-				Payload:      dbMsg.Payload,
+				Payload:      dbMsg.Payload.RawMessage,
 			})
 		}
 
@@ -96,7 +98,7 @@ func (d DatabaseMessageQueue) MarkSuccess(ctx context.Context, messageID int64) 
 	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
 		err := q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
 			ID:     messageID,
-			Status: sqlc.QueueMessageStatusSUCCESS,
+			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to mark message as a success: %v", err)
@@ -124,20 +126,12 @@ type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bo
 
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
-		result, err := q.IsBatchFinished(ctx, commandBatchLogUUID)
-		if err != nil {
-			return false, err
-		}
-		return result == 1, nil
+		return q.IsBatchFinished(ctx, commandBatchLogUUID)
 	})
 }
 
 func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
-		result, err := q.IsBatchProcessing(ctx, commandBatchLogUUID)
-		if err != nil {
-			return false, err
-		}
-		return result == 1, nil
+		return q.IsBatchProcessing(ctx, commandBatchLogUUID)
 	})
 }

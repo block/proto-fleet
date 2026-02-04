@@ -42,7 +42,7 @@ func TestSDKDeviceMetricsToV2(t *testing.T) {
 
 	v2Metrics := SDKDeviceMetricsToV2(sdkMetrics)
 
-	assert.Equal(t, deviceID, v2Metrics.DeviceID)
+	assert.Equal(t, deviceID, v2Metrics.DeviceIdentifier)
 	assert.Equal(t, now, v2Metrics.Timestamp)
 	assert.Equal(t, modelsV2.HealthHealthyActive, v2Metrics.Health)
 	assert.Equal(t, &healthReason, v2Metrics.HealthReason)
@@ -647,7 +647,7 @@ func TestCompleteDeviceMetricsMapping(t *testing.T) {
 	v2Metrics := SDKDeviceMetricsToV2(sdkMetrics)
 
 	// Verify all top-level fields
-	assert.Equal(t, deviceID, v2Metrics.DeviceID)
+	assert.Equal(t, deviceID, v2Metrics.DeviceIdentifier)
 	assert.Equal(t, now, v2Metrics.Timestamp)
 	assert.Equal(t, modelsV2.HealthHealthyActive, v2Metrics.Health)
 	assert.Equal(t, &healthReason, v2Metrics.HealthReason)

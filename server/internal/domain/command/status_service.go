@@ -24,7 +24,7 @@ func NewStatusService(conn *sql.DB, messageQueue queue.MessageQueue) *StatusServ
 }
 
 // getIdsFromJsonArray extracts string IDs from a JSON array, filtering out null/empty values.
-// This handles the JSON_ARRAYAGG results from MySQL which may include null values.
+// This handles JSON_ARRAYAGG results which may include null values.
 func getIdsFromJsonArray(jsonData any) []string {
 	if jsonData == nil {
 		return nil
@@ -65,13 +65,13 @@ func getDeviceCount(row *sqlc.GetBatchStatusAndDeviceCountsRow) *pb.CommandBatch
 	return deviceCount
 }
 
-func getStatus(sqlcStatus sqlc.CommandBatchLogStatus) pb.CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
+func getStatus(sqlcStatus sqlc.BatchStatusEnum) pb.CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
 	switch sqlcStatus {
-	case sqlc.CommandBatchLogStatusPENDING:
+	case sqlc.BatchStatusEnumPENDING:
 		return pb.CommandBatchUpdateStatus_COMMAND_BATCH_UPDATE_STATUS_TYPE_PENDING
-	case sqlc.CommandBatchLogStatusPROCESSING:
+	case sqlc.BatchStatusEnumPROCESSING:
 		return pb.CommandBatchUpdateStatus_COMMAND_BATCH_UPDATE_STATUS_TYPE_PROCESSING
-	case sqlc.CommandBatchLogStatusFINISHED:
+	case sqlc.BatchStatusEnumFINISHED:
 		return pb.CommandBatchUpdateStatus_COMMAND_BATCH_UPDATE_STATUS_TYPE_FINISHED
 	default:
 		return pb.CommandBatchUpdateStatus_COMMAND_BATCH_UPDATE_STATUS_TYPE_UNSPECIFIED
@@ -114,7 +114,7 @@ func (ss *StatusService) StreamCommandBatchUpdates(ctx context.Context, batchIde
 				case channel <- resp:
 				}
 
-				if statusAndCount.Status == sqlc.CommandBatchLogStatusFINISHED {
+				if statusAndCount.Status == sqlc.BatchStatusEnumFINISHED {
 					return
 				}
 			}

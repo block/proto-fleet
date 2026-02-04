@@ -1,1 +1,0 @@
-ALTER TABLE discovered_device MODIFY COLUMN is_active BOOLEAN DEFAULT TRUE;

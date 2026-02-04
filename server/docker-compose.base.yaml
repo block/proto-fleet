@@ -4,7 +4,10 @@ services:
       AUTH_CLIENT_EXPIRATION_PERIOD: "24h"
       AUTH_MINER_EXPIRATION_PERIOD: "24h"
       DB_NAME: "fleet"
-      DB_ADDRESS: "mysql:3306"
+      DB_ADDRESS: "timescaledb:5432"
+      DB_USERNAME: "fleet"
+      DB_PASSWORD: "fleet"
+      DB_SSL_MODE: "disable"
       HTTP_LISTEN_ADDRESS: "0.0.0.0:4000"
       LOG_LEVEL: "INFO"
       FLEET_COMMAND_MAX_WORKERS: "500"
@@ -13,59 +16,11 @@ services:
       FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
       FLEET_QUEUE_DEQUE_LIMIT: "500"
       FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
-      INFLUXDB3_URL: "http://influxdb:8181"
-      INFLUXDB3_ORG: "fleet"
-      INFLUXDB3_BUCKET: "fleet"
     cap_add:
       - NET_ADMIN
       - NET_RAW
 
-  mysql:
-    image: mysql:8.4.4
-    restart: always
-    environment:
-      MYSQL_DATABASE: "fleet"
-      MYSQL_INITDB_SKIP_TZINFO: "1"
-    ports:
-      - "3306:3306"
-    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON --max_connections=300
-    volumes:
-      - mysql:/var/lib/mysql
-    healthcheck:
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
-    networks:
-      - fleet-network
-
-  influxdb:
-    image: influxdb:3.2-core
-    entrypoint: >
-      /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
-    ports:
-      - "8181:8181"
-    environment:
-      INFLUXDB_HTTP_PORT: 8181
-      INFLUXDB_ORG: "fleet"
-      INFLUXDB3_NODE_IDENTIFIER_PREFIX: "influxdb1"
-      INFLUXDB3_DISABLE_AUTHZ: "health"
-      INFLUXDB3_OBJECT_STORE: "file"
-      INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
-      INFLUXDB3_BUCKET: fleet
-      INFLUXDB3_DATABASE_NAME: fleet
-    volumes:
-      - influxdb-data:/var/lib/influxdb3
-      - influxdb-config:/etc/influxdb3
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fleet-network
-
-  # TimescaleDB (PostgreSQL with time-series extension) - future replacement for MySQL/InfluxDB
+  # TimescaleDB (PostgreSQL with time-series extension)
   # Using HA image which includes timescaledb_toolkit for time_weight() and other advanced functions
   timescaledb:
     image: timescale/timescaledb-ha:pg17-ts2.25
@@ -124,9 +79,6 @@ services:
       - fleet-network
 
 volumes:
-  mysql:
-  influxdb-data:
-  influxdb-config:
   timescaledb-data:
 
 networks:

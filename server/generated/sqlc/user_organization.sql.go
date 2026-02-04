@@ -11,7 +11,7 @@ import (
 
 const createUserOrganization = `-- name: CreateUserOrganization :exec
 INSERT INTO user_organization (user_id, organization_id, role_id)
-VALUES (?, ?, ?)
+VALUES ($1, $2, $3)
 `
 
 type CreateUserOrganizationParams struct {
@@ -26,10 +26,10 @@ func (q *Queries) CreateUserOrganization(ctx context.Context, arg CreateUserOrga
 }
 
 const getOrganizationsForUser = `-- name: GetOrganizationsForUser :many
-SELECT o.id, o.org_id, o.name, o.created_at, o.updated_at, o.deleted_at, o.miner_auth_private_key
+SELECT o.id, o.org_id, o.name, o.miner_auth_private_key, o.created_at, o.updated_at, o.deleted_at
 FROM organization o
          JOIN user_organization uo ON o.id = uo.organization_id
-WHERE uo.user_id = ?
+WHERE uo.user_id = $1
 `
 
 func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error) {
@@ -45,10 +45,10 @@ func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]
 			&i.ID,
 			&i.OrgID,
 			&i.Name,
+			&i.MinerAuthPrivateKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
-			&i.MinerAuthPrivateKey,
 		); err != nil {
 			return nil, err
 		}
@@ -67,8 +67,8 @@ const getUserRoleInOrganization = `-- name: GetUserRoleInOrganization :one
 SELECT r.id, r.name, r.description, r.created_at, r.updated_at, r.deleted_at
 FROM role r
          JOIN user_organization uo ON r.id = uo.role_id
-WHERE uo.user_id = ?
-  AND uo.organization_id = ?
+WHERE uo.user_id = $1
+  AND uo.organization_id = $2
 `
 
 type GetUserRoleInOrganizationParams struct {
@@ -94,8 +94,8 @@ const getUserRoleName = `-- name: GetUserRoleName :one
 SELECT r.name
 FROM role r
 JOIN user_organization uo ON r.id = uo.role_id
-WHERE uo.user_id = ?
-  AND uo.organization_id = ?
+WHERE uo.user_id = $1
+  AND uo.organization_id = $2
   AND uo.deleted_at IS NULL
 `
 
@@ -112,10 +112,10 @@ func (q *Queries) GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams
 }
 
 const getUsersForOrganization = `-- name: GetUsersForOrganization :many
-SELECT u.id, u.user_id, u.username, u.password_hash, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at, u.last_login_at, u.requires_password_change
-FROM user u
+SELECT u.id, u.user_id, u.username, u.password_hash, u.password_updated_at, u.last_login_at, u.requires_password_change, u.created_at, u.updated_at, u.deleted_at
+FROM "user" u
          JOIN user_organization uo ON u.id = uo.user_id
-WHERE uo.organization_id = ?
+WHERE uo.organization_id = $1
 `
 
 func (q *Queries) GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error) {
@@ -132,12 +132,12 @@ func (q *Queries) GetUsersForOrganization(ctx context.Context, organizationID in
 			&i.UserID,
 			&i.Username,
 			&i.PasswordHash,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
 			&i.PasswordUpdatedAt,
 			&i.LastLoginAt,
 			&i.RequiresPasswordChange,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -154,9 +154,9 @@ func (q *Queries) GetUsersForOrganization(ctx context.Context, organizationID in
 
 const softDeleteUserFromOrganization = `-- name: SoftDeleteUserFromOrganization :exec
 UPDATE user_organization
-SET deleted_at = CURRENT_TIMESTAMP(6)
-WHERE user_id = ?
-  AND organization_id = ?
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE user_id = $1
+  AND organization_id = $2
 `
 
 type SoftDeleteUserFromOrganizationParams struct {
@@ -171,9 +171,9 @@ func (q *Queries) SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDe
 
 const updateUserRole = `-- name: UpdateUserRole :exec
 UPDATE user_organization
-SET role_id = ?
-WHERE user_id = ?
-  AND organization_id = ?
+SET role_id = $1
+WHERE user_id = $2
+  AND organization_id = $3
 `
 
 type UpdateUserRoleParams struct {

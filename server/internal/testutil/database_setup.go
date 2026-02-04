@@ -34,11 +34,20 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dbName = generateTestDBName(t.Name())
 	}
 
-	// Connect to MySQL without selecting a database to create our test database
-	// Use the migration connection since we need to run multiple SQL statements
-	config.Name = ""
-	conn, err := db.ConnectToDatabaseForMigrations(&config)
+	// Connect to PostgreSQL without selecting a database to create our test database
+	// Connect to the default "postgres" database first
+	adminConfig := config
+	adminConfig.Name = "postgres"
+	conn, err := db.ConnectToDatabase(&adminConfig)
 	assert.NoError(t, err)
+
+	// Drop existing connections to the test database if any
+	_, _ = conn.ExecContext(t.Context(), fmt.Sprintf(`
+		SELECT pg_terminate_backend(pg_stat_activity.pid)
+		FROM pg_stat_activity
+		WHERE pg_stat_activity.datname = '%s'
+		AND pid <> pg_backend_pid()
+	`, dbName))
 
 	// Create the test database
 	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
@@ -57,11 +66,20 @@ func GetTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		err := conn.Close()
 		assert.NoError(t, err, "error closing db connection")
-		// Reconnect to MySQL without selecting a database to drop the test database
-		// Use the migration connection since we need to run multiple SQL statements
-		conn, err = db.ConnectToDatabaseForMigrations(&config)
-		assert.NoError(t, err, "error connecting to MySQL")
+		// Reconnect to the default "postgres" database to drop the test database
+		conn, err = db.ConnectToDatabase(&adminConfig)
+		assert.NoError(t, err, "error connecting to PostgreSQL")
 		defer conn.Close()
+
+		// Terminate any remaining connections to the test database
+		// nolint: usetesting
+		_, _ = conn.ExecContext(context.Background(), fmt.Sprintf(`
+			SELECT pg_terminate_backend(pg_stat_activity.pid)
+			FROM pg_stat_activity
+			WHERE pg_stat_activity.datname = '%s'
+			AND pid <> pg_backend_pid()
+		`, dbName))
+
 		// nolint: usetesting
 		_, err = conn.ExecContext(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 		assert.NoError(t, err, "error dropping test database")
@@ -71,7 +89,7 @@ func GetTestDB(t *testing.T) *sql.DB {
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.
-// MySQL has a 64 character limit for database names.
+// PostgreSQL has a 63 character limit for identifiers.
 // Format: fleet_test_<test_name>_<4 chars of random suffix>
 func generateTestDBName(testName string) string {
 	// Get a readable part of the test name, removing any special characters
@@ -82,9 +100,12 @@ func generateTestDBName(testName string) string {
 		return '_'
 	}, testName)
 
+	// Convert to lowercase for PostgreSQL compatibility
+	sanitizedName = strings.ToLower(sanitizedName)
+
 	// Truncate test name to leave room for prefix, suffix and random suffix
 	// fleet_test_ (12 chars) + _ (1 char) + random (4 chars) = 17 chars reserved
-	maxTestNameLength := 64 - 17
+	maxTestNameLength := 63 - 17
 	if len(sanitizedName) > maxTestNameLength {
 		sanitizedName = sanitizedName[:maxTestNameLength]
 	}

@@ -1,2 +1,0 @@
-ALTER TABLE device
-    MODIFY org_id BIGINT NOT NULL;

@@ -488,8 +488,11 @@ func (*DeviceSelector_AllDevices) isDeviceSelector_SelectorValue() {}
 func (*DeviceSelector_DeviceList) isDeviceSelector_SelectorValue() {}
 
 type DeviceList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DeviceIds     []string               `protobuf:"bytes,1,rep,name=device_ids,json=deviceIds,proto3" json:"device_ids,omitempty"` // List of device IDs
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// List of device identifiers (e.g., "proto-miner-001").
+	// Note: Despite the field name, these are unique device identifier strings,
+	// not database primary key IDs.
+	DeviceIds     []string `protobuf:"bytes,1,rep,name=device_ids,json=deviceIds,proto3" json:"device_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -724,7 +727,10 @@ func (x *TimeRange) GetEndTime() *timestamppb.Timestamp {
 
 // Telemetry data structure
 type TelemetryData struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The device identifier string (e.g., "proto-miner-001").
+	// Note: Despite the field name, this is the unique device identifier,
+	// not the database primary key.
 	DeviceId        string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	MeasurementType MeasurementType        `protobuf:"varint,2,opt,name=measurement_type,json=measurementType,proto3,enum=telemetry.v1.MeasurementType" json:"measurement_type,omitempty"`
 	Value           float64                `protobuf:"fixed64,3,opt,name=value,proto3" json:"value,omitempty"`
@@ -809,7 +815,10 @@ func (x *TelemetryData) GetTags() map[string]string {
 
 // Device metadata
 type DeviceMetadata struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The device identifier string (e.g., "proto-miner-001").
+	// Note: Despite the field name, this is the unique device identifier,
+	// not the database primary key.
 	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	DeviceType    *string                `protobuf:"bytes,2,opt,name=device_type,json=deviceType,proto3,oneof" json:"device_type,omitempty"`
 	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
@@ -902,14 +911,17 @@ func (x *DeviceMetadata) GetCapabilities() []string {
 
 // Aggregated telemetry result
 type AggregatedTelemetry struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	DeviceId        string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	MeasurementType MeasurementType        `protobuf:"varint,2,opt,name=measurement_type,json=measurementType,proto3,enum=telemetry.v1.MeasurementType" json:"measurement_type,omitempty"`
-	Value           float64                `protobuf:"fixed64,3,opt,name=value,proto3" json:"value,omitempty"`
-	AggregationType AggregationType        `protobuf:"varint,4,opt,name=aggregation_type,json=aggregationType,proto3,enum=telemetry.v1.AggregationType" json:"aggregation_type,omitempty"`
-	DataPoints      int32                  `protobuf:"varint,5,opt,name=data_points,json=dataPoints,proto3" json:"data_points,omitempty"`
-	TimeWindow      *TimeRange             `protobuf:"bytes,6,opt,name=time_window,json=timeWindow,proto3" json:"time_window,omitempty"`
-	Tags            map[string]string      `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The device identifier string (e.g., "proto-miner-001").
+	// Note: Despite the field name, this is the unique device identifier,
+	// not the database primary key.
+	DeviceId        string            `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	MeasurementType MeasurementType   `protobuf:"varint,2,opt,name=measurement_type,json=measurementType,proto3,enum=telemetry.v1.MeasurementType" json:"measurement_type,omitempty"`
+	Value           float64           `protobuf:"fixed64,3,opt,name=value,proto3" json:"value,omitempty"`
+	AggregationType AggregationType   `protobuf:"varint,4,opt,name=aggregation_type,json=aggregationType,proto3,enum=telemetry.v1.AggregationType" json:"aggregation_type,omitempty"`
+	DataPoints      int32             `protobuf:"varint,5,opt,name=data_points,json=dataPoints,proto3" json:"data_points,omitempty"`
+	TimeWindow      *TimeRange        `protobuf:"bytes,6,opt,name=time_window,json=timeWindow,proto3" json:"time_window,omitempty"`
+	Tags            map[string]string `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1077,8 +1089,11 @@ func (x *MinerStateCounts) GetSleepingCount() int32 {
 
 // Streaming update
 type TelemetryUpdate struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Type             UpdateType             `protobuf:"varint,1,opt,name=type,proto3,enum=telemetry.v1.UpdateType" json:"type,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  UpdateType             `protobuf:"varint,1,opt,name=type,proto3,enum=telemetry.v1.UpdateType" json:"type,omitempty"`
+	// The device identifier string (e.g., "proto-miner-001").
+	// Note: Despite the field name, this is the unique device identifier,
+	// not the database primary key.
 	DeviceId         *string                `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3,oneof" json:"device_id,omitempty"`
 	Timestamp        *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Data             *TelemetryData         `protobuf:"bytes,4,opt,name=data,proto3,oneof" json:"data,omitempty"`
@@ -1178,12 +1193,15 @@ func (x *TelemetryUpdate) GetMinerStateCounts() *MinerStateCounts {
 
 // Request/Response Messages
 type StreamUpdatesRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	DeviceIds         []string               `protobuf:"bytes,1,rep,name=device_ids,json=deviceIds,proto3" json:"device_ids,omitempty"`
-	MeasurementTypes  []MeasurementType      `protobuf:"varint,2,rep,packed,name=measurement_types,json=measurementTypes,proto3,enum=telemetry.v1.MeasurementType" json:"measurement_types,omitempty"`
-	IncludeHeartbeat  bool                   `protobuf:"varint,3,opt,name=include_heartbeat,json=includeHeartbeat,proto3" json:"include_heartbeat,omitempty"`
-	HeartbeatInterval *durationpb.Duration   `protobuf:"bytes,4,opt,name=heartbeat_interval,json=heartbeatInterval,proto3,oneof" json:"heartbeat_interval,omitempty"`
-	Tags              map[string]string      `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// List of device identifiers to stream updates for (e.g., "proto-miner-001").
+	// Note: Despite the field name, these are unique device identifier strings,
+	// not database primary key IDs.
+	DeviceIds         []string             `protobuf:"bytes,1,rep,name=device_ids,json=deviceIds,proto3" json:"device_ids,omitempty"`
+	MeasurementTypes  []MeasurementType    `protobuf:"varint,2,rep,packed,name=measurement_types,json=measurementTypes,proto3,enum=telemetry.v1.MeasurementType" json:"measurement_types,omitempty"`
+	IncludeHeartbeat  bool                 `protobuf:"varint,3,opt,name=include_heartbeat,json=includeHeartbeat,proto3" json:"include_heartbeat,omitempty"`
+	HeartbeatInterval *durationpb.Duration `protobuf:"bytes,4,opt,name=heartbeat_interval,json=heartbeatInterval,proto3,oneof" json:"heartbeat_interval,omitempty"`
+	Tags              map[string]string    `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Unique identifier for this browser tab/connection.
 	// Used for stream deduplication to allow multiple tabs to maintain independent streams.
 	ConnectionId  string `protobuf:"bytes,6,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`

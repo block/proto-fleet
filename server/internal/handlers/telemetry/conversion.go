@@ -276,8 +276,10 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 		Timestamp: timestamppb.New(update.Timestamp),
 	}
 
-	if update.DeviceID != "" {
-		deviceID := string(update.DeviceID)
+	// Note: proto API uses "device_id" field but it actually contains the device identifier string,
+	// not the database primary key. This naming is kept for backwards compatibility.
+	if update.DeviceIdentifier != "" {
+		deviceID := string(update.DeviceIdentifier)
 		telemetryUpdate.DeviceId = &deviceID
 	}
 
@@ -287,7 +289,7 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 		if err != nil {
 			return nil, err
 		}
-		deviceID := string(update.DeviceID)
+		deviceID := string(update.DeviceIdentifier)
 		// Convert raw storage units to display units (H/s → TH/s, W → kW, J/H → J/TH)
 		displayValue := models.ConvertToDisplayUnits(update.MeasurementValue, domainMeasurementType)
 		telemetryUpdate.Data = &telemetryv1.TelemetryData{

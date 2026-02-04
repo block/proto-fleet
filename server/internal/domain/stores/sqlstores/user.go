@@ -3,7 +3,6 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -49,7 +48,7 @@ func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (
 		PasswordHash:           user.PasswordHash,
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
-		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
 		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
@@ -68,7 +67,7 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 		PasswordHash:           user.PasswordHash,
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
-		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
 		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
@@ -109,7 +108,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 
 	q := s.getQueries(ctx)
 
-	userResult, err := q.CreateUser(ctx, sqlc.CreateUserParams{
+	userInternalID, err := q.CreateUser(ctx, sqlc.CreateUserParams{
 		UserID:       userID,
 		Username:     username,
 		PasswordHash: passwordHash,
@@ -119,12 +118,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		return fleeterror.NewInternalErrorf("error creating user: %v", err)
 	}
 
-	userInternalID, err := userResult.LastInsertId()
-	if err != nil {
-		return fleeterror.NewInternalErrorf("error creating user: %v", err)
-	}
-
-	orgResult, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+	orgInternalID, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name:                orgName,
 		OrgID:               orgID,
 		MinerAuthPrivateKey: minerAuthPrivateKey,
@@ -133,12 +127,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 	}
 
-	orgInternalID, err := orgResult.LastInsertId()
-	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting organization id: %v", err)
-	}
-
-	roleResult, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
+	roleID, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
 		Name: roleName,
 		Description: sql.NullString{
 			String: roleDescription,
@@ -147,11 +136,6 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error creating role: %v", err)
-	}
-
-	roleID, err := roleResult.LastInsertId()
-	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting role id: %v", err)
 	}
 
 	return q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
@@ -166,7 +150,11 @@ func (s *SQLUserStore) HasUser(ctx context.Context) (bool, error) {
 }
 
 func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
-	return s.getQueries(ctx).PasswordUpdatedAt(ctx, userID)
+	result, err := s.getQueries(ctx).PasswordUpdatedAt(ctx, userID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return sqlTimeToTime(result), nil
 }
 
 func (s *SQLUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
@@ -186,29 +174,20 @@ func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (
 		PasswordHash:           user.PasswordHash,
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
-		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
 		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
 
 func (s *SQLUserStore) CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error) {
-	result, err := s.getQueries(ctx).CreateUser(ctx, sqlc.CreateUserParams{
+	return s.getQueries(ctx).CreateUser(ctx, sqlc.CreateUserParams{
 		UserID:                 externalUserID,
 		Username:               username,
 		PasswordHash:           passwordHash,
 		RequiresPasswordChange: requiresPasswordChange,
 		CreatedAt:              time.Now(),
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last insert ID after creating user: %w", err)
-	}
-	return id, nil
 }
 
 func (s *SQLUserStore) CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error {
@@ -268,7 +247,7 @@ func (s *SQLUserStore) ListUsersForOrganization(ctx context.Context, organizatio
 			ID:                     user.ID,
 			UserID:                 user.UserID,
 			Username:               user.Username,
-			PasswordUpdatedAt:      user.PasswordUpdatedAt,
+			PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
 			LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 			RoleName:               user.RoleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,

@@ -141,11 +141,11 @@ func TestAuthInterceptor(t *testing.T) {
 
 		// Delete the user's session, user_organization, and user from the database
 		// Order matters due to foreign key constraints
-		_, err = databaseService.DB.ExecContext(t.Context(), "DELETE FROM session WHERE user_id = ?", testUser.DatabaseID)
+		_, err = databaseService.DB.ExecContext(t.Context(), "DELETE FROM session WHERE user_id = $1", testUser.DatabaseID)
 		assert.NoError(t, err, "Session deletion should succeed")
-		_, err = databaseService.DB.ExecContext(t.Context(), "DELETE FROM user_organization WHERE user_id = ?", testUser.DatabaseID)
+		_, err = databaseService.DB.ExecContext(t.Context(), "DELETE FROM user_organization WHERE user_id = $1", testUser.DatabaseID)
 		assert.NoError(t, err, "User organization deletion should succeed")
-		_, err = databaseService.DB.ExecContext(t.Context(), "DELETE FROM user WHERE id = ?", testUser.DatabaseID)
+		_, err = databaseService.DB.ExecContext(t.Context(), `DELETE FROM "user" WHERE id = $1`, testUser.DatabaseID)
 		assert.NoError(t, err, "User deletion should succeed")
 
 		// Attempt to re-insert the session (now orphaned - user no longer exists)
@@ -153,7 +153,7 @@ func TestAuthInterceptor(t *testing.T) {
 		now := time.Now()
 		expires := now.Add(time.Hour)
 		_, err = databaseService.DB.ExecContext(t.Context(),
-			"INSERT INTO session (session_id, user_id, organization_id, user_agent, ip_address, created_at, last_activity, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO session (session_id, user_id, organization_id, user_agent, ip_address, created_at, last_activity, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 			sess.SessionID, testUser.DatabaseID, testUser.OrganizationID, "test-agent", "127.0.0.1", now, now, expires)
 
 		// FK constraint prevents orphaned sessions - this is expected and good security

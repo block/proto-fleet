@@ -1,1 +1,0 @@
-ALTER TABLE `device` DROP INDEX `uq_device_serial_number`; 

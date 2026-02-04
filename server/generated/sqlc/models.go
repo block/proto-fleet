@@ -7,230 +7,231 @@ package sqlc
 import (
 	"database/sql"
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/sqlc-dev/pqtype"
 )
 
-type CommandBatchLogStatus string
+type BatchStatusEnum string
 
 const (
-	CommandBatchLogStatusPENDING    CommandBatchLogStatus = "PENDING"
-	CommandBatchLogStatusPROCESSING CommandBatchLogStatus = "PROCESSING"
-	CommandBatchLogStatusFINISHED   CommandBatchLogStatus = "FINISHED"
+	BatchStatusEnumPENDING    BatchStatusEnum = "PENDING"
+	BatchStatusEnumPROCESSING BatchStatusEnum = "PROCESSING"
+	BatchStatusEnumFINISHED   BatchStatusEnum = "FINISHED"
 )
 
-func (e *CommandBatchLogStatus) Scan(src interface{}) error {
+func (e *BatchStatusEnum) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = CommandBatchLogStatus(s)
+		*e = BatchStatusEnum(s)
 	case string:
-		*e = CommandBatchLogStatus(s)
+		*e = BatchStatusEnum(s)
 	default:
-		return fmt.Errorf("unsupported scan type for CommandBatchLogStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for BatchStatusEnum: %T", src)
 	}
 	return nil
 }
 
-type NullCommandBatchLogStatus struct {
-	CommandBatchLogStatus CommandBatchLogStatus
-	Valid                 bool // Valid is true if CommandBatchLogStatus is not NULL
+type NullBatchStatusEnum struct {
+	BatchStatusEnum BatchStatusEnum
+	Valid           bool // Valid is true if BatchStatusEnum is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullCommandBatchLogStatus) Scan(value interface{}) error {
+func (ns *NullBatchStatusEnum) Scan(value interface{}) error {
 	if value == nil {
-		ns.CommandBatchLogStatus, ns.Valid = "", false
+		ns.BatchStatusEnum, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.CommandBatchLogStatus.Scan(value)
+	return ns.BatchStatusEnum.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullCommandBatchLogStatus) Value() (driver.Value, error) {
+func (ns NullBatchStatusEnum) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.CommandBatchLogStatus), nil
+	return string(ns.BatchStatusEnum), nil
 }
 
-type CommandOnDeviceLogStatus string
+type DeviceCommandStatusEnum string
 
 const (
-	CommandOnDeviceLogStatusSUCCESS CommandOnDeviceLogStatus = "SUCCESS"
-	CommandOnDeviceLogStatusFAILED  CommandOnDeviceLogStatus = "FAILED"
+	DeviceCommandStatusEnumSUCCESS DeviceCommandStatusEnum = "SUCCESS"
+	DeviceCommandStatusEnumFAILED  DeviceCommandStatusEnum = "FAILED"
 )
 
-func (e *CommandOnDeviceLogStatus) Scan(src interface{}) error {
+func (e *DeviceCommandStatusEnum) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = CommandOnDeviceLogStatus(s)
+		*e = DeviceCommandStatusEnum(s)
 	case string:
-		*e = CommandOnDeviceLogStatus(s)
+		*e = DeviceCommandStatusEnum(s)
 	default:
-		return fmt.Errorf("unsupported scan type for CommandOnDeviceLogStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for DeviceCommandStatusEnum: %T", src)
 	}
 	return nil
 }
 
-type NullCommandOnDeviceLogStatus struct {
-	CommandOnDeviceLogStatus CommandOnDeviceLogStatus
-	Valid                    bool // Valid is true if CommandOnDeviceLogStatus is not NULL
+type NullDeviceCommandStatusEnum struct {
+	DeviceCommandStatusEnum DeviceCommandStatusEnum
+	Valid                   bool // Valid is true if DeviceCommandStatusEnum is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullCommandOnDeviceLogStatus) Scan(value interface{}) error {
+func (ns *NullDeviceCommandStatusEnum) Scan(value interface{}) error {
 	if value == nil {
-		ns.CommandOnDeviceLogStatus, ns.Valid = "", false
+		ns.DeviceCommandStatusEnum, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.CommandOnDeviceLogStatus.Scan(value)
+	return ns.DeviceCommandStatusEnum.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullCommandOnDeviceLogStatus) Value() (driver.Value, error) {
+func (ns NullDeviceCommandStatusEnum) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.CommandOnDeviceLogStatus), nil
+	return string(ns.DeviceCommandStatusEnum), nil
 }
 
-type DevicePairingPairingStatus string
+type DeviceStatusEnum string
 
 const (
-	DevicePairingPairingStatusPENDING              DevicePairingPairingStatus = "PENDING"
-	DevicePairingPairingStatusPAIRED               DevicePairingPairingStatus = "PAIRED"
-	DevicePairingPairingStatusUNPAIRED             DevicePairingPairingStatus = "UNPAIRED"
-	DevicePairingPairingStatusFAILED               DevicePairingPairingStatus = "FAILED"
-	DevicePairingPairingStatusAUTHENTICATIONNEEDED DevicePairingPairingStatus = "AUTHENTICATION_NEEDED"
+	DeviceStatusEnumACTIVE          DeviceStatusEnum = "ACTIVE"
+	DeviceStatusEnumINACTIVE        DeviceStatusEnum = "INACTIVE"
+	DeviceStatusEnumOFFLINE         DeviceStatusEnum = "OFFLINE"
+	DeviceStatusEnumMAINTENANCE     DeviceStatusEnum = "MAINTENANCE"
+	DeviceStatusEnumERROR           DeviceStatusEnum = "ERROR"
+	DeviceStatusEnumUNKNOWN         DeviceStatusEnum = "UNKNOWN"
+	DeviceStatusEnumNEEDSMININGPOOL DeviceStatusEnum = "NEEDS_MINING_POOL"
 )
 
-func (e *DevicePairingPairingStatus) Scan(src interface{}) error {
+func (e *DeviceStatusEnum) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = DevicePairingPairingStatus(s)
+		*e = DeviceStatusEnum(s)
 	case string:
-		*e = DevicePairingPairingStatus(s)
+		*e = DeviceStatusEnum(s)
 	default:
-		return fmt.Errorf("unsupported scan type for DevicePairingPairingStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for DeviceStatusEnum: %T", src)
 	}
 	return nil
 }
 
-type NullDevicePairingPairingStatus struct {
-	DevicePairingPairingStatus DevicePairingPairingStatus
-	Valid                      bool // Valid is true if DevicePairingPairingStatus is not NULL
+type NullDeviceStatusEnum struct {
+	DeviceStatusEnum DeviceStatusEnum
+	Valid            bool // Valid is true if DeviceStatusEnum is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullDevicePairingPairingStatus) Scan(value interface{}) error {
+func (ns *NullDeviceStatusEnum) Scan(value interface{}) error {
 	if value == nil {
-		ns.DevicePairingPairingStatus, ns.Valid = "", false
+		ns.DeviceStatusEnum, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.DevicePairingPairingStatus.Scan(value)
+	return ns.DeviceStatusEnum.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullDevicePairingPairingStatus) Value() (driver.Value, error) {
+func (ns NullDeviceStatusEnum) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.DevicePairingPairingStatus), nil
+	return string(ns.DeviceStatusEnum), nil
 }
 
-type DeviceStatusStatus string
+type PairingStatusEnum string
 
 const (
-	DeviceStatusStatusACTIVE          DeviceStatusStatus = "ACTIVE"
-	DeviceStatusStatusINACTIVE        DeviceStatusStatus = "INACTIVE"
-	DeviceStatusStatusOFFLINE         DeviceStatusStatus = "OFFLINE"
-	DeviceStatusStatusMAINTENANCE     DeviceStatusStatus = "MAINTENANCE"
-	DeviceStatusStatusERROR           DeviceStatusStatus = "ERROR"
-	DeviceStatusStatusUNKNOWN         DeviceStatusStatus = "UNKNOWN"
-	DeviceStatusStatusNEEDSMININGPOOL DeviceStatusStatus = "NEEDS_MINING_POOL"
+	PairingStatusEnumPENDING              PairingStatusEnum = "PENDING"
+	PairingStatusEnumPAIRED               PairingStatusEnum = "PAIRED"
+	PairingStatusEnumUNPAIRED             PairingStatusEnum = "UNPAIRED"
+	PairingStatusEnumFAILED               PairingStatusEnum = "FAILED"
+	PairingStatusEnumAUTHENTICATIONNEEDED PairingStatusEnum = "AUTHENTICATION_NEEDED"
 )
 
-func (e *DeviceStatusStatus) Scan(src interface{}) error {
+func (e *PairingStatusEnum) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = DeviceStatusStatus(s)
+		*e = PairingStatusEnum(s)
 	case string:
-		*e = DeviceStatusStatus(s)
+		*e = PairingStatusEnum(s)
 	default:
-		return fmt.Errorf("unsupported scan type for DeviceStatusStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for PairingStatusEnum: %T", src)
 	}
 	return nil
 }
 
-type NullDeviceStatusStatus struct {
-	DeviceStatusStatus DeviceStatusStatus
-	Valid              bool // Valid is true if DeviceStatusStatus is not NULL
+type NullPairingStatusEnum struct {
+	PairingStatusEnum PairingStatusEnum
+	Valid             bool // Valid is true if PairingStatusEnum is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullDeviceStatusStatus) Scan(value interface{}) error {
+func (ns *NullPairingStatusEnum) Scan(value interface{}) error {
 	if value == nil {
-		ns.DeviceStatusStatus, ns.Valid = "", false
+		ns.PairingStatusEnum, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.DeviceStatusStatus.Scan(value)
+	return ns.PairingStatusEnum.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullDeviceStatusStatus) Value() (driver.Value, error) {
+func (ns NullPairingStatusEnum) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.DeviceStatusStatus), nil
+	return string(ns.PairingStatusEnum), nil
 }
 
-type QueueMessageStatus string
+type QueueStatusEnum string
 
 const (
-	QueueMessageStatusPENDING    QueueMessageStatus = "PENDING"
-	QueueMessageStatusPROCESSING QueueMessageStatus = "PROCESSING"
-	QueueMessageStatusSUCCESS    QueueMessageStatus = "SUCCESS"
-	QueueMessageStatusFAILED     QueueMessageStatus = "FAILED"
+	QueueStatusEnumPENDING    QueueStatusEnum = "PENDING"
+	QueueStatusEnumPROCESSING QueueStatusEnum = "PROCESSING"
+	QueueStatusEnumSUCCESS    QueueStatusEnum = "SUCCESS"
+	QueueStatusEnumFAILED     QueueStatusEnum = "FAILED"
 )
 
-func (e *QueueMessageStatus) Scan(src interface{}) error {
+func (e *QueueStatusEnum) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = QueueMessageStatus(s)
+		*e = QueueStatusEnum(s)
 	case string:
-		*e = QueueMessageStatus(s)
+		*e = QueueStatusEnum(s)
 	default:
-		return fmt.Errorf("unsupported scan type for QueueMessageStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for QueueStatusEnum: %T", src)
 	}
 	return nil
 }
 
-type NullQueueMessageStatus struct {
-	QueueMessageStatus QueueMessageStatus
-	Valid              bool // Valid is true if QueueMessageStatus is not NULL
+type NullQueueStatusEnum struct {
+	QueueStatusEnum QueueStatusEnum
+	Valid           bool // Valid is true if QueueStatusEnum is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullQueueMessageStatus) Scan(value interface{}) error {
+func (ns *NullQueueStatusEnum) Scan(value interface{}) error {
 	if value == nil {
-		ns.QueueMessageStatus, ns.Valid = "", false
+		ns.QueueStatusEnum, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.QueueMessageStatus.Scan(value)
+	return ns.QueueStatusEnum.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullQueueMessageStatus) Value() (driver.Value, error) {
+func (ns NullQueueStatusEnum) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.QueueMessageStatus), nil
+	return string(ns.QueueStatusEnum), nil
 }
 
 type CommandBatchLog struct {
@@ -241,16 +242,16 @@ type CommandBatchLog struct {
 	CreatedAt    time.Time
 	StartedAt    sql.NullTime
 	FinishedAt   sql.NullTime
-	Status       CommandBatchLogStatus
+	Status       BatchStatusEnum
 	DevicesCount int32
-	Payload      json.RawMessage
+	Payload      pqtype.NullRawMessage
 }
 
 type CommandOnDeviceLog struct {
 	ID                int64
 	CommandBatchLogID int64
 	DeviceID          int64
-	Status            CommandOnDeviceLogStatus
+	Status            DeviceCommandStatusEnum
 	UpdatedAt         time.Time
 }
 
@@ -259,30 +260,88 @@ type Device struct {
 	DeviceIdentifier   string
 	MacAddress         string
 	SerialNumber       sql.NullString
+	OrgID              int64
+	DiscoveredDeviceID int64
 	CreatedAt          sql.NullTime
 	UpdatedAt          sql.NullTime
 	DeletedAt          sql.NullTime
-	OrgID              int64
-	DiscoveredDeviceID int64
+}
+
+type DeviceMetric struct {
+	Time             time.Time
+	DeviceIdentifier string
+	HashRateHs       sql.NullFloat64
+	HashRateHsKind   sql.NullString
+	TempC            sql.NullFloat64
+	TempCKind        sql.NullString
+	FanRpm           sql.NullFloat64
+	FanRpmKind       sql.NullString
+	PowerW           sql.NullFloat64
+	PowerWKind       sql.NullString
+	EfficiencyJh     sql.NullFloat64
+	EfficiencyJhKind sql.NullString
+	VoltageV         sql.NullFloat64
+	VoltageVKind     sql.NullString
+	CurrentA         sql.NullFloat64
+	CurrentAKind     sql.NullString
+	InletTempC       sql.NullFloat64
+	OutletTempC      sql.NullFloat64
+	AmbientTempC     sql.NullFloat64
+	ChipCount        sql.NullInt32
+	ChipCountKind    sql.NullString
+	ChipFrequencyMhz sql.NullFloat64
+	Health           sql.NullString
+}
+
+type DeviceMetricsDaily struct {
+	Bucket            time.Time
+	DeviceIdentifier  string
+	AvgHashRate       float64
+	MaxHashRate       sql.NullFloat64
+	MinHashRate       sql.NullFloat64
+	AvgTemp           float64
+	MaxTemp           sql.NullFloat64
+	MinTemp           sql.NullFloat64
+	AvgPower          float64
+	EnergyKwhEstimate sql.NullFloat64
+	AvgEfficiency     float64
+	DataPoints        int64
+}
+
+type DeviceMetricsHourly struct {
+	Bucket           time.Time
+	DeviceIdentifier string
+	AvgHashRate      float64
+	MaxHashRate      sql.NullFloat64
+	MinHashRate      sql.NullFloat64
+	AvgTemp          float64
+	MaxTemp          sql.NullFloat64
+	MinTemp          sql.NullFloat64
+	AvgFanRpm        float64
+	AvgPower         float64
+	TotalPower       sql.NullFloat64
+	AvgEfficiency    float64
+	DataPoints       int64
 }
 
 type DevicePairing struct {
 	ID            int64
 	DeviceID      int64
+	PairingToken  sql.NullString
+	PairingStatus PairingStatusEnum
 	PairedAt      sql.NullTime
 	UnpairedAt    sql.NullTime
 	CreatedAt     sql.NullTime
 	UpdatedAt     sql.NullTime
-	PairingStatus DevicePairingPairingStatus
 }
 
 type DeviceStatus struct {
 	ID              int64
 	DeviceID        int64
+	Status          DeviceStatusEnum
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
-	Status          DeviceStatusStatus
 }
 
 type DiscoveredDevice struct {
@@ -292,17 +351,17 @@ type DiscoveredDevice struct {
 	Model             sql.NullString
 	Manufacturer      sql.NullString
 	Type              string
+	FirmwareVersion   sql.NullString
 	IpAddress         string
 	Port              string
 	UrlScheme         string
 	DiscoveryMetadata sql.NullString
 	FirstDiscovered   sql.NullTime
 	LastSeen          sql.NullTime
+	IsActive          bool
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
-	IsActive          bool
-	FirmwareVersion   sql.NullString
 }
 
 type Error struct {
@@ -323,7 +382,7 @@ type Error struct {
 	ComponentType     sql.NullInt32
 	VendorCode        sql.NullString
 	Firmware          sql.NullString
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 }
@@ -341,10 +400,10 @@ type Organization struct {
 	ID                  int64
 	OrgID               string
 	Name                string
+	MinerAuthPrivateKey string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	DeletedAt           sql.NullTime
-	MinerAuthPrivateKey string
 }
 
 type Pool struct {
@@ -361,15 +420,15 @@ type Pool struct {
 
 type QueueMessage struct {
 	ID                  int64
+	CommandBatchLogUuid string
 	DeviceID            int64
 	CommandType         string
-	Status              QueueMessageStatus
+	Status              QueueStatusEnum
 	RetryCount          int32
 	ErrorInfo           sql.NullString
+	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	Payload             json.RawMessage
-	CommandBatchLogUuid string
 }
 
 type Role struct {
@@ -382,24 +441,16 @@ type Role struct {
 }
 
 type Session struct {
-	ID int64
-	// Cryptographically secure random session identifier
-	SessionID string
-	// FK to user.id
-	UserID int64
-	// FK to organization.id (cached for performance)
+	ID             int64
+	SessionID      string
+	UserID         int64
 	OrganizationID int64
-	// Browser/client identifier
-	UserAgent sql.NullString
-	// Client IP (supports IPv6)
-	IpAddress sql.NullString
-	CreatedAt time.Time
-	// Updated on each request for sliding window
-	LastActivity time.Time
-	// Session expiry time
-	ExpiresAt time.Time
-	// Non-null if session was explicitly invalidated
-	RevokedAt sql.NullTime
+	UserAgent      sql.NullString
+	IpAddress      sql.NullString
+	CreatedAt      time.Time
+	LastActivity   time.Time
+	ExpiresAt      time.Time
+	RevokedAt      sql.NullTime
 }
 
 type User struct {
@@ -407,12 +458,12 @@ type User struct {
 	UserID                 string
 	Username               string
 	PasswordHash           string
+	PasswordUpdatedAt      sql.NullTime
+	LastLoginAt            sql.NullTime
+	RequiresPasswordChange bool
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	DeletedAt              sql.NullTime
-	PasswordUpdatedAt      time.Time
-	LastLoginAt            sql.NullTime
-	RequiresPasswordChange bool
 }
 
 type UserOrganization struct {

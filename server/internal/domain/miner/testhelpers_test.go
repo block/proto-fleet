@@ -1,11 +1,8 @@
 package miner_test
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,14 +12,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/golang-migrate/migrate/v4"
-	migrateMySQL "github.com/golang-migrate/migrate/v4/database/mysql"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/mysql"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
@@ -32,207 +22,46 @@ import (
 // Using atomic operations ensures uniqueness even in parallel tests
 var testDeviceIPCounter uint32
 
-var (
-	testContainer        *mysql.MySQLContainer
-	testEncryptService   *encrypt.Service
-	testFilesService     *files.Service
-	testTokenService     *token.Service
-	testConnectionString string
-	setupOnce            sync.Once
-	setupError           error
-)
-
-func setupTestInfrastructure() error {
-	setupOnce.Do(func() {
-		ctx := context.Background()
-
-		testEncryptService, setupError = createTestEncryptService()
-		if setupError != nil {
-			return
-		}
-
-		var err error
-		testContainer, err = mysql.Run(ctx,
-			"mysql:8.0",
-			mysql.WithDatabase("testdb"),
-			mysql.WithUsername("testuser"),
-			mysql.WithPassword("testpass"),
-			testcontainers.WithWaitStrategy(
-				wait.ForLog("port: 3306  MySQL Community Server - GPL").
-					WithOccurrence(1).
-					WithStartupTimeout(60*time.Second)),
-		)
-		if err != nil {
-			setupError = fmt.Errorf("could not start MySQL container: %w", err)
-			return
-		}
-
-		testConnectionString, err = testContainer.ConnectionString(ctx, "parseTime=true&multiStatements=true")
-		if err != nil {
-			setupError = fmt.Errorf("could not get connection string: %w", err)
-			return
-		}
-
-		tempDB, err := sql.Open("mysql", testConnectionString)
-		if err != nil {
-			setupError = fmt.Errorf("could not connect to database: %w", err)
-			return
-		}
-		defer tempDB.Close()
-
-		if err = tempDB.Ping(); err != nil {
-			setupError = fmt.Errorf("could not ping database: %w", err)
-			return
-		}
-
-		if err := runMigrations(tempDB); err != nil {
-			setupError = fmt.Errorf("could not run migrations: %w", err)
-			return
-		}
-
-		testFilesService, setupError = files.NewService()
-		if setupError != nil {
-			return
-		}
-
-		testConfig, setupError := testutil.GetTestConfig()
-		if setupError != nil {
-			return
-		}
-
-		testTokenService, setupError = token.NewService(token.Config{ClientToken: token.AuthTokenConfig{SecretKey: testConfig.AuthTokenSecretKey, ExpirationPeriod: time.Minute * 5}, MinerTokenExpirationPeriod: time.Minute * 5})
-		if setupError != nil {
-			return
-		}
-	})
-
-	return setupError
-}
-
-func cleanupTestInfrastructure() error {
-	if testContainer != nil {
-		ctx := context.Background()
-		if err := testContainer.Terminate(ctx); err != nil {
-			return fmt.Errorf("could not terminate MySQL container: %w", err)
-		}
-		testContainer = nil
-	}
-
-	testEncryptService = nil
-	testConnectionString = ""
-	setupOnce = sync.Once{}
-	setupError = nil
-
-	return nil
-}
-
-func createTestEncryptService() (*encrypt.Service, error) {
-	testKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=" // 32-byte key: "12345678901234567890123456789012"
-
-	config := &encrypt.Config{
-		ServiceMasterKey: testKey,
-	}
-
-	return encrypt.NewService(config)
-}
-
-func runMigrations(db *sql.DB) error {
-	migrationsDir, err := filepath.Abs("../../../migrations")
-	if err != nil {
-		return fmt.Errorf("failed to get migrations directory: %w", err)
-	}
-
-	driver, err := migrateMySQL.WithInstance(db, &migrateMySQL.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to create migrate driver: %w", err)
-	}
-
-	m, err := migrate.NewWithDatabaseInstance(
-		fmt.Sprintf("file://%s", migrationsDir),
-		"mysql",
-		driver,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
-	}
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	return nil
-}
-
 func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *token.Service) {
 	t.Helper()
 
-	if err := setupTestInfrastructure(); err != nil {
-		t.Fatalf("Failed to setup test infrastructure: %v", err)
-	}
+	testConfig, err := testutil.GetTestConfig()
+	require.NoError(t, err, "Failed to get test config")
 
-	if testConnectionString == "" {
-		t.Fatal("Test connection string not initialized after setup")
-	}
+	db := testutil.GetTestDB(t)
 
-	if testEncryptService == nil {
-		t.Fatal("Test encrypt service not initialized after setup")
-	}
-
-	if testTokenService == nil {
-		t.Fatal("Test token service not initialized after setup")
-	}
-
-	if testFilesService == nil {
-		t.Fatal("Test files service not initialized after setup")
-	}
-
-	db, err := sql.Open("mysql", testConnectionString)
-	if err != nil {
-		t.Fatalf("Failed to create database connection: %v", err)
-	}
-
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Fatalf("Failed to ping database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if db != nil {
-			db.Close()
-		}
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: testConfig.ServiceMasterKey,
 	})
+	require.NoError(t, err, "Failed to create encrypt service")
 
-	cleanupTestData(t, db)
+	filesService, err := files.NewService()
+	require.NoError(t, err, "Failed to create files service")
 
-	return db, testEncryptService, testFilesService, testTokenService
-}
+	tokenService, err := token.NewService(token.Config{
+		ClientToken: token.AuthTokenConfig{
+			SecretKey:        testConfig.AuthTokenSecretKey,
+			ExpirationPeriod: 5 * time.Minute,
+		},
+		MinerTokenExpirationPeriod: 5 * time.Minute,
+	})
+	require.NoError(t, err, "Failed to create token service")
 
-func cleanupTestData(t *testing.T, db *sql.DB) {
-	t.Helper()
-
-	queries := []string{
-		"DELETE FROM miner_credentials WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
-		"DELETE FROM device_pairing WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
-		"DELETE FROM discovered_device WHERE id IN (SELECT discovered_device_id FROM device WHERE device_identifier LIKE 'test-%')",
-		"DELETE FROM device WHERE device_identifier LIKE 'test-%'",
-	}
-
-	for _, query := range queries {
-		if _, err := db.Exec(query); err != nil {
-			t.Logf("Warning: failed to cleanup test data: %v", err)
-		}
-	}
+	return db, encryptService, filesService, tokenService
 }
 
 func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer string, deviceType string) int64 {
 	t.Helper()
 
 	orgID := int64(1)
+	queries := sqlc.New(db)
+
+	// Ensure organization exists
 	var exists bool
-	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM organization WHERE id = ?)`, orgID).Scan(&exists)
+	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM organization WHERE id = $1)`, orgID).Scan(&exists)
 	require.NoError(t, err, "Failed to check organization existence")
 	if !exists {
-		_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (?, ?, ?, ?)`,
+		_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES ($1, $2, $3, $4)`,
 			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID), "dummy-key-for-testing")
 		require.NoError(t, err, "Failed to insert organization")
 	}
@@ -241,7 +70,6 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 	deviceIdentifier := fmt.Sprintf("test-discovered-%s-%d", deviceType, time.Now().UnixNano())
 
 	// Use unique IP to avoid constraint violations on (org_id, ip_address, port)
-	// Port remains stable based on device type (e.g., 2121 for proto, 4028 for antminer)
 	// Use an atomic counter to ensure unique IPs even in parallel tests
 	counter := atomic.AddUint32(&testDeviceIPCounter, 1)
 	uniqueIP := fmt.Sprintf("192.168.%d.%d", (counter>>8)&0xFF, counter&0xFF)
@@ -252,13 +80,17 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 		port = "2121"
 	}
 
-	discoveredDeviceResult, err := db.Exec(`
-		INSERT INTO discovered_device (org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, orgID, deviceIdentifier, model, manufacturer, deviceType, uniqueIP, port, "https")
-	require.NoError(t, err)
-
-	discoveredDeviceID, err := discoveredDeviceResult.LastInsertId()
+	discoveredDeviceID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+		Model:            sql.NullString{String: model, Valid: true},
+		Manufacturer:     sql.NullString{String: manufacturer, Valid: true},
+		Type:             deviceType,
+		IpAddress:        uniqueIP,
+		Port:             port,
+		UrlScheme:        "https",
+		IsActive:         true,
+	})
 	require.NoError(t, err)
 
 	return discoveredDeviceID
@@ -273,16 +105,13 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 
 	queries := sqlc.New(db)
 
-	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+	deviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              orgID,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   deviceIdentifier,
 		MacAddress:         fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
 		SerialNumber:       sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
 	})
-	require.NoError(t, err)
-
-	deviceID, err := result.LastInsertId()
 	require.NoError(t, err)
 
 	// Create device pairing record with PAIRED status
@@ -293,7 +122,6 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	require.NoError(t, err)
 
 	// Generate unique IP based on device ID to avoid duplicate IP constraint violations
-	// Use the last byte of the device ID for uniqueness
 	uniqueIP := fmt.Sprintf("192.168.1.%d", 100+(deviceID%150))
 
 	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
@@ -307,19 +135,15 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	return deviceID
 }
 
-func createTestMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+func createTestMinerCredentials(t *testing.T, db *sql.DB, encryptService *encrypt.Service, deviceID int64) {
 	t.Helper()
-
-	if testEncryptService == nil {
-		t.Fatal("Test encrypt service not available")
-	}
 
 	queries := sqlc.New(db)
 
-	encryptedUsername, err := testEncryptService.Encrypt([]byte("testuser"))
+	encryptedUsername, err := encryptService.Encrypt([]byte("testuser"))
 	require.NoError(t, err)
 
-	encryptedPassword, err := testEncryptService.Encrypt([]byte("testpass"))
+	encryptedPassword, err := encryptService.Encrypt([]byte("testpass"))
 	require.NoError(t, err)
 
 	err = queries.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
@@ -330,11 +154,11 @@ func createTestMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
 	require.NoError(t, err)
 }
 
-func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, deviceIdentifier string) {
+func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, encryptService *encrypt.Service, deviceIdentifier string) {
 	t.Helper()
 
 	deviceID := createTestDevice(t, db, deviceIdentifier)
-	createTestMinerCredentials(t, db, deviceID)
+	createTestMinerCredentials(t, db, encryptService, deviceID)
 }
 
 func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
@@ -344,7 +168,7 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 
 	queries := sqlc.New(db)
 
-	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+	deviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              1,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   deviceIdentifier,
@@ -353,18 +177,18 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 	})
 	require.NoError(t, err)
 
-	deviceID, err := result.LastInsertId()
-	require.NoError(t, err)
-
-	// Create device pairing record with PAIRED status and pairing token
+	// Create device pairing record with PAIRED status
 	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 		DeviceID:      deviceID,
 		PairingStatus: "PAIRED",
 	})
 	require.NoError(t, err)
 
+	// Generate unique IP based on device ID to avoid duplicate IP constraint violations
+	uniqueIP := fmt.Sprintf("192.168.2.%d", 100+(deviceID%150))
+
 	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
-		IpAddress: "192.168.1.200",
+		IpAddress: uniqueIP,
 		Port:      "8080",
 		UrlScheme: "https",
 		ID:        deviceID,

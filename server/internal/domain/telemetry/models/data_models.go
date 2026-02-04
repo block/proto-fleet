@@ -8,8 +8,10 @@ import (
 
 // TelemetryUpdate represents a streaming update from the telemetry system
 type TelemetryUpdate struct {
-	Type             UpdateType        `json:"type"`
-	DeviceID         DeviceIdentifier  `json:"device_id,omitempty"`
+	Type UpdateType `json:"type"`
+	// DeviceIdentifier is the unique device identifier string (e.g., "proto-miner-001"),
+	// not the database primary key (device.id BIGINT).
+	DeviceIdentifier DeviceIdentifier  `json:"device_identifier,omitempty"`
 	Timestamp        time.Time         `json:"timestamp"`
 	MeasurementName  string            `json:"measurement_name,omitempty"`  // e.g., "temperature_c", "hashrate_ths"
 	MeasurementValue float64           `json:"measurement_value,omitempty"` // Raw measurement value

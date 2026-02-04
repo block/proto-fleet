@@ -14,9 +14,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/timescaledb"
 )
 
 type HTTPConfig struct {
@@ -34,7 +34,7 @@ type Config struct {
 	Encrypt     encrypt.Config     `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
 	Command     command.Config     `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`
 	Queue       queue.Config       `embed:"" prefix:"fleet_queue" envprefix:"FLEET_QUEUE_"`
-	InfluxDB    influxdb.Config    `embed:"" prefix:"influxdb" envprefix:"INFLUXDB3_"`
+	TimescaleDB timescaledb.Config `embed:"" prefix:"timescaledb" envprefix:"TIMESCALEDB_"`
 	Telemetry   telemetry.Config   `embed:"" prefix:"telemetry" envprefix:"TELEMETRY_"`
 	Scheduler   scheduler.Config   `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
 	Plugins     plugins.Config     `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`

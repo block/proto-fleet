@@ -157,11 +157,11 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 	}
 }
 
-func upsertCommandOnDeviceStatus(workerError error) sqlc.CommandOnDeviceLogStatus {
+func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum {
 	if workerError != nil {
-		return sqlc.CommandOnDeviceLogStatusFAILED
+		return sqlc.DeviceCommandStatusEnumFAILED
 	}
-	return sqlc.CommandOnDeviceLogStatusSUCCESS
+	return sqlc.DeviceCommandStatusEnumSUCCESS
 }
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
@@ -257,7 +257,7 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
 	}
 
-	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.DevicePairingPairingStatusUNPAIRED))
+	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED))
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update device pairing status to UNPAIRED: %v", err)
 	}

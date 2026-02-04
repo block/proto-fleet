@@ -54,7 +54,10 @@ message DeviceSelector  {
 }
 
 message DeviceList {
-    repeated string device_ids = 1; // List of device IDs
+    // List of device identifiers (e.g., "proto-miner-001").
+    // Note: Despite the field name, these are unique device identifier strings,
+    // not database primary key IDs.
+    repeated string device_ids = 1;
 }
 
 
@@ -132,6 +135,9 @@ message TimeRange {
 
 // Telemetry data structure
 message TelemetryData {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
   string device_id = 1;
   MeasurementType measurement_type = 2;
   double value = 3;
@@ -142,6 +148,9 @@ message TelemetryData {
 
 // Device metadata
 message DeviceMetadata {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
   string device_id = 1;
   optional string device_type = 2;
   google.protobuf.Timestamp last_seen = 3;
@@ -153,6 +162,9 @@ message DeviceMetadata {
 
 // Aggregated telemetry result
 message AggregatedTelemetry {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
   string device_id = 1;
   MeasurementType measurement_type = 2;
   double value = 3;
@@ -189,6 +201,9 @@ message MinerStateCounts {
 // Streaming update
 message TelemetryUpdate {
   UpdateType type = 1;
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
   optional string device_id = 2;
   google.protobuf.Timestamp timestamp = 3;
   optional TelemetryData data = 4;
@@ -200,6 +215,9 @@ message TelemetryUpdate {
 
 // Request/Response Messages
 message StreamUpdatesRequest {
+  // List of device identifiers to stream updates for (e.g., "proto-miner-001").
+  // Note: Despite the field name, these are unique device identifier strings,
+  // not database primary key IDs.
   repeated string device_ids = 1;
   repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
   bool include_heartbeat = 3;

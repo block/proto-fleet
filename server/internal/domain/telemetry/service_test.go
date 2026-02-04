@@ -294,8 +294,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
 					},
 					deviceMetrics: &modelsV2.DeviceMetrics{
-						DeviceID:  "200",
-						Timestamp: time.Now(),
+						DeviceIdentifier: "200",
+						Timestamp:        time.Now(),
 					},
 				},
 			},
@@ -321,8 +321,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
 					},
 					deviceMetrics: &modelsV2.DeviceMetrics{
-						DeviceID:  "203",
-						Timestamp: time.Now(),
+						DeviceIdentifier: "203",
+						Timestamp:        time.Now(),
 					},
 					hasDeviceMetricsStoreError: true,
 				},
@@ -349,8 +349,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
 					},
 					deviceMetrics: &modelsV2.DeviceMetrics{
-						DeviceID:  "300",
-						Timestamp: time.Now(),
+						DeviceIdentifier: "300",
+						Timestamp:        time.Now(),
 					},
 				},
 				{
@@ -359,8 +359,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						LastUpdatedAt: time.Now().Add(-2 * time.Minute),
 					},
 					deviceMetrics: &modelsV2.DeviceMetrics{
-						DeviceID:  "301",
-						Timestamp: time.Now(),
+						DeviceIdentifier: "301",
+						Timestamp:        time.Now(),
 					},
 				},
 			},
@@ -1574,8 +1574,8 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
 		Return(modelsV2.DeviceMetrics{
-			DeviceID:  string(deviceID),
-			Timestamp: time.Now(),
+			DeviceIdentifier: string(deviceID),
+			Timestamp:        time.Now(),
 		}, nil)
 
 	mockDataStore.EXPECT().

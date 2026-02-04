@@ -1,1 +1,0 @@
-ALTER TABLE `device` ADD CONSTRAINT `uq_device_serial_number_type` UNIQUE (`serial_number`, `type`); 

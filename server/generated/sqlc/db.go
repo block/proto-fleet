@@ -84,6 +84,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
 	}
+	if q.getAllDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsTimeSeries); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsTimeSeries: %w", err)
+	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
@@ -123,6 +126,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
 	}
+	if q.getDeviceMetricsDailyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsDailyAggregates: %w", err)
+	}
+	if q.getDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsHourlyAggregates: %w", err)
+	}
+	if q.getDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeries); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeries: %w", err)
+	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
 	}
@@ -158,6 +170,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
+	}
+	if q.getLatestAllDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestAllDeviceMetrics); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestAllDeviceMetrics: %w", err)
+	}
+	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
 	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
@@ -236,6 +254,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
+	}
+	if q.insertDeviceMetricsStmt, err = db.PrepareContext(ctx, insertDeviceMetrics); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertDeviceMetrics: %w", err)
 	}
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
@@ -474,6 +495,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllDeviceInfoForCapabilityCheckStmt: %w", cerr)
 		}
 	}
+	if q.getAllDeviceMetricsTimeSeriesStmt != nil {
+		if cerr := q.getAllDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceMetricsTimeSeriesStmt: %w", cerr)
+		}
+	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
@@ -539,6 +565,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceInfoForCapabilityCheckStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceMetricsDailyAggregatesStmt != nil {
+		if cerr := q.getDeviceMetricsDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsDailyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceMetricsHourlyAggregatesStmt != nil {
+		if cerr := q.getDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceMetricsTimeSeriesStmt != nil {
+		if cerr := q.getDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsTimeSeriesStmt: %w", cerr)
+		}
+	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
 		if cerr := q.getDevicePairingStatusByDeviceDatabaseIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDevicePairingStatusByDeviceDatabaseIDStmt: %w", cerr)
@@ -597,6 +638,16 @@ func (q *Queries) Close() error {
 	if q.getFilteredDeviceIdsStmt != nil {
 		if cerr := q.getFilteredDeviceIdsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
+		}
+	}
+	if q.getLatestAllDeviceMetricsStmt != nil {
+		if cerr := q.getLatestAllDeviceMetricsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestAllDeviceMetricsStmt: %w", cerr)
+		}
+	}
+	if q.getLatestDeviceMetricsStmt != nil {
+		if cerr := q.getLatestDeviceMetricsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
 		}
 	}
 	if q.getMessagesToProcessStmt != nil {
@@ -727,6 +778,11 @@ func (q *Queries) Close() error {
 	if q.insertDeviceStmt != nil {
 		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
+		}
+	}
+	if q.insertDeviceMetricsStmt != nil {
+		if cerr := q.insertDeviceMetricsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertDeviceMetricsStmt: %w", cerr)
 		}
 	}
 	if q.insertErrorStmt != nil {
@@ -1008,6 +1064,7 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
+	getAllDeviceMetricsTimeSeriesStmt                   *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getAvailableMinerTypesStmt                          *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -1021,6 +1078,9 @@ type Queries struct {
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
+	getDeviceMetricsDailyAggregatesStmt                 *sql.Stmt
+	getDeviceMetricsHourlyAggregatesStmt                *sql.Stmt
+	getDeviceMetricsTimeSeriesStmt                      *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDeviceStatusStmt                                 *sql.Stmt
 	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
@@ -1033,6 +1093,8 @@ type Queries struct {
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
+	getLatestAllDeviceMetricsStmt                       *sql.Stmt
+	getLatestDeviceMetricsStmt                          *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
@@ -1059,6 +1121,7 @@ type Queries struct {
 	getUsersForOrganizationStmt                         *sql.Stmt
 	hasUserStmt                                         *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
+	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
@@ -1129,6 +1192,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
+		getAllDeviceMetricsTimeSeriesStmt:                   q.getAllDeviceMetricsTimeSeriesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getAvailableMinerTypesStmt:                          q.getAvailableMinerTypesStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
@@ -1142,6 +1206,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
+		getDeviceMetricsDailyAggregatesStmt:                 q.getDeviceMetricsDailyAggregatesStmt,
+		getDeviceMetricsHourlyAggregatesStmt:                q.getDeviceMetricsHourlyAggregatesStmt,
+		getDeviceMetricsTimeSeriesStmt:                      q.getDeviceMetricsTimeSeriesStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
 		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,
@@ -1154,6 +1221,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
+		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
+		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
@@ -1180,6 +1249,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
 		hasUserStmt:                                         q.hasUserStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
+		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,

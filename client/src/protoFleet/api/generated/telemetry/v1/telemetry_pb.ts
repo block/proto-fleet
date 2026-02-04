@@ -68,7 +68,9 @@ export const DeviceSelectorSchema: GenMessage<DeviceSelector> =
  */
 export type DeviceList = Message<"telemetry.v1.DeviceList"> & {
   /**
-   * List of device IDs
+   * List of device identifiers (e.g., "proto-miner-001").
+   * Note: Despite the field name, these are unique device identifier strings,
+   * not database primary key IDs.
    *
    * @generated from field: repeated string device_ids = 1;
    */
@@ -193,6 +195,10 @@ export const TimeRangeSchema: GenMessage<TimeRange> = /*@__PURE__*/ messageDesc(
  */
 export type TelemetryData = Message<"telemetry.v1.TelemetryData"> & {
   /**
+   * The device identifier string (e.g., "proto-miner-001").
+   * Note: Despite the field name, this is the unique device identifier,
+   * not the database primary key.
+   *
    * @generated from field: string device_id = 1;
    */
   deviceId: string;
@@ -236,6 +242,10 @@ export const TelemetryDataSchema: GenMessage<TelemetryData> = /*@__PURE__*/ mess
  */
 export type DeviceMetadata = Message<"telemetry.v1.DeviceMetadata"> & {
   /**
+   * The device identifier string (e.g., "proto-miner-001").
+   * Note: Despite the field name, this is the unique device identifier,
+   * not the database primary key.
+   *
    * @generated from field: string device_id = 1;
    */
   deviceId: string;
@@ -286,6 +296,10 @@ export const DeviceMetadataSchema: GenMessage<DeviceMetadata> =
  */
 export type AggregatedTelemetry = Message<"telemetry.v1.AggregatedTelemetry"> & {
   /**
+   * The device identifier string (e.g., "proto-miner-001").
+   * Note: Despite the field name, this is the unique device identifier,
+   * not the database primary key.
+   *
    * @generated from field: string device_id = 1;
    */
   deviceId: string;
@@ -393,6 +407,10 @@ export type TelemetryUpdate = Message<"telemetry.v1.TelemetryUpdate"> & {
   type: UpdateType;
 
   /**
+   * The device identifier string (e.g., "proto-miner-001").
+   * Note: Despite the field name, this is the unique device identifier,
+   * not the database primary key.
+   *
    * @generated from field: optional string device_id = 2;
    */
   deviceId?: string;
@@ -445,6 +463,10 @@ export const TelemetryUpdateSchema: GenMessage<TelemetryUpdate> =
  */
 export type StreamUpdatesRequest = Message<"telemetry.v1.StreamUpdatesRequest"> & {
   /**
+   * List of device identifiers to stream updates for (e.g., "proto-miner-001").
+   * Note: Despite the field name, these are unique device identifier strings,
+   * not database primary key IDs.
+   *
    * @generated from field: repeated string device_ids = 1;
    */
   deviceIds: string[];

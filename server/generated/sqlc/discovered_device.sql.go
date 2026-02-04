@@ -14,7 +14,7 @@ const countActiveUnpairedDiscoveredDevices = `-- name: CountActiveUnpairedDiscov
 SELECT COUNT(*) as total
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = ?
+WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
@@ -34,59 +34,34 @@ SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = ?
+WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
     AND (
         -- If cursor provided, filter by it, otherwise return all
-        COALESCE(?, 0) = 0
-        OR dd.id > ?
+        COALESCE($3, 0) = 0
+        OR dd.id > $3
     )
 ORDER BY dd.id
-LIMIT ?
+LIMIT $2
 `
 
 type GetActiveUnpairedDiscoveredDevicesParams struct {
 	OrgID    int64
-	CursorID sql.NullInt64
 	Limit    int32
+	CursorID interface{}
 }
 
-type GetActiveUnpairedDiscoveredDevicesRow struct {
-	ID                int64
-	OrgID             int64
-	DeviceIdentifier  string
-	Model             sql.NullString
-	Manufacturer      sql.NullString
-	Type              string
-	FirmwareVersion   sql.NullString
-	IpAddress         string
-	Port              string
-	UrlScheme         string
-	DiscoveryMetadata sql.NullString
-	FirstDiscovered   sql.NullTime
-	LastSeen          sql.NullTime
-	IsActive          bool
-	CreatedAt         sql.NullTime
-	UpdatedAt         sql.NullTime
-	DeletedAt         sql.NullTime
-}
-
-func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error) {
-	rows, err := q.query(ctx, q.getActiveUnpairedDiscoveredDevicesStmt, getActiveUnpairedDiscoveredDevices,
-		arg.OrgID,
-		arg.CursorID,
-		arg.CursorID,
-		arg.Limit,
-	)
+func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]DiscoveredDevice, error) {
+	rows, err := q.query(ctx, q.getActiveUnpairedDiscoveredDevicesStmt, getActiveUnpairedDiscoveredDevices, arg.OrgID, arg.Limit, arg.CursorID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetActiveUnpairedDiscoveredDevicesRow
+	var items []DiscoveredDevice
 	for rows.Next() {
-		var i GetActiveUnpairedDiscoveredDevicesRow
+		var i DiscoveredDevice
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -120,10 +95,10 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
+SELECT id, org_id, device_identifier, model, manufacturer, type, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
 FROM discovered_device
-WHERE device_identifier = ?
-    AND org_id = ?
+WHERE device_identifier = $1
+    AND org_id = $2
     AND deleted_at IS NULL
 LIMIT 1
 `
@@ -143,26 +118,26 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.Model,
 		&i.Manufacturer,
 		&i.Type,
+		&i.FirmwareVersion,
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
 		&i.DiscoveryMetadata,
 		&i.FirstDiscovered,
 		&i.LastSeen,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.IsActive,
-		&i.FirmwareVersion,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
+SELECT id, org_id, device_identifier, model, manufacturer, type, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
 FROM discovered_device
-WHERE id = ?
-    AND org_id = ?
+WHERE id = $1
+    AND org_id = $2
     AND deleted_at IS NULL
 LIMIT 1
 `
@@ -182,27 +157,27 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.Model,
 		&i.Manufacturer,
 		&i.Type,
+		&i.FirmwareVersion,
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
 		&i.DiscoveryMetadata,
 		&i.FirstDiscovered,
 		&i.LastSeen,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.IsActive,
-		&i.FirmwareVersion,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active, firmware_version
+SELECT id, org_id, device_identifier, model, manufacturer, type, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
 FROM discovered_device
-WHERE org_id = ?
-    AND ip_address = ?
-    AND port = ?
+WHERE org_id = $1
+    AND ip_address = $2
+    AND port = $3
     AND deleted_at IS NULL
 LIMIT 1
 `
@@ -223,22 +198,22 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.Model,
 		&i.Manufacturer,
 		&i.Type,
+		&i.FirmwareVersion,
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
 		&i.DiscoveryMetadata,
 		&i.FirstDiscovered,
 		&i.LastSeen,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.IsActive,
-		&i.FirmwareVersion,
 	)
 	return i, err
 }
 
-const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :execresult
+const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :one
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -251,24 +226,24 @@ INSERT INTO discovered_device (
     url_scheme,
     is_active
 ) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10
 )
-ON DUPLICATE KEY UPDATE
-    ip_address = VALUES(ip_address),
-    port = VALUES(port),
-    url_scheme = VALUES(url_scheme),
-    firmware_version = VALUES(firmware_version),
-    last_seen = CURRENT_TIMESTAMP(6),
-    id = LAST_INSERT_ID(id)
+ON CONFLICT (org_id, device_identifier) DO UPDATE SET
+    ip_address = EXCLUDED.ip_address,
+    port = EXCLUDED.port,
+    url_scheme = EXCLUDED.url_scheme,
+    firmware_version = EXCLUDED.firmware_version,
+    last_seen = CURRENT_TIMESTAMP
+RETURNING id
 `
 
 type UpsertDiscoveredDeviceParams struct {
@@ -284,8 +259,9 @@ type UpsertDiscoveredDeviceParams struct {
 	IsActive         bool
 }
 
-func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertDiscoveredDeviceStmt, upsertDiscoveredDevice,
+// PostgreSQL version returns the id directly using RETURNING
+func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error) {
+	row := q.queryRow(ctx, q.upsertDiscoveredDeviceStmt, upsertDiscoveredDevice,
 		arg.OrgID,
 		arg.DeviceIdentifier,
 		arg.Model,
@@ -297,4 +273,7 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.UrlScheme,
 		arg.IsActive,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

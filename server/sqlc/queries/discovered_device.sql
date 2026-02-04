@@ -1,29 +1,30 @@
 -- name: GetDiscoveredDeviceByID :one
 SELECT *
 FROM discovered_device
-WHERE id = ?
-    AND org_id = ?
+WHERE id = $1
+    AND org_id = $2
     AND deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetDiscoveredDeviceByDeviceIdentifier :one
 SELECT *
 FROM discovered_device
-WHERE device_identifier = ?
-    AND org_id = ?
+WHERE device_identifier = $1
+    AND org_id = $2
     AND deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetDiscoveredDeviceByIPAndPort :one
 SELECT *
 FROM discovered_device
-WHERE org_id = ?
-    AND ip_address = ?
-    AND port = ?
+WHERE org_id = $1
+    AND ip_address = $2
+    AND port = $3
     AND deleted_at IS NULL
 LIMIT 1;
 
--- name: UpsertDiscoveredDevice :execresult
+-- name: UpsertDiscoveredDevice :one
+-- PostgreSQL version returns the id directly using RETURNING
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -36,24 +37,24 @@ INSERT INTO discovered_device (
     url_scheme,
     is_active
 ) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10
 )
-ON DUPLICATE KEY UPDATE
-    ip_address = VALUES(ip_address),
-    port = VALUES(port),
-    url_scheme = VALUES(url_scheme),
-    firmware_version = VALUES(firmware_version),
-    last_seen = CURRENT_TIMESTAMP(6),
-    id = LAST_INSERT_ID(id);
+ON CONFLICT (org_id, device_identifier) DO UPDATE SET
+    ip_address = EXCLUDED.ip_address,
+    port = EXCLUDED.port,
+    url_scheme = EXCLUDED.url_scheme,
+    firmware_version = EXCLUDED.firmware_version,
+    last_seen = CURRENT_TIMESTAMP
+RETURNING id;
 
 -- name: GetActiveUnpairedDiscoveredDevices :many
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
@@ -62,7 +63,7 @@ SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = ?
+WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
@@ -72,13 +73,13 @@ WHERE dd.org_id = ?
         OR dd.id > sqlc.narg('cursor_id')
     )
 ORDER BY dd.id
-LIMIT ?;
+LIMIT $2;
 
 -- name: CountActiveUnpairedDiscoveredDevices :one
 SELECT COUNT(*) as total
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = ?
+WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL;

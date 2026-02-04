@@ -32,7 +32,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		}
 
 		lastErr = err
-		if !IsRetryableMySQLError(err) || attempt == config.MaxAttempts {
+		if !IsRetryablePostgresError(err) || attempt == config.MaxAttempts {
 			break
 		}
 

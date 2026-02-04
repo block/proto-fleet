@@ -4,22 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-
 	"log/slog"
 	"time"
+
+	"github.com/sqlc-dev/pqtype"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
@@ -111,9 +110,9 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, com
 			Type:         command.commandType.String(),
 			CreatedBy:    userID,
 			CreatedAt:    timeNow,
-			Status:       sqlc.CommandBatchLogStatusPENDING,
+			Status:       sqlc.BatchStatusEnumPENDING,
 			DevicesCount: devicesCount,
-			Payload:      payloadBytes,
+			Payload:      pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
 		})
 		if err != nil {
 			return "", fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -222,20 +221,20 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 		}
 
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			var deviceStatus sqlc.NullDeviceStatusStatus
-			var pairingStatus sqlc.NullDevicePairingPairingStatus
+			var deviceStatus sql.NullString
+			var pairingStatus sql.NullString
 
 			if len(filter.DeviceStatus) > 0 {
-				deviceStatus = sqlc.NullDeviceStatusStatus{
-					DeviceStatusStatus: sqlstores.ProtoDeviceStatusToSQL(filter.DeviceStatus[0]),
-					Valid:              true,
+				deviceStatus = sql.NullString{
+					String: string(sqlstores.ProtoDeviceStatusToSQL(filter.DeviceStatus[0])),
+					Valid:  true,
 				}
 			}
 
 			if len(filter.PairingStatus) > 0 {
-				pairingStatus = sqlc.NullDevicePairingPairingStatus{
-					DevicePairingPairingStatus: sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0]),
-					Valid:                      true,
+				pairingStatus = sql.NullString{
+					String: string(sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0])),
+					Valid:  true,
 				}
 			}
 

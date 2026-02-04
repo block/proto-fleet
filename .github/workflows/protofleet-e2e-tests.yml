@@ -92,47 +92,20 @@ jobs:
           chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
           echo "Plugins built successfully"
 
-      - name: Start MySQL and InfluxDB first
+      - name: Start TimescaleDB
         working-directory: server
         run: |
-          # Pre-create .env file with proper permissions so InfluxDB can write to it
-          touch influx_config/.env
-          chmod 666 influx_config/.env
+          # Start TimescaleDB
+          docker compose up -d timescaledb
 
-          # Start just MySQL and InfluxDB with more lenient health checks
-          docker compose up -d mysql influxdb
-
-          # Wait for MySQL with manual check (more lenient than healthcheck)
-          echo "Waiting for MySQL to be ready..."
+          # Wait for TimescaleDB with manual check
+          echo "Waiting for TimescaleDB to be ready..."
           for i in {1..60}; do
-            if docker compose exec -T mysql mysqladmin ping -h localhost --silent 2>/dev/null; then
-              echo "MySQL is ready!"
+            if docker compose exec -T timescaledb pg_isready -U fleet -d fleet 2>/dev/null; then
+              echo "TimescaleDB is ready!"
               break
             fi
-            echo "Attempt $i/60: MySQL not ready yet, waiting..."
-            sleep 2
-          done
-
-          # Wait for InfluxDB
-          echo "Waiting for InfluxDB to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:8181/health 2>/dev/null; then
-              echo "InfluxDB is ready!"
-              break
-            fi
-            echo "Attempt $i/30: InfluxDB not ready yet, waiting..."
-            sleep 2
-          done
-
-          # Wait for manage_token.sh to create and populate the token
-          echo "Waiting for InfluxDB token to be created..."
-          for i in {1..30}; do
-            if [ -f influx_config/.env ] && grep -q "INFLUXDB3_AUTH_TOKEN=apiv3" influx_config/.env; then
-              echo "InfluxDB token is ready!"
-              cat influx_config/.env
-              break
-            fi
-            echo "Attempt $i/30: Token not ready yet, waiting..."
+            echo "Attempt $i/60: TimescaleDB not ready yet, waiting..."
             sleep 2
           done
 
@@ -162,10 +135,8 @@ jobs:
           echo "ERROR: Backend failed to start within 3 minutes"
           echo "=== Fleet API logs ==="
           docker compose logs fleet-api
-          echo "=== MySQL logs ==="
-          docker compose logs mysql
-          echo "=== InfluxDB logs ==="
-          docker compose logs influxdb
+          echo "=== TimescaleDB logs ==="
+          docker compose logs timescaledb
           exit 1
 
       - name: Start simulated miners
@@ -310,10 +281,8 @@ jobs:
         run: |
           echo "=== Fleet API Logs ==="
           docker compose logs fleet-api
-          echo "=== MySQL Logs ==="
-          docker compose logs mysql
-          echo "=== InfluxDB Logs ==="
-          docker compose logs influxdb
+          echo "=== TimescaleDB Logs ==="
+          docker compose logs timescaledb
 
       - name: Cleanup
         if: always()

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
-	"strings"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
@@ -20,8 +19,8 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/timescaledb"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
@@ -74,19 +73,11 @@ const (
 func main() {
 	config := &Config{}
 
-	data, err := os.ReadFile("/var/lib/fleet/start/.env")
-	if err != nil && !os.IsNotExist(err) {
-		slog.Error("failed to read .env file", "error", err)
-		os.Exit(1)
-	}
-	os.Setenv("INFLUXDB3_AUTH_TOKEN", strings.TrimPrefix(strings.TrimSpace(string(data)), "INFLUXDB3_AUTH_TOKEN="))
-
 	_ = kong.Parse(config, kong.Name("fleetd"))
 
 	logging.InitLogger(config.Log)
 
-	err = start(config)
-	if err != nil {
+	if err := start(config); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
@@ -188,7 +179,7 @@ func start(config *Config) error {
 	discoverer := pluginService.CreateDiscoverer()
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
-	influxdbService, err := influxdb.NewTelemetryStore(config.InfluxDB)
+	timescaledbService, err := timescaledb.NewTelemetryStore(conn, config.TimescaleDB)
 	if err != nil {
 		return err
 	}
@@ -210,7 +201,7 @@ func start(config *Config) error {
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
-		influxdbService,
+		timescaledbService,
 		minerService,
 		scheduler,
 		deviceStore,

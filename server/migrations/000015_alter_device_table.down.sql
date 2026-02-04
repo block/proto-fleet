@@ -1,2 +1,0 @@
-ALTER TABLE device
-    MODIFY COLUMN org_id BIGINT NULL;

@@ -145,16 +145,13 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 
 			discoveredDeviceID := createDiscoveredDevice(t, testContext.ServiceProvider.DB, "TestMiner", "TestCorp", test.deviceType)
 
-			result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+			dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 				OrgID:              1,
 				DiscoveredDeviceID: discoveredDeviceID,
 				DeviceIdentifier:   string(deviceID),
 				MacAddress:         fmt.Sprintf("00:11:22:33:44:%02x", 50+i),
 				SerialNumber:       sql.NullString{String: fmt.Sprintf("SN-%d", 100+i), Valid: true},
 			})
-			require.NoError(t, err)
-
-			dbDeviceID, err := result.LastInsertId()
 			require.NoError(t, err)
 
 			_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
@@ -205,16 +202,13 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
 
 	// Create device without pairing record
-	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+	dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              1,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   "test-unpaired-device",
 		MacAddress:         "00:11:22:33:44:99",
 		SerialNumber:       sql.NullString{String: "SN-UNPAIRED", Valid: true},
 	})
-	require.NoError(t, err)
-
-	dbDeviceID, err := result.LastInsertId()
 	require.NoError(t, err)
 
 	// Create IP assignment and credentials but no pairing record
@@ -256,16 +250,13 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
 
 	// Create device with pairing but no credentials or token
-	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+	dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              1,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   "test-no-auth-device",
 		MacAddress:         "00:11:22:33:44:88",
 		SerialNumber:       sql.NullString{String: "SN-NOAUTH", Valid: true},
 	})
-	require.NoError(t, err)
-
-	dbDeviceID, err := result.LastInsertId()
 	require.NoError(t, err)
 
 	// Create pairing record with PAIRED status but no token

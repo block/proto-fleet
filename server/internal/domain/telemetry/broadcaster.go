@@ -172,10 +172,10 @@ func (b *TelemetryBroadcaster) Subscribe(ctx context.Context, config Subscriptio
 // This bypasses the InfluxDB polling loop and immediately notifies subscribers of status changes
 func (b *TelemetryBroadcaster) PublishStatusChange(deviceID models.DeviceIdentifier, deviceStatus mm.MinerStatus) {
 	update := models.TelemetryUpdate{
-		Type:         models.UpdateTypeDeviceStatus,
-		DeviceID:     deviceID,
-		Timestamp:    time.Now(),
-		DeviceStatus: &deviceStatus,
+		Type:             models.UpdateTypeDeviceStatus,
+		DeviceIdentifier: deviceID,
+		Timestamp:        time.Now(),
+		DeviceStatus:     &deviceStatus,
 	}
 
 	slog.Info("[BROADCASTER] PublishStatusChange called",
@@ -342,7 +342,7 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 		}
 
 		// Check if subscriber is interested in this device
-		if sub.deviceIDs != nil && !sub.deviceIDs[update.DeviceID] {
+		if sub.deviceIDs != nil && !sub.deviceIDs[update.DeviceIdentifier] {
 			continue
 		}
 
@@ -368,14 +368,14 @@ func (b *TelemetryBroadcaster) broadcast(update models.TelemetryUpdate) {
 			// Channel full, subscriber is slow - log and skip
 			slog.Warn("subscriber channel full, dropping update",
 				"subscriptionID", sub.id,
-				"deviceID", update.DeviceID,
+				"deviceIdentifier", update.DeviceIdentifier,
 				"updateType", update.Type)
 		}
 	}
 
 	slog.Info("[BROADCASTER] Broadcast complete",
 		"orgID", b.orgID,
-		"deviceID", update.DeviceID,
+		"deviceIdentifier", update.DeviceIdentifier,
 		"updateType", update.Type,
 		"totalSubscriptions", len(b.subscriptions),
 		"matchingSubscribers", matchingSubscribers,

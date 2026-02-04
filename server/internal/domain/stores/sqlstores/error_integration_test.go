@@ -311,7 +311,7 @@ func TestSQLErrorStore_UpsertError_ShouldCreateNewErrorWhenExistingIsClosed(t *t
 
 	// Assert: Verify both records exist in DB
 	var count int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = $1", orgID).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count, "Both error A and B should exist in DB")
 }
@@ -348,7 +348,7 @@ func TestSQLErrorStore_UpsertError_ShouldDedupWithNullComponents(t *testing.T) {
 
 	// Assert: Verify only one record exists
 	var count int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = $1", orgID).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "Should have only one error record")
 }
@@ -386,7 +386,7 @@ func TestSQLErrorStore_UpsertError_ShouldNotDedupWhenComponentsDiffer(t *testing
 
 	// Assert: Verify two records exist
 	var count int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = $1", orgID).Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count, "Should have two error records")
 }
@@ -402,11 +402,11 @@ func TestSQLErrorStore_UpsertError_ShouldReturnErrorForUnknownDevice(t *testing.
 
 	// Arrange: Create org only, no device
 	queries := sqlc.New(db)
-	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name: "Test Org No Device",
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-no-device",
+		Name:                "Test Org No Device",
+		MinerAuthPrivateKey: "test-key",
 	})
-	require.NoError(t, err)
-	orgID, err := orgResult.LastInsertId()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -479,7 +479,7 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	// Assert: Verify VendorAttributes stored in DB as JSON
 	var extraJSON []byte
 	err = db.QueryRowContext(ctx,
-		"SELECT extra FROM errors WHERE error_id = ?", result.ErrorID).Scan(&extraJSON)
+		"SELECT extra FROM errors WHERE error_id = $1", result.ErrorID).Scan(&extraJSON)
 	require.NoError(t, err)
 	assert.Contains(t, string(extraJSON), `"temp"`)
 	assert.Contains(t, string(extraJSON), `"95"`)
@@ -1029,7 +1029,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll
 	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
 		DeviceID:        deviceID,
 		StatusTimestamp: sql.NullTime{Time: recentStatus, Valid: true},
-		Status:          sqlc.DeviceStatusStatusACTIVE,
+		Status:          sqlc.DeviceStatusEnumACTIVE,
 		StatusDetails:   sql.NullString{String: "{}", Valid: true},
 	})
 	require.NoError(t, err)
@@ -1078,7 +1078,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseIfNoRecentPoll(t *testing.
 	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
 		DeviceID:        deviceID,
 		StatusTimestamp: sql.NullTime{Time: oldStatus, Valid: true},
-		Status:          sqlc.DeviceStatusStatusACTIVE,
+		Status:          sqlc.DeviceStatusEnumACTIVE,
 		StatusDetails:   sql.NullString{String: "{}", Valid: true},
 	})
 	require.NoError(t, err)
@@ -1127,7 +1127,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseRecentErrors(t *testing.T)
 	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
 		DeviceID:        deviceID,
 		StatusTimestamp: sql.NullTime{Time: recentStatus, Valid: true},
-		Status:          sqlc.DeviceStatusStatusACTIVE,
+		Status:          sqlc.DeviceStatusEnumACTIVE,
 		StatusDetails:   sql.NullString{String: "{}", Valid: true},
 	})
 	require.NoError(t, err)

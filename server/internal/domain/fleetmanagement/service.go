@@ -340,7 +340,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 
 			if row.DeviceStatus.Valid {
-				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusStatus))
+				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
@@ -720,7 +720,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				default:
 				}
 
-				deviceID := string(update.DeviceID)
+				deviceID := string(update.DeviceIdentifier)
 
 				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(streamCtx, deviceID, info.OrganizationID)
 				if err != nil {

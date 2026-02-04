@@ -11,7 +11,7 @@ import (
 
 const getMinerCredentialsByDeviceID = `-- name: GetMinerCredentialsByDeviceID :one
 SELECT id, device_id, username_enc, password_enc, created_at, updated_at FROM miner_credentials
-WHERE device_id = ?
+WHERE device_id = $1
 `
 
 func (q *Queries) GetMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (MinerCredential, error) {
@@ -30,8 +30,10 @@ func (q *Queries) GetMinerCredentialsByDeviceID(ctx context.Context, deviceID in
 
 const upsertMinerCredentials = `-- name: UpsertMinerCredentials :exec
 INSERT INTO miner_credentials (device_id, username_enc, password_enc)
-VALUES (?, ?, ?)
-ON DUPLICATE KEY UPDATE username_enc = VALUES(username_enc), password_enc = VALUES(password_enc)
+VALUES ($1, $2, $3)
+ON CONFLICT (device_id) DO UPDATE SET
+    username_enc = EXCLUDED.username_enc,
+    password_enc = EXCLUDED.password_enc
 `
 
 type UpsertMinerCredentialsParams struct {

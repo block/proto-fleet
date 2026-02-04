@@ -17,71 +17,21 @@ services:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
       AUTH_MINER_EXPIRATION_PERIOD: "168h" # Override to 168h for development
-      DB_USERNAME: "root"
-      DB_PASSWORD: ""
+      DB_USERNAME: "fleet"
+      DB_PASSWORD: "fleet"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
     depends_on:
-      mysql:
-        condition: service_healthy
-      influxdb:
+      timescaledb:
         condition: service_healthy
     volumes:
-      - ./influx_config:/var/lib/fleet/start:ro
       - ./plugins:/app/plugins:ro
     restart: unless-stopped
     networks:
       - fleet-network
     ports:
       - "4000:4000"
-
-  mysql:
-    extends:
-      file: ./docker-compose.base.yaml
-      service: mysql
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "1"
-      MYSQL_LOG_CONSOLE: "1"
-      MYSQL_ROOT_HOST: "%"
-      # Development performance optimizations
-    command: >
-      --sql-mode=
-      --skip-name-resolve
-      --innodb-flush-log-at-trx-commit=0
-      --sync-binlog=0
-      --innodb-doublewrite=0
-      --disable-log-bin
-      --tls-version=''
-      --performance-schema=OFF
-    volumes:
-      - mysql:/var/lib/mysql
-      # Use tmpfs for temporary files to speed up operations
-      - type: tmpfs
-        target: /tmp
-        tmpfs:
-          size: 100M
-    # Faster health checks for development
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 1s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
-
-  influxdb:
-    extends:
-      file: ./docker-compose.base.yaml
-      service: influxdb
-    volumes:
-      - ./influx_config:/var/lib/influxdb3/start
-    # Faster health checks for development
-    healthcheck:
-      test: ["CMD", "curl", "-f", "-m", "2", "http://localhost:8181/health"]
-      interval: 1s
-      timeout: 3s
-      retries: 5
-      start_period: 3s
 
   timescaledb:
     extends:
@@ -344,9 +294,6 @@ services:
       - NET_ADMIN
       - NET_RAW
 volumes:
-  mysql:
-  influxdb-data:
-  influxdb-config:
   timescaledb-data:
 
 networks:

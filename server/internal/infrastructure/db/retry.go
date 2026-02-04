@@ -8,17 +8,18 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
-	// MySQL error codes for retryable issues.
-	MySQLDeadlockErrCode  = 1213 // Deadlock found when trying to get lock
-	MySQLLockWaitErrCode  = 1205 // Lock wait timeout exceeded
-	MySQLWSREPNotReady    = 1047 // WSREP has not yet prepared node for application use
-	MySQLDuplicateKey     = 1062 // Duplicate key error (retryable in some upsert scenarios)
-	defaultMaxRetries     = 3
-	defaultRetryBaseDelay = 10 * time.Millisecond
+	// PostgreSQL SQLSTATE codes for retryable issues.
+	// See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+	PGSerializationFailure = "40001" // serialization_failure
+	PGDeadlockDetected     = "40P01" // deadlock_detected
+	// PGUniqueViolation is NOT retryable at the infrastructure level.
+	// Unique violations should be handled at the application level (e.g., "username already exists").
+	// Retrying would cause unnecessary delays for errors that will never succeed.
+	PGUniqueViolation = "23505" // unique_violation - exported for application-level handling
 )
 
 // RetryConfig holds configuration for retry behavior.
@@ -37,16 +38,17 @@ var DefaultRetryConfig = RetryConfig{
 	BackoffMultiplier: 2.0,
 }
 
-// IsRetryableMySQLError returns true if the error is a MySQL error that may succeed on retry.
-// This includes deadlocks, lock wait timeouts, WSREP cluster issues, and duplicate key errors.
-func IsRetryableMySQLError(err error) bool {
+// IsRetryablePostgresError returns true if the error is a PostgreSQL error that may succeed on retry.
+// This includes serialization failures and deadlocks. Unique violations are NOT retryable at this level
+// since they indicate a constraint violation that won't succeed on retry.
+func IsRetryablePostgresError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
-		switch mysqlErr.Number {
-		case MySQLDeadlockErrCode, MySQLLockWaitErrCode, MySQLWSREPNotReady, MySQLDuplicateKey:
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case PGSerializationFailure, PGDeadlockDetected:
 			return true
 		}
 	}
@@ -68,76 +70,61 @@ func NewRetryDB(db *sql.DB) *RetryDB {
 	return &RetryDB{DB: db}
 }
 
-// ExecContext executes a query with automatic retry on retryable MySQL errors.
-// It wraps the underlying sql.DB.ExecContext with exponential backoff retry logic.
-func (r *RetryDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+// retryOperation executes fn with retry logic on retryable PostgreSQL errors.
+// Uses exponential backoff between retries, respecting context cancellation.
+func retryOperation[T any](ctx context.Context, opName string, fn func() (T, error)) (T, error) {
+	var zero T
 	var lastErr error
+	currentBackoff := DefaultRetryConfig.InitialBackoff
 
-	for attempt := 1; attempt <= defaultMaxRetries; attempt++ {
-		result, err := r.DB.ExecContext(ctx, query, args...)
+	for attempt := 1; attempt <= DefaultRetryConfig.MaxAttempts; attempt++ {
+		result, err := fn()
 		if err == nil {
 			return result, nil
 		}
 
 		lastErr = err
-		if !IsRetryableMySQLError(err) {
-			return nil, fmt.Errorf("ExecContext: %w", err)
+		if !IsRetryablePostgresError(err) {
+			return zero, fmt.Errorf("%s: %w", opName, err)
 		}
 
-		if attempt == defaultMaxRetries {
-			return nil, fmt.Errorf("ExecContext failed after %d attempts: %w", defaultMaxRetries, lastErr)
+		if attempt == DefaultRetryConfig.MaxAttempts {
+			return zero, fmt.Errorf("%s failed after %d attempts: %w", opName, DefaultRetryConfig.MaxAttempts, lastErr)
 		}
 
-		delay := defaultRetryBaseDelay << (attempt - 1)
-		slog.Warn("retryable MySQL error in ExecContext, retrying",
+		delay := currentBackoff
+		if delay > DefaultRetryConfig.MaxBackoff {
+			delay = DefaultRetryConfig.MaxBackoff
+		}
+		slog.Warn("retryable PostgreSQL error, retrying",
+			"operation", opName,
 			"attempt", attempt,
-			"max_retries", defaultMaxRetries,
+			"max_retries", DefaultRetryConfig.MaxAttempts,
 			"delay", delay,
 			"error", err)
 
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			return zero, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
 		case <-time.After(delay):
 		}
+
+		currentBackoff = time.Duration(float64(currentBackoff) * DefaultRetryConfig.BackoffMultiplier)
 	}
 
-	return nil, fmt.Errorf("ExecContext failed after %d attempts: %w", defaultMaxRetries, lastErr)
+	return zero, fmt.Errorf("%s failed after %d attempts: %w", opName, DefaultRetryConfig.MaxAttempts, lastErr)
 }
 
-// QueryContext executes a query with automatic retry on retryable MySQL errors.
-// It wraps the underlying sql.DB.QueryContext with exponential backoff retry logic.
+// ExecContext executes a query with automatic retry on retryable PostgreSQL errors.
+func (r *RetryDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return retryOperation(ctx, "ExecContext", func() (sql.Result, error) {
+		return r.DB.ExecContext(ctx, query, args...)
+	})
+}
+
+// QueryContext executes a query with automatic retry on retryable PostgreSQL errors.
 func (r *RetryDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	var lastErr error
-
-	for attempt := 1; attempt <= defaultMaxRetries; attempt++ {
-		rows, err := r.DB.QueryContext(ctx, query, args...)
-		if err == nil {
-			return rows, nil
-		}
-
-		lastErr = err
-		if !IsRetryableMySQLError(err) {
-			return nil, fmt.Errorf("QueryContext: %w", err)
-		}
-
-		if attempt == defaultMaxRetries {
-			return nil, fmt.Errorf("QueryContext failed after %d attempts: %w", defaultMaxRetries, lastErr)
-		}
-
-		delay := defaultRetryBaseDelay << (attempt - 1)
-		slog.Warn("retryable MySQL error in QueryContext, retrying",
-			"attempt", attempt,
-			"max_retries", defaultMaxRetries,
-			"delay", delay,
-			"error", err)
-
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
-		case <-time.After(delay):
-		}
-	}
-
-	return nil, fmt.Errorf("QueryContext failed after %d attempts: %w", defaultMaxRetries, lastErr)
+	return retryOperation(ctx, "QueryContext", func() (*sql.Rows, error) {
+		return r.DB.QueryContext(ctx, query, args...)
+	})
 }

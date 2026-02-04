@@ -1,1 +1,0 @@
-ALTER TABLE organization ADD miner_auth_private_key text NOT NULL;

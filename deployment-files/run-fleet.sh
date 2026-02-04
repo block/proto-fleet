@@ -328,12 +328,12 @@ fi
 # Database Volume Management Function
 # ----------------------------------------------------------------------------
 
-# Prompt user to reinitialize MySQL data volume if it exists
+# Prompt user to reinitialize TimescaleDB data volume if it exists
 prompt_store_reinit() {
   local proj=$(basename "$PROJECT_ROOT")
-  local vol=$(docker volume ls -q | grep -E "^${proj}[-_]mysql$")
+  local vol=$(docker volume ls -q | grep -E "^${proj}[-_]timescaledb-data$")
   if [[ -n $vol ]]; then
-    echo "⚠️  Detected existing MySQL data volume: $vol"
+    echo "⚠️  Detected existing TimescaleDB data volume: $vol"
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
@@ -357,7 +357,6 @@ use_existing="no"
 # Check if environment file exists and validate its contents
 if [ -f "$ENV_FILE" ]; then
     required_keys=(
-        "MYSQL_ROOT_PASSWORD"
         "DB_USERNAME"
         "DB_PASSWORD"
         "AUTH_CLIENT_SECRET_KEY"
@@ -396,23 +395,10 @@ if [ "$use_existing" == "no" ]; then
     # Initialize empty env file
     > "$ENV_FILE"
 
-    # Database root password configuration
-    echo -n "Generate a random password for the Database root user? (Y/n): "
-    read gen_mysql_pass
-    if [[ -z "$gen_mysql_pass" || $gen_mysql_pass =~ ^[Yy]$ ]]; then
-        MYSQL_ROOT_PASSWORD=$(openssl rand -base64 16)
-        echo "Generated secure password for the Database root user."
-    else
-        echo -n "Enter password for the Database root user: "
-        read -s MYSQL_ROOT_PASSWORD
-        echo
-    fi
-    echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD" >> "$ENV_FILE"
-
     # Database user configuration
-    echo -n "Enter username for the Database user [fleet_user]: "
+    echo -n "Enter username for the Database user [fleet]: "
     read DB_USERNAME
-    DB_USERNAME=${DB_USERNAME:-fleet_user}
+    DB_USERNAME=${DB_USERNAME:-fleet}
     echo "DB_USERNAME=$DB_USERNAME" >> "$ENV_FILE"
 
     echo -n "Generate a random password for the Database user? (Y/n): "

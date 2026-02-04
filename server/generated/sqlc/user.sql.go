@@ -12,14 +12,14 @@ import (
 )
 
 const adminResetUserPassword = `-- name: AdminResetUserPassword :exec
-UPDATE user
+UPDATE "user"
 SET
-    password_hash = ?,
+    password_hash = $1,
     requires_password_change = TRUE,
     updated_at = NOW(),
     password_updated_at = NOW()
 WHERE
-    id = ?
+    id = $2
     AND deleted_at IS NULL
 `
 
@@ -33,16 +33,17 @@ func (q *Queries) AdminResetUserPassword(ctx context.Context, arg AdminResetUser
 	return err
 }
 
-const createUser = `-- name: CreateUser :execresult
+const createUser = `-- name: CreateUser :one
 INSERT INTO
-    user (
+    "user" (
         user_id,
         username,
         password_hash,
         requires_password_change,
         created_at
     )
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id
 `
 
 type CreateUserParams struct {
@@ -53,18 +54,21 @@ type CreateUserParams struct {
 	CreatedAt              time.Time
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (sql.Result, error) {
-	return q.exec(ctx, q.createUserStmt, createUser,
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
+	row := q.queryRow(ctx, q.createUserStmt, createUser,
 		arg.UserID,
 		arg.Username,
 		arg.PasswordHash,
 		arg.RequiresPasswordChange,
 		arg.CreatedAt,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getUserByExternalId = `-- name: GetUserByExternalId :one
-SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at, password_updated_at, last_login_at, requires_password_change FROM user WHERE user_id = ? AND deleted_at IS NULL
+SELECT id, user_id, username, password_hash, password_updated_at, last_login_at, requires_password_change, created_at, updated_at, deleted_at FROM "user" WHERE user_id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByExternalId(ctx context.Context, userID string) (User, error) {
@@ -75,18 +79,18 @@ func (q *Queries) GetUserByExternalId(ctx context.Context, userID string) (User,
 		&i.UserID,
 		&i.Username,
 		&i.PasswordHash,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
 		&i.PasswordUpdatedAt,
 		&i.LastLoginAt,
 		&i.RequiresPasswordChange,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserById = `-- name: GetUserById :one
-SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at, password_updated_at, last_login_at, requires_password_change FROM user WHERE id = ? AND deleted_at IS NULL
+SELECT id, user_id, username, password_hash, password_updated_at, last_login_at, requires_password_change, created_at, updated_at, deleted_at FROM "user" WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
@@ -97,18 +101,18 @@ func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
 		&i.UserID,
 		&i.Username,
 		&i.PasswordHash,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
 		&i.PasswordUpdatedAt,
 		&i.LastLoginAt,
 		&i.RequiresPasswordChange,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at, password_updated_at, last_login_at, requires_password_change FROM user WHERE username = ? AND deleted_at IS NULL
+SELECT id, user_id, username, password_hash, password_updated_at, last_login_at, requires_password_change, created_at, updated_at, deleted_at FROM "user" WHERE username = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -119,18 +123,18 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.UserID,
 		&i.Username,
 		&i.PasswordHash,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
 		&i.PasswordUpdatedAt,
 		&i.LastLoginAt,
 		&i.RequiresPasswordChange,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const hasUser = `-- name: HasUser :one
-SELECT COUNT(*) > 0 FROM user
+SELECT COUNT(*) > 0 FROM "user"
 `
 
 func (q *Queries) HasUser(ctx context.Context) (bool, error) {
@@ -143,11 +147,11 @@ func (q *Queries) HasUser(ctx context.Context) (bool, error) {
 const listUsersForOrganization = `-- name: ListUsersForOrganization :many
 SELECT u.id, u.user_id, u.username, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at, u.last_login_at, u.requires_password_change, r.name as role_name
 FROM
-    user u
+    "user" u
     JOIN user_organization uo ON u.id = uo.user_id
     JOIN role r ON uo.role_id = r.id
 WHERE
-    uo.organization_id = ?
+    uo.organization_id = $1
     AND u.deleted_at IS NULL
     AND uo.deleted_at IS NULL
 ORDER BY u.created_at DESC
@@ -160,7 +164,7 @@ type ListUsersForOrganizationRow struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	DeletedAt              sql.NullTime
-	PasswordUpdatedAt      time.Time
+	PasswordUpdatedAt      sql.NullTime
 	LastLoginAt            sql.NullTime
 	RequiresPasswordChange bool
 	RoleName               string
@@ -201,23 +205,23 @@ func (q *Queries) ListUsersForOrganization(ctx context.Context, organizationID i
 }
 
 const passwordUpdatedAt = `-- name: PasswordUpdatedAt :one
-SELECT password_updated_at FROM user WHERE id = ?
+SELECT password_updated_at FROM "user" WHERE id = $1
 `
 
-func (q *Queries) PasswordUpdatedAt(ctx context.Context, id int64) (time.Time, error) {
+func (q *Queries) PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error) {
 	row := q.queryRow(ctx, q.passwordUpdatedAtStmt, passwordUpdatedAt, id)
-	var password_updated_at time.Time
+	var password_updated_at sql.NullTime
 	err := row.Scan(&password_updated_at)
 	return password_updated_at, err
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :exec
-UPDATE user
+UPDATE "user"
 SET
     deleted_at = NOW(),
     updated_at = NOW()
 WHERE
-    id = ?
+    id = $1
     AND deleted_at IS NULL
 `
 
@@ -227,12 +231,12 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) error {
 }
 
 const updateLastLogin = `-- name: UpdateLastLogin :exec
-UPDATE user
+UPDATE "user"
 SET
     last_login_at = NOW(),
     updated_at = NOW()
 WHERE
-    id = ?
+    id = $1
 `
 
 func (q *Queries) UpdateLastLogin(ctx context.Context, id int64) error {
@@ -241,13 +245,13 @@ func (q *Queries) UpdateLastLogin(ctx context.Context, id int64) error {
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE user
+UPDATE "user"
 SET
-    password_hash = ?,
+    password_hash = $1,
     updated_at = NOW(),
     password_updated_at = NOW()
 WHERE
-    id = ?
+    id = $2
 `
 
 type UpdateUserPasswordParams struct {
@@ -261,14 +265,14 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 }
 
 const updateUserPasswordAndFlag = `-- name: UpdateUserPasswordAndFlag :exec
-UPDATE user
+UPDATE "user"
 SET
-    password_hash = ?,
+    password_hash = $1,
     requires_password_change = FALSE,
     updated_at = NOW(),
     password_updated_at = NOW()
 WHERE
-    id = ?
+    id = $2
 `
 
 type UpdateUserPasswordAndFlagParams struct {
@@ -282,7 +286,7 @@ func (q *Queries) UpdateUserPasswordAndFlag(ctx context.Context, arg UpdateUserP
 }
 
 const updateUserUsername = `-- name: UpdateUserUsername :exec
-UPDATE user SET username = ?, updated_at = NOW() WHERE id = ?
+UPDATE "user" SET username = $1, updated_at = NOW() WHERE id = $2
 `
 
 type UpdateUserUsernameParams struct {

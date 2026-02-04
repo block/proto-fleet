@@ -62,7 +62,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	testUser.Password = password
 
 	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
-		userResult, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
+		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
 			UserID:       externalUserID,
 			Username:     username,
 			PasswordHash: string(hashedPassword),
@@ -71,14 +71,9 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating user: %v", err)
 		}
-
-		userID, err := userResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting last inserted id: %v", err)
-		}
 		testUser.DatabaseID = userID
 
-		orgResult, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
+		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
 			Name:                organizationName,
 			OrgID:               organizationName,
 			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
@@ -87,11 +82,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 		}
 
-		orgID, err := orgResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting org id: %v", err)
-		}
-		roleResult, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
+		roleID, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
 			Name: "SUPER_ADMIN",
 			Description: sql.NullString{
 				String: "Super admin role for testing",
@@ -100,11 +91,6 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating role: %v", err)
-		}
-
-		roleID, err := roleResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting role id: %v", err)
 		}
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
@@ -140,7 +126,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 	testUser.Password = password
 
 	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
-		userResult, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
+		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
 			UserID:       externalUserID,
 			Username:     username,
 			PasswordHash: string(hashedPassword),
@@ -149,14 +135,9 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating user: %v", err)
 		}
-
-		userID, err := userResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting last inserted id: %v", err)
-		}
 		testUser.DatabaseID = userID
 
-		orgResult, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
+		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
 			Name:                organizationName,
 			OrgID:               organizationName,
 			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
@@ -165,12 +146,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 		}
 
-		orgID, err := orgResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting org id: %v", err)
-		}
-
-		roleResult, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
+		roleID, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
 			Name: "SUPER_ADMIN",
 			Description: sql.NullString{
 				String: "Super admin role for testing",
@@ -179,11 +155,6 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating role: %v", err)
-		}
-
-		roleID, err := roleResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error getting role id: %v", err)
 		}
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
@@ -232,7 +203,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 			port = "4028"
 		}
 
-		ddResult, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
+		discoveredDeviceID, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
 			Model:            sql.NullString{String: "TestMiner", Valid: true},
@@ -246,12 +217,8 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create discovered device: %v", err)
 		}
-		discoveredDeviceID, err := ddResult.LastInsertId()
-		if err != nil {
-			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to query discovered device last insert ID: %v", err)
-		}
 
-		result, err := q.InsertDevice(context.Background(), sqlc.InsertDeviceParams{
+		dbID, err := q.InsertDevice(context.Background(), sqlc.InsertDeviceParams{
 			OrgID:              organizationID,
 			DiscoveredDeviceID: discoveredDeviceID,
 			DeviceIdentifier:   uuidCurrent,
@@ -259,10 +226,6 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create device: %v", err)
-		}
-		dbID, err := result.LastInsertId()
-		if err != nil {
-			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to query last insert ID: %v", err)
 		}
 
 		return DeviceIdentification{
@@ -286,8 +249,8 @@ func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress str
 	assert.NoError(s.t, err)
 }
 
-func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID int64) (sqlc.DevicePairingPairingStatus, error) {
-	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (sqlc.DevicePairingPairingStatus, error) {
+func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID int64) (sqlc.PairingStatusEnum, error) {
+	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (sqlc.PairingStatusEnum, error) {
 		return q.GetDevicePairingStatusByDeviceDatabaseID(context.Background(), databaseDeviceID)
 	})
 }
@@ -355,7 +318,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		err = db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      device.DatabaseID,
-				PairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
+				PairingStatus: sqlc.PairingStatusEnumPAIRED,
 			})
 			return err
 		})

@@ -7,13 +7,13 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
-const createPool = `-- name: CreatePool :execresult
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+const createPool = `-- name: CreatePool :one
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
+RETURNING id
 `
 
 type CreatePoolParams struct {
@@ -25,8 +25,8 @@ type CreatePoolParams struct {
 	CreatedAt   time.Time
 }
 
-func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (sql.Result, error) {
-	return q.exec(ctx, q.createPoolStmt, createPool,
+func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error) {
+	row := q.queryRow(ctx, q.createPoolStmt, createPool,
 		arg.OrgID,
 		arg.PoolName,
 		arg.Url,
@@ -34,12 +34,15 @@ func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (sql.Res
 		arg.PasswordEnc,
 		arg.CreatedAt,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const deletePool = `-- name: DeletePool :exec
 DELETE
 FROM pool
-WHERE id = ?
+WHERE id = $1
 `
 
 func (q *Queries) DeletePool(ctx context.Context, id int64) error {
@@ -50,8 +53,8 @@ func (q *Queries) DeletePool(ctx context.Context, id int64) error {
 const getPool = `-- name: GetPool :one
 SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
 FROM pool
-WHERE org_id = ?
-  AND id = ?
+WHERE org_id = $1
+  AND id = $2
 `
 
 type GetPoolParams struct {
@@ -79,7 +82,7 @@ func (q *Queries) GetPool(ctx context.Context, arg GetPoolParams) (Pool, error) 
 const getTotalPools = `-- name: GetTotalPools :one
 SELECT COUNT(*)
 FROM pool
-WHERE org_id = ?
+WHERE org_id = $1
   AND deleted_at IS NULL
 `
 
@@ -93,7 +96,7 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 const listPools = `-- name: ListPools :many
 SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
 FROM pool
-WHERE org_id = ?
+WHERE org_id = $1
   AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
@@ -133,9 +136,9 @@ func (q *Queries) ListPools(ctx context.Context, orgID int64) ([]Pool, error) {
 
 const softDeletePool = `-- name: SoftDeletePool :exec
 UPDATE pool
-SET deleted_at = CURRENT_TIMESTAMP(6)
-WHERE org_id = ?
-  AND id = ?
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND id = $2
 `
 
 type SoftDeletePoolParams struct {
@@ -150,13 +153,13 @@ func (q *Queries) SoftDeletePool(ctx context.Context, arg SoftDeletePoolParams) 
 
 const updatePool = `-- name: UpdatePool :exec
 UPDATE pool
-SET pool_name     = ?,
-    url           = ?,
-    username      = ?,
-    password_enc = ?,
-    updated_at    = ?
-WHERE org_id = ?
-  AND id = ?
+SET pool_name     = $1,
+    url           = $2,
+    username      = $3,
+    password_enc = $4,
+    updated_at    = $5
+WHERE org_id = $6
+  AND id = $7
 `
 
 type UpdatePoolParams struct {

@@ -8,22 +8,23 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"strings"
 	"time"
+
+	"github.com/lib/pq"
+	"github.com/sqlc-dev/pqtype"
 )
 
 const closeStaleErrors = `-- name: CloseStaleErrors :execresult
 
 UPDATE errors
-SET closed_at = CURRENT_TIMESTAMP(6)
+SET closed_at = CURRENT_TIMESTAMP
 WHERE closed_at IS NULL
-  AND last_seen_at < ?
+  AND last_seen_at < $1
   AND EXISTS (
     SELECT 1
     FROM device_status ds
     WHERE ds.device_id = errors.device_id
-      AND ds.status_timestamp >= ?
+      AND ds.status_timestamp >= $2
   )
 `
 
@@ -47,17 +48,17 @@ SELECT COUNT(*) as total FROM (
     FROM errors e
     JOIN device d ON e.device_id = d.id
     JOIN discovered_device dd ON d.discovered_device_id = dd.id
-    WHERE e.org_id = ?
-        AND (? IS NULL OR e.last_seen_at >= ?)
-        AND (? IS NULL OR e.last_seen_at <= ?)
-        AND (? = TRUE OR e.closed_at IS NULL)
+    WHERE e.org_id = $1
+        AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
+        AND ($3::timestamptz IS NULL OR e.last_seen_at <= $3::timestamptz)
+        AND ($4::boolean = TRUE OR e.closed_at IS NULL)
         -- Filter criteria (AND logic): all provided filters must match
-        AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-        AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-        AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-        AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-        AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-        AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+        AND ($5::text IS NULL OR d.device_identifier = ANY($6::text[]))
+        AND ($7::text IS NULL OR dd.model = ANY($8::text[]))
+        AND ($9::text IS NULL OR e.severity = ANY($10::int[]))
+        AND ($11::text IS NULL OR e.miner_error = ANY($12::int[]))
+        AND ($13::text IS NULL OR e.component_type = ANY($14::int[]))
+        AND ($15::text IS NULL OR e.component_id = ANY($16::text[]))
 ) as component_count
 `
 
@@ -65,87 +66,41 @@ type CountComponentsWithErrorsParams struct {
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 }
 
 // Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error) {
-	query := countComponentsWithErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	row := q.queryRow(ctx, nil, query, queryParams...)
+	row := q.queryRow(ctx, q.countComponentsWithErrorsStmt, countComponentsWithErrors,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+	)
 	var total int64
 	err := row.Scan(&total)
 	return total, err
@@ -156,104 +111,58 @@ SELECT COUNT(DISTINCT e.device_id) as total
 FROM errors e
 JOIN device d ON e.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
-WHERE e.org_id = ?
-    AND (? IS NULL OR e.last_seen_at >= ?)
-    AND (? IS NULL OR e.last_seen_at <= ?)
-    AND (? = TRUE OR e.closed_at IS NULL)
+WHERE e.org_id = $1
+    AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
+    AND ($3::timestamptz IS NULL OR e.last_seen_at <= $3::timestamptz)
+    AND ($4::boolean = TRUE OR e.closed_at IS NULL)
     -- Filter criteria (AND logic): all provided filters must match
-    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    AND ($5::text IS NULL OR d.device_identifier = ANY($6::text[]))
+    AND ($7::text IS NULL OR dd.model = ANY($8::text[]))
+    AND ($9::text IS NULL OR e.severity = ANY($10::int[]))
+    AND ($11::text IS NULL OR e.miner_error = ANY($12::int[]))
+    AND ($13::text IS NULL OR e.component_type = ANY($14::int[]))
+    AND ($15::text IS NULL OR e.component_id = ANY($16::text[]))
 `
 
 type CountDevicesWithErrorsParams struct {
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 }
 
 // Counts distinct devices that have errors matching filter criteria.
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error) {
-	query := countDevicesWithErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	row := q.queryRow(ctx, nil, query, queryParams...)
+	row := q.queryRow(ctx, q.countDevicesWithErrorsStmt, countDevicesWithErrors,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+	)
 	var total int64
 	err := row.Scan(&total)
 	return total, err
@@ -264,111 +173,65 @@ SELECT COUNT(*) as total
 FROM errors e
 JOIN device d ON e.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
-WHERE e.org_id = ?
-    AND (? IS NULL OR e.last_seen_at >= ?)
-    AND (? IS NULL OR e.last_seen_at <= ?)
-    AND (? = TRUE OR e.closed_at IS NULL)
+WHERE e.org_id = $1
+    AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
+    AND ($3::timestamptz IS NULL OR e.last_seen_at <= $3::timestamptz)
+    AND ($4::boolean = TRUE OR e.closed_at IS NULL)
     -- Filter criteria (AND logic): all provided filters must match
-    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    AND ($5::text IS NULL OR d.device_identifier = ANY($6::text[]))
+    AND ($7::text IS NULL OR dd.model = ANY($8::text[]))
+    AND ($9::text IS NULL OR e.severity = ANY($10::int[]))
+    AND ($11::text IS NULL OR e.miner_error = ANY($12::int[]))
+    AND ($13::text IS NULL OR e.component_type = ANY($14::int[]))
+    AND ($15::text IS NULL OR e.component_id = ANY($16::text[]))
 `
 
 type CountErrorsParams struct {
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 }
 
 // Counts errors with AND filter logic (same logic as QueryErrors without pagination).
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error) {
-	query := countErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	row := q.queryRow(ctx, nil, query, queryParams...)
+	row := q.queryRow(ctx, q.countErrorsStmt, countErrors,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+	)
 	var total int64
 	err := row.Scan(&total)
 	return total, err
 }
 
 const getDeviceIDByIdentifier = `-- name: GetDeviceIDByIdentifier :one
-SELECT id FROM device WHERE device_identifier = ? AND org_id = ?
+SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2
 `
 
 type GetDeviceIDByIdentifierParams struct {
@@ -390,7 +253,7 @@ SELECT
     d.device_identifier
 FROM errors e
 JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id
-WHERE e.error_id = ? AND e.org_id = ?
+WHERE e.error_id = $1 AND e.org_id = $2
 `
 
 type GetErrorByErrorIDParams struct {
@@ -416,7 +279,7 @@ type GetErrorByErrorIDRow struct {
 	ComponentType     sql.NullInt32
 	VendorCode        sql.NullString
 	Firmware          sql.NullString
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeviceIdentifier  string
@@ -453,7 +316,7 @@ func (q *Queries) GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDPa
 }
 
 const getErrorByID = `-- name: GetErrorByID :one
-SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors WHERE id = ? AND org_id = ?
+SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors WHERE id = $1 AND org_id = $2
 `
 
 type GetErrorByIDParams struct {
@@ -492,11 +355,11 @@ func (q *Queries) GetErrorByID(ctx context.Context, arg GetErrorByIDParams) (Err
 
 const getOpenErrorByDedupKey = `-- name: GetOpenErrorByDedupKey :one
 SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors
-WHERE org_id = ?
-  AND device_id = ?
-  AND miner_error = ?
-  AND component_id <=> ?
-  AND component_type <=> ?
+WHERE org_id = $1
+  AND device_id = $2
+  AND miner_error = $3
+  AND component_id IS NOT DISTINCT FROM $4
+  AND component_type IS NOT DISTINCT FROM $5
   AND closed_at IS NULL
 LIMIT 1
 `
@@ -511,6 +374,7 @@ type GetOpenErrorByDedupKeyParams struct {
 
 // Finds an open error (closed_at IS NULL) matching the deduplication key.
 // Used to determine if an upsert should update an existing error or insert a new one.
+// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
 func (q *Queries) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error) {
 	row := q.queryRow(ctx, q.getOpenErrorByDedupKeyStmt, getOpenErrorByDedupKey,
 		arg.OrgID,
@@ -545,12 +409,13 @@ func (q *Queries) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorBy
 	return i, err
 }
 
-const insertError = `-- name: InsertError :execresult
+const insertError = `-- name: InsertError :one
 INSERT INTO errors (
     error_id, org_id, device_id, miner_error, severity, summary, impact,
     cause_summary, recommended_action, first_seen_at, last_seen_at,
     component_id, component_type, vendor_code, firmware, extra, closed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+RETURNING id
 `
 
 type InsertErrorParams struct {
@@ -569,13 +434,13 @@ type InsertErrorParams struct {
 	ComponentType     sql.NullInt32
 	VendorCode        sql.NullString
 	Firmware          sql.NullString
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	ClosedAt          sql.NullTime
 }
 
 // Inserts a new error record with all fields.
-func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (sql.Result, error) {
-	return q.exec(ctx, q.insertErrorStmt, insertError,
+func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
+	row := q.queryRow(ctx, q.insertErrorStmt, insertError,
 		arg.ErrorID,
 		arg.OrgID,
 		arg.DeviceID,
@@ -594,6 +459,9 @@ func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (sql.R
 		arg.Extra,
 		arg.ClosedAt,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const queryComponentKeysWithErrors = `-- name: QueryComponentKeysWithErrors :many
@@ -607,56 +475,56 @@ SELECT
 FROM errors e
 JOIN device d ON e.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
-WHERE e.org_id = ?
-    AND (? IS NULL OR e.last_seen_at >= ?)
-    AND (? IS NULL OR e.last_seen_at <= ?)
-    AND (? = TRUE OR e.closed_at IS NULL)
+WHERE e.org_id = $2
+    AND ($3::timestamptz IS NULL OR e.last_seen_at >= $3::timestamptz)
+    AND ($4::timestamptz IS NULL OR e.last_seen_at <= $4::timestamptz)
+    AND ($5::boolean = TRUE OR e.closed_at IS NULL)
     -- Filter criteria (AND logic): all provided filters must match
-    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    AND ($6::text IS NULL OR d.device_identifier = ANY($7::text[]))
+    AND ($8::text IS NULL OR dd.model = ANY($9::text[]))
+    AND ($10::text IS NULL OR e.severity = ANY($11::int[]))
+    AND ($12::text IS NULL OR e.miner_error = ANY($13::int[]))
+    AND ($14::text IS NULL OR e.component_type = ANY($15::int[]))
+    AND ($16::text IS NULL OR e.component_id = ANY($17::text[]))
     -- Component cursor: keyset pagination using (worst_severity, device_id, component_type, component_id) compound key
     -- Must skip rows where (worst_severity, device_id, component_type, component_id) <= cursor position in sort order
 GROUP BY e.device_id, d.device_identifier, e.component_type, e.component_id
 HAVING (
-    ? IS NULL
-    OR MIN(e.severity) > ?
-    OR (MIN(e.severity) = ? AND e.device_id > ?)
-    OR (MIN(e.severity) = ? AND e.device_id = ? AND e.component_type > ?)
-    OR (MIN(e.severity) = ? AND e.device_id = ? AND e.component_type = ? AND (
-        e.component_id > ?
-        OR (? IS NULL AND e.component_id IS NOT NULL)
+    $18::int IS NULL
+    OR MIN(e.severity) > $18::int
+    OR (MIN(e.severity) = $18::int AND e.device_id > $19::bigint)
+    OR (MIN(e.severity) = $18::int AND e.device_id = $19::bigint AND e.component_type > $20::int)
+    OR (MIN(e.severity) = $18::int AND e.device_id = $19::bigint AND e.component_type = $20::int AND (
+        e.component_id > $21::text
+        OR ($21::text IS NULL AND e.component_id IS NOT NULL)
     ))
 )
 ORDER BY worst_severity ASC, e.device_id ASC, e.component_type ASC, e.component_id ASC
-LIMIT ?
+LIMIT $1
 `
 
 type QueryComponentKeysWithErrorsParams struct {
+	Limit               int32
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 	CursorSeverity      sql.NullInt32
 	CursorDeviceID      sql.NullInt64
 	CursorComponentType sql.NullInt32
 	CursorComponentID   sql.NullString
-	Limit               int32
 }
 
 type QueryComponentKeysWithErrorsRow struct {
@@ -673,84 +541,30 @@ type QueryComponentKeysWithErrorsRow struct {
 // Gets distinct (device_id, component_type, component_id) tuples that have errors, sorted by worst severity.
 // Uses cursor-based pagination on (device_id, component_type, component_id) for ResultViewComponent pagination.
 // Returns device_identifier (for re-filtering) alongside device_id (for keyset pagination).
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) QueryComponentKeysWithErrors(ctx context.Context, arg QueryComponentKeysWithErrorsParams) ([]QueryComponentKeysWithErrorsRow, error) {
-	query := queryComponentKeysWithErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorDeviceID)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorDeviceID)
-	queryParams = append(queryParams, arg.CursorComponentType)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorDeviceID)
-	queryParams = append(queryParams, arg.CursorComponentType)
-	queryParams = append(queryParams, arg.CursorComponentID)
-	queryParams = append(queryParams, arg.CursorComponentID)
-	queryParams = append(queryParams, arg.Limit)
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.queryComponentKeysWithErrorsStmt, queryComponentKeysWithErrors,
+		arg.Limit,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+		arg.CursorSeverity,
+		arg.CursorDeviceID,
+		arg.CursorComponentType,
+		arg.CursorComponentID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -787,49 +601,49 @@ SELECT
 FROM errors e
 JOIN device d ON e.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
-WHERE e.org_id = ?
-    AND (? IS NULL OR e.last_seen_at >= ?)
-    AND (? IS NULL OR e.last_seen_at <= ?)
-    AND (? = TRUE OR e.closed_at IS NULL)
+WHERE e.org_id = $2
+    AND ($3::timestamptz IS NULL OR e.last_seen_at >= $3::timestamptz)
+    AND ($4::timestamptz IS NULL OR e.last_seen_at <= $4::timestamptz)
+    AND ($5::boolean = TRUE OR e.closed_at IS NULL)
     -- Filter criteria (AND logic): all provided filters must match
-    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    AND ($6::text IS NULL OR d.device_identifier = ANY($7::text[]))
+    AND ($8::text IS NULL OR dd.model = ANY($9::text[]))
+    AND ($10::text IS NULL OR e.severity = ANY($11::int[]))
+    AND ($12::text IS NULL OR e.miner_error = ANY($13::int[]))
+    AND ($14::text IS NULL OR e.component_type = ANY($15::int[]))
+    AND ($16::text IS NULL OR e.component_id = ANY($17::text[]))
     -- Device cursor: keyset pagination using (worst_severity, device_id) compound key
     -- Must skip rows where (worst_severity, device_id) <= cursor position in sort order
 GROUP BY e.device_id, d.device_identifier
 HAVING (
-    ? IS NULL
-    OR MIN(e.severity) > ?
-    OR (MIN(e.severity) = ? AND e.device_id > ?)
+    $18::int IS NULL
+    OR MIN(e.severity) > $18::int
+    OR (MIN(e.severity) = $18::int AND e.device_id > $19::bigint)
 )
 ORDER BY worst_severity ASC, e.device_id ASC
-LIMIT ?
+LIMIT $1
 `
 
 type QueryDeviceIDsWithErrorsParams struct {
+	Limit               int32
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 	CursorSeverity      sql.NullInt32
 	CursorDeviceID      sql.NullInt64
-	Limit               int32
 }
 
 type QueryDeviceIDsWithErrorsRow struct {
@@ -844,76 +658,28 @@ type QueryDeviceIDsWithErrorsRow struct {
 // Gets distinct device IDs that have errors, sorted by worst severity then device_id.
 // Uses cursor-based pagination on device_id for ResultViewDevice pagination.
 // Returns both device_id (for keyset pagination) and device_identifier (for re-filtering).
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) QueryDeviceIDsWithErrors(ctx context.Context, arg QueryDeviceIDsWithErrorsParams) ([]QueryDeviceIDsWithErrorsRow, error) {
-	query := queryDeviceIDsWithErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorDeviceID)
-	queryParams = append(queryParams, arg.Limit)
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.queryDeviceIDsWithErrorsStmt, queryDeviceIDsWithErrors,
+		arg.Limit,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+		arg.CursorSeverity,
+		arg.CursorDeviceID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -963,50 +729,50 @@ SELECT
 FROM errors e
 JOIN device d ON e.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
-WHERE e.org_id = ?
+WHERE e.org_id = $2
     -- Base filters (always AND)
-    AND (? IS NULL OR e.last_seen_at >= ?)
-    AND (? IS NULL OR e.last_seen_at <= ?)
-    AND (? = TRUE OR e.closed_at IS NULL)
+    AND ($3::timestamptz IS NULL OR e.last_seen_at >= $3::timestamptz)
+    AND ($4::timestamptz IS NULL OR e.last_seen_at <= $4::timestamptz)
+    AND ($5::boolean = TRUE OR e.closed_at IS NULL)
     -- Filter criteria (AND logic): all provided filters must match
-    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
-    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
-    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
-    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
-    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
-    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    AND ($6::text IS NULL OR d.device_identifier = ANY($7::text[]))
+    AND ($8::text IS NULL OR dd.model = ANY($9::text[]))
+    AND ($10::text IS NULL OR e.severity = ANY($11::int[]))
+    AND ($12::text IS NULL OR e.miner_error = ANY($13::int[]))
+    AND ($14::text IS NULL OR e.component_type = ANY($15::int[]))
+    AND ($16::text IS NULL OR e.component_id = ANY($17::text[]))
     -- Cursor pagination: skip rows before cursor position
     AND (
-        ? IS NULL
-        OR e.severity > ?
-        OR (e.severity = ? AND e.last_seen_at < ?)
-        OR (e.severity = ? AND e.last_seen_at = ? AND e.error_id < ?)
+        $18::int IS NULL
+        OR e.severity > $18::int
+        OR (e.severity = $18::int AND e.last_seen_at < $19::timestamptz)
+        OR (e.severity = $18::int AND e.last_seen_at = $19::timestamptz AND e.error_id < $20::text)
     )
 ORDER BY e.severity ASC, e.last_seen_at DESC, e.error_id DESC
-LIMIT ?
+LIMIT $1
 `
 
 type QueryErrorsParams struct {
+	Limit               int32
 	OrgID               int64
 	TimeFrom            sql.NullTime
 	TimeTo              sql.NullTime
-	IncludeClosed       interface{}
-	DeviceFilter        interface{}
+	IncludeClosed       bool
+	DeviceFilter        sql.NullString
 	DeviceIdentifiers   []string
-	DeviceTypeFilter    interface{}
-	DeviceTypes         []sql.NullString
-	SeverityFilter      interface{}
+	DeviceTypeFilter    sql.NullString
+	DeviceTypes         []string
+	SeverityFilter      sql.NullString
 	Severities          []int32
-	MinerErrorFilter    interface{}
+	MinerErrorFilter    sql.NullString
 	MinerErrors         []int32
-	ComponentTypeFilter interface{}
-	ComponentTypes      []sql.NullInt32
-	ComponentIDFilter   interface{}
-	ComponentIds        []sql.NullString
+	ComponentTypeFilter sql.NullString
+	ComponentTypes      []int32
+	ComponentIDFilter   sql.NullString
+	ComponentIds        []string
 	CursorSeverity      sql.NullInt32
 	CursorLastSeen      sql.NullTime
 	CursorErrorID       sql.NullString
-	Limit               int32
 }
 
 type QueryErrorsRow struct {
@@ -1027,7 +793,7 @@ type QueryErrorsRow struct {
 	ComponentType     sql.NullInt32
 	VendorCode        sql.NullString
 	Firmware          sql.NullString
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeviceIdentifier  string
@@ -1040,79 +806,29 @@ type QueryErrorsRow struct {
 // Queries errors with AND filter logic where all provided filter criteria must match.
 // Time range and include_closed are always applied as base filters.
 // Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
-// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
 func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error) {
-	query := queryErrors
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.OrgID)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeFrom)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.TimeTo)
-	queryParams = append(queryParams, arg.IncludeClosed)
-	queryParams = append(queryParams, arg.DeviceFilter)
-	if len(arg.DeviceIdentifiers) > 0 {
-		for _, v := range arg.DeviceIdentifiers {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.DeviceTypeFilter)
-	if len(arg.DeviceTypes) > 0 {
-		for _, v := range arg.DeviceTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.SeverityFilter)
-	if len(arg.Severities) > 0 {
-		for _, v := range arg.Severities {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.MinerErrorFilter)
-	if len(arg.MinerErrors) > 0 {
-		for _, v := range arg.MinerErrors {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentTypeFilter)
-	if len(arg.ComponentTypes) > 0 {
-		for _, v := range arg.ComponentTypes {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.ComponentIDFilter)
-	if len(arg.ComponentIds) > 0 {
-		for _, v := range arg.ComponentIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorLastSeen)
-	queryParams = append(queryParams, arg.CursorSeverity)
-	queryParams = append(queryParams, arg.CursorLastSeen)
-	queryParams = append(queryParams, arg.CursorErrorID)
-	queryParams = append(queryParams, arg.Limit)
-	rows, err := q.query(ctx, nil, query, queryParams...)
+	rows, err := q.query(ctx, q.queryErrorsStmt, queryErrors,
+		arg.Limit,
+		arg.OrgID,
+		arg.TimeFrom,
+		arg.TimeTo,
+		arg.IncludeClosed,
+		arg.DeviceFilter,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.DeviceTypeFilter,
+		pq.Array(arg.DeviceTypes),
+		arg.SeverityFilter,
+		pq.Array(arg.Severities),
+		arg.MinerErrorFilter,
+		pq.Array(arg.MinerErrors),
+		arg.ComponentTypeFilter,
+		pq.Array(arg.ComponentTypes),
+		arg.ComponentIDFilter,
+		pq.Array(arg.ComponentIds),
+		arg.CursorSeverity,
+		arg.CursorLastSeen,
+		arg.CursorErrorID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1159,17 +875,17 @@ func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]Que
 
 const updateOpenError = `-- name: UpdateOpenError :exec
 UPDATE errors SET
-    last_seen_at = ?,
-    severity = ?,
-    summary = ?,
-    impact = ?,
-    cause_summary = ?,
-    recommended_action = ?,
-    vendor_code = ?,
-    firmware = ?,
-    extra = ?,
-    closed_at = ?
-WHERE id = ? AND closed_at IS NULL
+    last_seen_at = $1,
+    severity = $2,
+    summary = $3,
+    impact = $4,
+    cause_summary = $5,
+    recommended_action = $6,
+    vendor_code = $7,
+    firmware = $8,
+    extra = $9,
+    closed_at = $10
+WHERE id = $11 AND closed_at IS NULL
 `
 
 type UpdateOpenErrorParams struct {
@@ -1181,7 +897,7 @@ type UpdateOpenErrorParams struct {
 	RecommendedAction sql.NullString
 	VendorCode        sql.NullString
 	Firmware          sql.NullString
-	Extra             json.RawMessage
+	Extra             pqtype.NullRawMessage
 	ClosedAt          sql.NullTime
 	ID                int64
 }

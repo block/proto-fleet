@@ -18,7 +18,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
@@ -377,9 +377,9 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 		// Create user
 		userID, err := s.userManagementStore.CreateUser(ctx, createdUserID, trimmedUsername, string(hashedPassword), true)
 		if err != nil {
-			// Check if this is a duplicate key error (MySQL error code 1062)
-			var mysqlErr *mysql.MySQLError
-			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			// Check if this is a duplicate key error (PostgreSQL unique_violation code 23505)
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				return fleeterror.NewErrorWithEndpointCode(
 					"username already exists",
 					connect.CodeAlreadyExists,

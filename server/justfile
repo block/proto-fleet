@@ -1,4 +1,5 @@
 set dotenv-load
+set export
 
 # list available recipies 
 default:
@@ -40,9 +41,9 @@ start:
 stop:
   docker compose down
 
-# run all tests
+# run all tests (DB_PASSWORD defaults to 'fleet' for local/CI testing)
 test:
-    go test ./... -skip ./generated/...
+    DB_PASSWORD="${DB_PASSWORD:-fleet}" go test ./... -skip ./generated/...
 
 # run e2e plugin integration test
 test-plugin-integration:
@@ -69,25 +70,25 @@ gen-miner-protos:
 gen-go:
   go generate ./...
 
-# start db
+# start db (PostgreSQL via TimescaleDB)
 db-up:
-  docker compose up --wait mysql
+  docker compose up --wait timescaledb
 
 # run a db migration
 db-migrate:
-  migrate -database mysql://root:@tcp/fleet -path migrations up
+  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations up
 
 # stop the db
 db-down:
-  docker compose down mysql
+  docker compose down timescaledb
 
 # tear down the db by running down migrations
 db-clean:
-  migrate -database mysql://root:@tcp/fleet -path migrations down
+  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations down
 
-# launch mysql shell for interacting with the db started via db-up
+# launch psql shell for interacting with the db started via db-up
 db-shell:
-  mysql -h 127.0.0.1 -u root --database fleet
+  psql -h 127.0.0.1 -U fleet -d fleet
 
 # create a new migration
 new-migration name:

@@ -82,7 +82,7 @@ func TestPluginIntegration(t *testing.T) {
 
 // testDockerContainersRunning verifies all required Docker containers are running
 func testDockerContainersRunning(t *testing.T) {
-	requiredContainers := []string{"fleet-api", "proto-sim", "mysql", "influxdb"}
+	requiredContainers := []string{"fleet-api", "proto-sim", "timescaledb"}
 
 	for _, container := range requiredContainers {
 		containerName := containerPrefix + container + "-1"
@@ -192,14 +192,14 @@ func testProtoSimAccessible(t *testing.T, _ context.Context) {
 
 // testDatabaseConnectivity verifies database is accessible
 func testDatabaseConnectivity(t *testing.T) {
-	cmd := exec.Command("docker", "exec", containerPrefix+"mysql-1",
-		"mysql", "-u", "root", "fleet", "-e", "SELECT 1")
+	cmd := exec.Command("docker", "exec", containerPrefix+"timescaledb-1",
+		"psql", "-U", "fleet", "-d", "fleet", "-c", "SELECT 1")
 	err := cmd.Run()
 	require.NoError(t, err, "should be able to connect to database")
 
 	// Verify tables exist
-	cmd = exec.Command("docker", "exec", containerPrefix+"mysql-1",
-		"mysql", "-u", "root", "fleet", "-e", "SHOW TABLES;")
+	cmd = exec.Command("docker", "exec", containerPrefix+"timescaledb-1",
+		"psql", "-U", "fleet", "-d", "fleet", "-c", "\\dt")
 	output, err := cmd.Output()
 	require.NoError(t, err, "should be able to query tables")
 
