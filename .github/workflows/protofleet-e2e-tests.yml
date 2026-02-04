@@ -185,7 +185,7 @@ jobs:
           VITE_COMMIT: ${{ github.sha }}
         run: |
           # Start frontend in background (already built in earlier step)
-          npx vite preview --mode protoFleet --port 5173 --host & 
+          npx vite preview --mode protoFleet --port 5173 --host &
           VITE_PID=$!
           echo "Vite PID: $VITE_PID"
 
@@ -215,15 +215,27 @@ jobs:
 
       - name: Submit test results to Testmo
         if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        working-directory: client/e2eTests
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
         run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+            echo "XML declaration missing, adding it..."
+            echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+            mv test-results/results-fixed.xml test-results/results.xml
+            echo "First 2 lines after fix:"
+            head -n 2 test-results/results.xml
+          else
+            echo "XML declaration already present"
+          fi
+
           testmo automation:run:submit \
             --instance https://proto.testmo.net \
             --project-id 2 \
-            --name "Nightly E2E Tests - ${{ matrix.project }} - $(date +'%Y-%m-%d')" \
-            --source "e2e-tests" \
-            --results client/e2eTests/test-results/*.xml
+            --name "E2E Tests - ${{ matrix.project }} - $(date +'%Y-%m-%d %H:%M')" \
+            --source "e2e-tests-${{ matrix.project }}" \
+            --results test-results/*.xml
 
       - name: Determine report directory
         if: ${{ !cancelled() }}
