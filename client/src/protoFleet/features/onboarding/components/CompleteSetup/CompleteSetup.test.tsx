@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CompleteSetup from "./CompleteSetup";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
@@ -10,9 +10,18 @@ import { useLastPairingCompletedAt } from "@/protoFleet/store";
 vi.mock("@/protoFleet/api/useAuthNeededMiners");
 vi.mock("@/protoFleet/api/usePoolNeededCount");
 vi.mock("@/protoFleet/api/useMinerCommand");
+const mockRefetchMiners = vi.fn();
 vi.mock("@/protoFleet/store", () => ({
   useLastPairingCompletedAt: vi.fn(),
   useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
+  useFleetStore: (selector: any) => {
+    const state = {
+      fleet: {
+        refetchMiners: mockRefetchMiners,
+      },
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
 vi.mock("@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage", () => ({
@@ -582,13 +591,13 @@ describe("CompleteSetup", () => {
         </MemoryRouter>,
       );
 
-      // First poll should happen immediately
+      // First poll should happen after 1s initial delay
       await waitFor(
         () => {
           expect(mockRefetchAuthNeededMiners).toHaveBeenCalled();
           expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
         },
-        { timeout: 1000 },
+        { timeout: 1500 },
       );
     });
 
@@ -631,7 +640,7 @@ describe("CompleteSetup", () => {
         () => {
           expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
         },
-        { timeout: 1000 },
+        { timeout: 1500 },
       );
 
       // Simulate backend detecting miners with NEEDS_MINING_POOL status
@@ -697,7 +706,7 @@ describe("CompleteSetup", () => {
         () => {
           expect(mockRefetchAuthNeededMiners).toHaveBeenCalled();
         },
-        { timeout: 1000 },
+        { timeout: 1500 },
       );
 
       const callCountAfterFirst = mockRefetchAuthNeededMiners.mock.calls.length;
@@ -765,7 +774,7 @@ describe("CompleteSetup", () => {
         () => {
           expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
         },
-        { timeout: 1000 },
+        { timeout: 1500 },
       );
 
       // Button should now be in loading state
@@ -801,7 +810,7 @@ describe("CompleteSetup", () => {
         () => {
           expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
         },
-        { timeout: 1000 },
+        { timeout: 1500 },
       );
 
       // Simulate pool configuration completing - count goes to 0
@@ -822,6 +831,50 @@ describe("CompleteSetup", () => {
       await waitFor(() => {
         expect(screen.queryByText("Complete setup")).not.toBeInTheDocument();
       });
+    });
+
+    it("exits loading state after all polls complete even when pool count unchanged", async () => {
+      vi.useFakeTimers();
+
+      try {
+        const mockPoolNeededHook = vi.mocked(usePoolNeededCount);
+
+        // Start with miners needing pools
+        mockPoolNeededHook.mockReturnValue({
+          poolNeededCount: 5,
+          isLoading: false,
+          hasInitialLoadCompleted: true,
+          refetch: mockRefetchPoolNeededCount,
+        });
+
+        const { rerender } = renderCompleteSetup();
+
+        // Trigger polling via pairing completion
+        const timestamp = Date.now();
+        vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
+
+        rerender(
+          <MemoryRouter>
+            <CompleteSetup />
+          </MemoryRouter>,
+        );
+
+        // Button should be in loading state after polling starts
+        let configureButton = screen.getByRole("button", { name: /configure/i });
+        expect(configureButton).toHaveAttribute("disabled");
+
+        // Advance through all 10 polls and flush React state updates
+        // Total polling time: 1000ms initial delay + 9 × 2000ms intervals = 19000ms
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(19000);
+        });
+
+        // After all polls complete, button should no longer be disabled
+        configureButton = screen.getByRole("button", { name: /configure/i });
+        expect(configureButton).not.toHaveAttribute("disabled");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

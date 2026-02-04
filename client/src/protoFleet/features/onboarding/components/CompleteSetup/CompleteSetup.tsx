@@ -7,10 +7,10 @@ import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import usePoolNeededCount from "@/protoFleet/api/usePoolNeededCount";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
-import { useLastPairingCompletedAt } from "@/protoFleet/store";
+import { useFleetStore, useLastPairingCompletedAt } from "@/protoFleet/store";
 import { Alert, Dismiss, MiningPools } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
-import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 type TaskCardProps = {
@@ -150,130 +150,169 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
   const pollingCleanupRef = useRef<(() => void) | null>(null);
   // Track pool count when polling starts to detect changes
   const poolCountWhenPollingStartedRef = useRef<number | null>(null);
+  // Store target count for pool assignment operation (used for toast message when complete)
+  const pendingPoolAssignmentRef = useRef<{ targetCount: number; failureCount: number } | null>(null);
+  const refetchMiners = useFleetStore((state) => state.fleet.refetchMiners);
 
-  // Reusable polling logic with exponential backoff
-  // Returns cleanup function to cancel pending polls
+  // Track latest poolNeededCount to avoid stale closure in callbacks
+  const poolNeededCountRef = useRef(poolNeededCount);
+  useEffect(() => {
+    poolNeededCountRef.current = poolNeededCount;
+  }, [poolNeededCount]);
+
+  // Show completion toast and refresh miner table when pool assignment finishes
+  const finalizePoolAssignment = useCallback(() => {
+    if (!pendingPoolAssignmentRef.current) return;
+
+    const { targetCount, failureCount } = pendingPoolAssignmentRef.current;
+    const minerLabel = targetCount === 1 ? "miner" : "miners";
+    if (failureCount > 0) {
+      pushToast({
+        message: `Pool assignment failed for ${failureCount} of ${targetCount} ${minerLabel}`,
+        status: TOAST_STATUSES.error,
+      });
+    } else {
+      pushToast({
+        message: `Assigned pools to ${targetCount} ${minerLabel}`,
+        status: TOAST_STATUSES.success,
+      });
+    }
+    pendingPoolAssignmentRef.current = null;
+
+    // Refresh the miner table to reflect updated statuses
+    refetchMiners?.();
+  }, [refetchMiners]);
+
+  // Polls for status updates with fixed 2s intervals after 1s initial delay.
+  // Returns cleanup function to cancel pending polls.
   const pollForStatusUpdates = useCallback(() => {
     setIsPollingAfterPoolAssignment(true);
-    // Capture the current pool count when polling starts
-    poolCountWhenPollingStartedRef.current = poolNeededCount;
+    poolCountWhenPollingStartedRef.current = poolNeededCountRef.current;
 
     let pollCount = 0;
-    const maxPolls = 6;
+    const maxPolls = 10;
+    const pollIntervalMs = 2000;
+    const initialDelayMs = 1000;
     const timeouts: ReturnType<typeof setTimeout>[] = [];
     let cancelled = false;
 
-    const poll = () => {
-      if (cancelled) {
-        return;
-      }
-
-      refetchAuthNeededMiners();
-      refetchPoolNeededCount();
-
-      pollCount += 1;
-
-      if (pollCount < maxPolls) {
-        // Exponential backoff: 500ms, 1s, 2s, 4s, 8s (5 delays for 6 total polls)
-        const delay = 500 * Math.pow(2, pollCount - 1);
-
-        const timeoutId = setTimeout(() => {
-          poll();
-        }, delay);
-
-        timeouts.push(timeoutId);
-      }
-    };
-
-    poll();
-
-    // Return cleanup function
-    const cleanup = () => {
-      cancelled = true;
-      timeouts.forEach((id) => clearTimeout(id));
+    const resetPollingState = () => {
       pollingCleanupRef.current = null;
       poolCountWhenPollingStartedRef.current = null;
       setIsPollingAfterPoolAssignment(false);
     };
 
+    const poll = () => {
+      if (cancelled) return;
+
+      refetchAuthNeededMiners();
+      refetchPoolNeededCount();
+      pollCount += 1;
+
+      if (pollCount < maxPolls) {
+        timeouts.push(setTimeout(poll, pollIntervalMs));
+      } else {
+        // Max polls reached - finalize and reset
+        finalizePoolAssignment();
+        resetPollingState();
+      }
+    };
+
+    // Initial delay gives backend time to process updates
+    timeouts.push(setTimeout(poll, initialDelayMs));
+
+    const cleanup = () => {
+      cancelled = true;
+      timeouts.forEach(clearTimeout);
+      resetPollingState();
+    };
+
     pollingCleanupRef.current = cleanup;
     return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- poolNeededCount intentionally omitted to prevent stale closure; ref-based tracking used instead
-  }, [refetchAuthNeededMiners, refetchPoolNeededCount]);
+  }, [refetchAuthNeededMiners, refetchPoolNeededCount, finalizePoolAssignment]);
 
-  // Stop polling once we detect pool count has changed from when polling started
+  // Stop polling and show toast when pool count decreases (pool assignment succeeded)
   useEffect(() => {
-    if (pollingCleanupRef.current && poolCountWhenPollingStartedRef.current !== null) {
+    // Check pending assignment first - it has the target count from when operation started
+    if (pendingPoolAssignmentRef.current && poolNeededCount < pendingPoolAssignmentRef.current.targetCount) {
+      finalizePoolAssignment();
+      pollingCleanupRef.current?.();
+    }
+    // Only check for pairing completion flow when there's no pending pool assignment.
+    // Without this guard, a pool count increase (e.g., another miner entering NEEDS_MINING_POOL)
+    // would stop polling without showing the completion toast.
+    else if (
+      !pendingPoolAssignmentRef.current &&
+      pollingCleanupRef.current &&
+      poolCountWhenPollingStartedRef.current !== null
+    ) {
       const hasChanged = poolCountWhenPollingStartedRef.current !== poolNeededCount;
       if (hasChanged) {
         pollingCleanupRef.current();
       }
     }
-  }, [poolNeededCount]);
+  }, [poolNeededCount, finalizePoolAssignment]);
 
   // Ensure polling is cleaned up if the component unmounts while polling is active
   useEffect(() => {
     return () => {
-      if (pollingCleanupRef.current) {
-        pollingCleanupRef.current();
-      }
+      pollingCleanupRef.current?.();
     };
   }, []);
 
   // Handlers for pool selection modal
   const handlePoolAssignmentSuccess = useCallback(
-    (batchIdentifier: string) => {
+    async (batchIdentifier: string) => {
       setShowPoolSelectionModal(false);
 
-      const toastId = pushToast({
-        message: "Assigning pools to miners",
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-      });
+      // Show loading state immediately while stream runs
+      setIsPollingAfterPoolAssignment(true);
+
+      // Capture target count at operation start (miners needing pools)
+      const targetCount = poolNeededCountRef.current;
+      let failureCount = 0;
+      let streamErrorOccurred = false;
 
       const streamAbortController = new AbortController();
-      let errorToastId: number | null = null;
-      let successCount = 0;
-      let totalCount = 0;
 
-      streamCommandBatchUpdates({
+      await streamCommandBatchUpdates({
         streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
           batchIdentifier,
         }),
         onStreamData: (response) => {
-          totalCount = Number(response.status?.commandBatchDeviceCount?.total || 0);
-          successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
+          const success = Number(response.status?.commandBatchDeviceCount?.success || 0);
+          const failure = Number(response.status?.commandBatchDeviceCount?.failure || 0);
+          const completed = success + failure;
+          const serverTotal = Number(response.status?.commandBatchDeviceCount?.total || 0);
 
-          updateToast(toastId, {
-            message: `Assigned pools to ${successCount} out of ${totalCount} miners`,
-            status: TOAST_STATUSES.success,
-          });
+          // Track failures for completion toast
+          failureCount = failure;
 
-          const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
-          if (failureCount > 0) {
-            if (!errorToastId) {
-              errorToastId = pushToast({
-                message: `Update failed on ${failureCount} out of ${totalCount} miners`,
-                status: TOAST_STATUSES.error,
-                longRunning: true,
-              });
-            } else {
-              updateToast(errorToastId, {
-                message: `Update failed on ${failureCount} out of ${totalCount} miners`,
-                status: TOAST_STATUSES.error,
-              });
-            }
+          // Abort stream when all devices in the batch have completed (per server-reported total)
+          if (serverTotal > 0 && completed >= serverTotal) {
+            streamAbortController.abort();
           }
         },
-        streamAbortController: streamAbortController,
-      }).finally(() => {
-        updateToast(toastId, {
-          message: `Assigned pools to ${successCount} out of ${totalCount} miners`,
-          status: TOAST_STATUSES.success,
-        });
-        // Start polling to wait for backend to update device status
-        pollForStatusUpdates();
+        onError: (error) => {
+          streamErrorOccurred = true;
+          setIsPollingAfterPoolAssignment(false);
+          pushToast({
+            message: `Pool assignment failed: ${error}`,
+            status: TOAST_STATUSES.error,
+          });
+        },
+        streamAbortController,
       });
+
+      // Don't proceed with polling if stream encountered an error
+      if (streamErrorOccurred) {
+        return;
+      }
+
+      // Store info for completion toast when polling detects count change
+      pendingPoolAssignmentRef.current = { targetCount, failureCount };
+
+      pollForStatusUpdates();
     },
     [streamCommandBatchUpdates, pollForStatusUpdates],
   );
