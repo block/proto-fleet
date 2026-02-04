@@ -255,13 +255,14 @@ if [[ "$has_component_type" == true ]]; then
     where_clause="WHERE component_type IS NULL OR component_type = ''"
 fi
 
-# Execute the dynamic INSERT
+# Execute the dynamic INSERT (ON CONFLICT skips duplicate time+device_identifier rows)
 insert_output=""
 if ! insert_output=$(psql_run "
 INSERT INTO device_metrics ($insert_cols)
 SELECT $select_cols
 FROM device_metrics_staging
-$where_clause;
+$where_clause
+ON CONFLICT (time, device_identifier) DO NOTHING;
 " 2>&1); then
     echo "  ERROR: INSERT failed"
     echo "  $insert_output"

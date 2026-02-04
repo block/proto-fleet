@@ -113,7 +113,8 @@ import_table() {
     # Filter empty lines and pipe through docker exec to psql
     # MySQL's INTO OUTFILE exports NULL as \N by default
     local copy_output
-    if ! copy_output=$(grep -v '^[[:space:]]*$' "$input_file" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$POSTGRES_CONTAINER" \
+    # Replace MySQL zero dates with Unix epoch (PostgreSQL rejects 0000-00-00 dates)
+    if ! copy_output=$(grep -v '^[[:space:]]*$' "$input_file" | sed 's/0000-00-00 00:00:00\.[0-9]*/1970-01-01 00:00:00.000000/g' | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$POSTGRES_CONTAINER" \
         psql -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" -c \
         "COPY $pg_table ($pg_columns) FROM STDIN WITH (FORMAT csv, DELIMITER ',', HEADER true, NULL '\\N', QUOTE '\"');" 2>&1); then
         echo "FAILED"
