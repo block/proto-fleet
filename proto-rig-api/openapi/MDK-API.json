@@ -10,7 +10,7 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.7.2"
+    "version": "1.7.3"
   },
   "servers": [
     {
@@ -3007,6 +3007,11 @@
             "type": "number",
             "description": "Current temperature of the ASIC in celsius",
             "example": 45.5
+          },
+          "voltage_mv": {
+            "type": "number",
+            "description": "The present voltage being supplied to the ASIC in millivolts.",
+            "example": 308.44
           },
           "hashrate_ghs": {
             "type": "number",

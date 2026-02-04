@@ -77,6 +77,11 @@ export interface AsicStats {
    * @example 45.5
    */
   temp_c?: number;
+  /**
+   * The present voltage being supplied to the ASIC in millivolts.
+   * @example 308.44
+   */
+  voltage_mv?: number;
 }
 
 /** Response containing statistics data for a specific ASIC chip */
@@ -2115,7 +2120,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.7.2
+ * @version 1.7.3
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>
