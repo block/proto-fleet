@@ -79,6 +79,8 @@ Options:
     --skip-import           Skip import phase (only export data)
     --export-dir DIR        Export/Import directory (default: /tmp/proto-fleet-migration-TIMESTAMP)
     --dry-run               Show what would be done without making changes
+    --mysql-only            Only migrate MySQL data (skip InfluxDB)
+    --influxdb-only         Only migrate InfluxDB telemetry (skip MySQL)
     -h, --help              Show this help message
 
 This script will:
@@ -98,6 +100,8 @@ EOF
 SKIP_EXPORT=false
 SKIP_IMPORT=false
 DRY_RUN=false
+MYSQL_ONLY=false
+INFLUXDB_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -105,10 +109,18 @@ while [[ $# -gt 0 ]]; do
         --skip-import) SKIP_IMPORT=true; shift ;;
         --export-dir) MIGRATION_DIR="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
+        --mysql-only) MYSQL_ONLY=true; shift ;;
+        --influxdb-only) INFLUXDB_ONLY=true; shift ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
 done
+
+# Validate mutually exclusive options
+if [[ "$MYSQL_ONLY" == true ]] && [[ "$INFLUXDB_ONLY" == true ]]; then
+    echo "Error: --mysql-only and --influxdb-only are mutually exclusive"
+    exit 1
+fi
 
 # ============================================================================
 # Pre-flight Checks
@@ -206,50 +218,58 @@ export_data() {
     mkdir -p "$MIGRATION_DIR"
     log_info "Export directory: $MIGRATION_DIR"
 
-    # Ensure MySQL container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "^${MYSQL_CONTAINER}$"; then
-        log_info "Starting MySQL container..."
-        docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d mysql
-        # Wait for MySQL to be ready using mysqladmin ping
-        log_info "Waiting for MySQL to be ready..."
-        local retries=30
-        while [[ $retries -gt 0 ]]; do
-            if docker exec -e MYSQL_PWD="${DB_PASSWORD}" "$MYSQL_CONTAINER" \
-                mysqladmin -u "${DB_USERNAME:-fleet_user}" ping > /dev/null 2>&1; then
-                break
+    # Export MySQL data (unless --influxdb-only)
+    if [[ "$INFLUXDB_ONLY" != true ]]; then
+        # Ensure MySQL container is running
+        if ! docker ps --format '{{.Names}}' | grep -q "^${MYSQL_CONTAINER}$"; then
+            log_info "Starting MySQL container..."
+            docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d mysql
+            # Wait for MySQL to be ready using mysqladmin ping
+            log_info "Waiting for MySQL to be ready..."
+            local retries=30
+            while [[ $retries -gt 0 ]]; do
+                if docker exec -e MYSQL_PWD="${DB_PASSWORD}" "$MYSQL_CONTAINER" \
+                    mysqladmin -u "${DB_USERNAME:-fleet_user}" ping > /dev/null 2>&1; then
+                    break
+                fi
+                retries=$((retries - 1))
+                sleep 2
+            done
+            if [[ $retries -eq 0 ]]; then
+                log_error "MySQL failed to start within timeout."
+                exit 1
             fi
-            retries=$((retries - 1))
-            sleep 2
-        done
-        if [[ $retries -eq 0 ]]; then
-            log_error "MySQL failed to start within timeout."
-            exit 1
-        fi
-    fi
-
-    # Export MySQL data
-    echo ""
-    log_info "Exporting MySQL data..."
-    EXPORT_DIR="$MIGRATION_DIR/mysql" \
-    MYSQL_CONTAINER="$MYSQL_CONTAINER" \
-$SCRIPTS_DIR/export-mysql.sh
-
-    # Export InfluxDB data if container exists
-    if docker ps -a --format '{{.Names}}' | grep -q "^${INFLUXDB_CONTAINER}$"; then
-        # Ensure InfluxDB container is running
-        if ! docker ps --format '{{.Names}}' | grep -q "^${INFLUXDB_CONTAINER}$"; then
-            log_info "Starting InfluxDB container..."
-            docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d influxdb
-            sleep 5  # Wait for InfluxDB to be ready
         fi
 
         echo ""
-        log_info "Exporting InfluxDB telemetry data..."
-        EXPORT_DIR="$MIGRATION_DIR/influxdb" \
-        INFLUXDB_CONTAINER="$INFLUXDB_CONTAINER" \
-        "$SCRIPTS_DIR/export-influxdb.sh"
+        log_info "Exporting MySQL data..."
+        EXPORT_DIR="$MIGRATION_DIR/mysql" \
+        MYSQL_CONTAINER="$MYSQL_CONTAINER" \
+        "$SCRIPTS_DIR/export-mysql.sh"
     else
-        log_warn "InfluxDB container not found. Skipping telemetry export."
+        log_info "Skipping MySQL export (--influxdb-only)"
+    fi
+
+    # Export InfluxDB data (unless --mysql-only)
+    if [[ "$MYSQL_ONLY" != true ]]; then
+        if docker ps -a --format '{{.Names}}' | grep -q "^${INFLUXDB_CONTAINER}$"; then
+            # Ensure InfluxDB container is running
+            if ! docker ps --format '{{.Names}}' | grep -q "^${INFLUXDB_CONTAINER}$"; then
+                log_info "Starting InfluxDB container..."
+                docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d influxdb
+                sleep 5  # Wait for InfluxDB to be ready
+            fi
+
+            echo ""
+            log_info "Exporting InfluxDB telemetry data..."
+            EXPORT_DIR="$MIGRATION_DIR/influxdb" \
+            INFLUXDB_CONTAINER="$INFLUXDB_CONTAINER" \
+            "$SCRIPTS_DIR/export-influxdb.sh"
+        else
+            log_warn "InfluxDB container not found. Skipping telemetry export."
+        fi
+    else
+        log_info "Skipping InfluxDB export (--mysql-only)"
     fi
 
     log_success "Export phase complete!"
@@ -359,21 +379,29 @@ import_data() {
     log_info "Starting data import..."
     echo ""
 
-    # Import MySQL data into PostgreSQL
-    log_info "Importing core data into PostgreSQL..."
-    IMPORT_DIR="$MIGRATION_DIR/mysql" \
-    POSTGRES_CONTAINER="$TIMESCALEDB_CONTAINER" \
-$SCRIPTS_DIR/import-postgres.sh
-
-    # Import InfluxDB data into TimescaleDB
-    if [[ -d "$MIGRATION_DIR/influxdb" ]] && [[ -f "$MIGRATION_DIR/influxdb/device_metrics.csv" ]]; then
-        echo ""
-        log_info "Importing telemetry data into TimescaleDB..."
-        IMPORT_DIR="$MIGRATION_DIR/influxdb" \
+    # Import MySQL data into PostgreSQL (unless --influxdb-only)
+    if [[ "$INFLUXDB_ONLY" != true ]]; then
+        log_info "Importing core data into PostgreSQL..."
+        IMPORT_DIR="$MIGRATION_DIR/mysql" \
         POSTGRES_CONTAINER="$TIMESCALEDB_CONTAINER" \
-    $SCRIPTS_DIR/import-timescaledb.sh
+        "$SCRIPTS_DIR/import-postgres.sh"
     else
-        log_warn "No telemetry data to import."
+        log_info "Skipping PostgreSQL import (--influxdb-only)"
+    fi
+
+    # Import InfluxDB data into TimescaleDB (unless --mysql-only)
+    if [[ "$MYSQL_ONLY" != true ]]; then
+        if [[ -d "$MIGRATION_DIR/influxdb" ]] && [[ -f "$MIGRATION_DIR/influxdb/device_metrics.csv" ]]; then
+            echo ""
+            log_info "Importing telemetry data into TimescaleDB..."
+            IMPORT_DIR="$MIGRATION_DIR/influxdb" \
+            POSTGRES_CONTAINER="$TIMESCALEDB_CONTAINER" \
+            "$SCRIPTS_DIR/import-timescaledb.sh"
+        else
+            log_warn "No telemetry data to import."
+        fi
+    else
+        log_info "Skipping TimescaleDB import (--mysql-only)"
     fi
 
     log_success "Import phase complete!"
@@ -390,32 +418,34 @@ verify_migration() {
 
     local errors=0
 
-    # Verify MySQL data counts
-    log_info "Checking imported data counts:"
-    for csv_file in "$MIGRATION_DIR/mysql"/*.csv; do
-        if [[ -f "$csv_file" ]]; then
-            local table
-            table=$(basename "$csv_file" .csv)
-            local expected_file="$MIGRATION_DIR/mysql/${table}.count"
-            local imported_file="$MIGRATION_DIR/mysql/${table}.imported_count"
+    # Verify MySQL data counts (unless --influxdb-only)
+    if [[ "$INFLUXDB_ONLY" != true ]] && [[ -d "$MIGRATION_DIR/mysql" ]]; then
+        log_info "Checking imported data counts:"
+        for csv_file in "$MIGRATION_DIR/mysql"/*.csv; do
+            if [[ -f "$csv_file" ]]; then
+                local table
+                table=$(basename "$csv_file" .csv)
+                local expected_file="$MIGRATION_DIR/mysql/${table}.count"
+                local imported_file="$MIGRATION_DIR/mysql/${table}.imported_count"
 
-            if [[ -f "$expected_file" ]] && [[ -f "$imported_file" ]]; then
-                local expected imported
-                expected=$(cat "$expected_file")
-                imported=$(cat "$imported_file")
+                if [[ -f "$expected_file" ]] && [[ -f "$imported_file" ]]; then
+                    local expected imported
+                    expected=$(cat "$expected_file")
+                    imported=$(cat "$imported_file")
 
-                if [[ "$expected" -eq "$imported" ]]; then
-                    printf "  %-25s ${GREEN}%s / %s${NC}\n" "$table" "$imported" "$expected"
-                else
-                    printf "  %-25s ${RED}%s / %s MISMATCH${NC}\n" "$table" "$imported" "$expected"
-                    errors=$((errors + 1))
+                    if [[ "$expected" -eq "$imported" ]]; then
+                        printf "  %-25s ${GREEN}%s / %s${NC}\n" "$table" "$imported" "$expected"
+                    else
+                        printf "  %-25s ${RED}%s / %s MISMATCH${NC}\n" "$table" "$imported" "$expected"
+                        errors=$((errors + 1))
+                    fi
                 fi
             fi
-        fi
-    done
+        done
+    fi
 
-    # Verify telemetry data
-    if [[ -f "$MIGRATION_DIR/influxdb/device_metrics.count" ]]; then
+    # Verify telemetry data (unless --mysql-only)
+    if [[ "$MYSQL_ONLY" != true ]] && [[ -f "$MIGRATION_DIR/influxdb/device_metrics.count" ]]; then
         local expected imported
         expected=$(cat "$MIGRATION_DIR/influxdb/device_metrics.count")
         imported=$(cat "$MIGRATION_DIR/influxdb/device_metrics.imported_count" 2>/dev/null || echo "0")

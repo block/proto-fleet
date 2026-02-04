@@ -228,8 +228,11 @@ jobs:
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/migrate-data.sh deployment/
+          cp deployment-files/rollback-migration.sh deployment/
+          cp -r deployment-files/scripts deployment/
           cp server/influx_config/*.sh deployment/server/influx_config/
-          chmod +x deployment/run-fleet.sh deployment/server/influx_config/*.sh
+          chmod +x deployment/run-fleet.sh deployment/migrate-data.sh deployment/rollback-migration.sh deployment/scripts/*.sh deployment/server/influx_config/*.sh
 
       - name: Create version file
         run: |
