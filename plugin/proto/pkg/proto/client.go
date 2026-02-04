@@ -372,15 +372,15 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		state = sdk.HealthUnknown
 	}
 
-	// If firmware didn't report NO_POOLS state, check pools directly
-	// This matches ProtoOS behavior which checks pools list independently
-	if state != sdk.HealthNeedsMiningPool {
-		needsPool, err := c.checkNeedsMiningPool(ctx)
-		if err != nil {
-			slog.Warn("failed to check pool configuration", "error", err)
-		} else if needsPool {
-			state = sdk.HealthNeedsMiningPool
-		}
+	// The actual pool list is the source of truth, not MiningState (which can be stale).
+	needsPool, err := c.checkNeedsMiningPool(ctx)
+	if err != nil {
+		slog.Warn("failed to check pool configuration", "error", err)
+	} else if needsPool {
+		state = sdk.HealthNeedsMiningPool
+	} else if state == sdk.HealthNeedsMiningPool {
+		// Firmware says NO_POOLS but pools are configured - use actual pool data
+		state = sdk.HealthHealthyInactive
 	}
 
 	// Get firmware version from software info API

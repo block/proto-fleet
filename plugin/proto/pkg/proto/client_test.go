@@ -3,12 +3,15 @@ package proto
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -567,4 +570,186 @@ func resetClients() {
 	httpsClientOnce = &sync.Once{}
 	httpClient = nil
 	httpsClient = nil
+}
+
+// mockDataClient implements miner_data_apiconnect.MinerDataApiClient for testing
+type mockDataClient struct {
+	miningStatusResponse *miner_data_api.MiningStatusResponse
+	miningStatusError    error
+	poolsResponse        *miner_data_api.PoolsResponse
+	poolsError           error
+	softwareInfoResponse *miner_data_api.SoftwareInfoResponse
+	softwareInfoError    error
+}
+
+func (m *mockDataClient) GetMiningStatus(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
+	if m.miningStatusError != nil {
+		return nil, m.miningStatusError
+	}
+	return connect.NewResponse(m.miningStatusResponse), nil
+}
+
+func (m *mockDataClient) GetPools(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error) {
+	if m.poolsError != nil {
+		return nil, m.poolsError
+	}
+	return connect.NewResponse(m.poolsResponse), nil
+}
+
+func (m *mockDataClient) GetSoftwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error) {
+	if m.softwareInfoError != nil {
+		return nil, m.softwareInfoError
+	}
+	return connect.NewResponse(m.softwareInfoResponse), nil
+}
+
+// Unused interface methods - return nil/error for completeness
+func (m *mockDataClient) GetCoolingMode(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetPowerTarget(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetHardwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetHashboardStatus(_ context.Context, _ *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetAsicStatus(_ context.Context, _ *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetUnifiedTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetErrors(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.ErrorsResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetPsuStatusList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetPsuInfoList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuInfoListResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDataClient) GetTelemetryValues(_ context.Context, _ *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// TestGetStatusPoolStateOverride tests that the actual pool list is the source of truth
+// for determining NeedsMiningPool status, overriding the firmware-reported MiningState.
+func TestGetStatusPoolStateOverride(t *testing.T) {
+	tests := []struct {
+		name          string
+		miningState   miner_data_api.MiningState
+		pools         []*miner_data_api.Pool
+		expectedState sdk.HealthStatus
+	}{
+		{
+			name:        "firmware reports NO_POOLS but pools are configured",
+			miningState: miner_data_api.MiningState_MINING_STATE_NO_POOLS,
+			pools: []*miner_data_api.Pool{
+				{Url: "stratum+tcp://pool.example.com:3333"},
+			},
+			expectedState: sdk.HealthHealthyInactive,
+		},
+		{
+			name:          "firmware reports MINING but no pools configured",
+			miningState:   miner_data_api.MiningState_MINING_STATE_MINING,
+			pools:         []*miner_data_api.Pool{},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+		{
+			name:        "firmware reports MINING but all pools have empty URLs",
+			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
+			pools: []*miner_data_api.Pool{
+				{Url: ""},
+				{Url: ""},
+			},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+		{
+			name:          "firmware reports NO_POOLS and no pools configured",
+			miningState:   miner_data_api.MiningState_MINING_STATE_NO_POOLS,
+			pools:         []*miner_data_api.Pool{},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+		{
+			name:        "firmware reports MINING and pools are configured",
+			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
+			pools: []*miner_data_api.Pool{
+				{Url: "stratum+tcp://pool.example.com:3333"},
+			},
+			expectedState: sdk.HealthHealthyActive,
+		},
+		{
+			name:          "firmware reports STOPPED but no pools",
+			miningState:   miner_data_api.MiningState_MINING_STATE_STOPPED,
+			pools:         []*miner_data_api.Pool{},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+		{
+			name:          "firmware reports DEGRADED_MINING but no pools",
+			miningState:   miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING,
+			pools:         []*miner_data_api.Pool{},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockDataClient{
+				miningStatusResponse: &miner_data_api.MiningStatusResponse{
+					State: tt.miningState,
+				},
+				poolsResponse: &miner_data_api.PoolsResponse{
+					Pools: tt.pools,
+				},
+				softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
+			}
+
+			client := &Client{
+				dataClient: mockClient,
+			}
+
+			status, err := client.GetStatus(t.Context())
+
+			require.NoError(t, err, "GetStatus should not return error")
+			assert.Equal(t, tt.expectedState, status.State,
+				"State should match expected value based on actual pool configuration")
+		})
+	}
+}
+
+// TestGetStatusPoolCheckError tests behavior when pool check fails
+func TestGetStatusPoolCheckError(t *testing.T) {
+	mockClient := &mockDataClient{
+		miningStatusResponse: &miner_data_api.MiningStatusResponse{
+			State: miner_data_api.MiningState_MINING_STATE_MINING,
+		},
+		poolsError:           fmt.Errorf("connection refused"),
+		softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
+	}
+
+	client := &Client{
+		dataClient: mockClient,
+	}
+
+	status, err := client.GetStatus(t.Context())
+
+	require.NoError(t, err, "GetStatus should not fail when pool check fails")
+	assert.Equal(t, sdk.HealthHealthyActive, status.State,
+		"Should fall back to firmware-reported state when pool check fails")
 }
