@@ -25,38 +25,23 @@ These tests run against the actual docker-compose environment (`just clean-build
 
 ### System Under Test
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Docker Compose Environment                   │
-│                                                                   │
-│  ┌──────────────┐       ┌──────────────┐      ┌──────────────┐ │
-│  │  fleet-api   │◄─────►│    MySQL     │      │   InfluxDB   │ │
-│  │ (port 4000)  │       │ (port 3306)  │      │ (port 8086)  │ │
-│  └──────┬───────┘       └──────────────┘      └──────────────┘ │
-│         │                                                         │
-│         │ loads                                                   │
-│         ▼                                                         │
-│  ┌──────────────┐       ┌──────────────┐                        │
-│  │proto-plugin  │       │antminer-     │                        │
-│  │(gRPC)        │       │plugin (gRPC) │                        │
-│  └──────┬───────┘       └──────────────┘                        │
-│         │                                                         │
-│         │ discovers/pairs                                         │
-│         ▼                                                         │
-│  ┌──────────────┐                                                │
-│  │  proto-sim   │  (simulated miner device)                     │
-│  │ localhost:   │                                                │
-│  │  2121        │                                                │
-│  └──────────────┘                                                │
-└─────────────────────────────────────────────────────────────────┘
-         ▲
-         │
-         │ HTTP/gRPC-Web (Connect RPC)
-         │
-    ┌────┴─────┐
-    │ E2E Tests │ (this directory)
-    │ Go tests  │
-    └──────────┘
+```mermaid
+flowchart TB
+    subgraph docker["Docker Compose Environment"]
+        fleet["fleet-api<br/>(port 4000)"]
+        db[("TimescaleDB<br/>(port 5433)")]
+        proto-plugin["proto-plugin<br/>(gRPC)"]
+        antminer-plugin["antminer-plugin<br/>(gRPC)"]
+        proto-sim["proto-sim<br/>(port 2121)"]
+
+        fleet <--> db
+        fleet -- loads --> proto-plugin
+        fleet -- loads --> antminer-plugin
+        proto-plugin -- discovers/pairs --> proto-sim
+    end
+
+    tests["E2E Tests<br/>(this directory)"]
+    tests -- "HTTP/gRPC-Web<br/>(Connect RPC)" --> fleet
 ```
 
 ### Test Architecture
@@ -85,8 +70,7 @@ Validates that the docker-compose environment is properly configured and all ser
 │  1. DockerContainersRunning                                 │
 │     ├─ fleet-api container exists and is running           │
 │     ├─ proto-sim container exists and is running           │
-│     ├─ mysql container exists and is running               │
-│     └─ influxdb container exists and is running            │
+│     └─ timescaledb container exists and is running         │
 │                                                              │
 │  2. FleetAPIHealth                                          │
 │     └─ /health endpoint returns 200 OK                     │
@@ -106,7 +90,7 @@ Validates that the docker-compose environment is properly configured and all ser
 │     └─ proto-sim container is running and has IP          │
 │                                                              │
 │  6. DatabaseConnectivity                                    │
-│     ├─ Can connect to MySQL                                │
+│     ├─ Can connect to TimescaleDB                          │
 │     └─ Required tables exist (device, user, etc.)         │
 │                                                              │
 │  7. AdminUserCreation                                       │
@@ -403,7 +387,7 @@ plugin.Serve(&plugin.ServeConfig{
 **Debugging**:
 ```bash
 # Check if device was paired
-docker exec server-mysql-1 mysql -u root fleet -e "SELECT * FROM device;"
+docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM device;"
 
 # Check fleet-api logs for telemetry errors
 docker logs server-fleet-api-1 | grep -i telemetry
@@ -443,8 +427,8 @@ docker logs server-fleet-api-1
 # Proto-sim logs
 docker logs server-proto-sim-1
 
-# MySQL logs
-docker logs server-mysql-1
+# TimescaleDB logs
+docker logs server-timescaledb-1
 
 # All services
 docker-compose logs
@@ -466,17 +450,17 @@ docker exec server-fleet-api-1 ping server-proto-sim-1
 #### Database inspection
 
 ```bash
-# Interactive MySQL shell
+# Interactive PostgreSQL shell
 just db-shell
 
 # Check discovered devices
-docker exec server-mysql-1 mysql -u root fleet -e "SELECT * FROM discovered_device;"
+docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM discovered_device;"
 
 # Check paired devices
-docker exec server-mysql-1 mysql -u root fleet -e "SELECT * FROM device;"
+docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM device;"
 
 # Check users
-docker exec server-mysql-1 mysql -u root fleet -e "SELECT * FROM user;"
+docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM \"user\";"
 ```
 
 ### Performance Tuning
@@ -624,8 +608,7 @@ const (
 |-----------|---------|--------------|
 | `server-fleet-api-1` | Fleet API service | 4000 |
 | `server-proto-sim-1` | Simulated Proto miner | 2121, 8080 |
-| `server-mysql-1` | MySQL database | 3306 |
-| `server-influxdb-1` | InfluxDB time-series DB | 8086 |
+| `server-timescaledb-1` | TimescaleDB database | 5433 |
 
 ### Related Documentation
 

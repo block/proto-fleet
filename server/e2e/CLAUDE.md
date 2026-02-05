@@ -374,8 +374,7 @@ docker ps | grep server-
 # Expected containers:
 # - server-fleet-api-1
 # - server-proto-sim-1
-# - server-mysql-1
-# - server-influxdb-1
+# - server-timescaledb-1
 ```
 
 ### Step 2: Check Fleet API Logs

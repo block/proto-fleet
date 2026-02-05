@@ -332,7 +332,7 @@ E2E tests run automatically in GitHub Actions:
 
 - **Triggers**: Pull requests affecting e2e tests, daily at 7 AM UTC, manual dispatch
 - **Matrix**: Tests run on both `desktop` and `mobile` projects
-- **Environment**: Ubuntu with Docker, MySQL, InfluxDB, and 12 simulated miners
+- **Environment**: Ubuntu with Docker, TimescaleDB, and 12 simulated miners
 - **Reporting**: HTML reports and GitHub annotations
 
 See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet-e2e-tests.yml) for full workflow configuration.
@@ -342,7 +342,7 @@ See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet
 The workflow:
 
 1. Builds ProtoFleet client (both ProtoOS and ProtoFleet apps)
-2. Starts MySQL and InfluxDB services
+2. Starts TimescaleDB service
 3. Builds and runs 12 simulated miners via Docker Compose
 4. Runs backend server
 5. Executes Playwright tests with `--project=desktop` or `--project=mobile`

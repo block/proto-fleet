@@ -60,7 +60,7 @@ The workflow consists of four jobs that run sequentially:
   - Docker Compose configuration
   - Dockerfiles for client and server
   - run-fleet.sh deployment script
-  - InfluxDB configuration scripts
+  - TimescaleDB configuration
 - Creates a comprehensive version.txt file
 - Packages everything into a single deployment tarball
 - Uploads the deployment bundle as an artifact
@@ -71,7 +71,7 @@ The workflow consists of four jobs that run sequentially:
 - Downloads the deployment bundle artifact
 - Deploys ProtoFleet to the target Pi:
   - Determines installation directory (from input or default)
-  - Backs up existing `.env` file if present (preserves InfluxDB credentials)
+  - Backs up existing `.env` file if present (preserves database credentials)
   - Extracts the deployment bundle
   - Restores the `.env` file
   - Runs `run-fleet.sh` which:
@@ -118,7 +118,7 @@ The deployment follows the same pattern as the install.sh script:
 4. **Service Management**:
    - Stops existing containers
    - Builds new images with the latest code
-   - Starts all services (MySQL, InfluxDB, Fleet API, Frontend)
+   - Starts all services (TimescaleDB, Fleet API, Frontend)
 
 5. **Plugin Validation**: Ensures all required plugin binaries are present and executable
 

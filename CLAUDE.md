@@ -23,7 +23,7 @@ For detailed development commands, testing instructions, and component-specific 
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite 7, Zustand, Tailwind CSS 4
-- **Backend**: Go with Connect RPC (gRPC-compatible), MySQL, InfluxDB
+- **Backend**: Go with Connect RPC (gRPC-compatible), PostgreSQL/TimescaleDB
 - **API**: Protocol Buffers for type-safe cross-language communication
 - **Build Tools**: Just (task runner), Buf (Protobuf), Docker Compose
 
@@ -183,15 +183,15 @@ Go service following Domain-Driven Design principles:
 **Core Domains**:
 
 - **Pairing**: Device discovery and registration (supports Proto and Antminer via plugins)
-- **Telemetry**: Real-time and historical metrics collection (stored in InfluxDB)
+- **Telemetry**: Real-time and historical metrics collection (stored in TimescaleDB)
 - **Commands**: Asynchronous command execution with queue-based system
 - **Fleet Management**: High-level operations for managing groups of devices
 - **Authentication**: Token-based auth for clients (users) and miners (devices)
 
 **Data Layer**:
 
-- **MySQL**: Primary data store with golang-migrate for schema migrations
-- **InfluxDB**: Time-series database for telemetry metrics
+- **PostgreSQL/TimescaleDB**: Primary data store with golang-migrate for schema migrations
+- **TimescaleDB**: Time-series database for telemetry metrics (PostgreSQL extension)
 - **sqlc**: Type-safe Go code generation from SQL queries
 
 **Plugin System**:
@@ -206,7 +206,7 @@ See `server/CLAUDE.md` for detailed domain architecture, handler patterns, and d
 
 1. **Device Discovery**: Nmap-based network scanning or plugin-based discovery identifies devices
 2. **Pairing**: Device authentication and registration with fleet database
-3. **Telemetry Collection**: Scheduled polling collects metrics and stores in InfluxDB
+3. **Telemetry Collection**: Scheduled polling collects metrics and stores in TimescaleDB
 4. **Command Execution**: Queue-based system for asynchronous command dispatch
 5. **Real-time Updates**: gRPC streaming pushes telemetry to connected ProtoFleet clients
 
@@ -529,7 +529,7 @@ This checklist helps catch common issues before user review rather than requirin
 The client and server each have their own testing approach:
 
 **Client**: Vitest + Testing Library for unit/integration tests, Storybook for visual component testing
-**Server**: Go test framework with Docker Compose providing test environment (MySQL, InfluxDB, simulated miners)
+**Server**: Go test framework with Docker Compose providing test environment (PostgreSQL/TimescaleDB, simulated miners)
 
 For detailed testing commands and patterns, see `client/CLAUDE.md` and `server/CLAUDE.md`.
 

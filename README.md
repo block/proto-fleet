@@ -60,11 +60,8 @@ bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/
 
 * With defaults
   * Database username [fleet_user]
-  * InfluxDB admin username [admin]
 * Secret (without defaults)
-  * MySQL root password
   * Database password
-  * InfluxDB admin password
   * Auth client secret key (at least 32 characters)
   * Pairing secret key (32-48 characters)
 * Secret + generable

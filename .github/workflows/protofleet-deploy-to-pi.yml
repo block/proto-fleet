@@ -138,8 +138,6 @@ jobs:
         run: |
           mkdir -p deployment/server
           mkdir -p deployment/client
-          mkdir -p deployment/server/influx_config
-          touch deployment/server/influx_config/.env
 
       - name: Download server artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -170,8 +168,7 @@ jobs:
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
-          cp server/influx_config/*.sh deployment/server/influx_config/
-          chmod +x deployment/run-fleet.sh deployment/server/influx_config/*.sh
+          chmod +x deployment/run-fleet.sh
 
       - name: Create version file
         run: |

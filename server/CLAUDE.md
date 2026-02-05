@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. The service provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses MySQL for persistence, InfluxDB for telemetry data, and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
+Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. The service provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and telemetry data, and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
 ## Development Commands
 
@@ -65,7 +65,7 @@ just gen-go
 ### Database Operations
 
 ```bash
-# Start MySQL database
+# Start PostgreSQL/TimescaleDB database
 just db-up
 
 # Run migrations
@@ -74,7 +74,7 @@ just db-migrate
 # Create new migration
 just new-migration <migration_name>
 
-# Interactive MySQL shell
+# Interactive PostgreSQL shell
 just db-shell
 
 # Stop database
@@ -118,7 +118,7 @@ The codebase follows a domain-driven design with clear separation of concerns:
 
 **Pairing**: The process of discovering and registering mining devices with the fleet. Supports multiple miner types through a pluggable pairer interface.
 
-**Telemetry**: Real-time and historical metrics collection from mining devices. Uses InfluxDB for storage and a scheduler for periodic data collection.
+**Telemetry**: Real-time and historical metrics collection from mining devices. Uses TimescaleDB for storage and a scheduler for periodic data collection.
 
 **Commands**: Asynchronous command execution system for mining devices. Commands are queued, executed, and their status can be monitored.
 
@@ -130,7 +130,7 @@ The codebase follows a domain-driven design with clear separation of concerns:
 
 ### Data Layer
 
-**Database**: MySQL with schema defined in `migrations/` directory. Migrations run automatically on startup.
+**Database**: PostgreSQL/TimescaleDB with schema defined in `migrations/` directory. Migrations run automatically on startup.
 
 **Query Generation**: Uses [sqlc](https://sqlc.dev/) to generate type-safe Go code from SQL queries. Queries are defined in `sqlc/queries/` and the schema is derived from migrations.
 
@@ -162,7 +162,7 @@ Configuration is in `cmd/fleetd/config.go` with options for plugin directories, 
 
 **MinerService** (`internal/domain/miner/`): Core service for interacting with mining devices, managing credentials, and device lifecycle.
 
-**TelemetryService** (`internal/domain/telemetry/`): Manages telemetry collection, storage in InfluxDB, and scheduled polling of devices.
+**TelemetryService** (`internal/domain/telemetry/`): Manages telemetry collection, storage in TimescaleDB, and scheduled polling of devices.
 
 **ExecutionService** (`internal/domain/command/`): Manages asynchronous command execution using a database-backed message queue.
 
