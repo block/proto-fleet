@@ -1,5 +1,6 @@
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { separateByCommas } from "@/shared/utils/stringUtils";
+import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 interface HashRateValueProps {
   value: number | undefined | null;
@@ -14,13 +15,12 @@ function HashRateValue({ value }: HashRateValueProps) {
     return <SkeletonBar />;
   }
 
-  // Convert TH/s to PH/s if value > 1000
-  if (value > 1000) {
-    const displayValue = value / 1000;
-    return <>{separateByCommas(displayValue.toFixed(1))} PH/s</>;
-  }
-
-  return <>{separateByCommas(value.toFixed(1))} TH/s</>;
+  const { value: displayValue, unit } = formatHashrateWithUnit(value);
+  return (
+    <>
+      {separateByCommas(displayValue.toFixed(1))} {unit}
+    </>
+  );
 }
 
 export default HashRateValue;

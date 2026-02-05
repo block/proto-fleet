@@ -1,13 +1,12 @@
 import { useMemo } from "react";
-import { transformHashrateMetricsToChartData } from "./utils";
-import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { transformHashrateMetricsWithUnits } from "./utils";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { usePanelMetrics } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 interface HashratePanelProps {
   duration: Duration;
@@ -18,32 +17,27 @@ export function HashratePanel({ duration }: HashratePanelProps) {
   // undefined = not loaded yet, array = loaded (empty or populated)
   const metrics = usePanelMetrics(MeasurementType.HASHRATE);
 
-  // Transform metrics data to chart format (merging already done by store selectors)
-  const chartData = useMemo(() => {
-    if (metrics === undefined) return undefined; // Not loaded yet
-    if (metrics.length === 0) return null; // Loaded but no data
+  // Transform metrics data to chart format with consistent unit scaling
+  // Both chart data and unit are derived together to ensure consistency
+  const { chartData, hashrateUnits } = useMemo(() => {
+    if (metrics === undefined) return { chartData: undefined, hashrateUnits: "" }; // Not loaded yet
+    if (metrics.length === 0) return { chartData: null, hashrateUnits: "" }; // Loaded but no data
 
-    const transformedData = transformHashrateMetricsToChartData(metrics);
+    const { chartData: transformedData, unit } = transformHashrateMetricsWithUnits(metrics);
 
     // Pad with null values for the full duration
-    return padChartDataWithNulls(transformedData, duration);
+    return {
+      chartData: padChartDataWithNulls(transformedData, duration),
+      hashrateUnits: unit,
+    };
   }, [metrics, duration]);
 
-  // Get the latest hashrate value for the stat display
+  // Get the latest hashrate value from already-transformed chart data
   const currentHashrate = useMemo(() => {
-    if (metrics === undefined) return undefined; // Not loaded yet
-    if (metrics.length === 0) return null; // Loaded but no data
-
-    // Get the most recent metric
-    const latestMetric = metrics[metrics.length - 1];
-
-    // Find the AVERAGE aggregation value
-    const avgValue = latestMetric.aggregatedValues.find(
-      (agg) => agg.aggregationType === AggregationType.AVERAGE,
-    )?.value;
-
-    return avgValue ?? null;
-  }, [metrics]);
+    if (chartData === undefined) return undefined; // Not loaded yet
+    if (chartData === null || chartData.length === 0) return null; // Loaded but no data
+    return chartData[chartData.length - 1]?.hashrate ?? null;
+  }, [chartData]);
 
   // Show loading skeleton while data hasn't loaded yet
   if (metrics === undefined) {
@@ -71,11 +65,9 @@ export function HashratePanel({ duration }: HashratePanelProps) {
     return <ChartWidget stats={stat}>{null}</ChartWidget>;
   }
 
-  // Format the current hashrate with appropriate units
-  const formattedHashrate = currentHashrate ? formatHashrateWithUnit(currentHashrate) : null;
-
-  const hashrateDisplayValue = formattedHashrate ? formattedHashrate.value.toFixed(1) : "N/A";
-  const hashrateUnits = formattedHashrate ? formattedHashrate.unit : "";
+  // Format the current hashrate for display
+  const hashrateDisplayValue =
+    currentHashrate !== null && currentHashrate !== undefined ? currentHashrate.toFixed(1) : "N/A";
 
   const stat = {
     label: "Hashrate",

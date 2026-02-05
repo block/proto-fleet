@@ -47,10 +47,14 @@ export const convertMegahashSecToTerahashSec = (value: number = 0) => value / 10
 export const convertGigahashSecToTerahashSec = (value: number = 0) => value / 1000;
 export const convertWtoKW = (value: number = 0) => value / 1000;
 
+// Hashrate unit conversion constants
+export const TH_TO_PH_THRESHOLD = 1000;
+export const TH_TO_PH_DIVISOR = 1000;
+
 export const formatHashrateWithUnit = (value: number = 0) => {
-  if (value > 1000) {
+  if (value > TH_TO_PH_THRESHOLD) {
     return {
-      value: value / 1000,
+      value: value / TH_TO_PH_DIVISOR,
       unit: "PH/S",
     };
   }
