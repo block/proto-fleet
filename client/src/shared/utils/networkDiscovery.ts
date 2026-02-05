@@ -4,6 +4,12 @@ export type ManualDiscoveryTargets = {
   ipRanges: { startIp: string; endIp: string }[];
 };
 
+export type CategorizedInvalidEntries = {
+  ipAddresses: string[];
+  ipRanges: string[];
+  subnets: string[];
+};
+
 export const parseIpList = (input: string): string[] =>
   input
     .split(/[\n,]+/)
@@ -34,10 +40,10 @@ export const ipv4ToInt = (value: string) =>
     .map((part) => Number(part))
     .reduce((acc, part) => ((acc << 8) + part) >>> 0, 0);
 
-const SHORT_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})-(\d{1,3})$/;
-const FULL_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})-(\d{1,3}(?:\.\d{1,3}){3})$/;
+const SHORT_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3})$/;
+const FULL_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})$/;
 const CIDR_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/;
-const IPV4_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const IPV4_LIKE_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}\.?$/;
 
 export const parseIpRange = (value: string) => {
   const shortRangeMatch = value.match(SHORT_RANGE_REGEX);
@@ -76,6 +82,7 @@ export const parseManualTargets = (input: string) => {
   const entries = parseIpList(input);
   const targets: ManualDiscoveryTargets = { ipAddresses: [], subnets: [], ipRanges: [] };
   const invalidEntries: string[] = [];
+  const categorizedInvalidEntries: CategorizedInvalidEntries = { ipAddresses: [], ipRanges: [], subnets: [] };
 
   entries.forEach((entry) => {
     const looksLikeIpRange = SHORT_RANGE_REGEX.test(entry) || FULL_RANGE_REGEX.test(entry);
@@ -85,6 +92,7 @@ export const parseManualTargets = (input: string) => {
         targets.ipRanges.push(range);
       } else {
         invalidEntries.push(entry);
+        categorizedInvalidEntries.ipRanges.push(entry);
       }
       return;
     }
@@ -97,22 +105,30 @@ export const parseManualTargets = (input: string) => {
     const looksLikeCidr = CIDR_REGEX.test(entry);
     if (looksLikeCidr) {
       invalidEntries.push(entry);
+      categorizedInvalidEntries.subnets.push(entry);
       return;
     }
 
-    const looksLikeIpv4 = IPV4_REGEX.test(entry);
-    if (looksLikeIpv4 && !isValidIpv4(entry)) {
-      invalidEntries.push(entry);
+    const looksLikeIpv4WithOptionalDot = IPV4_LIKE_REGEX.test(entry);
+    if (looksLikeIpv4WithOptionalDot) {
+      const normalizedEntry = entry.endsWith(".") ? entry.slice(0, -1) : entry;
+      if (isValidIpv4(normalizedEntry)) {
+        targets.ipAddresses.push(normalizedEntry);
+      } else {
+        invalidEntries.push(entry);
+        categorizedInvalidEntries.ipAddresses.push(entry);
+      }
       return;
     }
 
-    if (isValidIpv4(entry) || isValidHostname(entry)) {
+    if (isValidHostname(entry)) {
       targets.ipAddresses.push(entry);
       return;
     }
 
     invalidEntries.push(entry);
+    categorizedInvalidEntries.ipAddresses.push(entry);
   });
 
-  return { targets, invalidEntries };
+  return { targets, invalidEntries, categorizedInvalidEntries };
 };

@@ -3,6 +3,7 @@ import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
 import { MinerDiscoveryMode } from "./types";
+import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -11,7 +12,7 @@ import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import Textarea from "@/shared/components/Textarea";
-import { ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
+import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
@@ -49,6 +50,9 @@ const Miners = ({
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
   const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">("findMiners");
+  const [showValidationErrorDialog, setShowValidationErrorDialog] = useState(false);
+  const [categorizedInvalidEntries, setCategorizedInvalidEntries] = useState<CategorizedInvalidEntries | null>(null);
+  const [pendingValidTargets, setPendingValidTargets] = useState<ManualDiscoveryTargets | null>(null);
 
   // Handle loading state with minimum display time for network scan only
   useEffect(() => {
@@ -77,26 +81,62 @@ const Miners = ({
   }
 
   function handleManualDiscovery() {
-    const { targets, invalidEntries } = parseManualTargets(textareaValue);
+    const { targets, invalidEntries, categorizedInvalidEntries: categorized } = parseManualTargets(textareaValue);
     const hasTargets = targets.ipAddresses.length + targets.subnets.length + targets.ipRanges.length > 0;
 
-    if (!hasTargets) {
+    if (!hasTargets && invalidEntries.length === 0) {
       setIpListError("Enter at least one IP address, hostname, subnet, or IP range.");
       return false;
     }
 
+    if (!hasTargets && invalidEntries.length > 0) {
+      setCategorizedInvalidEntries(categorized);
+      setPendingValidTargets(null);
+      setShowValidationErrorDialog(true);
+      return false;
+    }
+
     if (invalidEntries.length > 0) {
-      const preview = invalidEntries.slice(0, 3).join(", ");
-      const suffix = invalidEntries.length > 3 ? ` and ${invalidEntries.length - 3} more` : "";
-      setIpListError(
-        `Invalid entries: ${preview}${suffix}. Use IPs, hostnames, CIDR subnets (e.g., 192.168.1.0/24), or IP ranges (e.g., 192.168.1.1-10).`,
-      );
+      setCategorizedInvalidEntries(categorized);
+      setPendingValidTargets(targets);
+      setShowValidationErrorDialog(true);
       return false;
     }
 
     setIpListError(false);
     onManualDiscover(targets);
     return true;
+  }
+
+  function handleBackToEditing() {
+    setShowValidationErrorDialog(false);
+
+    if (categorizedInvalidEntries) {
+      const allInvalid = [
+        ...categorizedInvalidEntries.ipAddresses,
+        ...categorizedInvalidEntries.ipRanges,
+        ...categorizedInvalidEntries.subnets,
+      ].join(", ");
+
+      setIpListError(`Check the format of the following and retry:\n${allInvalid}`);
+    }
+
+    setCategorizedInvalidEntries(null);
+    setPendingValidTargets(null);
+  }
+
+  function handleContinueAnyway() {
+    setShowValidationErrorDialog(false);
+    setCategorizedInvalidEntries(null);
+
+    if (pendingValidTargets) {
+      setIpListError(false);
+      onManualDiscover(pendingValidTargets);
+      setActiveStep("pairing");
+      setShowModal(true);
+    }
+
+    setPendingValidTargets(null);
   }
 
   function handleScanCancel() {
@@ -133,7 +173,7 @@ const Miners = ({
       )}
 
       {(mode === "pairing" || showModal) && (
-        <PageOverlay show>
+        <PageOverlay show zIndex="z-50">
           <div className="h-full w-full overflow-auto bg-surface-base p-6">
             <Header
               className="sticky top-0 z-10 pb-14"
@@ -221,7 +261,7 @@ const Miners = ({
                     inline
                     title="Scan your network"
                     titleSize="text-heading-200"
-                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet.."
+                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
                   />
                   <div>
                     <Button
@@ -246,7 +286,7 @@ const Miners = ({
                     inline
                     title="Enter network info manually"
                     titleSize="text-heading-200"
-                    description="Add IPs, hostnames, subnets, or IP ranges separated by commas or line breaks. Example: 192.168.1.10, miner01, 192.168.1.0/24, 192.168.1.1-10"
+                    description="Add your IP addresses and/or hostnames, IP ranges, or subnets. Separate entries with commas or line breaks. Examples: 10.32.1.100, 192.168.1.0/24, 10.32.1.100 - 10.32.1.150"
                   />
                   <div>
                     <div className="space-y-4">
@@ -254,6 +294,7 @@ const Miners = ({
                         onChange={(value) => handleIpAddressChange(value)}
                         initValue={textareaValue}
                         id="ipAddresses"
+                        testId="ipAddresses"
                         label="IP Addresses"
                         error={ipListError}
                       />
@@ -324,6 +365,15 @@ const Miners = ({
             )}
           </div>
         </PageOverlay>
+      )}
+
+      {showValidationErrorDialog && categorizedInvalidEntries && (
+        <ValidationErrorDialog
+          invalidEntries={categorizedInvalidEntries}
+          hasValidEntries={pendingValidTargets !== null}
+          onBackToEditing={handleBackToEditing}
+          onContinueAnyway={handleContinueAnyway}
+        />
       )}
     </div>
   );

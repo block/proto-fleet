@@ -202,12 +202,14 @@ const Textarea = ({
           "text-200 text-intent-critical-fill",
           "transition-[opacity,max-height,margin-top] duration-200 ease-in-out",
           { "max-h-0 opacity-0": !error || error === true },
-          { "mt-2 max-h-10 opacity-100": error && error !== true },
+          { "mt-2 max-h-24 opacity-100": error && error !== true },
         )}
       >
-        <div className="flex items-center space-x-1">
-          <div className="h-1 w-[10px] rounded-full bg-intent-critical-20" />
-          <div data-testid={`${testId}-validation-error`}>{validationError}</div>
+        <div className="flex items-start space-x-1">
+          <div className="mt-1.5 h-1 w-[10px] shrink-0 rounded-full bg-intent-critical-20" />
+          <div data-testid={`${testId}-validation-error`} className="whitespace-pre-wrap">
+            {validationError}
+          </div>
         </div>
       </div>
     </div>

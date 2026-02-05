@@ -67,7 +67,7 @@ const Dialog = ({
   return (
     <>
       {showDialog && (
-        <PageOverlay zIndex="z-40" shouldPreventScroll={preventScroll} show={show} animate={animate} position="top">
+        <PageOverlay zIndex="z-60" shouldPreventScroll={preventScroll} show={show} animate={animate} position="top">
           <div
             className={clsx(
               "mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",

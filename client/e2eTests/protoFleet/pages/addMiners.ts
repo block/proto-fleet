@@ -61,4 +61,62 @@ export class AddMinersPage extends BasePage {
     const continueButton = this.page.getByRole("button", { name: "Continue with 1 miners" });
     await expect(continueButton).toBeVisible();
   }
+
+  // Validation error dialog methods
+  async validateValidationErrorDialogIsVisible() {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Some entries not recognized")).toBeVisible();
+  }
+
+  async validateValidationErrorDialogIsClosed() {
+    await expect(this.page.getByTestId("validation-error-dialog")).toBeHidden();
+  }
+
+  async validateInvalidIpAddressesInDialog(entries: string[]) {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog.getByText("Invalid IP addresses")).toBeVisible();
+    for (const entry of entries) {
+      await expect(dialog.getByText(entry)).toBeVisible();
+    }
+  }
+
+  async validateInvalidIpRangesInDialog(entries: string[]) {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog.getByText("Invalid IP ranges")).toBeVisible();
+    for (const entry of entries) {
+      await expect(dialog.getByText(entry)).toBeVisible();
+    }
+  }
+
+  async validateInvalidSubnetsInDialog(entries: string[]) {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog.getByText("Invalid subnet blocks")).toBeVisible();
+    for (const entry of entries) {
+      await expect(dialog.getByText(entry)).toBeVisible();
+    }
+  }
+
+  async clickBackToEditing() {
+    await this.page.getByTestId("validation-error-dialog").getByRole("button", { name: "Back to editing" }).click();
+  }
+
+  async clickContinueAnyway() {
+    await this.page.getByTestId("validation-error-dialog").getByRole("button", { name: "Continue anyway" }).click();
+  }
+
+  async validateContinueAnywayButtonNotVisible() {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog.getByRole("button", { name: "Continue anyway" })).toBeHidden();
+  }
+
+  async validateContinueAnywayButtonVisible() {
+    const dialog = this.page.getByTestId("validation-error-dialog");
+    await expect(dialog.getByRole("button", { name: "Continue anyway" })).toBeVisible();
+  }
+
+  async validateTextareaErrorContains(text: string) {
+    const errorElement = this.page.getByTestId("ipAddresses-validation-error");
+    await expect(errorElement).toContainText(text);
+  }
 }
