@@ -30,6 +30,8 @@ export const durationToHours = (duration: string): number => {
       return value;
     case "d":
       return value * 24;
+    case "y":
+      return value * 365 * 24;
     default:
       return 12; // Default to 12 hours
   }
@@ -172,7 +174,44 @@ export const processChartData = (
 };
 
 /**
- * Generate intervals for multi-day charts
+ * Bucketing configuration based on duration for preventing bar overlap
+ */
+interface BucketConfig {
+  hoursPerBucket: number;
+}
+
+/**
+ * Determine bucket size based on duration to prevent bar overlap.
+ * Target bar counts:
+ * - 3d: 18 bars (6 bars/day = 4h buckets)
+ * - 10d: 20 bars (2 bars/day = 12h buckets)
+ * - 30d: 30 bars (1 bar/day = 24h buckets)
+ * - 90d: ~13 bars (weekly = 168h buckets)
+ * - 1y: ~26 bars (bi-weekly = 336h buckets)
+ */
+const getBucketConfig = (days: number): BucketConfig => {
+  if (days <= 3) {
+    // 3d: 6 bars per day (4h buckets)
+    return { hoursPerBucket: 4 };
+  } else if (days <= 10) {
+    // 10d: 2 bars per day (12h buckets)
+    return { hoursPerBucket: 12 };
+  } else if (days <= 30) {
+    // 30d: 1 bar per day (24h buckets)
+    return { hoursPerBucket: 24 };
+  } else if (days <= 90) {
+    // 90d: Weekly buckets (168h = 7 days)
+    return { hoursPerBucket: 24 * 7 };
+  } else {
+    // 1y+: Bi-weekly buckets (336h = 14 days)
+    return { hoursPerBucket: 24 * 14 };
+  }
+};
+
+/**
+ * Generate intervals for multi-day charts with adaptive bucketing.
+ * Uses different bucket sizes based on duration to prevent bar overlap.
+ * Returns a flat array wrapped in an array for compatibility with existing code.
  */
 export const getMultiDayIntervals = (duration: string): number[][] => {
   const hours = durationToHours(duration);
@@ -184,51 +223,35 @@ export const getMultiDayIntervals = (duration: string): number[][] => {
     return [getHourlyIntervals(duration)];
   }
 
-  // Determine bars per day based on duration
-  const barsPerDay = hours <= 48 ? 12 : 6;
-  const hoursPerBar = 24 / barsPerDay;
-  const minutesPerBar = hoursPerBar * 60;
+  const days = hours / 24;
+  const { hoursPerBucket } = getBucketConfig(days);
+  const minutesPerBar = hoursPerBucket * 60;
 
   // Calculate start and end times
   const endTime = new Date(now);
   endTime.setMinutes(0, 0, 0);
   const startTime = new Date(endTime.getTime() - hours * 60 * 60 * 1000);
 
-  // Group intervals by day
-  const dayIntervals: number[][] = [];
-  let currentDay = new Date(startTime);
-  currentDay.setHours(0, 0, 0, 0); // Start at beginning of first day
+  // Generate all intervals as a single flat list
+  const intervals: number[] = [];
+  let currentInterval = new Date(startTime);
+  currentInterval.setHours(0, 0, 0, 0); // Start at beginning of first bucket
 
-  while (currentDay <= endTime) {
-    const dayStart = new Date(currentDay);
-    const dayEnd = new Date(currentDay);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-
-    const intervals: number[] = [];
-
-    // Generate intervals for this day
-    for (let i = 0; i < barsPerDay; i++) {
-      const intervalTime = new Date(dayStart.getTime() + i * minutesPerBar * 60 * 1000);
-
-      // Only include intervals that are:
-      // 1. After or at the start time
-      // 2. Before or at the end time
-      // 3. Not in the future
-      if (intervalTime >= startTime && intervalTime <= endTime && intervalTime.getTime() <= currentTime) {
-        intervals.push(intervalTime.getTime());
-      }
+  while (currentInterval <= endTime) {
+    // Only include intervals that are:
+    // 1. After or at the start time
+    // 2. Before or at the end time
+    // 3. Not in the future
+    if (currentInterval >= startTime && currentInterval <= endTime && currentInterval.getTime() <= currentTime) {
+      intervals.push(currentInterval.getTime());
     }
 
-    // Only add day if it has intervals
-    if (intervals.length > 0) {
-      dayIntervals.push(intervals);
-    }
-
-    // Move to next day
-    currentDay.setDate(currentDay.getDate() + 1);
+    // Move to next interval
+    currentInterval = new Date(currentInterval.getTime() + minutesPerBar * 60 * 1000);
   }
 
-  return dayIntervals;
+  // Return as single chart (all bars in one row)
+  return [intervals];
 };
 
 /**

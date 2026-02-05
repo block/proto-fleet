@@ -1,4 +1,4 @@
-import { Duration } from "@/shared/components/DurationSelector";
+import { FleetDuration } from "@/shared/components/DurationSelector";
 
 export type Value = number | null;
 
@@ -19,7 +19,7 @@ export type StatsArgs = AggregateStats & { lowestPerformer?: string };
  * ProtoFleet specific outlet context for KPI data
  */
 export interface KpiOutletContext {
-  duration: Duration;
+  duration: FleetDuration;
   minerHashrate: {
     hashrate: TimeSeriesDataPoint[];
     aggregates: AggregateStats;

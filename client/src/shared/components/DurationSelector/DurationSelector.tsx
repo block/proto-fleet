@@ -1,21 +1,29 @@
 import { useState } from "react";
 import clsx from "clsx";
-import { Duration } from "./types";
 
 import Button from "@/shared/components/Button";
-import { durations } from "@/shared/components/DurationSelector/constants";
+import { durations as defaultDurations } from "@/shared/components/DurationSelector/constants";
 
-interface DurationSelectorProps {
+interface DurationSelectorProps<T extends string> {
   className?: string;
-  duration?: Duration;
-  onSelect?: (duration: Duration) => void;
+  duration?: T;
+  durations?: readonly T[];
+  onSelect?: (duration: T) => void;
 }
 
-const DurationSelector = ({ className, duration, onSelect }: DurationSelectorProps) => {
+function DurationSelector<T extends string>({
+  className,
+  duration,
+  // Type assertion is safe here: when T is not provided explicitly, it defaults to Duration
+  // (the type of defaultDurations), so the cast is valid. When T is provided explicitly
+  // (e.g., FleetDuration), callers must also provide a matching durations array.
+  durations = defaultDurations as unknown as readonly T[],
+  onSelect,
+}: DurationSelectorProps<T>) {
   // Initialize with the provided duration or default to the first option
-  const [selectedDuration, setSelectedDuration] = useState<Duration>(duration || durations[0]);
+  const [selectedDuration, setSelectedDuration] = useState<T>(duration || durations[0]);
 
-  const handleSelect = (d: Duration) => {
+  const handleSelect = (d: T) => {
     setSelectedDuration(d);
     onSelect && onSelect(d);
   };
@@ -37,6 +45,6 @@ const DurationSelector = ({ className, duration, onSelect }: DurationSelectorPro
       })}
     </div>
   );
-};
+}
 
 export default DurationSelector;

@@ -24,6 +24,42 @@ const MULTI_DAY_BAR_GAP = {
   phone: 2,
 };
 
+// Duration thresholds (in hours)
+const TWO_DAYS_IN_HOURS = 48;
+const TEN_DAYS_IN_HOURS = 240;
+const THIRTY_DAYS_IN_HOURS = 720;
+
+// X-axis tick intervals based on duration
+const TICK_INTERVAL_SINGLE_DAY = 1;
+const TICK_INTERVAL_SHORT_MULTI_DAY = 3;
+const TICK_INTERVAL_MEDIUM_MULTI_DAY = 2;
+const TICK_INTERVAL_LONG_MULTI_DAY = 4;
+
+/**
+ * Determines the x-axis tick interval based on duration.
+ * Shorter durations show more ticks, longer durations show fewer to prevent overlap.
+ */
+const getXAxisTickInterval = (hours: number, isMultiDay: boolean): number => {
+  if (!isMultiDay) {
+    return TICK_INTERVAL_SINGLE_DAY;
+  }
+  if (hours <= TWO_DAYS_IN_HOURS) {
+    return TICK_INTERVAL_SHORT_MULTI_DAY;
+  }
+  if (hours <= TEN_DAYS_IN_HOURS) {
+    return TICK_INTERVAL_MEDIUM_MULTI_DAY;
+  }
+  return TICK_INTERVAL_LONG_MULTI_DAY;
+};
+
+/**
+ * Determines whether to use date format (e.g., "1/15") for x-axis ticks.
+ * Use date format for long durations (30d+) where each bar represents a day or more.
+ */
+const shouldUseDateFormat = (hours: number): boolean => {
+  return hours >= THIRTY_DAYS_IN_HOURS;
+};
+
 export const SegmentedMetricPanel = ({
   title,
   headline,
@@ -129,11 +165,12 @@ export const SegmentedMetricPanel = ({
                   units={{ singular: "miner", plural: "miners" }}
                   height={DEFAULT_CHART_HEIGHT}
                   percentageDisplay={true}
-                  xAxisTickInterval={isMultiDay ? (hours <= 48 ? 3 : 2) : 1}
+                  xAxisTickInterval={getXAxisTickInterval(hours, isMultiDay)}
                   yAxisTickCount={4}
                   barWidth={barWidth}
                   barGap={isMultiDay ? MULTI_DAY_BAR_GAP : undefined}
-                  showDateLabel={isMultiDay}
+                  showDateLabel={isMultiDay && processedChartData.length > 1}
+                  useDateFormat={shouldUseDateFormat(hours)}
                   lastTickOverride={!isMultiDay && hours < 24 ? "live" : undefined}
                 />
               </div>

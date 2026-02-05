@@ -160,19 +160,19 @@ describe("UptimePanel", () => {
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"12h"} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
-    expect(screen.getByText("All miners hashing")).toBeInTheDocument();
-
     rerender(<UptimePanel duration={"24h"} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"48h"} />);
+    rerender(<UptimePanel duration={"3d"} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"5d"} />);
+    rerender(<UptimePanel duration={"10d"} />);
+    expect(screen.getByText("Uptime")).toBeInTheDocument();
+    expect(screen.getByText("All miners hashing")).toBeInTheDocument();
+
+    rerender(<UptimePanel duration={"30d"} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
   });

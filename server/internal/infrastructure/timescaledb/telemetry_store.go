@@ -21,7 +21,217 @@ const (
 	tempThresholdCold     = 0.0  // Below this = Cold
 	tempThresholdHot      = 70.0 // Below this = Ok, at or above = Hot
 	tempThresholdCritical = 90.0 // At or above = Critical
+
+	// Data source selection thresholds
+	// Queries <= 1 day use raw data for highest resolution
+	rawDataMaxDuration = 24 * time.Hour
+	// Queries between 1 day and 10 days use hourly aggregates
+	hourlyMaxDuration = 10 * 24 * time.Hour
+	// Queries > 10 days use daily aggregates
 )
+
+// dataSource represents which table to query from based on time range
+type dataSource int
+
+const (
+	dataSourceRaw dataSource = iota
+	dataSourceHourly
+	dataSourceDaily
+)
+
+func (ds dataSource) String() string {
+	switch ds {
+	case dataSourceRaw:
+		return "raw"
+	case dataSourceHourly:
+		return "hourly"
+	case dataSourceDaily:
+		return "daily"
+	default:
+		return "unknown"
+	}
+}
+
+// selectDataSource determines which table to query based on time range duration.
+func selectDataSource(startTime, endTime *time.Time) dataSource {
+	if startTime == nil || endTime == nil {
+		return dataSourceRaw
+	}
+	duration := endTime.Sub(*startTime)
+	if duration <= rawDataMaxDuration {
+		return dataSourceRaw
+	}
+	if duration <= hourlyMaxDuration {
+		return dataSourceHourly
+	}
+	return dataSourceDaily
+}
+
+// statusData holds temperature histogram and uptime data extracted from aggregate rows.
+type statusData struct {
+	bucket      time.Time
+	tempBelow0  int32
+	temp010     int32
+	temp1020    int32
+	temp2030    int32
+	temp3040    int32
+	temp4050    int32
+	temp5060    int32
+	temp6070    int32
+	temp7080    int32
+	temp8090    int32
+	temp90100   int32
+	temp100Plus int32
+	hashing     int32
+	notHashing  int32
+}
+
+// toStatusCounts converts temperature histogram data to status counts.
+// Maps histogram buckets to status categories using the same thresholds as
+// calculateTemperatureStatusCount (tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90):
+//   - Cold: temp < 0 → tempBelow0 bucket
+//   - Ok: 0 <= temp < 70 → buckets 0-10 through 60-70
+//   - Hot: 70 <= temp < 90 → buckets 70-80 and 80-90
+//   - Critical: temp >= 90 → buckets 90-100 and 100+
+func (d statusData) toStatusCounts() (cold, ok, hot, critical int32) {
+	cold = d.tempBelow0
+	ok = d.temp010 + d.temp1020 + d.temp2030 + d.temp3040 +
+		d.temp4050 + d.temp5060 + d.temp6070
+	hot = d.temp7080 + d.temp8090
+	critical = d.temp90100 + d.temp100Plus
+	return
+}
+
+// extractStatusDataHourly extracts status data from an hourly aggregate row.
+func extractStatusDataHourly(row sqlc.DeviceStatusHourly) statusData {
+	return statusData{
+		bucket:      row.Bucket,
+		tempBelow0:  row.TempBelow0,
+		temp010:     row.Temp010,
+		temp1020:    row.Temp1020,
+		temp2030:    row.Temp2030,
+		temp3040:    row.Temp3040,
+		temp4050:    row.Temp4050,
+		temp5060:    row.Temp5060,
+		temp6070:    row.Temp6070,
+		temp7080:    row.Temp7080,
+		temp8090:    row.Temp8090,
+		temp90100:   row.Temp90100,
+		temp100Plus: row.Temp100Plus,
+		hashing:     row.HashingCount,
+		notHashing:  row.NotHashingCount,
+	}
+}
+
+// extractStatusDataDaily extracts status data from a daily aggregate row.
+func extractStatusDataDaily(row sqlc.DeviceStatusDaily) statusData {
+	return statusData{
+		bucket:      row.Bucket,
+		tempBelow0:  row.TempBelow0,
+		temp010:     row.Temp010,
+		temp1020:    row.Temp1020,
+		temp2030:    row.Temp2030,
+		temp3040:    row.Temp3040,
+		temp4050:    row.Temp4050,
+		temp5060:    row.Temp5060,
+		temp6070:    row.Temp6070,
+		temp7080:    row.Temp7080,
+		temp8090:    row.Temp8090,
+		temp90100:   row.Temp90100,
+		temp100Plus: row.Temp100Plus,
+		hashing:     row.HashingCount,
+		notHashing:  row.NotHashingCount,
+	}
+}
+
+// aggregateStatusRows aggregates status data into temperature and uptime counts.
+// Each row represents one device's data in a bucket. The histogram counts are
+// data point counts, so we count each device as 1 based on its majority status.
+func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	type statusCounts struct {
+		cold, ok, hot, critical int32
+		hashing, notHashing     int32
+	}
+	buckets := make(map[time.Time]*statusCounts)
+
+	for _, row := range rows {
+		counts, exists := buckets[row.bucket]
+		if !exists {
+			counts = &statusCounts{}
+			buckets[row.bucket] = counts
+		}
+
+		// Temperature: count each device as 1 based on its majority temp status.
+		// Find the dominant temperature category by data point count.
+		cold, ok, hot, critical := row.toStatusCounts()
+		maxTempCount := cold
+		tempCategory := "cold"
+		if ok > maxTempCount {
+			maxTempCount = ok
+			tempCategory = "ok"
+		}
+		if hot > maxTempCount {
+			maxTempCount = hot
+			tempCategory = "hot"
+		}
+		if critical > maxTempCount {
+			tempCategory = "critical"
+		}
+
+		// Count device as 1 in its dominant temperature category
+		switch tempCategory {
+		case "cold":
+			counts.cold++
+		case "ok":
+			counts.ok++
+		case "hot":
+			counts.hot++
+		case "critical":
+			counts.critical++
+		}
+
+		// Uptime: count each device as 1 based on its majority status in the bucket.
+		// If a device has more hashing data points than not hashing, it's counted as 1 hashing device.
+		if row.hashing >= row.notHashing {
+			counts.hashing++
+		} else {
+			counts.notHashing++
+		}
+	}
+
+	bucketTimes := make([]time.Time, 0, len(buckets))
+	for t := range buckets {
+		bucketTimes = append(bucketTimes, t)
+	}
+	sort.Slice(bucketTimes, func(i, j int) bool {
+		return bucketTimes[i].Before(bucketTimes[j])
+	})
+
+	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
+	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
+
+	for _, bucketTime := range bucketTimes {
+		counts := buckets[bucketTime]
+		tempCounts = append(tempCounts, models.TemperatureStatusCount{
+			Timestamp:     bucketTime,
+			ColdCount:     counts.cold,
+			OkCount:       counts.ok,
+			HotCount:      counts.hot,
+			CriticalCount: counts.critical,
+		})
+		uptimeCounts = append(uptimeCounts, models.UptimeStatusCount{
+			Timestamp:       bucketTime,
+			HashingCount:    counts.hashing,
+			NotHashingCount: counts.notHashing,
+		})
+	}
+
+	return tempCounts, uptimeCounts
+}
 
 var _ telemetry.TelemetryDataStore = &TimescaleTelemetryStore{}
 
@@ -294,7 +504,31 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 }
 
 // GetCombinedMetrics retrieves aggregated metrics across devices.
+// Routes queries to the appropriate data source based on time range:
+// - Raw data (device_metrics) for queries <= 24h
+// - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
+// - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+
+	s.logger.Debug("selected data source for combined metrics",
+		slog.String("source", ds.String()),
+		slog.Any("start_time", query.TimeRange.StartTime),
+		slog.Any("end_time", query.TimeRange.EndTime))
+
+	switch ds {
+	case dataSourceRaw:
+		return s.getCombinedMetricsFromRaw(ctx, query)
+	case dataSourceHourly:
+		return s.getCombinedMetricsFromHourly(ctx, query)
+	case dataSourceDaily:
+		return s.getCombinedMetricsFromDaily(ctx, query)
+	}
+	return s.getCombinedMetricsFromRaw(ctx, query)
+}
+
+// getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	tsQuery := models.TimeSeriesTelemetryQuery{
 		DeviceIDs:        query.DeviceIDs,
 		MeasurementTypes: query.MeasurementTypes,
@@ -318,6 +552,459 @@ func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query 
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
 
 	return result, nil
+}
+
+// getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+
+	var rows []sqlc.DeviceMetricsHourly
+	var err error
+
+	if len(query.DeviceIDs) == 0 {
+		rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
+			Bucket:   startTime,
+			Bucket_2: endTime,
+		})
+	} else {
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
+		rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
+			DeviceIdentifiers: identifiers,
+			Bucket:            startTime,
+			Bucket_2:          endTime,
+		})
+	}
+
+	if err != nil {
+		return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
+	}
+
+	if len(rows) == 0 {
+		return models.CombinedMetric{}, nil
+	}
+
+	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+
+	// Get status counts from hourly status aggregates
+	tempCounts, uptimeCounts := s.getStatusCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+
+	return models.CombinedMetric{
+		Metrics:                 metrics,
+		TemperatureStatusCounts: tempCounts,
+		UptimeStatusCounts:      uptimeCounts,
+	}, nil
+}
+
+// getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+
+	var rows []sqlc.DeviceMetricsDaily
+	var err error
+
+	if len(query.DeviceIDs) == 0 {
+		rows, err = s.queries.GetAllDeviceMetricsDailyAggregates(ctx, sqlc.GetAllDeviceMetricsDailyAggregatesParams{
+			Bucket:   startTime,
+			Bucket_2: endTime,
+		})
+	} else {
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
+		rows, err = s.queries.GetDeviceMetricsDailyAggregates(ctx, sqlc.GetDeviceMetricsDailyAggregatesParams{
+			DeviceIdentifiers: identifiers,
+			Bucket:            startTime,
+			Bucket_2:          endTime,
+		})
+	}
+
+	if err != nil {
+		return models.CombinedMetric{}, fmt.Errorf("failed to query daily aggregates: %w", err)
+	}
+
+	if len(rows) == 0 {
+		return models.CombinedMetric{}, nil
+	}
+
+	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+
+	// Get status counts from daily status aggregates
+	tempCounts, uptimeCounts := s.getStatusCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+
+	return models.CombinedMetric{
+		Metrics:                 metrics,
+		TemperatureStatusCounts: tempCounts,
+		UptimeStatusCounts:      uptimeCounts,
+	}, nil
+}
+
+// getTimeRange extracts start and end times from the query, using defaults if not set.
+func (s *TimescaleTelemetryStore) getTimeRange(tr models.TimeRange) (time.Time, time.Time) {
+	endTime := time.Now()
+	startTime := endTime.Add(-s.config.MaxAge)
+
+	if tr.StartTime != nil {
+		startTime = *tr.StartTime
+	}
+	if tr.EndTime != nil {
+		endTime = *tr.EndTime
+	}
+	return startTime, endTime
+}
+
+// deviceIDsToStrings converts device identifiers to strings.
+func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
+	result := make([]string, len(ids))
+	for i, id := range ids {
+		result[i] = string(id)
+	}
+	return result
+}
+
+// getStatusCountsFromHourlyAggregates retrieves temperature and uptime status counts
+// from the device_status_hourly continuous aggregate.
+func (s *TimescaleTelemetryStore) getStatusCountsFromHourlyAggregates(
+	ctx context.Context,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+	var rows []sqlc.DeviceStatusHourly
+	var err error
+
+	if len(deviceIDs) == 0 {
+		rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
+			Bucket:   startTime,
+			Bucket_2: endTime,
+		})
+	} else {
+		identifiers := deviceIDsToStrings(deviceIDs)
+		rows, err = s.queries.GetDeviceStatusHourlyAggregates(ctx, sqlc.GetDeviceStatusHourlyAggregatesParams{
+			DeviceIdentifiers: identifiers,
+			Bucket:            startTime,
+			Bucket_2:          endTime,
+		})
+	}
+
+	if err != nil {
+		// Log at error level but don't fail the entire request - status counts are supplementary data
+		s.logger.Error("failed to query hourly status aggregates", slog.String("error", err.Error()))
+		return nil, nil
+	}
+
+	// Extract status data for unified aggregation
+	statusRows := make([]statusData, len(rows))
+	for i, row := range rows {
+		statusRows[i] = extractStatusDataHourly(row)
+	}
+	return aggregateStatusRows(statusRows)
+}
+
+// getStatusCountsFromDailyAggregates retrieves temperature and uptime status counts
+// from the device_status_daily continuous aggregate.
+func (s *TimescaleTelemetryStore) getStatusCountsFromDailyAggregates(
+	ctx context.Context,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+	var rows []sqlc.DeviceStatusDaily
+	var err error
+
+	if len(deviceIDs) == 0 {
+		rows, err = s.queries.GetAllDeviceStatusDailyAggregates(ctx, sqlc.GetAllDeviceStatusDailyAggregatesParams{
+			Bucket:   startTime,
+			Bucket_2: endTime,
+		})
+	} else {
+		identifiers := deviceIDsToStrings(deviceIDs)
+		rows, err = s.queries.GetDeviceStatusDailyAggregates(ctx, sqlc.GetDeviceStatusDailyAggregatesParams{
+			DeviceIdentifiers: identifiers,
+			Bucket:            startTime,
+			Bucket_2:          endTime,
+		})
+	}
+
+	if err != nil {
+		// Log at error level but don't fail the entire request - status counts are supplementary data
+		s.logger.Error("failed to query daily status aggregates", slog.String("error", err.Error()))
+		return nil, nil
+	}
+
+	// Extract status data for unified aggregation
+	statusRows := make([]statusData, len(rows))
+	for i, row := range rows {
+		statusRows[i] = extractStatusDataDaily(row)
+	}
+	return aggregateStatusRows(statusRows)
+}
+
+// aggregateHourlyRows aggregates hourly data rows into metrics.
+func (s *TimescaleTelemetryStore) aggregateHourlyRows(
+	rows []sqlc.DeviceMetricsHourly,
+	measurementTypes []models.MeasurementType,
+	aggregationTypes []models.AggregationType,
+) []models.Metric {
+	if len(measurementTypes) == 0 {
+		measurementTypes = modelsV2.DefaultMeasurementTypes
+	}
+	if len(aggregationTypes) == 0 {
+		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
+	}
+
+	// Group by bucket time
+	buckets := make(map[time.Time][]sqlc.DeviceMetricsHourly)
+	for _, row := range rows {
+		buckets[row.Bucket] = append(buckets[row.Bucket], row)
+	}
+
+	bucketTimes := make([]time.Time, 0, len(buckets))
+	for t := range buckets {
+		bucketTimes = append(bucketTimes, t)
+	}
+	sort.Slice(bucketTimes, func(i, j int) bool {
+		return bucketTimes[i].Before(bucketTimes[j])
+	})
+
+	var allMetrics []models.Metric
+
+	for _, bucketTime := range bucketTimes {
+		bucketData := buckets[bucketTime]
+
+		for _, measurementType := range measurementTypes {
+			aggregatedValues := s.aggregateHourlyBucket(bucketData, measurementType, aggregationTypes)
+			if len(aggregatedValues) == 0 {
+				continue
+			}
+
+			allMetrics = append(allMetrics, models.Metric{
+				MeasurementType:  measurementType,
+				AggregatedValues: aggregatedValues,
+				OpenTime:         bucketTime,
+				DeviceCount:      safeIntToInt32(len(bucketData)),
+			})
+		}
+	}
+
+	return allMetrics
+}
+
+// aggregateHourlyBucket aggregates values from hourly rows for a single bucket.
+func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
+	rows []sqlc.DeviceMetricsHourly,
+	measurementType models.MeasurementType,
+	aggregationTypes []models.AggregationType,
+) []models.AggregatedValue {
+	isCumulative := isCumulativeMetric(measurementType)
+
+	var avgSum float64
+	var count int
+
+	for _, row := range rows {
+		avg, _, _, ok := extractHourlyValues(row, measurementType)
+		if !ok {
+			continue
+		}
+		avgSum += avg
+		count++
+	}
+
+	if count == 0 {
+		return nil
+	}
+
+	var result []models.AggregatedValue
+	for _, aggType := range aggregationTypes {
+		var value float64
+		switch aggType {
+		case models.AggregationTypeAverage:
+			if isCumulative {
+				value = avgSum // Sum across devices for fleet total
+			} else {
+				value = avgSum / float64(count) // Average across devices
+			}
+		case models.AggregationTypeMin, models.AggregationTypeMax:
+			s.logger.Error("min/max aggregation not implemented for continuous aggregates",
+				slog.String("aggregation_type", aggType.String()))
+			continue
+		case models.AggregationTypeSum:
+			value = avgSum
+		case models.AggregationTypeCount:
+			value = float64(count)
+		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+			continue
+		}
+		result = append(result, models.AggregatedValue{
+			Type:  aggType,
+			Value: value,
+		})
+	}
+
+	return result
+}
+
+// extractHourlyValues extracts avg, min, max values from an hourly row for a measurement type.
+func extractHourlyValues(row sqlc.DeviceMetricsHourly, mt models.MeasurementType) (avg, minVal, maxVal float64, ok bool) {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		if row.MaxHashRate.Valid && row.MinHashRate.Valid {
+			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true
+		}
+		return row.AvgHashRate, row.AvgHashRate, row.AvgHashRate, row.AvgHashRate > 0
+	case models.MeasurementTypeTemperature:
+		if row.MaxTemp.Valid && row.MinTemp.Valid {
+			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true
+		}
+		return row.AvgTemp, row.AvgTemp, row.AvgTemp, row.AvgTemp > 0
+	case models.MeasurementTypePower:
+		return row.AvgPower, row.AvgPower, row.AvgPower, row.AvgPower > 0
+	case models.MeasurementTypeEfficiency:
+		return row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency > 0
+	case models.MeasurementTypeFanSpeed:
+		return row.AvgFanRpm, row.AvgFanRpm, row.AvgFanRpm, row.AvgFanRpm > 0
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return 0, 0, 0, false
+	}
+	return 0, 0, 0, false
+}
+
+// aggregateDailyRows aggregates daily data rows into metrics.
+func (s *TimescaleTelemetryStore) aggregateDailyRows(
+	rows []sqlc.DeviceMetricsDaily,
+	measurementTypes []models.MeasurementType,
+	aggregationTypes []models.AggregationType,
+) []models.Metric {
+	if len(measurementTypes) == 0 {
+		measurementTypes = modelsV2.DefaultMeasurementTypes
+	}
+	if len(aggregationTypes) == 0 {
+		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
+	}
+
+	// Group by bucket time
+	buckets := make(map[time.Time][]sqlc.DeviceMetricsDaily)
+	for _, row := range rows {
+		buckets[row.Bucket] = append(buckets[row.Bucket], row)
+	}
+
+	bucketTimes := make([]time.Time, 0, len(buckets))
+	for t := range buckets {
+		bucketTimes = append(bucketTimes, t)
+	}
+	sort.Slice(bucketTimes, func(i, j int) bool {
+		return bucketTimes[i].Before(bucketTimes[j])
+	})
+
+	var allMetrics []models.Metric
+
+	for _, bucketTime := range bucketTimes {
+		bucketData := buckets[bucketTime]
+
+		for _, measurementType := range measurementTypes {
+			aggregatedValues := s.aggregateDailyBucket(bucketData, measurementType, aggregationTypes)
+			if len(aggregatedValues) == 0 {
+				continue
+			}
+
+			allMetrics = append(allMetrics, models.Metric{
+				MeasurementType:  measurementType,
+				AggregatedValues: aggregatedValues,
+				OpenTime:         bucketTime,
+				DeviceCount:      safeIntToInt32(len(bucketData)),
+			})
+		}
+	}
+
+	return allMetrics
+}
+
+// aggregateDailyBucket aggregates values from daily rows for a single bucket.
+func (s *TimescaleTelemetryStore) aggregateDailyBucket(
+	rows []sqlc.DeviceMetricsDaily,
+	measurementType models.MeasurementType,
+	aggregationTypes []models.AggregationType,
+) []models.AggregatedValue {
+	isCumulative := isCumulativeMetric(measurementType)
+
+	var avgSum float64
+	var count int
+
+	for _, row := range rows {
+		avg, _, _, ok := extractDailyValues(row, measurementType)
+		if !ok {
+			continue
+		}
+		avgSum += avg
+		count++
+	}
+
+	if count == 0 {
+		return nil
+	}
+
+	var result []models.AggregatedValue
+	for _, aggType := range aggregationTypes {
+		var value float64
+		switch aggType {
+		case models.AggregationTypeAverage:
+			if isCumulative {
+				value = avgSum
+			} else {
+				value = avgSum / float64(count)
+			}
+		case models.AggregationTypeMin, models.AggregationTypeMax:
+			// TODO: Min/Max aggregation needs proper implementation (currently averages per-device values)
+			s.logger.Error("min/max aggregation not implemented for continuous aggregates",
+				slog.String("aggregation_type", aggType.String()))
+			continue
+		case models.AggregationTypeSum:
+			value = avgSum
+		case models.AggregationTypeCount:
+			value = float64(count)
+		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+			continue
+		}
+		result = append(result, models.AggregatedValue{
+			Type:  aggType,
+			Value: value,
+		})
+	}
+
+	return result
+}
+
+// extractDailyValues extracts avg, min, max values from a daily row for a measurement type.
+func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) (avg, minVal, maxVal float64, ok bool) {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		if row.MaxHashRate.Valid && row.MinHashRate.Valid {
+			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true
+		}
+		return row.AvgHashRate, row.AvgHashRate, row.AvgHashRate, row.AvgHashRate > 0
+	case models.MeasurementTypeTemperature:
+		if row.MaxTemp.Valid && row.MinTemp.Valid {
+			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true
+		}
+		return row.AvgTemp, row.AvgTemp, row.AvgTemp, row.AvgTemp > 0
+	case models.MeasurementTypePower:
+		return row.AvgPower, row.AvgPower, row.AvgPower, row.AvgPower > 0
+	case models.MeasurementTypeEfficiency:
+		return row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency > 0
+	case models.MeasurementTypeFanSpeed,
+		models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return 0, 0, 0, false
+	}
+	return 0, 0, 0, false
 }
 
 // aggregateMetrics performs aggregations on the metrics data.

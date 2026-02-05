@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { ButtonVariant } from "@/shared/components/Button";
-import type { Duration } from "@/shared/components/DurationSelector";
+import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 export interface SegmentedBarChartData {
   datetime: number;
@@ -35,6 +35,6 @@ export interface SegmentedMetricPanelProps {
   headlineGenerator?: (processedData: SegmentedBarChartData[][]) => string; // Optional dynamic headline generator
   chartData: StatusCount[];
   segmentConfig: SegmentConfig;
-  duration: Duration;
+  duration: FleetDuration;
   className?: string;
 }

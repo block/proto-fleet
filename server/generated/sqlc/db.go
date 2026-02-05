@@ -84,8 +84,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
 	}
+	if q.getAllDeviceMetricsDailyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsDailyAggregates: %w", err)
+	}
+	if q.getAllDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsHourlyAggregates: %w", err)
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsTimeSeries: %w", err)
+	}
+	if q.getAllDeviceStatusDailyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceStatusDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceStatusDailyAggregates: %w", err)
+	}
+	if q.getAllDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceStatusHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceStatusHourlyAggregates: %w", err)
 	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
@@ -144,8 +156,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceStatusByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceStatusByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceStatusByDeviceIdentifier: %w", err)
 	}
+	if q.getDeviceStatusDailyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceStatusDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceStatusDailyAggregates: %w", err)
+	}
 	if q.getDeviceStatusForDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceStatusForDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceStatusForDeviceIdentifiers: %w", err)
+	}
+	if q.getDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceStatusHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceStatusHourlyAggregates: %w", err)
 	}
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
@@ -495,9 +513,29 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllDeviceInfoForCapabilityCheckStmt: %w", cerr)
 		}
 	}
+	if q.getAllDeviceMetricsDailyAggregatesStmt != nil {
+		if cerr := q.getAllDeviceMetricsDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceMetricsDailyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getAllDeviceMetricsHourlyAggregatesStmt != nil {
+		if cerr := q.getAllDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt != nil {
 		if cerr := q.getAllDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllDeviceMetricsTimeSeriesStmt: %w", cerr)
+		}
+	}
+	if q.getAllDeviceStatusDailyAggregatesStmt != nil {
+		if cerr := q.getAllDeviceStatusDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceStatusDailyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getAllDeviceStatusHourlyAggregatesStmt != nil {
+		if cerr := q.getAllDeviceStatusHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceStatusHourlyAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
@@ -595,9 +633,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceStatusByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceStatusDailyAggregatesStmt != nil {
+		if cerr := q.getDeviceStatusDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceStatusDailyAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceStatusForDeviceIdentifiersStmt != nil {
 		if cerr := q.getDeviceStatusForDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceStatusForDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceStatusHourlyAggregatesStmt != nil {
+		if cerr := q.getDeviceStatusHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceStatusHourlyAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt != nil {
@@ -1064,7 +1112,11 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
+	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
+	getAllDeviceMetricsHourlyAggregatesStmt             *sql.Stmt
 	getAllDeviceMetricsTimeSeriesStmt                   *sql.Stmt
+	getAllDeviceStatusDailyAggregatesStmt               *sql.Stmt
+	getAllDeviceStatusHourlyAggregatesStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getAvailableMinerTypesStmt                          *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -1084,7 +1136,9 @@ type Queries struct {
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDeviceStatusStmt                                 *sql.Stmt
 	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
+	getDeviceStatusDailyAggregatesStmt                  *sql.Stmt
 	getDeviceStatusForDeviceIdentifiersStmt             *sql.Stmt
+	getDeviceStatusHourlyAggregatesStmt                 *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt *sql.Stmt
 	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt           *sql.Stmt
@@ -1192,7 +1246,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
+		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
+		getAllDeviceMetricsHourlyAggregatesStmt:             q.getAllDeviceMetricsHourlyAggregatesStmt,
 		getAllDeviceMetricsTimeSeriesStmt:                   q.getAllDeviceMetricsTimeSeriesStmt,
+		getAllDeviceStatusDailyAggregatesStmt:               q.getAllDeviceStatusDailyAggregatesStmt,
+		getAllDeviceStatusHourlyAggregatesStmt:              q.getAllDeviceStatusHourlyAggregatesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getAvailableMinerTypesStmt:                          q.getAvailableMinerTypesStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
@@ -1212,7 +1270,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
 		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,
+		getDeviceStatusDailyAggregatesStmt:                  q.getDeviceStatusDailyAggregatesStmt,
 		getDeviceStatusForDeviceIdentifiersStmt:             q.getDeviceStatusForDeviceIdentifiersStmt,
+		getDeviceStatusHourlyAggregatesStmt:                 q.getDeviceStatusHourlyAggregatesStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
 		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:           q.getDiscoveredDeviceByDeviceIdentifierStmt,

@@ -32,7 +32,8 @@ export interface SegmentedBarChartProps {
   barGap?: number | ResponsiveValue<number>; // Gap between bars in pixels, if omitted bars will be evenly spaced to fill the container
   yAxisTickCount?: number; // Number of horizontal grid lines/ticks (default: 3)
   xAxisTickInterval?: number; // Show tick every N bars (default: 1 = show all)
-  showDateLabel?: boolean; // Show date (e.g., "2/11") instead of time on X-axis
+  showDateLabel?: boolean; // Show a single centered date label below all bars (for multi-day per-day charts)
+  useDateFormat?: boolean; // Use date format (e.g., "1/15") instead of time for x-axis tick labels
   lastTickOverride?: string; // Custom text for the last tick (e.g., "live")
   segmentConfig?: SegmentConfig; // Optional segment configuration for enhanced tooltip display
 }

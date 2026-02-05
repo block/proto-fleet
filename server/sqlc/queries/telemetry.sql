@@ -157,19 +157,20 @@ ORDER BY time ASC
 LIMIT sqlc.arg('max_rows')::int;
 
 -- name: GetDeviceMetricsHourlyAggregates :many
+-- COALESCE handles NULL values from AVG() when all source values are NULL
 SELECT
     bucket,
     device_identifier,
-    avg_hash_rate,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
-    avg_temp,
+    COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
-    avg_fan_rpm,
-    avg_power,
+    COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(avg_power, 0) AS avg_power,
     total_power,
-    avg_efficiency,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_hourly
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
@@ -178,21 +179,171 @@ WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
 ORDER BY bucket ASC;
 
 -- name: GetDeviceMetricsDailyAggregates :many
+-- COALESCE handles NULL values from AVG() when all source values are NULL
 SELECT
     bucket,
     device_identifier,
-    avg_hash_rate,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
-    avg_temp,
+    COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
-    avg_power,
+    COALESCE(avg_power, 0) AS avg_power,
     energy_kwh_estimate,
-    avg_efficiency,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- name: GetAllDeviceMetricsHourlyAggregates :many
+-- Returns hourly aggregates for ALL devices within a time range.
+-- COALESCE handles NULL values from AVG() when all source values are NULL
+SELECT
+    bucket,
+    device_identifier,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
+    max_hash_rate,
+    min_hash_rate,
+    COALESCE(avg_temp, 0) AS avg_temp,
+    max_temp,
+    min_temp,
+    COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(avg_power, 0) AS avg_power,
+    total_power,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    data_points
+FROM device_metrics_hourly
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- name: GetAllDeviceMetricsDailyAggregates :many
+-- Returns daily aggregates for ALL devices within a time range.
+-- COALESCE handles NULL values from AVG() when all source values are NULL
+SELECT
+    bucket,
+    device_identifier,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
+    max_hash_rate,
+    min_hash_rate,
+    COALESCE(avg_temp, 0) AS avg_temp,
+    max_temp,
+    min_temp,
+    COALESCE(avg_power, 0) AS avg_power,
+    energy_kwh_estimate,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    data_points
+FROM device_metrics_daily
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- =====================================================
+-- Status aggregate queries (temperature histogram + uptime)
+-- =====================================================
+
+-- name: GetDeviceStatusHourlyAggregates :many
+-- Returns hourly status aggregates for specific devices within a time range.
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_hourly
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- name: GetAllDeviceStatusHourlyAggregates :many
+-- Returns hourly status aggregates for ALL devices within a time range.
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_hourly
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- name: GetDeviceStatusDailyAggregates :many
+-- Returns daily status aggregates for specific devices within a time range.
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_daily
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC;
+
+-- name: GetAllDeviceStatusDailyAggregates :many
+-- Returns daily status aggregates for ALL devices within a time range.
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_daily
+WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;

@@ -103,7 +103,7 @@ describe("UISlice", () => {
       // Set some initial state
       store.getState().ui.setTheme("dark");
       store.getState().ui.setTemperatureUnit("F");
-      store.getState().ui.setDuration("5d");
+      store.getState().ui.setDuration("3d");
 
       // Update visibleMinerIds
       store.getState().ui.setVisibleMinerIds(new Set(["device-1"]));
@@ -111,7 +111,7 @@ describe("UISlice", () => {
       // Other state should remain unchanged
       expect(store.getState().ui.theme).toBe("dark");
       expect(store.getState().ui.temperatureUnit).toBe("F");
-      expect(store.getState().ui.duration).toBe("5d");
+      expect(store.getState().ui.duration).toBe("3d");
     });
   });
 });

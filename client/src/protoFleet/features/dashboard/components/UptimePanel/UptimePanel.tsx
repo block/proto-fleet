@@ -5,11 +5,11 @@ import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget"
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { useUptimeStatusCounts } from "@/protoFleet/store";
-import { Duration } from "@/shared/components/DurationSelector";
+import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface UptimePanelProps {
-  duration: Duration;
+  duration: FleetDuration;
 }
 
 export function UptimePanel({ duration }: UptimePanelProps) {

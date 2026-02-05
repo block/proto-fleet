@@ -344,6 +344,46 @@ type DeviceStatus struct {
 	CreatedAt       sql.NullTime
 }
 
+type DeviceStatusDaily struct {
+	Bucket           time.Time
+	DeviceIdentifier string
+	TempBelow0       int32
+	Temp010          int32
+	Temp1020         int32
+	Temp2030         int32
+	Temp3040         int32
+	Temp4050         int32
+	Temp5060         int32
+	Temp6070         int32
+	Temp7080         int32
+	Temp8090         int32
+	Temp90100        int32
+	Temp100Plus      int32
+	HashingCount     int32
+	NotHashingCount  int32
+	DataPoints       int32
+}
+
+type DeviceStatusHourly struct {
+	Bucket           time.Time
+	DeviceIdentifier string
+	TempBelow0       int32
+	Temp010          int32
+	Temp1020         int32
+	Temp2030         int32
+	Temp3040         int32
+	Temp4050         int32
+	Temp5060         int32
+	Temp6070         int32
+	Temp7080         int32
+	Temp8090         int32
+	Temp90100        int32
+	Temp100Plus      int32
+	HashingCount     int32
+	NotHashingCount  int32
+	DataPoints       int32
+}
+
 type DiscoveredDevice struct {
 	ID                int64
 	OrgID             int64

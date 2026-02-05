@@ -7,11 +7,11 @@ import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget"
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
 import { usePanelMetrics } from "@/protoFleet/store";
-import { Duration } from "@/shared/components/DurationSelector";
+import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface EfficiencyPanelProps {
-  duration: Duration;
+  duration: FleetDuration;
 }
 
 export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {

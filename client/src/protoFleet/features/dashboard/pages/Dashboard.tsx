@@ -27,7 +27,7 @@ import {
   useSetDuration,
   useSetMinerStateCounts,
 } from "@/protoFleet/store";
-import DurationSelector from "@/shared/components/DurationSelector";
+import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 import { buildVersionInfo } from "@/shared/utils/version";
@@ -204,7 +204,7 @@ const Dashboard = () => {
             <div ref={refs.vertical.start} />
             <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 dark:bg-surface-base phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
               <SectionHeading heading="Performance">
-                <DurationSelector duration={duration} onSelect={setDuration} />
+                <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </SectionHeading>
             </div>
 

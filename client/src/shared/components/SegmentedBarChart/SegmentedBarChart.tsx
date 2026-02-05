@@ -18,6 +18,7 @@ const SegmentedBarChart = ({
   barWidth = 12,
   barGap,
   showDateLabel = false,
+  useDateFormat = false,
   lastTickOverride,
   segmentConfig,
 }: SegmentedBarChartProps) => {
@@ -406,7 +407,11 @@ const SegmentedBarChart = ({
                       },
                     )}
                   >
-                    {isLast && lastTickOverride ? lastTickOverride : formatTime(data.datetime, hasMinutesInTicks)}
+                    {isLast && lastTickOverride
+                      ? lastTickOverride
+                      : useDateFormat
+                        ? formatDate(data.datetime)
+                        : formatTime(data.datetime, hasMinutesInTicks)}
                   </div>
                 )}
               </div>

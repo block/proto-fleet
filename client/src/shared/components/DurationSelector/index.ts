@@ -1,6 +1,6 @@
-import { durations } from "./constants";
+import { durations, fleetDurations } from "./constants";
 import DurationSelector from "./DurationSelector";
-import { Duration } from "./types";
+import { Duration, FleetDuration } from "./types";
 
-export { type Duration, durations };
+export { type Duration, type FleetDuration, durations, fleetDurations };
 export default DurationSelector;

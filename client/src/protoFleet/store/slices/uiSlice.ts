@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
-import type { Duration } from "@/shared/components/DurationSelector";
+import type { FleetDuration } from "@/shared/components/DurationSelector";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences";
 
 // =============================================================================
@@ -11,14 +11,14 @@ export interface UISlice {
   theme: Theme;
   deviceTheme: ThemeColor | undefined;
   temperatureUnit: TemperatureUnit;
-  duration: Duration;
+  duration: FleetDuration;
   visibleMinerIds: Set<string>;
 
   // Actions
   setTheme: (theme: Theme) => void;
   setDeviceTheme: (theme: ThemeColor) => void;
   setTemperatureUnit: (unit: TemperatureUnit) => void;
-  setDuration: (duration: Duration) => void;
+  setDuration: (duration: FleetDuration) => void;
   setVisibleMinerIds: (ids: Set<string>) => void;
 }
 

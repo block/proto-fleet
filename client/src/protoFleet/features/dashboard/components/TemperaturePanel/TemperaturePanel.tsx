@@ -4,7 +4,7 @@ import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { useTemperatureStatusCounts } from "@/protoFleet/store";
 import { Triangle } from "@/shared/assets/icons";
-import { Duration } from "@/shared/components/DurationSelector";
+import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 // Temperature segment configuration
@@ -42,7 +42,7 @@ const temperatureSegmentConfig: SegmentConfig = {
 };
 
 interface TemperaturePanelProps {
-  duration: Duration;
+  duration: FleetDuration;
 }
 
 export function TemperaturePanel({ duration }: TemperaturePanelProps) {

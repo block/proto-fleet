@@ -1,2 +1,2 @@
-// Duration type is now exported from constants.ts
-export type { Duration } from "./constants";
+// Duration types are now exported from constants.ts
+export type { Duration, FleetDuration } from "./constants";

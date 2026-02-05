@@ -6,7 +6,7 @@ import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import type { Duration } from "@/shared/components/DurationSelector";
+import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 // Helper to create mock uptime status counts
 const createMockUptimeStatusCount = (
@@ -26,7 +26,7 @@ const createMockUptimeStatusCount = (
 
 // Mock UptimePanel component for Storybook
 interface MockUptimePanelProps {
-  duration: Duration;
+  duration: FleetDuration;
   hashingCount: number;
   notHashingCount: number;
   isLoading?: boolean; // Used to set uptimeStatusCounts to undefined
@@ -124,7 +124,7 @@ const meta = {
   argTypes: {
     duration: {
       control: "select",
-      options: ["1h", "12h", "24h", "48h", "5d"],
+      options: ["1h", "24h", "3d", "10d", "30d", "90d", "1y"],
       description: "Time range for the uptime data",
     },
     hashingCount: {
@@ -269,7 +269,7 @@ export const LargeFleet: Story = {
  */
 export const FortyEightHours: Story = {
   args: {
-    duration: "48h",
+    duration: "3d",
     hashingCount: 8,
     notHashingCount: 2,
   },
@@ -280,7 +280,7 @@ export const FortyEightHours: Story = {
  */
 export const FiveDays: Story = {
   args: {
-    duration: "5d",
+    duration: "10d",
     hashingCount: 8,
     notHashingCount: 2,
   },

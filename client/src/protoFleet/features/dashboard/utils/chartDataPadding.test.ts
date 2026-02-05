@@ -58,36 +58,36 @@ describe("padChartDataWithNulls", () => {
     expect(nullPoint?.efficiency).toBeNull();
   });
 
-  it("should handle different duration strings correctly", () => {
+  it("should handle different duration strings correctly with dynamic granularity", () => {
     const now = Date.now();
 
     const data: ChartData[] = [{ datetime: now, hashrate: 100 }];
 
-    // 1 hour should have ~40 buckets (3600s / 90s)
+    // 1 hour should have ~40 buckets (3600s / 90s granularity)
     const result1h = padChartDataWithNulls(data, "1h");
     expect(result1h.length).toBeGreaterThan(30);
     expect(result1h.length).toBeLessThanOrEqual(50);
 
-    // 12 hours should have ~480 buckets (43200s / 90s)
-    const result12h = padChartDataWithNulls(data, "12h");
-    expect(result12h.length).toBeGreaterThan(400);
-    expect(result12h.length).toBeLessThanOrEqual(500);
+    // 3 days (48h-5d range) uses 180s (3min) granularity: ~1440 buckets (259200s / 180s)
+    const result3d = padChartDataWithNulls(data, "3d");
+    expect(result3d.length).toBeGreaterThan(1400);
+    expect(result3d.length).toBeLessThanOrEqual(1500);
 
-    // 24 hours should have ~960 buckets
+    // 24 hours uses 90s granularity: ~960 buckets
     const result24h = padChartDataWithNulls(data, "24h");
     expect(result24h.length).toBeGreaterThan(900);
     expect(result24h.length).toBeLessThanOrEqual(1000);
   });
 
-  it("should use 90-second granularity for bucketing", () => {
+  it("should use 90-second granularity for short durations (1h)", () => {
     const now = Date.now();
-    const granularity = 90 * 1000; // 90 seconds in milliseconds
+    const granularity = 90 * 1000; // 90 seconds in milliseconds for 1h duration
 
     const data: ChartData[] = [{ datetime: now, hashrate: 100 }];
 
     const result = padChartDataWithNulls(data, "1h");
 
-    // Check that timestamps are at 90-second intervals
+    // Check that timestamps are at 90-second intervals for 1h duration
     for (let i = 1; i < result.length; i++) {
       const timeDiff = result[i].datetime - result[i - 1].datetime;
       expect(timeDiff).toBe(granularity);

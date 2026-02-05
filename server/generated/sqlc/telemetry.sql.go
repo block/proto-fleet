@@ -13,6 +13,134 @@ import (
 	"github.com/lib/pq"
 )
 
+const getAllDeviceMetricsDailyAggregates = `-- name: GetAllDeviceMetricsDailyAggregates :many
+SELECT
+    bucket,
+    device_identifier,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
+    max_hash_rate,
+    min_hash_rate,
+    COALESCE(avg_temp, 0) AS avg_temp,
+    max_temp,
+    min_temp,
+    COALESCE(avg_power, 0) AS avg_power,
+    energy_kwh_estimate,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    data_points
+FROM device_metrics_daily
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetAllDeviceMetricsDailyAggregatesParams struct {
+	Bucket   time.Time
+	Bucket_2 time.Time
+}
+
+// Returns daily aggregates for ALL devices within a time range.
+// COALESCE handles NULL values from AVG() when all source values are NULL
+func (q *Queries) GetAllDeviceMetricsDailyAggregates(ctx context.Context, arg GetAllDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
+	rows, err := q.query(ctx, q.getAllDeviceMetricsDailyAggregatesStmt, getAllDeviceMetricsDailyAggregates, arg.Bucket, arg.Bucket_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetricsDaily
+	for rows.Next() {
+		var i DeviceMetricsDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.AvgHashRate,
+			&i.MaxHashRate,
+			&i.MinHashRate,
+			&i.AvgTemp,
+			&i.MaxTemp,
+			&i.MinTemp,
+			&i.AvgPower,
+			&i.EnergyKwhEstimate,
+			&i.AvgEfficiency,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllDeviceMetricsHourlyAggregates = `-- name: GetAllDeviceMetricsHourlyAggregates :many
+SELECT
+    bucket,
+    device_identifier,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
+    max_hash_rate,
+    min_hash_rate,
+    COALESCE(avg_temp, 0) AS avg_temp,
+    max_temp,
+    min_temp,
+    COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(avg_power, 0) AS avg_power,
+    total_power,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    data_points
+FROM device_metrics_hourly
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetAllDeviceMetricsHourlyAggregatesParams struct {
+	Bucket   time.Time
+	Bucket_2 time.Time
+}
+
+// Returns hourly aggregates for ALL devices within a time range.
+// COALESCE handles NULL values from AVG() when all source values are NULL
+func (q *Queries) GetAllDeviceMetricsHourlyAggregates(ctx context.Context, arg GetAllDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
+	rows, err := q.query(ctx, q.getAllDeviceMetricsHourlyAggregatesStmt, getAllDeviceMetricsHourlyAggregates, arg.Bucket, arg.Bucket_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetricsHourly
+	for rows.Next() {
+		var i DeviceMetricsHourly
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.AvgHashRate,
+			&i.MaxHashRate,
+			&i.MinHashRate,
+			&i.AvgTemp,
+			&i.MaxTemp,
+			&i.MinTemp,
+			&i.AvgFanRpm,
+			&i.AvgPower,
+			&i.TotalPower,
+			&i.AvgEfficiency,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAllDeviceMetricsTimeSeries = `-- name: GetAllDeviceMetricsTimeSeries :many
 SELECT
     time,
@@ -100,19 +228,163 @@ func (q *Queries) GetAllDeviceMetricsTimeSeries(ctx context.Context, arg GetAllD
 	return items, nil
 }
 
+const getAllDeviceStatusDailyAggregates = `-- name: GetAllDeviceStatusDailyAggregates :many
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_daily
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetAllDeviceStatusDailyAggregatesParams struct {
+	Bucket   time.Time
+	Bucket_2 time.Time
+}
+
+// Returns daily status aggregates for ALL devices within a time range.
+func (q *Queries) GetAllDeviceStatusDailyAggregates(ctx context.Context, arg GetAllDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	rows, err := q.query(ctx, q.getAllDeviceStatusDailyAggregatesStmt, getAllDeviceStatusDailyAggregates, arg.Bucket, arg.Bucket_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusDaily
+	for rows.Next() {
+		var i DeviceStatusDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllDeviceStatusHourlyAggregates = `-- name: GetAllDeviceStatusHourlyAggregates :many
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_hourly
+WHERE bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetAllDeviceStatusHourlyAggregatesParams struct {
+	Bucket   time.Time
+	Bucket_2 time.Time
+}
+
+// Returns hourly status aggregates for ALL devices within a time range.
+func (q *Queries) GetAllDeviceStatusHourlyAggregates(ctx context.Context, arg GetAllDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error) {
+	rows, err := q.query(ctx, q.getAllDeviceStatusHourlyAggregatesStmt, getAllDeviceStatusHourlyAggregates, arg.Bucket, arg.Bucket_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusHourly
+	for rows.Next() {
+		var i DeviceStatusHourly
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceMetricsDailyAggregates = `-- name: GetDeviceMetricsDailyAggregates :many
 SELECT
     bucket,
     device_identifier,
-    avg_hash_rate,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
-    avg_temp,
+    COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
-    avg_power,
+    COALESCE(avg_power, 0) AS avg_power,
     energy_kwh_estimate,
-    avg_efficiency,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily
 WHERE device_identifier = ANY($3::text[])
@@ -127,6 +399,7 @@ type GetDeviceMetricsDailyAggregatesParams struct {
 	DeviceIdentifiers []string
 }
 
+// COALESCE handles NULL values from AVG() when all source values are NULL
 func (q *Queries) GetDeviceMetricsDailyAggregates(ctx context.Context, arg GetDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsDailyAggregatesStmt, getDeviceMetricsDailyAggregates, arg.Bucket, arg.Bucket_2, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -167,16 +440,16 @@ const getDeviceMetricsHourlyAggregates = `-- name: GetDeviceMetricsHourlyAggrega
 SELECT
     bucket,
     device_identifier,
-    avg_hash_rate,
+    COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
-    avg_temp,
+    COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
-    avg_fan_rpm,
-    avg_power,
+    COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(avg_power, 0) AS avg_power,
     total_power,
-    avg_efficiency,
+    COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_hourly
 WHERE device_identifier = ANY($3::text[])
@@ -191,6 +464,7 @@ type GetDeviceMetricsHourlyAggregatesParams struct {
 	DeviceIdentifiers []string
 }
 
+// COALESCE handles NULL values from AVG() when all source values are NULL
 func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsHourlyAggregatesStmt, getDeviceMetricsHourlyAggregates, arg.Bucket, arg.Bucket_2, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -306,6 +580,158 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 			&i.ChipCountKind,
 			&i.ChipFrequencyMhz,
 			&i.Health,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceStatusDailyAggregates = `-- name: GetDeviceStatusDailyAggregates :many
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_daily
+WHERE device_identifier = ANY($3::text[])
+  AND bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetDeviceStatusDailyAggregatesParams struct {
+	Bucket            time.Time
+	Bucket_2          time.Time
+	DeviceIdentifiers []string
+}
+
+// Returns daily status aggregates for specific devices within a time range.
+func (q *Queries) GetDeviceStatusDailyAggregates(ctx context.Context, arg GetDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	rows, err := q.query(ctx, q.getDeviceStatusDailyAggregatesStmt, getDeviceStatusDailyAggregates, arg.Bucket, arg.Bucket_2, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusDaily
+	for rows.Next() {
+		var i DeviceStatusDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceStatusHourlyAggregates = `-- name: GetDeviceStatusHourlyAggregates :many
+
+SELECT
+    bucket,
+    device_identifier,
+    temp_below_0,
+    temp_0_10,
+    temp_10_20,
+    temp_20_30,
+    temp_30_40,
+    temp_40_50,
+    temp_50_60,
+    temp_60_70,
+    temp_70_80,
+    temp_80_90,
+    temp_90_100,
+    temp_100_plus,
+    hashing_count,
+    not_hashing_count,
+    data_points
+FROM device_status_hourly
+WHERE device_identifier = ANY($3::text[])
+  AND bucket >= $1
+  AND bucket <= $2
+ORDER BY bucket ASC
+`
+
+type GetDeviceStatusHourlyAggregatesParams struct {
+	Bucket            time.Time
+	Bucket_2          time.Time
+	DeviceIdentifiers []string
+}
+
+// =====================================================
+// Status aggregate queries (temperature histogram + uptime)
+// =====================================================
+// Returns hourly status aggregates for specific devices within a time range.
+func (q *Queries) GetDeviceStatusHourlyAggregates(ctx context.Context, arg GetDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error) {
+	rows, err := q.query(ctx, q.getDeviceStatusHourlyAggregatesStmt, getDeviceStatusHourlyAggregates, arg.Bucket, arg.Bucket_2, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusHourly
+	for rows.Next() {
+		var i DeviceStatusHourly
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
 		); err != nil {
 			return nil, err
 		}

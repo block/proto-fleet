@@ -5,11 +5,11 @@ import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { usePanelMetrics } from "@/protoFleet/store";
-import { Duration } from "@/shared/components/DurationSelector";
+import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface HashratePanelProps {
-  duration: Duration;
+  duration: FleetDuration;
 }
 
 export function HashratePanel({ duration }: HashratePanelProps) {

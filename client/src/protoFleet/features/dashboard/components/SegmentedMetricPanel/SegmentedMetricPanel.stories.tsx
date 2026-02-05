@@ -37,7 +37,7 @@ const meta = {
     },
     duration: {
       control: "select",
-      options: ["1h", "12h", "24h", "5d"],
+      options: ["1h", "24h", "3d", "10d", "30d", "90d", "1y"],
       description: "Time duration for the chart display",
     },
   },
@@ -157,7 +157,7 @@ export const TwelveHourDuration: Story = {
     headline: "9.0% outside safe range",
     chartData: generateGranularData(13), // Generate 13 hours of minute-level data
     segmentConfig: temperatureSegmentConfig,
-    duration: "12h",
+    duration: "24h",
   },
 };
 
@@ -179,7 +179,7 @@ export const FortyEightHourDuration: Story = {
     headline: "9.5% outside safe range",
     chartData: generateGranularData(49), // Generate 49 hours of minute-level data
     segmentConfig: temperatureSegmentConfig,
-    duration: "48h",
+    duration: "3d",
   },
 };
 
@@ -190,7 +190,7 @@ export const FiveDayDuration: Story = {
     headline: "10.5% outside safe range",
     chartData: generateGranularData(121), // Generate 121 hours of minute-level data
     segmentConfig: temperatureSegmentConfig,
-    duration: "5d",
+    duration: "10d",
   },
 };
 
@@ -222,7 +222,7 @@ export const FewMiners: Story = {
       critical: 1,
     }),
     segmentConfig: temperatureSegmentConfig,
-    duration: "12h",
+    duration: "24h",
   },
 };
 
@@ -238,7 +238,7 @@ export const AllNormal: Story = {
       critical: 0,
     }),
     segmentConfig: temperatureSegmentConfig,
-    duration: "12h",
+    duration: "24h",
   },
 };
 
@@ -249,7 +249,7 @@ export const NoData: Story = {
     headline: "No data",
     chartData: [],
     segmentConfig: temperatureSegmentConfig,
-    duration: "12h",
+    duration: "24h",
   },
 };
 
