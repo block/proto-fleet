@@ -15,6 +15,8 @@ import { Alert, HashboardIndicatorV2 as HashboardIndicator } from "@/shared/asse
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
+import HashRateValue from "@/shared/components/HashRateValue";
+import PowerValue from "@/shared/components/PowerValue";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 
 interface HashboardStatusCardProps {
@@ -39,6 +41,8 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   // Compute display values from store data
   const avgAsicTemp = hashboardData?.avgAsicTemp?.latest?.value ?? undefined;
   const maxAsicTemp = hashboardData?.maxAsicTemp?.latest?.value ?? undefined;
+  const power = hashboardData?.power?.latest?.value ?? undefined;
+  const hashrate = hashboardData?.hashrate?.latest?.value ?? undefined;
   const position = slot || 0;
   const name = `Slot ${slot}`;
 
@@ -63,6 +67,8 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <LabeledValue value={<TemperatureValue value={avgAsicTemp} />} label="ASIC avg" />
           <LabeledValue value={<TemperatureValue value={maxAsicTemp} />} label="Asic high" />
+          <LabeledValue value={<PowerValue value={power} />} label="Power" />
+          <LabeledValue value={<HashRateValue value={hashrate} />} label="Hashrate" />
         </div>
         <AsicTablePreview asics={asicData} />
       </div>

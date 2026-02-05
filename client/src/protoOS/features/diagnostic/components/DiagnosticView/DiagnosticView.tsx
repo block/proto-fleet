@@ -149,7 +149,7 @@ const ControlBoardSection = () => {
 ControlBoardSection.displayName = "ControlBoardSection";
 
 function DiagnosticView({ className }: DiagnosticViewProps) {
-  useTelemetry({ level: ["asic", "psu"] });
+  useTelemetry({ level: ["hashboard", "asic", "psu"] });
 
   // Fetch errors
   // const { data: errors } = useErrors();
