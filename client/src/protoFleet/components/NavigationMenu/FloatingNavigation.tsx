@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import clsx from "clsx";
 import Navigation from "@/protoFleet/components/NavigationMenu/Navigation";
 import { NavItem } from "@/protoFleet/config/navItems";
@@ -12,7 +12,7 @@ type FloatingNavigationProps = {
 const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const { preventScroll } = usePreventScroll();
-  useEffect(() => {
+  useLayoutEffect(() => {
     preventScroll();
   }, [preventScroll]);
 

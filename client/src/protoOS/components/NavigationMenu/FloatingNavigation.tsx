@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import clsx from "clsx";
 
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
@@ -28,7 +28,7 @@ const FloatingNavigation = ({
 }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const { preventScroll } = usePreventScroll();
-  useEffect(() => {
+  useLayoutEffect(() => {
     preventScroll();
   }, [preventScroll]);
 

@@ -420,3 +420,47 @@ WOuld be best to switch over to mobile first stying  */
     display: none;
   }
 }
+
+/* Custom scrollbar styling for consistent appearance across browsers */
+html {
+  overflow-y: auto;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--base_gray_60) / 40%) transparent;
+}
+
+[data-theme="dark"] html,
+html[data-theme="dark"] {
+  scrollbar-color: rgb(var(--base_gray_20) / 30%) transparent;
+}
+
+/* WebKit browsers (Chrome, Safari, Edge) */
+html::-webkit-scrollbar {
+  width: 12px;
+  background: transparent;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--base_gray_60) / 40%);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--base_gray_60) / 60%);
+}
+
+[data-theme="dark"] html::-webkit-scrollbar-thumb,
+html[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--base_gray_20) / 30%);
+}
+
+[data-theme="dark"] html::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--base_gray_20) / 50%);
+}

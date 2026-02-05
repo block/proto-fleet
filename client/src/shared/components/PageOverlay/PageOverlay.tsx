@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useLayoutEffect } from "react";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
 
@@ -24,7 +24,7 @@ const PageOverlay = ({
   className,
 }: PageOverlayProps) => {
   const { preventScroll } = usePreventScroll();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (shouldPreventScroll) {
       preventScroll();
     }
