@@ -1,7 +1,7 @@
 /* eslint-disable playwright/expect-expect */
-import { AuthPage } from "e2eTests/pages/auth";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
+import { AuthPage } from "../pages/auth";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
 
@@ -452,8 +452,8 @@ test.describe("Miners", () => {
         await homePage.clickAuthenticateMinersConfirmButton();
       }
       await homePage.validateModalClosed();
-    } catch (error) {
-      console.warn("Cleanup cancelled. Error: ", error);
+    } catch {
+      console.warn("Cleanup cancelled, most likely no need for authentication");
     } finally {
       await context.close();
     }

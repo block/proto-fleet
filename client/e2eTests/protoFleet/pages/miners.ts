@@ -1,3 +1,4 @@
+/* eslint-disable playwright/no-wait-for-timeout */
 import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { type IssueIconId } from "../helpers/testDataHelper";
@@ -22,8 +23,10 @@ export class MinersPage extends BasePage {
 
   private async filterMinersByType(minerType: string) {
     await this.click("Type");
-    // Filter glitches if done too quickly
-    await this.waitForColumnValuesToLoad("hashrate");
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover).toHaveCSS("opacity", "1");
+    await this.page.waitForTimeout(200); // To allow any animations to complete
     await this.page.locator(`//div[text()='${minerType}']/following-sibling::*//input`).click();
     await this.click("Apply");
   }

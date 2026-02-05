@@ -35,6 +35,7 @@ const DropdownFilterPopover = ({
 }: DropdownFilterPopoverProps) => {
   return (
     <Popover
+      testId="dropdown-filter-popover"
       position="bottom right"
       offset={8}
       buttonGroupVariant={groupVariants.fill}

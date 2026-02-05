@@ -1,6 +1,6 @@
 /* eslint-disable playwright/expect-expect */
-import { generateRandomText } from "e2eTests/helpers/testDataHelper";
 import { test } from "../fixtures/pageFixtures";
+import { generateRandomText } from "../helpers/testDataHelper";
 
 test.describe("Mining Pools @setup", () => {
   test.beforeEach(async ({ page }) => {

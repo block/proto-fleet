@@ -56,14 +56,15 @@ const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versio
 
   return (
     <div
+      data-testid="test4"
       className={clsx(
         "flex h-full max-h-screen w-[240px] flex-col border-r border-border-5 bg-surface-base text-text-primary-70",
         "tablet:absolute tablet:z-30 tablet:max-h-[calc(100vh-16px)] tablet:rounded-lg",
         "overflow-auto phone:absolute phone:z-30 phone:max-h-[calc(100vh-16px)] phone:rounded-lg",
       )}
     >
-      <div className="grow">
-        <div className="mb-3 flex h-[60px] items-center px-3 py-2">
+      <div className="grow" data-testid="test3">
+        <div className="mb-3 flex h-[60px] items-center px-3 py-2" data-testid="test2">
           {closeButton ? (
             closeButton
           ) : (
@@ -72,7 +73,7 @@ const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versio
             </Link>
           )}
         </div>
-        <div className="px-3">
+        <div className="px-3" data-testid="navigation">
           {isApp && <AppNavigationItems pageName={pageName} onClick={handleClick} />}
           {isOnboarding && <OnboardingNavigationItems pageName={pageName} onClick={handleClick} />}
         </div>

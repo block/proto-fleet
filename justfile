@@ -120,23 +120,43 @@ clean-build: build-plugins-docker
 rebuild-fleet-api:
   docker compose up fleet-api -d --build --force-recreate
 
-[working-directory: 'client/e2eTests']
-install-playwright:
+[working-directory: 'client/e2eTests/protoFleet']
+test-fleet-setup:
   npx playwright install
 
-[working-directory: 'client/e2eTests']
-test-e2e: install-playwright
+[working-directory: 'client/e2eTests/protoFleet']
+test-fleet: test-fleet-setup
   npx playwright test --project=desktop
 
-[working-directory: 'client/e2eTests']
-test-e2e-ui: install-playwright
+[working-directory: 'client/e2eTests/protoFleet']
+test-fleet-ui: test-fleet-setup
   npx playwright test --ui --project=desktop
 
-[working-directory: 'client/e2eTests']
-test-e2e-headed: install-playwright
+[working-directory: 'client/e2eTests/protoFleet']
+test-fleet-headed: test-fleet-setup
   npx playwright test --headed --project=desktop
 
-[working-directory: 'client/e2eTests']
-test-e2e-wip: install-playwright
+[working-directory: 'client/e2eTests/protoFleet']
+test-fleet-wip: test-fleet-setup
+  npx playwright test --headed --grep @wip --project=desktop
+  
+[working-directory: 'client/e2eTests/protoOS']
+test-proto-os-setup:
+  npx playwright install
+
+[working-directory: 'client/e2eTests/protoOS']
+test-proto-os: test-proto-os-setup
+  npx playwright test --project=desktop
+
+[working-directory: 'client/e2eTests/protoOS']
+test-proto-os-ui: test-proto-os-setup
+  npx playwright test --ui --project=desktop
+
+[working-directory: 'client/e2eTests/protoOS']
+test-proto-os-headed: test-proto-os-setup
+  npx playwright test --headed --project=desktop
+
+[working-directory: 'client/e2eTests/protoOS']
+test-proto-os-wip: test-proto-os-setup
   npx playwright test --headed --grep @wip --project=desktop
   
