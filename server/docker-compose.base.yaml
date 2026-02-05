@@ -68,7 +68,8 @@ services:
       - "-c"
       - "timescaledb.max_background_workers=8"
     volumes:
-      - timescaledb-data:/var/lib/postgresql/data
+      # TimescaleDB HA image uses /home/postgres/pgdata/data, not /var/lib/postgresql/data
+      - timescaledb-data:/home/postgres/pgdata/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]
       interval: 10s

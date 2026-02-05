@@ -57,7 +57,8 @@ services:
       - "-c"
       - "timescaledb.max_background_workers=4"
     volumes:
-      - timescaledb-data:/var/lib/postgresql/data
+      # TimescaleDB HA image uses /home/postgres/pgdata/data, not /var/lib/postgresql/data
+      - timescaledb-data:/home/postgres/pgdata/data
       # Use tmpfs for temporary files to speed up operations
       - type: tmpfs
         target: /dev/shm
