@@ -158,6 +158,22 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("mining-pool-popover-button").click();
   }
 
+  async clickCoolingModeButton() {
+    await this.page.getByTestId("cooling-mode-popover-button").click();
+  }
+
+  async clickAirCooledOption() {
+    await this.page.getByTestId("cooling-option-air").locator("input").click();
+  }
+
+  async clickImmersionCooledOption() {
+    await this.page.getByTestId("cooling-option-immersion").locator("input").click();
+  }
+
+  async clickUpdateCoolingModeConfirm() {
+    await this.page.getByRole("button", { name: "Update cooling mode" }).click();
+  }
+
   async clickUnpairButton() {
     await this.page.getByTestId("unpair-popover-button").click();
   }

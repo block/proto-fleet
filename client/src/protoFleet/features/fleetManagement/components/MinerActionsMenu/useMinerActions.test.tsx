@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { deviceActions, performanceActions, settingsActions } from "./constants";
 import { useMinerActions } from "./useMinerActions";
-import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CoolingMode, PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
 import { createFleetSlice } from "@/protoFleet/store/slices/fleetSlice";
@@ -27,6 +27,7 @@ const mockBlinkLED = vi.fn();
 const mockUnpair = vi.fn();
 const mockReboot = vi.fn();
 const mockSetPowerTarget = vi.fn();
+const mockSetCoolingMode = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -50,6 +51,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     reboot: mockReboot,
     streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
     setPowerTarget: mockSetPowerTarget,
+    setCoolingMode: mockSetCoolingMode,
     checkCommandCapabilities: mockCheckCommandCapabilities,
   }),
 }));
@@ -161,6 +163,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.unpair);
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
+      expect(actions).toContain(settingsActions.coolingMode);
     });
   });
 
@@ -469,6 +472,151 @@ describe("useMinerActions", () => {
       expect(result.current.showManagePowerModal).toBe(false);
       expect(result.current.currentAction).toBeNull();
       expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should open cooling mode modal when action handler is called", async () => {
+      const onActionStart = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionStart,
+        }),
+      );
+
+      const coolingModeAction = result.current.popoverActions.find((a) => a.action === settingsActions.coolingMode);
+
+      await act(async () => {
+        await coolingModeAction?.actionHandler();
+      });
+
+      expect(result.current.showCoolingModeModal).toBe(true);
+      expect(result.current.currentAction).toBe(settingsActions.coolingMode);
+      expect(onActionStart).toHaveBeenCalled();
+    });
+
+    it("should handle cooling mode confirm and call API", async () => {
+      mockSetCoolingMode.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-cooling" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Open modal first
+      const coolingModeAction = result.current.popoverActions.find((a) => a.action === settingsActions.coolingMode);
+
+      await act(async () => {
+        await coolingModeAction?.actionHandler();
+      });
+
+      // Confirm with cooling mode
+      act(() => {
+        result.current.handleCoolingModeConfirm(CoolingMode.AIR_COOLED);
+      });
+
+      expect(result.current.showCoolingModeModal).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+      expect(mockSetCoolingMode).toHaveBeenCalled();
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier: "batch-cooling",
+        action: settingsActions.coolingMode,
+        deviceIdentifiers: ["device-1"],
+      });
+    });
+
+    it("should handle cooling mode dismiss", async () => {
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      // Open modal first
+      const coolingModeAction = result.current.popoverActions.find((a) => a.action === settingsActions.coolingMode);
+
+      await act(async () => {
+        await coolingModeAction?.actionHandler();
+      });
+
+      // Dismiss modal
+      act(() => {
+        result.current.handleCoolingModeDismiss();
+      });
+
+      expect(result.current.showCoolingModeModal).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should use filtered device selector for cooling mode when unsupported miners exist", async () => {
+      mockSetCoolingMode.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-cooling-filtered" });
+      });
+
+      // First call returns partial support (triggers unsupported miners modal)
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const coolingModeAction = result.current.popoverActions.find((a) => a.action === settingsActions.coolingMode);
+
+      await act(async () => {
+        await coolingModeAction?.actionHandler();
+      });
+
+      // Unsupported miners modal should be shown
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
+
+      // Continue with supported miners only
+      await act(async () => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      // Now modal should be shown with filtered count
+      expect(result.current.showCoolingModeModal).toBe(true);
+      expect(result.current.coolingModeCount).toBe(1);
+
+      // Confirm with cooling mode
+      act(() => {
+        result.current.handleCoolingModeConfirm(CoolingMode.IMMERSION_COOLED);
+      });
+
+      // Should have been called with only the supported device
+      expect(mockSetCoolingMode).toHaveBeenCalled();
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier: "batch-cooling-filtered",
+        action: settingsActions.coolingMode,
+        deviceIdentifiers: ["device-1"],
+      });
     });
   });
 

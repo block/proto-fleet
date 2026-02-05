@@ -13,10 +13,12 @@ import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
   CommandType,
+  CoolingMode,
   DeviceSelector,
   PerformanceMode,
   RebootRequestSchema,
   RebootResponse,
+  SetCoolingModeResponse,
   SetPowerTargetResponse,
   StartMiningRequestSchema,
   StartMiningResponse,
@@ -44,7 +46,7 @@ import {
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
-  // Fan, // TODO: Uncomment when Cooling Mode is implemented
+  Fan,
   LEDIndicator,
   // Lock, // TODO: Uncomment when Security is implemented
   MiningPools,
@@ -128,6 +130,7 @@ export const useMinerActions = ({
     reboot,
     streamCommandBatchUpdates,
     setPowerTarget,
+    setCoolingMode,
     checkCommandCapabilities,
   } = useMinerCommand();
 
@@ -138,6 +141,9 @@ export const useMinerActions = ({
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
+  const [showCoolingModeModal, setShowCoolingModeModal] = useState(false);
+  const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
+  const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
@@ -429,6 +435,65 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
+  const handleCoolingModeConfirm = useCallback(
+    (coolingMode: CoolingMode) => {
+      // Use filtered selector/identifiers if available (from unsupported miners flow),
+      // otherwise use the default selector/identifiers for all selected miners.
+      // Note: When selectorToUse is "all", deviceIdsToUse only contains visible/paginated device IDs.
+      // The server applies the action to all devices, but client-side batch tracking only covers
+      // visible devices (see note at line 325 for rationale).
+      const selectorToUse = coolingModeFilteredSelector ?? deviceSelector;
+      const deviceIdsToUse = coolingModeFilteredDeviceIds ?? deviceIdentifiers;
+
+      if (!selectorToUse) return;
+      setShowCoolingModeModal(false);
+      setCoolingModeFilteredSelector(undefined);
+      setCoolingModeFilteredDeviceIds(undefined);
+
+      const id = pushToast({
+        message: `${loadingMessages[settingsActions.coolingMode]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
+
+      setCoolingMode({
+        deviceSelector: selectorToUse,
+        coolingMode,
+        onSuccess: (value: SetCoolingModeResponse) => {
+          startBatchOperation({
+            batchIdentifier: value.batchIdentifier,
+            action: settingsActions.coolingMode,
+            deviceIdentifiers: deviceIdsToUse,
+          });
+          handleSuccess(settingsActions.coolingMode, id, value.batchIdentifier);
+        },
+        onError: handleError.bind(null, id),
+      });
+
+      setCurrentAction(null);
+    },
+    [
+      coolingModeFilteredSelector,
+      coolingModeFilteredDeviceIds,
+      deviceSelector,
+      setCoolingMode,
+      handleSuccess,
+      handleError,
+      onActionComplete,
+      startBatchOperation,
+      deviceIdentifiers,
+    ],
+  );
+
+  const handleCoolingModeDismiss = useCallback(() => {
+    setShowCoolingModeModal(false);
+    setCoolingModeFilteredSelector(undefined);
+    setCoolingModeFilteredDeviceIds(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
   const handleConfirmation = useCallback(
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
       // Use filtered selector/identifiers if provided (from unsupported miners modal),
@@ -668,11 +733,26 @@ export const useMinerActions = ({
       onActionStart?.();
     };
 
-    // TODO: Implement Cooling Mode action
-    // const handleCoolingMode = () => {
-    //   setCurrentAction(settingsActions.coolingMode);
-    //   // TODO show modal
-    // };
+    const handleCoolingMode = async () => {
+      onActionStart?.();
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        settingsActions.coolingMode,
+        (filteredSelector, filteredDeviceIds) => {
+          // Store filtered values for use in handleCoolingModeConfirm
+          setCoolingModeFilteredSelector(filteredSelector);
+          setCoolingModeFilteredDeviceIds(filteredDeviceIds);
+          setCurrentAction(settingsActions.coolingMode);
+          setShowCoolingModeModal(true);
+        },
+      );
+      if (!modalShown) {
+        // No filtering needed - clear any stale filtered values
+        setCoolingModeFilteredSelector(undefined);
+        setCoolingModeFilteredDeviceIds(undefined);
+        setCurrentAction(settingsActions.coolingMode);
+        setShowCoolingModeModal(true);
+      }
+    };
 
     // TODO: Implement Security action
     // const handleSecurity = () => {
@@ -807,14 +887,13 @@ export const useMinerActions = ({
         actionHandler: handleMiningPool,
         requiresConfirmation: false,
       },
-      // TODO: Implement Cooling Mode action
-      // {
-      //   action: settingsActions.coolingMode,
-      //   title: "Cooling mode",
-      //   icon: <Fan />,
-      //   actionHandler: handleCoolingMode,
-      //   requiresConfirmation: false,
-      // },
+      {
+        action: settingsActions.coolingMode,
+        title: "Cooling mode",
+        icon: <Fan />,
+        actionHandler: handleCoolingMode,
+        requiresConfirmation: false,
+      },
       // TODO: Implement Security action
       // {
       //   action: settingsActions.security,
@@ -857,6 +936,9 @@ export const useMinerActions = ({
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
   const { pendingAction: _, ...publicUnsupportedMinersInfo } = unsupportedMinersInfo;
 
+  // Count for cooling mode modal - use filtered count if available, otherwise displayCount
+  const coolingModeCount = coolingModeFilteredDeviceIds?.length ?? displayCount;
+
   return {
     currentAction,
     setCurrentAction,
@@ -864,11 +946,16 @@ export const useMinerActions = ({
     handleConfirmation,
     handleCancel,
     numberOfMiners,
+    displayCount,
     handleMiningPoolSuccess,
     handleMiningPoolError,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showCoolingModeModal,
+    coolingModeCount,
+    handleCoolingModeConfirm,
+    handleCoolingModeDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,

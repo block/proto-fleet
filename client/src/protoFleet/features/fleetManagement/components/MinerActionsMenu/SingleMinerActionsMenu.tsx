@@ -4,9 +4,10 @@ import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
-import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CoolingMode, PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -44,6 +45,10 @@ const SingleMinerActionsMenu = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showCoolingModeModal,
+    coolingModeCount,
+    handleCoolingModeConfirm,
+    handleCoolingModeDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -105,6 +110,10 @@ const SingleMinerActionsMenu = ({
         showManagePowerModal={showManagePowerModal}
         handleManagePowerConfirm={handleManagePowerConfirm}
         handleManagePowerDismiss={handleManagePowerDismiss}
+        showCoolingModeModal={showCoolingModeModal}
+        coolingModeCount={coolingModeCount}
+        handleCoolingModeConfirm={handleCoolingModeConfirm}
+        handleCoolingModeDismiss={handleCoolingModeDismiss}
         disabled={disabled}
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
@@ -131,6 +140,10 @@ interface SingleMinerActionsMenuInnerProps {
   showManagePowerModal: boolean;
   handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
   handleManagePowerDismiss: () => void;
+  showCoolingModeModal: boolean;
+  coolingModeCount: number;
+  handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
+  handleCoolingModeDismiss: () => void;
   disabled?: boolean;
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
@@ -154,6 +167,10 @@ const SingleMinerActionsMenuInner = ({
   showManagePowerModal,
   handleManagePowerConfirm,
   handleManagePowerDismiss,
+  showCoolingModeModal,
+  coolingModeCount,
+  handleCoolingModeConfirm,
+  handleCoolingModeDismiss,
   disabled = false,
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
@@ -246,6 +263,14 @@ const SingleMinerActionsMenuInner = ({
           show={showManagePowerModal}
           onConfirm={handleManagePowerConfirm}
           onDismiss={handleManagePowerDismiss}
+        />
+      )}
+      {currentAction === settingsActions.coolingMode && (
+        <CoolingModeModal
+          show={showCoolingModeModal}
+          minerCount={coolingModeCount}
+          onConfirm={handleCoolingModeConfirm}
+          onDismiss={handleCoolingModeDismiss}
         />
       )}
     </div>

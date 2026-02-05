@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { useMinerActions } from "./useMinerActions";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -40,6 +41,10 @@ const MinerActionsMenu = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showCoolingModeModal,
+    coolingModeCount,
+    handleCoolingModeConfirm,
+    handleCoolingModeDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -86,6 +91,14 @@ const MinerActionsMenu = ({
           show={showManagePowerModal}
           onConfirm={handleManagePowerConfirm}
           onDismiss={handleManagePowerDismiss}
+        />
+      )}
+      {currentAction === settingsActions.coolingMode && (
+        <CoolingModeModal
+          show={showCoolingModeModal}
+          minerCount={coolingModeCount}
+          onConfirm={handleCoolingModeConfirm}
+          onDismiss={handleCoolingModeDismiss}
         />
       )}
     </PopoverProvider>

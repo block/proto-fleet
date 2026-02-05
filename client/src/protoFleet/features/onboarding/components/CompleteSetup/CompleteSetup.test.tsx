@@ -64,6 +64,7 @@ beforeEach(async () => {
     reboot: vi.fn(),
     updateMiningPools: vi.fn(),
     setPowerTarget: vi.fn(),
+    setCoolingMode: vi.fn(),
     checkCommandCapabilities: vi.fn(),
   });
 

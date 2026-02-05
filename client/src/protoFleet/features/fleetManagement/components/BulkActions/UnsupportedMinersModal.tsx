@@ -65,6 +65,7 @@ const UnsupportedMinersModal = ({
           text: "Continue",
           variant: variants.primary,
           onClick: onContinue,
+          dismissModalOnClick: false,
           testId: "continue-button",
         },
       ]}

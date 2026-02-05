@@ -12,6 +12,7 @@ import Button from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import SelectRow from "@/shared/components/SelectRow";
 import { selectTypes } from "@/shared/constants";
+import { COOLING_MODES, type CoolingModeOption } from "@/shared/constants/cooling";
 import { pushToast, updateToast } from "@/shared/features/toaster";
 
 interface CoolingOptionProps {
@@ -40,12 +41,7 @@ const CoolingOption = ({ title, description, icon, isSelected = false }: Cooling
   </div>
 );
 
-const COOLING_MODES = {
-  air: "air-cooled",
-  immersion: "immersion-cooled",
-} as const;
-
-type CoolingMode = (typeof COOLING_MODES)[keyof typeof COOLING_MODES];
+type CoolingMode = CoolingModeOption;
 
 const FAN_MODES: {
   [K in CoolingMode]: string;

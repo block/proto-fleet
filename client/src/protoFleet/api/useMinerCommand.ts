@@ -8,6 +8,7 @@ import {
   CheckCommandCapabilitiesRequestSchema,
   CheckCommandCapabilitiesResponse,
   CommandType,
+  CoolingMode,
   DeviceSelector,
   PerformanceMode,
   type PoolSlotConfig,
@@ -15,6 +16,8 @@ import {
   RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
+  SetCoolingModeRequestSchema,
+  SetCoolingModeResponse,
   SetPowerTargetRequestSchema,
   SetPowerTargetResponse,
   StartMiningRequest,
@@ -87,6 +90,13 @@ interface SetPowerTargetProps {
   deviceSelector: DeviceSelector;
   performanceMode: PerformanceMode;
   onSuccess: (value: SetPowerTargetResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface SetCoolingModeProps {
+  deviceSelector: DeviceSelector;
+  coolingMode: CoolingMode;
+  onSuccess: (value: SetCoolingModeResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -278,6 +288,28 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const setCoolingMode = useCallback(
+    async ({ deviceSelector, coolingMode, onSuccess, onError }: SetCoolingModeProps) => {
+      const setCoolingModeRequest = create(SetCoolingModeRequestSchema, {
+        deviceSelector,
+        mode: coolingMode,
+      });
+
+      await minerCommandClient
+        .setCoolingMode(setCoolingModeRequest)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   const checkCommandCapabilities = useCallback(
     async ({ deviceSelector, commandType, onSuccess, onError }: CheckCommandCapabilitiesProps) => {
       const request = create(CheckCommandCapabilitiesRequestSchema, {
@@ -310,6 +342,7 @@ const useMinerCommand = () => {
       streamCommandBatchUpdates,
       updateMiningPools,
       setPowerTarget,
+      setCoolingMode,
       checkCommandCapabilities,
     }),
     [
@@ -321,6 +354,7 @@ const useMinerCommand = () => {
       streamCommandBatchUpdates,
       updateMiningPools,
       setPowerTarget,
+      setCoolingMode,
       checkCommandCapabilities,
     ],
   );

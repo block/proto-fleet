@@ -49,6 +49,7 @@ export const loadingMessages: Record<string, string> = {
   [performanceActions.managePower]: "Updating power settings for",
   [performanceActions.curtail]: "Curtailing miners",
   [settingsActions.miningPool]: "Assigning pools",
+  [settingsActions.coolingMode]: "Setting cooling mode for",
 };
 
 export const statusColumnLoadingMessages: Record<string, string> = {
@@ -60,6 +61,7 @@ export const statusColumnLoadingMessages: Record<string, string> = {
   [deviceActions.wakeUp]: "Waking",
   [performanceActions.curtail]: "Curtailing",
   [settingsActions.miningPool]: "Adding pools",
+  [settingsActions.coolingMode]: "Setting cooling",
 };
 
 export const successMessages: Record<string, string> = {
@@ -72,4 +74,5 @@ export const successMessages: Record<string, string> = {
   [performanceActions.managePower]: "Updated power settings for",
   [performanceActions.curtail]: "Miners curtailed",
   [settingsActions.miningPool]: "Assigned pools to",
+  [settingsActions.coolingMode]: "Updated cooling mode for",
 };

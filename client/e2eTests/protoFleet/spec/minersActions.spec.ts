@@ -277,6 +277,136 @@ test.describe("Miners", () => {
     });
   });
 
+  test("Set COOLING MODE to Air Cooled for a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support COOLING_MODE action
+      await minersPage.filterProtoMiners();
+    });
+
+    const requestPromise = page.waitForRequest(/SetCoolingMode/);
+    const responsePromise = page.waitForResponse(/SetCoolingMode/);
+
+    await test.step("Select first miner and set Air Cooled mode", async () => {
+      const minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickCoolingModeButton();
+      await minersPage.clickAirCooledOption();
+      await minersPage.clickUpdateCoolingModeConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetCoolingMode' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("mode");
+      test.expect(requestBody.mode).toBe("COOLING_MODE_AIR_COOLED");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("Set COOLING MODE to Immersion Cooled for a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support COOLING_MODE action
+      await minersPage.filterProtoMiners();
+    });
+
+    const requestPromise = page.waitForRequest(/SetCoolingMode/);
+    const responsePromise = page.waitForResponse(/SetCoolingMode/);
+
+    await test.step("Select first miner and set Immersion Cooled mode", async () => {
+      const minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickCoolingModeButton();
+      await minersPage.clickImmersionCooledOption();
+      await minersPage.clickUpdateCoolingModeConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetCoolingMode' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("mode");
+      test.expect(requestBody.mode).toBe("COOLING_MODE_IMMERSION_COOLED");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("Set COOLING MODE for multiple miners", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support COOLING_MODE action
+      await minersPage.filterProtoMiners();
+    });
+
+    const requestPromise = page.waitForRequest(/SetCoolingMode/);
+    const responsePromise = page.waitForResponse(/SetCoolingMode/);
+
+    await test.step("Select multiple miners and set Air Cooled mode", async () => {
+      const minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      const minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      const minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
+
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.validateActionBarMinerCount(1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.validateActionBarMinerCount(2);
+      await minersPage.clickMinerCheckbox(minerIp3);
+      await minersPage.validateActionBarMinerCount(3);
+
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickCoolingModeButton();
+      await minersPage.clickAirCooledOption();
+      await minersPage.clickUpdateCoolingModeConfirm();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateUpdateInProgress();
+      await minersPage.validateUpdateCompleted();
+    });
+
+    await test.step("Validate 'SetCoolingMode' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("mode");
+      test.expect(requestBody.mode).toBe("COOLING_MODE_AIR_COOLED");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
   test("UNPAIR a single miner", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
