@@ -1,5 +1,13 @@
 import { ComponentType, useCallback, useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart as RechartsLineChart, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart as RechartsLineChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type YAxisTickContentProps,
+} from "recharts";
 
 import { lineProps } from "./constants";
 
@@ -29,15 +37,7 @@ const X_AXIS_LINE_STYLE = {
 const TOOLTIP_WRAPPER_STYLE = { outline: "none" };
 const LINE_CURSOR = <LineCursor />;
 
-interface CustomYAxisTickProps {
-  payload: {
-    value: number;
-    coordinate: number;
-    offset: number;
-    index: number;
-  };
-  x: number;
-  y: number;
+interface CustomYAxisTickProps extends YAxisTickContentProps {
   yAxisTicks: number[];
   yOffset?: number;
   visibleTickIndices?: number[];
@@ -306,7 +306,7 @@ const LineChart = ({
   );
 
   const yAxisTick = useCallback(
-    (props: CustomYAxisTickProps) => (
+    (props: YAxisTickContentProps) => (
       <CustomYAxisTick
         {...props}
         yAxisTicks={yAxisTicks}
