@@ -10,6 +10,30 @@ permissions:
   pull-requests: read
 
 jobs:
+  build-proto-fleet-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install PS2EXE
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+
+      - name: Build Windows installer EXE
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          ./build-fleet-installer-exe.ps1
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: proto-fleet-windows-installer
+          path: ./deployment-files/windows/fleet.exe
+          retention-days: 1
   build-proto-fleet-server:
     runs-on: ubuntu-latest
     steps:
@@ -187,7 +211,7 @@ jobs:
 
   build-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-proto-fleet-server, build-proto-fleet-client]
+    needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer]
     steps:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -209,6 +233,12 @@ jobs:
           name: proto-fleet-client-artifact
           path: /tmp
 
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: proto-fleet-windows-installer
+          path: /tmp/windows-installer
+
       - name: Extract artifacts
         run: |
           tar -xzf /tmp/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz -C deployment/server
@@ -216,6 +246,8 @@ jobs:
           tar -xzf /tmp/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz -C /tmp/client
           mkdir -p deployment/client/protoFleet
           cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
+          mkdir -p deployment/install
+          cp /tmp/windows-installer/fleet.exe deployment/install/
 
       - name: Copy deployment configuration files
         run: |

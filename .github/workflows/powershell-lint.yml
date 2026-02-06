@@ -1,0 +1,30 @@
+name: PowerShell Lint (Windows Installer)
+
+on:
+  pull_request:
+    paths:
+      - "**/*.ps1"
+  push:
+    paths:
+      - "**/*.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-lint:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Lint PowerShell scripts
+        shell: powershell
+        run: |
+          Get-ChildItem -Path "." -Recurse -Filter "*.ps1" | Invoke-ScriptAnalyzer -Severity Error
