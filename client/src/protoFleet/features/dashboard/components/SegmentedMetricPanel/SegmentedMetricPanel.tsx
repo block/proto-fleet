@@ -17,17 +17,10 @@ const MULTI_DAY_BAR_WIDTH = {
   phone: 6,
 };
 
-const MULTI_DAY_BAR_GAP = {
-  desktop: 4,
-  laptop: 2,
-  tablet: 2,
-  phone: 2,
-};
-
 // Duration thresholds (in hours)
+const ONE_DAY_IN_HOURS = 24;
 const TWO_DAYS_IN_HOURS = 48;
 const TEN_DAYS_IN_HOURS = 240;
-const THIRTY_DAYS_IN_HOURS = 720;
 
 // X-axis tick intervals based on duration
 const TICK_INTERVAL_SINGLE_DAY = 1;
@@ -54,10 +47,10 @@ const getXAxisTickInterval = (hours: number, isMultiDay: boolean): number => {
 
 /**
  * Determines whether to use date format (e.g., "1/15") for x-axis ticks.
- * Use date format for long durations (30d+) where each bar represents a day or more.
+ * Use date format for multi-day durations where bars represent multiple hours.
  */
 const shouldUseDateFormat = (hours: number): boolean => {
-  return hours >= THIRTY_DAYS_IN_HOURS;
+  return hours > ONE_DAY_IN_HOURS;
 };
 
 export const SegmentedMetricPanel = ({
@@ -168,7 +161,6 @@ export const SegmentedMetricPanel = ({
                   xAxisTickInterval={getXAxisTickInterval(hours, isMultiDay)}
                   yAxisTickCount={4}
                   barWidth={barWidth}
-                  barGap={isMultiDay ? MULTI_DAY_BAR_GAP : undefined}
                   showDateLabel={isMultiDay && processedChartData.length > 1}
                   useDateFormat={shouldUseDateFormat(hours)}
                   lastTickOverride={!isMultiDay && hours < 24 ? "live" : undefined}
