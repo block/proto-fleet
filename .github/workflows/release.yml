@@ -300,7 +300,6 @@ jobs:
   deploy-to-testing-env:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-mar']
     needs: [build-proto-fleet]
-    if: github.event.release.prerelease == false
     timeout-minutes: 30
     environment: testing-env
     steps:
@@ -316,7 +315,6 @@ jobs:
   deploy-to-all-envs:
     runs-on: [self-hosted, proto-fleet-rpi, '${{ matrix.environment }}']
     needs: [deploy-to-testing-env]
-    if: github.event.release.prerelease == false
     timeout-minutes: 30
     strategy:
       matrix:
