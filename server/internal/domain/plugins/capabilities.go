@@ -53,17 +53,18 @@ func convertCommandCapabilities(caps sdk.Capabilities) *capabilitiespb.CommandCa
 	}
 
 	return &capabilitiespb.CommandCapabilities{
-		RebootSupported:           caps[sdk.CapabilityReboot],
-		MiningStartSupported:      caps[sdk.CapabilityMiningStart],
-		MiningStopSupported:       caps[sdk.CapabilityMiningStop],
-		LedBlinkSupported:         caps[sdk.CapabilityLEDBlink],
-		FactoryResetSupported:     caps[sdk.CapabilityFactoryReset],
-		AirCoolingSupported:       caps[sdk.CapabilityCoolingModeAir],
-		ImmersionCoolingSupported: caps[sdk.CapabilityCoolingModeImmerse],
-		PoolSwitchingSupported:    caps[sdk.CapabilityPoolConfig],
-		PoolMaxCount:              poolMaxCount,
-		PoolPrioritySupported:     caps[sdk.CapabilityPoolPriority],
-		LogsDownloadSupported:     caps[sdk.CapabilityLogsDownload],
+		RebootSupported:              caps[sdk.CapabilityReboot],
+		MiningStartSupported:         caps[sdk.CapabilityMiningStart],
+		MiningStopSupported:          caps[sdk.CapabilityMiningStop],
+		LedBlinkSupported:            caps[sdk.CapabilityLEDBlink],
+		FactoryResetSupported:        caps[sdk.CapabilityFactoryReset],
+		AirCoolingSupported:          caps[sdk.CapabilityCoolingModeAir],
+		ImmersionCoolingSupported:    caps[sdk.CapabilityCoolingModeImmerse],
+		PoolSwitchingSupported:       caps[sdk.CapabilityPoolConfig],
+		PoolMaxCount:                 poolMaxCount,
+		PoolPrioritySupported:        caps[sdk.CapabilityPoolPriority],
+		LogsDownloadSupported:        caps[sdk.CapabilityLogsDownload],
+		PowerModeEfficiencySupported: caps[sdk.CapabilityPowerModeEfficiency],
 	}
 }
 

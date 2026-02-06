@@ -901,3 +901,40 @@ func (mr *MockDefaultCredentialsProviderMockRecorder) GetDefaultCredentials(ctx 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultCredentials", reflect.TypeOf((*MockDefaultCredentialsProvider)(nil).GetDefaultCredentials), ctx)
 }
+
+// MockModelCapabilitiesProvider is a mock of ModelCapabilitiesProvider interface.
+type MockModelCapabilitiesProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockModelCapabilitiesProviderMockRecorder
+}
+
+// MockModelCapabilitiesProviderMockRecorder is the mock recorder for MockModelCapabilitiesProvider.
+type MockModelCapabilitiesProviderMockRecorder struct {
+	mock *MockModelCapabilitiesProvider
+}
+
+// NewMockModelCapabilitiesProvider creates a new mock instance.
+func NewMockModelCapabilitiesProvider(ctrl *gomock.Controller) *MockModelCapabilitiesProvider {
+	mock := &MockModelCapabilitiesProvider{ctrl: ctrl}
+	mock.recorder = &MockModelCapabilitiesProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockModelCapabilitiesProvider) EXPECT() *MockModelCapabilitiesProviderMockRecorder {
+	return m.recorder
+}
+
+// GetCapabilitiesForModel mocks base method.
+func (m *MockModelCapabilitiesProvider) GetCapabilitiesForModel(ctx context.Context, model string) sdk.Capabilities {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCapabilitiesForModel", ctx, model)
+	ret0, _ := ret[0].(sdk.Capabilities)
+	return ret0
+}
+
+// GetCapabilitiesForModel indicates an expected call of GetCapabilitiesForModel.
+func (mr *MockModelCapabilitiesProviderMockRecorder) GetCapabilitiesForModel(ctx, model interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCapabilitiesForModel", reflect.TypeOf((*MockModelCapabilitiesProvider)(nil).GetCapabilitiesForModel), ctx, model)
+}

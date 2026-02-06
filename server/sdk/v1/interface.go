@@ -446,6 +446,18 @@ type DefaultCredentialsProvider interface {
 	GetDefaultCredentials(ctx context.Context) []UsernamePassword
 }
 
+// ModelCapabilitiesProvider is an optional interface that drivers can implement
+// to provide model-specific capabilities. This allows plugins to report different
+// capabilities for different device models (e.g., Antminer S19 vs S21).
+// If a driver implements this interface, the server will call GetCapabilitiesForModel
+// with the device model to get model-specific capability overrides.
+type ModelCapabilitiesProvider interface {
+	// GetCapabilitiesForModel returns capability overrides for a specific device model.
+	// The returned capabilities will be merged with the base driver capabilities.
+	// Return nil to use only the base driver capabilities for this model.
+	GetCapabilitiesForModel(ctx context.Context, model string) Capabilities
+}
+
 // Standard capability flags
 const (
 	// CoreV1 capabilities
@@ -471,6 +483,9 @@ const (
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support
+
+	// Power mode capabilities
+	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

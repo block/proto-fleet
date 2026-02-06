@@ -381,6 +381,16 @@ message GetDefaultCredentialsResponse {
   repeated UsernamePassword credentials = 1; // List of credentials to try in order
 }
 
+// GetCapabilitiesForModelRequest requests model-specific capabilities
+message GetCapabilitiesForModelRequest {
+  string model = 1; // Device model (e.g., "Antminer S19", "Antminer S21")
+}
+
+// GetCapabilitiesForModelResponse returns model-specific capability overrides
+message GetCapabilitiesForModelResponse {
+  Capabilities caps = 1; // Model-specific capability flags
+}
+
 message GetDeviceWebViewURLResponse {
   string url = 1; // URL to access device web interface
 }
@@ -551,6 +561,9 @@ service Driver {
 
   // Optional - Returns default credentials for auto-authentication during pairing
   rpc GetDefaultCredentials(google.protobuf.Empty) returns (GetDefaultCredentialsResponse);
+
+  // Optional - Returns model-specific capabilities for devices
+  rpc GetCapabilitiesForModel(GetCapabilitiesForModelRequest) returns (GetCapabilitiesForModelResponse);
   
   // CoreV1 - Device Management - Required methods
   rpc NewDevice(NewDeviceRequest) returns (NewDeviceResponse);

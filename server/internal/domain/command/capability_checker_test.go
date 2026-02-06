@@ -112,6 +112,26 @@ func TestHasAnyCapability(t *testing.T) {
 		assert.True(t, result)
 	})
 
+	t.Run("returns true when power mode efficiency is supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			PowerModeEfficiencySupported: true,
+		}
+
+		result := hasAnyCapability(commands, []string{sdk.CapabilityPowerModeEfficiency})
+
+		assert.True(t, result)
+	})
+
+	t.Run("returns false when power mode efficiency is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			PowerModeEfficiencySupported: false,
+		}
+
+		result := hasAnyCapability(commands, []string{sdk.CapabilityPowerModeEfficiency})
+
+		assert.False(t, result)
+	})
+
 	t.Run("returns false when required capability is not supported", func(t *testing.T) {
 		commands := &capabilitiespb.CommandCapabilities{
 			RebootSupported: false,

@@ -9,7 +9,6 @@ import (
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -80,8 +79,10 @@ func (s *Service) GetPluginCapabilities(minerType models.Type) (sdk.Capabilities
 
 // GetMinerCapabilitiesForDevice returns the protobuf MinerCapabilities for a device.
 // It determines the miner type from the device and retrieves capabilities from the
-// corresponding plugin. Returns nil if no plugin is available for the device type.
-func (s *Service) GetMinerCapabilitiesForDevice(_ context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities {
+// corresponding plugin. If the plugin implements ModelCapabilitiesProvider, model-specific
+// capability overrides are merged with the base capabilities.
+// Returns nil if no plugin is available for the device type.
+func (s *Service) GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities {
 	if device == nil {
 		return nil
 	}
@@ -101,7 +102,30 @@ func (s *Service) GetMinerCapabilitiesForDevice(_ context.Context, device *pairi
 		return nil
 	}
 
-	return ConvertToMinerCapabilities(plugin.Caps, device.Manufacturer)
+	// Start with base plugin capabilities
+	caps := plugin.Caps
+
+	// Check if plugin supports model-specific capabilities
+	if modelProvider, ok := plugin.Driver.(sdk.ModelCapabilitiesProvider); ok {
+		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, device.Model); modelCaps != nil {
+			caps = mergeCapabilities(caps, modelCaps)
+		}
+	}
+
+	return ConvertToMinerCapabilities(caps, device.Manufacturer)
+}
+
+// mergeCapabilities merges model-specific capabilities with base capabilities.
+// Model-specific capabilities override base capabilities.
+func mergeCapabilities(base, override sdk.Capabilities) sdk.Capabilities {
+	result := make(sdk.Capabilities, len(base))
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, v := range override {
+		result[k] = v
+	}
+	return result
 }
 
 // ValidatePluginHealth checks if all loaded plugins are healthy

@@ -200,6 +200,7 @@ enum CommandType {
   COMMAND_TYPE_UPDATE_MINING_POOLS = 6;
   COMMAND_TYPE_DOWNLOAD_LOGS = 7;
   COMMAND_TYPE_FIRMWARE_UPDATE = 8;
+  COMMAND_TYPE_SET_POWER_TARGET = 9;
 }
 
 // Request to check command capabilities for selected devices

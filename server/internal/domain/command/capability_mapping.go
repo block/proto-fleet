@@ -17,6 +17,7 @@ var commandTypeCapabilityMap = map[pb.CommandType][]string{
 	pb.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS: {sdk.CapabilityPoolConfig},
 	pb.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS:       {sdk.CapabilityLogsDownload},
 	pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE:     {sdk.CapabilityOTAUpdate},
+	pb.CommandType_COMMAND_TYPE_SET_POWER_TARGET:    {sdk.CapabilityPowerModeEfficiency},
 }
 
 // GetRequiredCapabilities returns the SDK capability constants required for a command type.

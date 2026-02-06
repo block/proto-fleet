@@ -84,6 +84,9 @@ func TestDescribeDriver(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityPoolPriority])
 	assert.True(t, capabilities[sdk.CapabilityLogsDownload])
 
+	// Check power mode capabilities (base capability is true, model-specific check may override)
+	assert.True(t, capabilities[sdk.CapabilityPowerModeEfficiency])
+
 	// Check telemetry capabilities
 	assert.True(t, capabilities[sdk.CapabilityRealtimeTelemetry])
 	assert.False(t, capabilities[sdk.CapabilityHistoricalData])
@@ -100,6 +103,156 @@ func TestDescribeDriver(t *testing.T) {
 	assert.False(t, capabilities[sdk.CapabilityPollingPlugin])
 	assert.False(t, capabilities[sdk.CapabilityBatchStatus])
 	assert.False(t, capabilities[sdk.CapabilityStreaming])
+}
+
+func TestGetCapabilitiesForModel(t *testing.T) {
+	d, err := New(createMockClientFactory())
+	require.NoError(t, err)
+
+	ctx := t.Context()
+
+	tests := []struct {
+		name                      string
+		model                     string
+		expectedEfficiencySupport bool
+	}{
+		// S17 series - supports efficiency mode
+		{
+			name:                      "S17 base model",
+			model:                     "Antminer S17",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "S17 Pro",
+			model:                     "Antminer S17 Pro",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "S17+",
+			model:                     "Antminer S17+",
+			expectedEfficiencySupport: true,
+		},
+		// S19 series - supports efficiency mode
+		{
+			name:                      "S19 base model",
+			model:                     "Antminer S19",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "S19 Pro",
+			model:                     "Antminer S19 Pro",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "S19j Pro",
+			model:                     "Antminer S19j Pro",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "S19 XP",
+			model:                     "Antminer S19 XP",
+			expectedEfficiencySupport: true,
+		},
+		// T17 series - supports efficiency mode
+		{
+			name:                      "T17 base model",
+			model:                     "Antminer T17",
+			expectedEfficiencySupport: true,
+		},
+		{
+			name:                      "T17+",
+			model:                     "Antminer T17+",
+			expectedEfficiencySupport: true,
+		},
+		// T19 series - supports efficiency mode
+		{
+			name:                      "T19 base model",
+			model:                     "Antminer T19",
+			expectedEfficiencySupport: true,
+		},
+		// S21 series - does NOT support efficiency mode
+		{
+			name:                      "S21 base model",
+			model:                     "Antminer S21",
+			expectedEfficiencySupport: false,
+		},
+		{
+			name:                      "S21 Pro",
+			model:                     "Antminer S21 Pro",
+			expectedEfficiencySupport: false,
+		},
+		{
+			name:                      "S21 Hyd",
+			model:                     "Antminer S21 Hyd",
+			expectedEfficiencySupport: false,
+		},
+		// T21 series - does NOT support efficiency mode
+		{
+			name:                      "T21 base model",
+			model:                     "Antminer T21",
+			expectedEfficiencySupport: false,
+		},
+		// Unknown models - default to not supported (safe default)
+		{
+			name:                      "Unknown model",
+			model:                     "Antminer X99",
+			expectedEfficiencySupport: false,
+		},
+		{
+			name:                      "Non-Antminer model",
+			model:                     "Whatsminer M50",
+			expectedEfficiencySupport: false,
+		},
+		{
+			name:                      "Empty model",
+			model:                     "",
+			expectedEfficiencySupport: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caps := d.GetCapabilitiesForModel(ctx, tt.model)
+			require.NotNil(t, caps)
+			assert.Equal(t, tt.expectedEfficiencySupport, caps[sdk.CapabilityPowerModeEfficiency],
+				"model %q should have efficiency support = %v", tt.model, tt.expectedEfficiencySupport)
+		})
+	}
+}
+
+func TestModelSupportsEfficiencyMode(t *testing.T) {
+	d, err := New(createMockClientFactory())
+	require.NoError(t, err)
+
+	tests := []struct {
+		model    string
+		expected bool
+	}{
+		// Supported models
+		{"Antminer S17", true},
+		{"Antminer S17 Pro", true},
+		{"Antminer S19", true},
+		{"Antminer S19j Pro", true},
+		{"Antminer T17", true},
+		{"Antminer T19", true},
+
+		// Unsupported models (S21/T21 series)
+		{"Antminer S21", false},
+		{"Antminer S21 Pro", false},
+		{"Antminer T21", false},
+
+		// Unknown models default to false
+		{"Antminer S15", false},
+		{"Unknown", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			result := d.modelSupportsEfficiencyMode(tt.model)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestDiscoverDevice_Success(t *testing.T) {

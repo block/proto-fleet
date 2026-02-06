@@ -69,6 +69,9 @@ message CommandCapabilities {
 
   // Log management
   bool logs_download_supported = 11;
+
+  // Power mode control
+  bool power_mode_efficiency_supported = 12;
 }
 
 // Telemetry data capabilities

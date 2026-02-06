@@ -256,6 +256,10 @@ func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, requiredCaps
 			if commands.FactoryResetSupported {
 				return true
 			}
+		case sdk.CapabilityPowerModeEfficiency:
+			if commands.PowerModeEfficiencySupported {
+				return true
+			}
 		}
 	}
 	return false

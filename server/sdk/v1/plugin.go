@@ -229,6 +229,20 @@ func (s *DriverGRPCServer) GetDefaultCredentials(ctx context.Context, _ *emptypb
 	}, nil
 }
 
+func (s *DriverGRPCServer) GetCapabilitiesForModel(ctx context.Context, req *pb.GetCapabilitiesForModelRequest) (*pb.GetCapabilitiesForModelResponse, error) {
+	// Check if the driver implements ModelCapabilitiesProvider
+	provider, ok := s.Impl.(ModelCapabilitiesProvider)
+	if !ok {
+		// Return empty capabilities if not implemented
+		return &pb.GetCapabilitiesForModelResponse{}, nil
+	}
+
+	caps := provider.GetCapabilitiesForModel(ctx, req.Model)
+	return &pb.GetCapabilitiesForModelResponse{
+		Caps: &pb.Capabilities{Flags: caps},
+	}, nil
+}
+
 func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceRequest) (*pb.NewDeviceResponse, error) {
 	// Convert the secret bundle from proto
 	secret := secretBundleFromProto(req.Secret)
@@ -662,6 +676,7 @@ type DriverGRPCClient struct {
 // Compile-time interface checks
 var _ Driver = (*DriverGRPCClient)(nil)
 var _ DefaultCredentialsProvider = (*DriverGRPCClient)(nil)
+var _ ModelCapabilitiesProvider = (*DriverGRPCClient)(nil)
 
 func (c *DriverGRPCClient) Handshake(ctx context.Context) (DriverIdentifier, error) {
 	resp, err := c.client.Handshake(ctx, &emptypb.Empty{})
@@ -746,6 +761,30 @@ func (c *DriverGRPCClient) GetDefaultCredentials(ctx context.Context) []Username
 	}
 
 	return creds
+}
+
+// GetCapabilitiesForModel implements ModelCapabilitiesProvider for the gRPC client.
+// This allows the server to get model-specific capabilities from plugins over gRPC.
+// Returns nil if the plugin doesn't implement the method (not an error condition).
+func (c *DriverGRPCClient) GetCapabilitiesForModel(ctx context.Context, model string) Capabilities {
+	resp, err := c.client.GetCapabilitiesForModel(ctx, &pb.GetCapabilitiesForModelRequest{
+		Model: model,
+	})
+	if err != nil {
+		// If the plugin doesn't implement this method, return nil (not an error)
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+			return nil
+		}
+		// For other errors, log a warning but return nil to maintain backwards compatibility.
+		slog.Warn("Failed to get capabilities for model from plugin", "error", err, "model", model)
+		return nil
+	}
+
+	if resp == nil || resp.Caps == nil {
+		return nil
+	}
+
+	return resp.Caps.Flags
 }
 
 func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {

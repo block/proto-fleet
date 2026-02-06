@@ -425,3 +425,144 @@ func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {
 	assert.True(t, result.Commands.AirCoolingSupported)
 	assert.True(t, result.Commands.ImmersionCoolingSupported)
 }
+
+func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	// Create mock driver that implements ModelCapabilitiesProvider
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockModelCapProvider := sdkMocks.NewMockModelCapabilitiesProvider(ctrl)
+
+	// Base capabilities include power mode efficiency as true
+	baseCaps := sdk.Capabilities{
+		sdk.CapabilityBasicAuth:           true,
+		sdk.CapabilityReboot:              true,
+		sdk.CapabilityPowerModeEfficiency: true, // Base capability
+	}
+
+	// Model-specific override: S21 doesn't support efficiency mode
+	mockModelCapProvider.EXPECT().
+		GetCapabilitiesForModel(gomock.Any(), "Antminer S21").
+		Return(sdk.Capabilities{
+			sdk.CapabilityPowerModeEfficiency: false, // Override for S21
+		})
+
+	// Create a combined mock that implements both interfaces
+	type combinedDriver struct {
+		sdk.Driver
+		sdk.ModelCapabilitiesProvider
+	}
+	combined := &combinedDriver{
+		Driver:                    mockDriver,
+		ModelCapabilitiesProvider: mockModelCapProvider,
+	}
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Caps:       baseCaps,
+		Driver:     combined,
+		MinerTypes: []models.Type{models.TypeAntminer},
+	}
+	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.plugins["antminer-plugin"] = mockPlugin
+
+	// Test S21 device (should have efficiency mode disabled)
+	device := &pairingpb.Device{
+		Type:         "asic",
+		Model:        "Antminer S21",
+		Manufacturer: "Bitmain",
+	}
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, device)
+
+	require.NotNil(t, result)
+	require.NotNil(t, result.Commands)
+	// S21 should NOT support power mode efficiency
+	assert.False(t, result.Commands.PowerModeEfficiencySupported)
+}
+
+func TestMergeCapabilities(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     sdk.Capabilities
+		override sdk.Capabilities
+		expected sdk.Capabilities
+	}{
+		{
+			name: "override single capability",
+			base: sdk.Capabilities{
+				sdk.CapabilityReboot:              true,
+				sdk.CapabilityPowerModeEfficiency: true,
+			},
+			override: sdk.Capabilities{
+				sdk.CapabilityPowerModeEfficiency: false,
+			},
+			expected: sdk.Capabilities{
+				sdk.CapabilityReboot:              true,
+				sdk.CapabilityPowerModeEfficiency: false,
+			},
+		},
+		{
+			name: "add new capability",
+			base: sdk.Capabilities{
+				sdk.CapabilityReboot: true,
+			},
+			override: sdk.Capabilities{
+				sdk.CapabilityLEDBlink: true,
+			},
+			expected: sdk.Capabilities{
+				sdk.CapabilityReboot:   true,
+				sdk.CapabilityLEDBlink: true,
+			},
+		},
+		{
+			name: "empty override",
+			base: sdk.Capabilities{
+				sdk.CapabilityReboot: true,
+			},
+			override: sdk.Capabilities{},
+			expected: sdk.Capabilities{
+				sdk.CapabilityReboot: true,
+			},
+		},
+		{
+			name: "empty base",
+			base: sdk.Capabilities{},
+			override: sdk.Capabilities{
+				sdk.CapabilityReboot: true,
+			},
+			expected: sdk.Capabilities{
+				sdk.CapabilityReboot: true,
+			},
+		},
+		{
+			name: "multiple overrides",
+			base: sdk.Capabilities{
+				sdk.CapabilityReboot:              true,
+				sdk.CapabilityLEDBlink:            true,
+				sdk.CapabilityPowerModeEfficiency: true,
+			},
+			override: sdk.Capabilities{
+				sdk.CapabilityLEDBlink:            false,
+				sdk.CapabilityPowerModeEfficiency: false,
+			},
+			expected: sdk.Capabilities{
+				sdk.CapabilityReboot:              true,
+				sdk.CapabilityLEDBlink:            false,
+				sdk.CapabilityPowerModeEfficiency: false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeCapabilities(tt.base, tt.override)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

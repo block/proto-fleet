@@ -89,6 +89,7 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.downloadLogs]: { description: "Log downloads", commandType: CommandType.DOWNLOAD_LOGS },
   [settingsActions.miningPool]: { description: "Pool switching", commandType: CommandType.UPDATE_MINING_POOLS },
   [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
+  [performanceActions.managePower]: { description: "Power mode changes", commandType: CommandType.SET_POWER_TARGET },
 };
 
 /**
@@ -141,6 +142,7 @@ export const useMinerActions = ({
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
+  const [filteredSelectorForPowerModal, setFilteredSelectorForPowerModal] = useState<DeviceSelector | undefined>();
   const [showCoolingModeModal, setShowCoolingModeModal] = useState(false);
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -179,7 +181,10 @@ export const useMinerActions = ({
   const checkAndShowUnsupportedMinersModal = useCallback(
     async (action: SupportedAction, proceedAction: PendingActionCallback): Promise<boolean> => {
       const metadata = actionCapabilityMetadata[action];
-      if (!metadata || metadata.commandType === CommandType.UNSPECIFIED || !deviceSelector) return false;
+
+      if (!metadata || metadata.commandType === CommandType.UNSPECIFIED || !deviceSelector) {
+        return false;
+      }
 
       return new Promise((resolve) => {
         checkCommandCapabilities({
@@ -401,8 +406,10 @@ export const useMinerActions = ({
 
   const handleManagePowerConfirm = useCallback(
     (performanceMode: PerformanceMode) => {
-      if (!deviceSelector) return;
+      const selectorToUse = filteredSelectorForPowerModal ?? deviceSelector;
+      if (!selectorToUse) return;
       setShowManagePowerModal(false);
+      setFilteredSelectorForPowerModal(undefined);
 
       const id = pushToast({
         message: `${loadingMessages[performanceActions.managePower]} ${minersMessage}`,
@@ -416,7 +423,7 @@ export const useMinerActions = ({
       // 2. No device status change to wait for (power target is a setting, not a status)
       // 3. Toast notification provides sufficient feedback for this quick operation
       setPowerTarget({
-        deviceSelector,
+        deviceSelector: selectorToUse,
         performanceMode,
         onSuccess: (value: SetPowerTargetResponse) => {
           handleSuccess(performanceActions.managePower, id, value.batchIdentifier);
@@ -426,11 +433,12 @@ export const useMinerActions = ({
 
       setCurrentAction(null);
     },
-    [deviceSelector, setPowerTarget, handleSuccess, handleError, onActionComplete],
+    [filteredSelectorForPowerModal, deviceSelector, setPowerTarget, handleSuccess, handleError, onActionComplete],
   );
 
   const handleManagePowerDismiss = useCallback(() => {
     setShowManagePowerModal(false);
+    setFilteredSelectorForPowerModal(undefined);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -715,10 +723,21 @@ export const useMinerActions = ({
     };
 
     // Performance actions handlers
-    const handleManagePower = () => {
-      setCurrentAction(performanceActions.managePower);
-      setShowManagePowerModal(true);
+    const handleManagePower = async () => {
       onActionStart?.();
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        performanceActions.managePower,
+        (filteredSelector) => {
+          setFilteredSelectorForPowerModal(filteredSelector);
+          setCurrentAction(performanceActions.managePower);
+          setShowManagePowerModal(true);
+        },
+      );
+      if (!modalShown) {
+        setFilteredSelectorForPowerModal(undefined);
+        setCurrentAction(performanceActions.managePower);
+        setShowManagePowerModal(true);
+      }
     };
 
     // TODO: Implement Curtail action

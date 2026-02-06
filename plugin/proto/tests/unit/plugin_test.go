@@ -25,6 +25,7 @@ func TestDriverDescribe(t *testing.T) {
 		sdk.CapabilityPollingHost,
 		sdk.CapabilityDiscovery,
 		sdk.CapabilityPairing,
+		sdk.CapabilityPowerModeEfficiency,
 	}
 
 	for _, cap := range requiredCaps {

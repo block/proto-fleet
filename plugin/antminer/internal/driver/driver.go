@@ -38,11 +38,27 @@ const (
 
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
+var _ sdk.ModelCapabilitiesProvider = (*Driver)(nil)
 
 // defaultCredentials contains well-known factory defaults for Bitmain Antminer devices.
 // These are publicly documented and tried in order during auto-authentication.
 var defaultCredentials = []sdk.UsernamePassword{
 	{Username: "root", Password: "root"},
+}
+
+// efficiencyModeModels are model prefixes that support efficiency (low power) mode.
+var efficiencyModeModels = []string{
+	"Antminer S17",
+	"Antminer S19",
+	"Antminer T17",
+	"Antminer T19",
+}
+
+// noEfficiencyModeModels are model prefixes that do NOT support efficiency mode.
+// These take precedence over efficiencyModeModels.
+var noEfficiencyModeModels = []string{
+	"Antminer S21",
+	"Antminer T21",
 }
 
 // Driver implements the SDK Driver interface for Antminer devices.
@@ -104,6 +120,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityPoolConfig:         true,
 		sdk.CapabilityPoolPriority:       true,
 		sdk.CapabilityLogsDownload:       true,
+
+		// Power mode capabilities (model-specific overrides may apply via GetCapabilitiesForModel)
+		sdk.CapabilityPowerModeEfficiency: true,
 
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true,
@@ -315,4 +334,34 @@ func (d *Driver) extractUsernamePassword(secret sdk.SecretBundle) (sdk.UsernameP
 // Returns known default credentials for Antminer devices to enable auto-authentication during pairing.
 func (d *Driver) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword {
 	return defaultCredentials
+}
+
+// GetCapabilitiesForModel implements sdk.ModelCapabilitiesProvider.
+// Returns model-specific capability overrides for Antminer devices.
+// Different Antminer models have different capabilities - for example,
+// S21 does not support efficiency mode while S17/S19 do.
+func (d *Driver) GetCapabilitiesForModel(_ context.Context, model string) sdk.Capabilities {
+	return sdk.Capabilities{
+		sdk.CapabilityPowerModeEfficiency: d.modelSupportsEfficiencyMode(model),
+	}
+}
+
+// modelSupportsEfficiencyMode checks if the given model supports efficiency/low power mode.
+func (d *Driver) modelSupportsEfficiencyMode(model string) bool {
+	// Check exclusion list first (takes priority)
+	for _, prefix := range noEfficiencyModeModels {
+		if strings.HasPrefix(model, prefix) {
+			return false
+		}
+	}
+
+	// Check inclusion list
+	for _, prefix := range efficiencyModeModels {
+		if strings.HasPrefix(model, prefix) {
+			return true
+		}
+	}
+
+	// Unknown models: default to not supported (safe default)
+	return false
 }

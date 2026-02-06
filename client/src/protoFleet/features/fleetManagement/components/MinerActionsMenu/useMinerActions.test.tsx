@@ -393,7 +393,7 @@ describe("useMinerActions", () => {
   });
 
   describe("Modal interactions", () => {
-    it("should open manage power modal when action handler is called", () => {
+    it("should open manage power modal when action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -406,8 +406,8 @@ describe("useMinerActions", () => {
 
       const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
 
-      act(() => {
-        managePowerAction?.actionHandler();
+      await act(async () => {
+        await managePowerAction?.actionHandler();
       });
 
       expect(result.current.showManagePowerModal).toBe(true);
@@ -415,7 +415,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should handle manage power confirm and call API", () => {
+    it("should handle manage power confirm and call API", async () => {
       mockSetPowerTarget.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-power" });
       });
@@ -430,8 +430,8 @@ describe("useMinerActions", () => {
       // Open modal first
       const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
 
-      act(() => {
-        managePowerAction?.actionHandler();
+      await act(async () => {
+        await managePowerAction?.actionHandler();
       });
 
       // Confirm with performance mode
@@ -446,7 +446,7 @@ describe("useMinerActions", () => {
       // and doesn't show loading states or require status confirmation polling
     });
 
-    it("should handle manage power dismiss", () => {
+    it("should handle manage power dismiss", async () => {
       const onActionComplete = vi.fn();
 
       const { result } = renderHook(() =>
@@ -460,8 +460,8 @@ describe("useMinerActions", () => {
       // Open modal first
       const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
 
-      act(() => {
-        managePowerAction?.actionHandler();
+      await act(async () => {
+        await managePowerAction?.actionHandler();
       });
 
       // Dismiss modal

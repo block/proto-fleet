@@ -1,4 +1,4 @@
-//go:generate mockgen -source=../interface.go -destination=mock_driver.go -package=mocks Driver,Device,DefaultCredentialsProvider
+//go:generate mockgen -source=../interface.go -destination=mock_driver.go -package=mocks Driver,Device,DefaultCredentialsProvider,ModelCapabilitiesProvider
 
 package mocks
 

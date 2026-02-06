@@ -20,31 +20,32 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Driver_Handshake_FullMethodName             = "/sdk.v1.Driver/Handshake"
-	Driver_DescribeDriver_FullMethodName        = "/sdk.v1.Driver/DescribeDriver"
-	Driver_DiscoverDevice_FullMethodName        = "/sdk.v1.Driver/DiscoverDevice"
-	Driver_PairDevice_FullMethodName            = "/sdk.v1.Driver/PairDevice"
-	Driver_GetDefaultCredentials_FullMethodName = "/sdk.v1.Driver/GetDefaultCredentials"
-	Driver_NewDevice_FullMethodName             = "/sdk.v1.Driver/NewDevice"
-	Driver_DescribeDevice_FullMethodName        = "/sdk.v1.Driver/DescribeDevice"
-	Driver_CloseDevice_FullMethodName           = "/sdk.v1.Driver/CloseDevice"
-	Driver_StartMining_FullMethodName           = "/sdk.v1.Driver/StartMining"
-	Driver_StopMining_FullMethodName            = "/sdk.v1.Driver/StopMining"
-	Driver_BlinkLED_FullMethodName              = "/sdk.v1.Driver/BlinkLED"
-	Driver_Reboot_FullMethodName                = "/sdk.v1.Driver/Reboot"
-	Driver_SetCoolingMode_FullMethodName        = "/sdk.v1.Driver/SetCoolingMode"
-	Driver_SetPowerTarget_FullMethodName        = "/sdk.v1.Driver/SetPowerTarget"
-	Driver_UpdateMiningPools_FullMethodName     = "/sdk.v1.Driver/UpdateMiningPools"
-	Driver_GetMiningPools_FullMethodName        = "/sdk.v1.Driver/GetMiningPools"
-	Driver_DownloadLogs_FullMethodName          = "/sdk.v1.Driver/DownloadLogs"
-	Driver_UpdateFirmware_FullMethodName        = "/sdk.v1.Driver/UpdateFirmware"
-	Driver_Unpair_FullMethodName                = "/sdk.v1.Driver/Unpair"
-	Driver_DeviceStatus_FullMethodName          = "/sdk.v1.Driver/DeviceStatus"
-	Driver_GetTimeSeriesData_FullMethodName     = "/sdk.v1.Driver/GetTimeSeriesData"
-	Driver_GetDeviceWebViewURL_FullMethodName   = "/sdk.v1.Driver/GetDeviceWebViewURL"
-	Driver_BatchStatus_FullMethodName           = "/sdk.v1.Driver/BatchStatus"
-	Driver_Subscribe_FullMethodName             = "/sdk.v1.Driver/Subscribe"
-	Driver_GetErrors_FullMethodName             = "/sdk.v1.Driver/GetErrors"
+	Driver_Handshake_FullMethodName               = "/sdk.v1.Driver/Handshake"
+	Driver_DescribeDriver_FullMethodName          = "/sdk.v1.Driver/DescribeDriver"
+	Driver_DiscoverDevice_FullMethodName          = "/sdk.v1.Driver/DiscoverDevice"
+	Driver_PairDevice_FullMethodName              = "/sdk.v1.Driver/PairDevice"
+	Driver_GetDefaultCredentials_FullMethodName   = "/sdk.v1.Driver/GetDefaultCredentials"
+	Driver_GetCapabilitiesForModel_FullMethodName = "/sdk.v1.Driver/GetCapabilitiesForModel"
+	Driver_NewDevice_FullMethodName               = "/sdk.v1.Driver/NewDevice"
+	Driver_DescribeDevice_FullMethodName          = "/sdk.v1.Driver/DescribeDevice"
+	Driver_CloseDevice_FullMethodName             = "/sdk.v1.Driver/CloseDevice"
+	Driver_StartMining_FullMethodName             = "/sdk.v1.Driver/StartMining"
+	Driver_StopMining_FullMethodName              = "/sdk.v1.Driver/StopMining"
+	Driver_BlinkLED_FullMethodName                = "/sdk.v1.Driver/BlinkLED"
+	Driver_Reboot_FullMethodName                  = "/sdk.v1.Driver/Reboot"
+	Driver_SetCoolingMode_FullMethodName          = "/sdk.v1.Driver/SetCoolingMode"
+	Driver_SetPowerTarget_FullMethodName          = "/sdk.v1.Driver/SetPowerTarget"
+	Driver_UpdateMiningPools_FullMethodName       = "/sdk.v1.Driver/UpdateMiningPools"
+	Driver_GetMiningPools_FullMethodName          = "/sdk.v1.Driver/GetMiningPools"
+	Driver_DownloadLogs_FullMethodName            = "/sdk.v1.Driver/DownloadLogs"
+	Driver_UpdateFirmware_FullMethodName          = "/sdk.v1.Driver/UpdateFirmware"
+	Driver_Unpair_FullMethodName                  = "/sdk.v1.Driver/Unpair"
+	Driver_DeviceStatus_FullMethodName            = "/sdk.v1.Driver/DeviceStatus"
+	Driver_GetTimeSeriesData_FullMethodName       = "/sdk.v1.Driver/GetTimeSeriesData"
+	Driver_GetDeviceWebViewURL_FullMethodName     = "/sdk.v1.Driver/GetDeviceWebViewURL"
+	Driver_BatchStatus_FullMethodName             = "/sdk.v1.Driver/BatchStatus"
+	Driver_Subscribe_FullMethodName               = "/sdk.v1.Driver/Subscribe"
+	Driver_GetErrors_FullMethodName               = "/sdk.v1.Driver/GetErrors"
 )
 
 // DriverClient is the client API for Driver service.
@@ -59,6 +60,8 @@ type DriverClient interface {
 	PairDevice(ctx context.Context, in *PairDeviceRequest, opts ...grpc.CallOption) (*PairDeviceResponse, error)
 	// Optional - Returns default credentials for auto-authentication during pairing
 	GetDefaultCredentials(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error)
+	// Optional - Returns model-specific capabilities for devices
+	GetCapabilitiesForModel(ctx context.Context, in *GetCapabilitiesForModelRequest, opts ...grpc.CallOption) (*GetCapabilitiesForModelResponse, error)
 	// CoreV1 - Device Management - Required methods
 	NewDevice(ctx context.Context, in *NewDeviceRequest, opts ...grpc.CallOption) (*NewDeviceResponse, error)
 	DescribeDevice(ctx context.Context, in *DescribeDeviceRequest, opts ...grpc.CallOption) (*DescribeDeviceResponse, error)
@@ -136,6 +139,15 @@ func (c *driverClient) PairDevice(ctx context.Context, in *PairDeviceRequest, op
 func (c *driverClient) GetDefaultCredentials(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error) {
 	out := new(GetDefaultCredentialsResponse)
 	err := c.cc.Invoke(ctx, Driver_GetDefaultCredentials_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) GetCapabilitiesForModel(ctx context.Context, in *GetCapabilitiesForModelRequest, opts ...grpc.CallOption) (*GetCapabilitiesForModelResponse, error) {
+	out := new(GetCapabilitiesForModelResponse)
+	err := c.cc.Invoke(ctx, Driver_GetCapabilitiesForModel_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -357,6 +369,8 @@ type DriverServer interface {
 	PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error)
 	// Optional - Returns default credentials for auto-authentication during pairing
 	GetDefaultCredentials(context.Context, *emptypb.Empty) (*GetDefaultCredentialsResponse, error)
+	// Optional - Returns model-specific capabilities for devices
+	GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error)
 	// CoreV1 - Device Management - Required methods
 	NewDevice(context.Context, *NewDeviceRequest) (*NewDeviceResponse, error)
 	DescribeDevice(context.Context, *DescribeDeviceRequest) (*DescribeDeviceResponse, error)
@@ -406,6 +420,9 @@ func (UnimplementedDriverServer) PairDevice(context.Context, *PairDeviceRequest)
 }
 func (UnimplementedDriverServer) GetDefaultCredentials(context.Context, *emptypb.Empty) (*GetDefaultCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDefaultCredentials not implemented")
+}
+func (UnimplementedDriverServer) GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCapabilitiesForModel not implemented")
 }
 func (UnimplementedDriverServer) NewDevice(context.Context, *NewDeviceRequest) (*NewDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewDevice not implemented")
@@ -566,6 +583,24 @@ func _Driver_GetDefaultCredentials_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).GetDefaultCredentials(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_GetCapabilitiesForModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCapabilitiesForModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetCapabilitiesForModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetCapabilitiesForModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetCapabilitiesForModel(ctx, req.(*GetCapabilitiesForModelRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -959,6 +994,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDefaultCredentials",
 			Handler:    _Driver_GetDefaultCredentials_Handler,
+		},
+		{
+			MethodName: "GetCapabilitiesForModel",
+			Handler:    _Driver_GetCapabilitiesForModel_Handler,
 		},
 		{
 			MethodName: "NewDevice",
