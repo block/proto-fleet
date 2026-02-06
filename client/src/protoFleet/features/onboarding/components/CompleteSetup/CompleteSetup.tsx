@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "motion/react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -362,22 +363,42 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
               <Button onClick={handleDismiss} variant="secondary" prefixIcon={<Dismiss />}></Button>
             </div>
             <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
-              {hasConfigurePoolCard && (
-                <ConfigurePoolCard
-                  count={poolNeededCount}
-                  onConfigureClick={() => {
-                    if (poolNeededCount === 0) {
-                      return;
-                    }
+              <AnimatePresence mode="popLayout">
+                {hasConfigurePoolCard && (
+                  <motion.div
+                    key="configure-pool-card"
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                  >
+                    <ConfigurePoolCard
+                      count={poolNeededCount}
+                      onConfigureClick={() => {
+                        if (poolNeededCount === 0) {
+                          return;
+                        }
 
-                    setShowPoolSelectionModal(true);
-                  }}
-                  isLoading={isLoadingPoolNeeded || isPollingAfterPoolAssignment}
-                />
-              )}
-              {hasAuthCard && (
-                <AuthenticateMinersCard count={authNeededCount} onAuthenticationSuccess={refetchAuthNeededMiners} />
-              )}
+                        setShowPoolSelectionModal(true);
+                      }}
+                      isLoading={isLoadingPoolNeeded || isPollingAfterPoolAssignment}
+                    />
+                  </motion.div>
+                )}
+                {hasAuthCard && (
+                  <motion.div
+                    key="auth-card"
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                  >
+                    <AuthenticateMinersCard count={authNeededCount} onAuthenticationSuccess={refetchAuthNeededMiners} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>

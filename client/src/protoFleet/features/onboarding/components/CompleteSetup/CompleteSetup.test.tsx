@@ -1,3 +1,4 @@
+import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +27,14 @@ vi.mock("@/protoFleet/store", () => ({
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
 vi.mock("@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage", () => ({
   default: () => <div data-testid="pool-selection-modal">Pool Selection Modal</div>,
+}));
+
+// Mock motion to render without animations in tests
+vi.mock("motion/react", () => ({
+  motion: {
+    div: ({ children, ...props }: React.ComponentProps<"div">) => <div {...props}>{children}</div>,
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 const mockRefetchAuthNeededMiners = vi.fn();
