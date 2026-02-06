@@ -778,7 +778,7 @@ WHERE dd.org_id = $1
         OR (
             ds.status::text = ANY($7::text[])
             AND (
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 OR (ds.status = 'ACTIVE' AND NOT EXISTS (
                     SELECT 1 FROM errors
                     WHERE errors.device_id = d.id
@@ -958,8 +958,8 @@ WHERE dd.org_id = $2
         OR (
             ds.status::text = ANY($9::text[])
             AND (
-                -- For offline/sleeping filters: include devices regardless of errors
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 -- For active status: exclude devices with errors (only show truly healthy)
                 OR (ds.status = 'ACTIVE' AND NOT EXISTS (
                     SELECT 1 FROM errors

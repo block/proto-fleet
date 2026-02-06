@@ -357,8 +357,8 @@ WHERE dd.org_id = sqlc.arg('org_id')
         OR (
             ds.status::text = ANY(sqlc.arg('status_values')::text[])
             AND (
-                -- For offline/sleeping filters: include devices regardless of errors
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                -- For offline/sleeping/needs-pool filters: include devices regardless of errors
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 -- For active status: exclude devices with errors (only show truly healthy)
                 OR (ds.status = 'ACTIVE' AND NOT EXISTS (
                     SELECT 1 FROM errors
@@ -429,7 +429,7 @@ WHERE dd.org_id = sqlc.arg('org_id')
         OR (
             ds.status::text = ANY(sqlc.arg('status_values')::text[])
             AND (
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
                 OR (ds.status = 'ACTIVE' AND NOT EXISTS (
                     SELECT 1 FROM errors
                     WHERE errors.device_id = d.id
