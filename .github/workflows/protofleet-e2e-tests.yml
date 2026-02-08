@@ -133,7 +133,7 @@ jobs:
 
       - name: Submit test results to Testmo
         if: ${{ !cancelled() && github.event_name == 'schedule' }}
-        working-directory: client/e2eTests
+        working-directory: client/e2eTests/protoFleet
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
         run: |
