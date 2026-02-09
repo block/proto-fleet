@@ -143,6 +143,14 @@ func (d *Device) Reboot(_ context.Context) error {
 	return nil
 }
 
+// GetCoolingMode implements sdk.DeviceConfiguration.
+func (d *Device) GetCoolingMode(_ context.Context) (sdk.CoolingMode, error) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	return d.coolingMode, nil
+}
+
 // SetCoolingMode implements sdk.DeviceConfiguration.
 func (d *Device) SetCoolingMode(_ context.Context, mode sdk.CoolingMode) error {
 	d.mutex.Lock()

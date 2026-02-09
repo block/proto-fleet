@@ -4,7 +4,8 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { deviceActions, performanceActions, settingsActions } from "./constants";
 import { useMinerActions } from "./useMinerActions";
-import { CoolingMode, PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
 import { createFleetSlice } from "@/protoFleet/store/slices/fleetSlice";
@@ -63,6 +64,13 @@ vi.mock("@/protoFleet/api/useBatchTelemetry", () => ({
   }),
 }));
 
+const mockFetchCoolingMode = vi.fn(() => Promise.resolve(0)); // CoolingMode.UNSPECIFIED
+vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({
+  default: () => ({
+    fetchCoolingMode: mockFetchCoolingMode,
+  }),
+}));
+
 vi.mock("@/protoFleet/store", () => ({
   useFleetStore: {
     getState: vi.fn(),
@@ -70,6 +78,9 @@ vi.mock("@/protoFleet/store", () => ({
   useStartBatchOperation: () => mockStartBatchOperation,
   useCompleteBatchOperation: () => mockCompleteBatchOperation,
   useRemoveDevicesFromBatch: () => mockRemoveDevicesFromBatch,
+  useAuthErrors: () => ({
+    handleAuthErrors: vi.fn(({ onError }) => onError?.()),
+  }),
 }));
 
 vi.mock("@/shared/features/toaster", () => ({
@@ -474,8 +485,9 @@ describe("useMinerActions", () => {
       expect(onActionComplete).toHaveBeenCalled();
     });
 
-    it("should open cooling mode modal when action handler is called", async () => {
+    it("should open cooling mode modal and fetch current mode for single miner", async () => {
       const onActionStart = vi.fn();
+      mockFetchCoolingMode.mockResolvedValueOnce(CoolingMode.AIR_COOLED);
 
       const { result } = renderHook(() =>
         useMinerActions({
@@ -494,6 +506,32 @@ describe("useMinerActions", () => {
       expect(result.current.showCoolingModeModal).toBe(true);
       expect(result.current.currentAction).toBe(settingsActions.coolingMode);
       expect(onActionStart).toHaveBeenCalled();
+      expect(mockFetchCoolingMode).toHaveBeenCalledWith("device-1");
+      expect(result.current.currentCoolingMode).toBe(CoolingMode.AIR_COOLED);
+    });
+
+    it("should not fetch cooling mode for multi-miner selection", async () => {
+      mockFetchCoolingMode.mockClear();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const coolingModeAction = result.current.popoverActions.find((a) => a.action === settingsActions.coolingMode);
+
+      await act(async () => {
+        await coolingModeAction?.actionHandler();
+      });
+
+      expect(result.current.showCoolingModeModal).toBe(true);
+      expect(mockFetchCoolingMode).not.toHaveBeenCalled();
+      expect(result.current.currentCoolingMode).toBeUndefined();
     });
 
     it("should handle cooling mode confirm and call API", async () => {

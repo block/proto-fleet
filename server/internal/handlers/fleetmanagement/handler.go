@@ -122,3 +122,12 @@ func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Reques
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) GetMinerCoolingMode(ctx context.Context, r *connect.Request[pb.GetMinerCoolingModeRequest]) (*connect.Response[pb.GetMinerCoolingModeResponse], error) {
+	result, err := h.fleetMgmtSvc.GetMinerCoolingMode(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

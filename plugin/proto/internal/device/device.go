@@ -475,6 +475,13 @@ func (d *Device) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 	return nil
 }
 
+// GetCoolingMode implements the SDK Device interface.
+//
+// This method retrieves the current cooling mode configuration from the device.
+func (d *Device) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	return d.client.GetCoolingMode(ctx)
+}
+
 // SetPowerTarget implements the SDK Device interface.
 //
 // This method configures the power target based on performance mode.

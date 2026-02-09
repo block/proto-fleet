@@ -353,6 +353,12 @@ func (d *Device) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 	return d.client.SetCoolingMode(ctx, web.CoolingMode(mode))
 }
 
+// GetCoolingMode implements the SDK Device interface.
+// Antminer doesn't support cooling mode configuration, so this returns Unspecified.
+func (d *Device) GetCoolingMode(_ context.Context) (sdk.CoolingMode, error) {
+	return sdk.CoolingModeUnspecified, nil
+}
+
 // SetPowerTarget implements the SDK Device interface.
 // Maps performance modes to Antminer work modes:
 //   - MAXIMUM_HASHRATE -> bitmain-work-mode = "0" (normal operation)

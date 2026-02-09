@@ -580,6 +580,8 @@ type mockDataClient struct {
 	poolsError           error
 	softwareInfoResponse *miner_data_api.SoftwareInfoResponse
 	softwareInfoError    error
+	coolingModeResponse  *miner_data_api.CoolingModeResponse
+	coolingModeError     error
 }
 
 func (m *mockDataClient) GetMiningStatus(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
@@ -603,8 +605,13 @@ func (m *mockDataClient) GetSoftwareInfo(_ context.Context, _ *connect.Request[m
 	return connect.NewResponse(m.softwareInfoResponse), nil
 }
 
-// Unused interface methods - return nil/error for completeness
 func (m *mockDataClient) GetCoolingMode(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
+	if m.coolingModeError != nil {
+		return nil, m.coolingModeError
+	}
+	if m.coolingModeResponse != nil {
+		return connect.NewResponse(m.coolingModeResponse), nil
+	}
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -731,6 +738,55 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 				"State should match expected value based on actual pool configuration")
 		})
 	}
+}
+
+// TestGetCoolingMode tests the API-to-SDK cooling mode mapping
+func TestGetCoolingMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		apiMode     miner_data_api.CoolingMode
+		expectedSDK sdk.CoolingMode
+	}{
+		{"auto maps to air cooled", miner_data_api.CoolingMode_COOLING_MODE_AUTO, sdk.CoolingModeAirCooled},
+		{"off maps to immersion cooled", miner_data_api.CoolingMode_COOLING_MODE_OFF, sdk.CoolingModeImmersionCooled},
+		{"manual maps to manual", miner_data_api.CoolingMode_COOLING_MODE_MANUAL, sdk.CoolingModeManual},
+		{"unknown maps to unspecified", miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN, sdk.CoolingModeUnspecified},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockDataClient{
+				coolingModeResponse: &miner_data_api.CoolingModeResponse{
+					Mode: tt.apiMode,
+				},
+			}
+
+			client := &Client{
+				dataClient: mockClient,
+			}
+
+			mode, err := client.GetCoolingMode(t.Context())
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedSDK, mode)
+		})
+	}
+}
+
+func TestGetCoolingMode_Error(t *testing.T) {
+	mockClient := &mockDataClient{
+		coolingModeError: fmt.Errorf("connection refused"),
+	}
+
+	client := &Client{
+		dataClient: mockClient,
+	}
+
+	mode, err := client.GetCoolingMode(t.Context())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get cooling mode")
+	assert.Equal(t, sdk.CoolingModeUnspecified, mode)
 }
 
 // TestGetStatusPoolCheckError tests behavior when pool check fails

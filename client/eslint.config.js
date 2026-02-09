@@ -21,7 +21,7 @@ const __dirname = path.dirname(__filename); // get the name of the directory
 export default [
   // global ignores
   {
-    ignores: ["**/dist/**", "scripts/**", "**/playwright-report/**", "**/test-results/**"],
+    ignores: ["**/dist/**", "scripts/**", "**/playwright-report/**", "**/test-results/**", "**/api/generated/**"],
   },
   eslint.configs.recommended,
   {

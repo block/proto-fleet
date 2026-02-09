@@ -24,6 +24,7 @@ import (
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
@@ -340,7 +341,7 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 	}, nil
 }
 
-func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType pb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
+func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType commonpb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
 	cm := dto.CoolingModePayload{Mode: modeType}
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,

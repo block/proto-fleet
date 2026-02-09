@@ -4,6 +4,7 @@ package fleetmanagement.v1;
 
 import "google/protobuf/timestamp.proto";
 import "common/v1/measurement.proto";
+import "common/v1/cooling.proto";
 import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
 import "errors/v1/errors.proto";
@@ -37,6 +38,11 @@ service FleetManagementService {
   // Returns the fleet pool IDs that match the miner's currently configured pools
   // Used to pre-populate the pool selection UI when editing a miner's pools
   rpc GetMinerPoolAssignments(GetMinerPoolAssignmentsRequest) returns (GetMinerPoolAssignmentsResponse);
+
+  // Get the current cooling mode for a specific miner
+  // Returns the cooling mode configuration from the miner
+  // Used to pre-populate the cooling mode selection UI when editing a miner's settings
+  rpc GetMinerCoolingMode(GetMinerCoolingModeRequest) returns (GetMinerCoolingModeResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -507,4 +513,18 @@ message GetMinerPoolAssignmentsResponse {
   // Pool assignments in priority order (max 3: default, backup1, backup2)
   // Empty if no pools are configured on the miner
   repeated PoolAssignment pools = 1;
+}
+
+// Request to get the current cooling mode for a specific miner
+message GetMinerCoolingModeRequest {
+  // Device identifier of the miner to get cooling mode for
+  string device_identifier = 1 [(buf.validate.field).required = true];
+}
+
+// Response containing the miner's current cooling mode
+message GetMinerCoolingModeResponse {
+  // Current cooling mode of the miner
+  // UNSPECIFIED if the miner doesn't support cooling mode configuration
+  // An RPC error is returned if the miner could not be queried
+  common.v1.CoolingMode cooling_mode = 1;
 }

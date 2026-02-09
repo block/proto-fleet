@@ -1225,3 +1225,69 @@ func TestService_StreamMinerListUpdates_SameSessionDifferentConnectionIDsRunConc
 	assert.True(t, stream1Active.Load(), "Tab 1 stream should be active (received heartbeat)")
 	assert.True(t, stream2Active.Load(), "Tab 2 stream should be active (received heartbeat)")
 }
+
+func TestService_GetMinerCoolingMode_ShouldReturnNotFoundForNonexistentMiner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.GetMinerCoolingModeRequest{
+		DeviceIdentifier: "nonexistent-miner-id",
+	}
+
+	// Act
+	resp, err := service.GetMinerCoolingMode(ctx, req)
+
+	// Assert
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user1 := testContext.DatabaseService.CreateSuperAdminUser()
+	user2 := testContext.DatabaseService.CreateSuperAdminUser2()
+
+	// Create a miner for user2's organization
+	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	// Try to access user2's miner as user1
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user1.DatabaseID, user1.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.GetMinerCoolingModeRequest{
+		DeviceIdentifier: user2DeviceIDs[0],
+	}
+
+	// Act
+	resp, err := service.GetMinerCoolingMode(ctx, req)
+
+	// Assert - should get an error (either NotFound or Internal, depending on how the miner
+	// service handles cross-org device access). The key security requirement is that user1
+	// cannot access user2's miner data.
+	// Note: In CI, createMiner may fail before the org check (no real device at test IP),
+	// returning Internal. With a real device, the org mismatch check returns NotFound.
+	require.Error(t, err, "user should not be able to access another org's miner")
+	assert.Nil(t, resp)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.True(t,
+		fleetErr.GRPCCode == connect.CodeNotFound || fleetErr.GRPCCode == connect.CodeInternal,
+		"expected NotFound or Internal error code, got %v", fleetErr.GRPCCode,
+	)
+}

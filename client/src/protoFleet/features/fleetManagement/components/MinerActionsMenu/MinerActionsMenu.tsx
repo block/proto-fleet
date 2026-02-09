@@ -43,6 +43,7 @@ const MinerActionsMenu = ({
     handleManagePowerDismiss,
     showCoolingModeModal,
     coolingModeCount,
+    currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     unsupportedMinersInfo,
@@ -97,6 +98,7 @@ const MinerActionsMenu = ({
         <CoolingModeModal
           show={showCoolingModeModal}
           minerCount={coolingModeCount}
+          initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
         />

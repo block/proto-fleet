@@ -987,6 +987,37 @@ func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerP
 	return &pb.GetMinerPoolAssignmentsResponse{Pools: pools}, nil
 }
 
+// GetMinerCoolingMode retrieves the currently configured cooling mode from a miner.
+func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCoolingModeRequest) (*pb.GetMinerCoolingModeResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the miner by device identifier
+	minerDevice, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(req.DeviceIdentifier))
+	if err != nil {
+		if isMinerNotFoundError(err) {
+			return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get miner: %v", err)
+	}
+
+	// Verify the miner belongs to the user's organization
+	if minerDevice.GetOrgID() != info.OrganizationID {
+		return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
+	}
+
+	// Get current cooling mode from the miner
+	coolingMode, err := minerDevice.GetCoolingMode(ctx)
+	if err != nil {
+		slog.Error("failed to get cooling mode from miner", "deviceID", req.DeviceIdentifier, "error", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get cooling mode from miner: %v", err)
+	}
+
+	return &pb.GetMinerCoolingModeResponse{CoolingMode: coolingMode}, nil
+}
+
 // findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.
 // Username matching extracts the base username (before the first ".") since miners
 // append device identifiers to worker names (e.g., "pool_user" becomes "pool_user.device123").

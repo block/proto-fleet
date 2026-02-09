@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import clsx from "clsx";
-import { CoolingMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
 import { variants } from "@/shared/components/Button";
@@ -12,6 +12,7 @@ import { COOLING_MODES, type CoolingModeOption } from "@/shared/constants/coolin
 interface CoolingModeModalProps {
   show: boolean;
   minerCount: number;
+  initialCoolingMode?: CoolingMode;
   onConfirm: (coolingMode: CoolingMode) => void;
   onDismiss: () => void;
 }
@@ -68,8 +69,28 @@ const COOLING_OPTIONS: CoolingModeConfig[] = [
   },
 ];
 
-const CoolingModeModal = ({ show, minerCount, onConfirm, onDismiss }: CoolingModeModalProps) => {
-  const [selectedOption, setSelectedOption] = useState<CoolingModeOption | undefined>(undefined);
+const coolingModeToOption = (mode: CoolingMode | undefined): CoolingModeOption | undefined => {
+  switch (mode) {
+    case CoolingMode.AIR_COOLED:
+      return COOLING_MODES.air;
+    case CoolingMode.IMMERSION_COOLED:
+      return COOLING_MODES.immersion;
+    case CoolingMode.MANUAL:
+    case CoolingMode.UNSPECIFIED:
+    default:
+      return undefined;
+  }
+};
+
+const CoolingModeModal = ({ show, minerCount, initialCoolingMode, onConfirm, onDismiss }: CoolingModeModalProps) => {
+  const [selectedOption, setSelectedOption] = useState<CoolingModeOption | undefined>(
+    coolingModeToOption(initialCoolingMode),
+  );
+
+  // Sync state with prop when initialCoolingMode changes
+  useEffect(() => {
+    setSelectedOption(coolingModeToOption(initialCoolingMode));
+  }, [initialCoolingMode]);
 
   const handleConfirm = () => {
     if (!selectedOption) return;

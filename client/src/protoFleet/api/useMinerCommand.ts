@@ -2,13 +2,13 @@ import { useCallback, useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
 import { minerCommandClient } from "@/protoFleet/api/clients";
+import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   BlinkLEDRequest,
   BlinkLEDResponse,
   CheckCommandCapabilitiesRequestSchema,
   CheckCommandCapabilitiesResponse,
   CommandType,
-  CoolingMode,
   DeviceSelector,
   PerformanceMode,
   type PoolSlotConfig,

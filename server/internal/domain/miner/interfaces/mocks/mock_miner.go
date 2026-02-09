@@ -9,6 +9,7 @@ import (
 	url "net/url"
 	reflect "reflect"
 
+	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
@@ -202,6 +203,21 @@ func (m *MockMiner) GetConnectionInfo() networking.ConnectionInfo {
 func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMiner)(nil).GetConnectionInfo))
+}
+
+// GetCoolingMode mocks base method.
+func (m *MockMiner) GetCoolingMode(ctx context.Context) (commonv1.CoolingMode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCoolingMode", ctx)
+	ret0, _ := ret[0].(commonv1.CoolingMode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCoolingMode indicates an expected call of GetCoolingMode.
+func (mr *MockMinerMockRecorder) GetCoolingMode(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCoolingMode", reflect.TypeOf((*MockMiner)(nil).GetCoolingMode), ctx)
 }
 
 // GetDeviceMetrics mocks base method.

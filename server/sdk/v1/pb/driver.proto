@@ -291,6 +291,10 @@ message SetCoolingModeRequest {
   CoolingMode mode = 2;
 }
 
+message GetCoolingModeResponse {
+  CoolingMode mode = 1;
+}
+
 enum PerformanceMode {
   PERFORMANCE_MODE_UNSPECIFIED = 0;
   PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
@@ -578,6 +582,7 @@ service Driver {
 
   // CoreV1 - Configuration methods - Required methods
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
+  rpc GetCoolingMode(DeviceRef) returns (GetCoolingModeResponse);
   rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -180,11 +181,13 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	var sdkMode sdk.CoolingMode
 	switch payload.Mode {
-	case pb.CoolingMode_COOLING_MODE_AIR_COOLED:
+	case commonpb.CoolingMode_COOLING_MODE_AIR_COOLED:
 		sdkMode = sdk.CoolingModeAirCooled
-	case pb.CoolingMode_COOLING_MODE_IMMERSION_COOLED:
+	case commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED:
 		sdkMode = sdk.CoolingModeImmersionCooled
-	case pb.CoolingMode_COOLING_MODE_UNSPECIFIED:
+	case commonpb.CoolingMode_COOLING_MODE_MANUAL:
+		sdkMode = sdk.CoolingModeManual
+	case commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED:
 		sdkMode = sdk.CoolingModeUnspecified
 	default:
 		sdkMode = sdk.CoolingModeUnspecified
@@ -194,6 +197,27 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 		return fleeterror.NewInternalErrorf("failed to set cooling mode: %v", err)
 	}
 	return nil
+}
+
+// GetCoolingMode implements interfaces.Miner
+func (p *PluginMiner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
+	sdkMode, err := p.sdkDevice.GetCoolingMode(ctx)
+	if err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("failed to get cooling mode: %v", err)
+	}
+
+	switch sdkMode {
+	case sdk.CoolingModeAirCooled:
+		return commonpb.CoolingMode_COOLING_MODE_AIR_COOLED, nil
+	case sdk.CoolingModeImmersionCooled:
+		return commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, nil
+	case sdk.CoolingModeManual:
+		return commonpb.CoolingMode_COOLING_MODE_MANUAL, nil
+	case sdk.CoolingModeUnspecified:
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, nil
+	default:
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, nil
+	}
 }
 
 // SetPowerTarget implements interfaces.Miner

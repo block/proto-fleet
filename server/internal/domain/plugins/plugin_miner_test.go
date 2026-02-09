@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
@@ -32,6 +33,7 @@ type mockSDKDevice struct {
 	blinkLEDFunc       func(ctx context.Context) error
 	rebootFunc         func(ctx context.Context) error
 	setCoolingModeFunc func(ctx context.Context, mode sdk.CoolingMode) error
+	getCoolingModeFunc func(ctx context.Context) (sdk.CoolingMode, error)
 	setPowerTargetFunc func(ctx context.Context, performanceMode sdk.PerformanceMode) error
 	updatePoolsFunc    func(ctx context.Context, pools []sdk.MiningPoolConfig) error
 	downloadLogsFunc   func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
@@ -98,6 +100,13 @@ func (m *mockSDKDevice) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode
 		return m.setCoolingModeFunc(ctx, mode)
 	}
 	return nil
+}
+
+func (m *mockSDKDevice) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	if m.getCoolingModeFunc != nil {
+		return m.getCoolingModeFunc(ctx)
+	}
+	return sdk.CoolingModeUnspecified, nil
 }
 
 func (m *mockSDKDevice) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
@@ -393,12 +402,12 @@ func TestPluginMiner_ControlOperations(t *testing.T) {
 func TestPluginMiner_SetCoolingMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		mode        pb.CoolingMode
+		mode        commonpb.CoolingMode
 		expectedSDK sdk.CoolingMode
 	}{
-		{"air cooled", pb.CoolingMode_COOLING_MODE_AIR_COOLED, sdk.CoolingModeAirCooled},
-		{"immersion", pb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, sdk.CoolingModeImmersionCooled},
-		{"unspecified", pb.CoolingMode_COOLING_MODE_UNSPECIFIED, sdk.CoolingModeUnspecified},
+		{"air cooled", commonpb.CoolingMode_COOLING_MODE_AIR_COOLED, sdk.CoolingModeAirCooled},
+		{"immersion", commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, sdk.CoolingModeImmersionCooled},
+		{"unspecified", commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, sdk.CoolingModeUnspecified},
 	}
 
 	for _, tt := range tests {
@@ -417,6 +426,42 @@ func TestPluginMiner_SetCoolingMode(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedSDK, receivedMode)
+		})
+	}
+}
+
+func TestPluginMiner_GetCoolingMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		sdkMode    sdk.CoolingMode
+		sdkErr     error
+		expectedPB commonpb.CoolingMode
+		wantErr    bool
+	}{
+		{"air cooled", sdk.CoolingModeAirCooled, nil, commonpb.CoolingMode_COOLING_MODE_AIR_COOLED, false},
+		{"immersion", sdk.CoolingModeImmersionCooled, nil, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, false},
+		{"unspecified", sdk.CoolingModeUnspecified, nil, commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, false},
+		{"manual", sdk.CoolingModeManual, nil, commonpb.CoolingMode_COOLING_MODE_MANUAL, false},
+		{"sdk error", sdk.CoolingModeUnspecified, errors.New("device error"), commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockDevice := createTestPluginMiner()
+
+			mockDevice.getCoolingModeFunc = func(ctx context.Context) (sdk.CoolingMode, error) {
+				return tt.sdkMode, tt.sdkErr
+			}
+
+			mode, err := pm.GetCoolingMode(t.Context())
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to get cooling mode")
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectedPB, mode)
 		})
 	}
 }

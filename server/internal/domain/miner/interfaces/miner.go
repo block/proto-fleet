@@ -7,6 +7,7 @@ import (
 	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -34,6 +35,7 @@ type Miner interface {
 
 	// Configuration operations
 	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
+	GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error)
 	SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error
 	UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error
 	BlinkLED(ctx context.Context) error

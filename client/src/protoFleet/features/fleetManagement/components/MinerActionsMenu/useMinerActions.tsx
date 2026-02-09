@@ -9,11 +9,11 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
+import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
   CommandType,
-  CoolingMode,
   DeviceSelector,
   PerformanceMode,
   RebootRequestSchema,
@@ -31,6 +31,7 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import useMinerCoolingMode from "@/protoFleet/api/useMinerCoolingMode";
 import {
   BulkAction,
   type UnsupportedMinersInfo,
@@ -139,6 +140,7 @@ export const useMinerActions = ({
   const completeBatchOperation = useCompleteBatchOperation();
   const removeDevicesFromBatch = useRemoveDevicesFromBatch();
   const { resetFetchedIds } = useBatchTelemetry();
+  const { fetchCoolingMode } = useMinerCoolingMode();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
@@ -146,6 +148,7 @@ export const useMinerActions = ({
   const [showCoolingModeModal, setShowCoolingModeModal] = useState(false);
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
+  const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
@@ -498,6 +501,7 @@ export const useMinerActions = ({
     setShowCoolingModeModal(false);
     setCoolingModeFilteredSelector(undefined);
     setCoolingModeFilteredDeviceIds(undefined);
+    setCurrentCoolingMode(undefined);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -754,6 +758,15 @@ export const useMinerActions = ({
 
     const handleCoolingMode = async () => {
       onActionStart?.();
+
+      // For single miner, fetch current cooling mode for prepopulation
+      if (selectedMiners.length === 1) {
+        const mode = await fetchCoolingMode(selectedMiners[0].deviceIdentifier);
+        setCurrentCoolingMode(mode);
+      } else {
+        setCurrentCoolingMode(undefined);
+      }
+
       const modalShown = await checkAndShowUnsupportedMinersModal(
         settingsActions.coolingMode,
         (filteredSelector, filteredDeviceIds) => {
@@ -950,6 +963,8 @@ export const useMinerActions = ({
     handleConfirmation,
     startBatchOperation,
     deviceIdentifiers,
+    selectedMiners,
+    fetchCoolingMode,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
@@ -973,6 +988,7 @@ export const useMinerActions = ({
     handleManagePowerDismiss,
     showCoolingModeModal,
     coolingModeCount,
+    currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,

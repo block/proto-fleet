@@ -646,6 +646,30 @@ func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 	return nil
 }
 
+// GetCoolingMode retrieves the current cooling mode configuration from the miner.
+func (c *Client) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	ctx = c.withAuth(ctx)
+
+	resp, err := c.dataClient.GetCoolingMode(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return sdk.CoolingModeUnspecified, fmt.Errorf("failed to get cooling mode: %w", err)
+	}
+
+	// Convert API cooling mode to SDK enum (reverse of SetCoolingMode mapping)
+	switch resp.Msg.Mode {
+	case miner_data_api.CoolingMode_COOLING_MODE_AUTO:
+		return sdk.CoolingModeAirCooled, nil
+	case miner_data_api.CoolingMode_COOLING_MODE_OFF:
+		return sdk.CoolingModeImmersionCooled, nil
+	case miner_data_api.CoolingMode_COOLING_MODE_MANUAL:
+		return sdk.CoolingModeManual, nil
+	case miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN:
+		return sdk.CoolingModeUnspecified, nil
+	default:
+		return sdk.CoolingModeUnspecified, nil
+	}
+}
+
 // SetPowerTarget configures the power target and performance mode.
 func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, performanceMode sdk.PerformanceMode) error {
 	ctx = c.withAuth(ctx)

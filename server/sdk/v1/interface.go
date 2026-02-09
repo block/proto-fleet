@@ -381,6 +381,8 @@ type DeviceControl interface {
 type DeviceConfiguration interface {
 	// CoreV1 - Configuration methods (required)
 	SetCoolingMode(ctx context.Context, mode CoolingMode) error
+	// GetCoolingMode returns the current cooling mode configuration from the device
+	GetCoolingMode(ctx context.Context) (CoolingMode, error)
 	SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error
 	UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error
 	// GetMiningPools returns the currently configured pools on the device

@@ -4,6 +4,7 @@ package minercommand.v1;
 
 import "google/protobuf/timestamp.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
+import "common/v1/cooling.proto";
 
 message DeviceFilter {
   repeated fleetmanagement.v1.DeviceStatus device_status = 1;
@@ -49,15 +50,9 @@ message StartMiningResponse {
   string batch_identifier = 1;
 }
 
-enum CoolingMode {
-  COOLING_MODE_UNSPECIFIED = 0;
-  COOLING_MODE_AIR_COOLED = 1;
-  COOLING_MODE_IMMERSION_COOLED = 2;
-}
-
 message SetCoolingModeRequest {
   DeviceSelector device_selector = 1;
-  CoolingMode mode = 2;
+  common.v1.CoolingMode mode = 2;
 }
 
 message SetCoolingModeResponse {

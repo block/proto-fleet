@@ -197,6 +197,21 @@ func (m *MockDeviceConfiguration) EXPECT() *MockDeviceConfigurationMockRecorder 
 	return m.recorder
 }
 
+// GetCoolingMode mocks base method.
+func (m *MockDeviceConfiguration) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCoolingMode", ctx)
+	ret0, _ := ret[0].(sdk.CoolingMode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCoolingMode indicates an expected call of GetCoolingMode.
+func (mr *MockDeviceConfigurationMockRecorder) GetCoolingMode(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCoolingMode", reflect.TypeOf((*MockDeviceConfiguration)(nil).GetCoolingMode), ctx)
+}
+
 // GetMiningPools mocks base method.
 func (m *MockDeviceConfiguration) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
 	m.ctrl.T.Helper()
@@ -542,6 +557,21 @@ func (m *MockDevice) FirmwareUpdate(ctx context.Context) error {
 func (mr *MockDeviceMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDevice)(nil).FirmwareUpdate), ctx)
+}
+
+// GetCoolingMode mocks base method.
+func (m *MockDevice) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCoolingMode", ctx)
+	ret0, _ := ret[0].(sdk.CoolingMode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCoolingMode indicates an expected call of GetCoolingMode.
+func (mr *MockDeviceMockRecorder) GetCoolingMode(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCoolingMode", reflect.TypeOf((*MockDevice)(nil).GetCoolingMode), ctx)
 }
 
 // GetErrors mocks base method.

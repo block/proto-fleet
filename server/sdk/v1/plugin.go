@@ -388,6 +388,24 @@ func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolin
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef) (*pb.GetCoolingModeResponse, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+
+	mode, err := device.GetCoolingMode(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// #nosec G115 -- CoolingMode enum values are small constants (0-3), safe for int32
+	return &pb.GetCoolingModeResponse{Mode: pb.CoolingMode(mode)}, nil
+}
+
 func (s *DriverGRPCServer) SetPowerTarget(ctx context.Context, req *pb.SetPowerTargetRequest) (*emptypb.Empty, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -887,6 +905,14 @@ func (d *DeviceGRPCClient) SetCoolingMode(ctx context.Context, mode CoolingMode)
 		Mode: pb.CoolingMode(safeIntToInt32(int(mode))),
 	})
 	return err
+}
+
+func (d *DeviceGRPCClient) GetCoolingMode(ctx context.Context) (CoolingMode, error) {
+	resp, err := d.client.GetCoolingMode(ctx, &pb.DeviceRef{DeviceId: d.deviceID})
+	if err != nil {
+		return CoolingModeUnspecified, err
+	}
+	return CoolingMode(resp.Mode), nil
 }
 
 func (d *DeviceGRPCClient) SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error {

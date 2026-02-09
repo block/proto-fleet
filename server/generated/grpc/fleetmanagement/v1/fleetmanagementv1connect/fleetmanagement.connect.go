@@ -52,6 +52,9 @@ const (
 	// FleetManagementServiceGetMinerPoolAssignmentsProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerPoolAssignments RPC.
 	FleetManagementServiceGetMinerPoolAssignmentsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments"
+	// FleetManagementServiceGetMinerCoolingModeProcedure is the fully-qualified name of the
+	// FleetManagementService's GetMinerCoolingMode RPC.
+	FleetManagementServiceGetMinerCoolingModeProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -78,6 +81,10 @@ type FleetManagementServiceClient interface {
 	// Returns the fleet pool IDs that match the miner's currently configured pools
 	// Used to pre-populate the pool selection UI when editing a miner's pools
 	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
+	// Get the current cooling mode for a specific miner
+	// Returns the cooling mode configuration from the miner
+	// Used to pre-populate the cooling mode selection UI when editing a miner's settings
+	GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -120,6 +127,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceGetMinerPoolAssignmentsProcedure,
 			opts...,
 		),
+		getMinerCoolingMode: connect.NewClient[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse](
+			httpClient,
+			baseURL+FleetManagementServiceGetMinerCoolingModeProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -131,6 +143,7 @@ type fleetManagementServiceClient struct {
 	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
 	getBatchMinerTelemetry  *connect.Client[v1.GetBatchMinerTelemetryRequest, v1.GetBatchMinerTelemetryResponse]
 	getMinerPoolAssignments *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
+	getMinerCoolingMode     *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -163,6 +176,11 @@ func (c *fleetManagementServiceClient) GetMinerPoolAssignments(ctx context.Conte
 	return c.getMinerPoolAssignments.CallUnary(ctx, req)
 }
 
+// GetMinerCoolingMode calls fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode.
+func (c *fleetManagementServiceClient) GetMinerCoolingMode(ctx context.Context, req *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error) {
+	return c.getMinerCoolingMode.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -187,6 +205,10 @@ type FleetManagementServiceHandler interface {
 	// Returns the fleet pool IDs that match the miner's currently configured pools
 	// Used to pre-populate the pool selection UI when editing a miner's pools
 	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
+	// Get the current cooling mode for a specific miner
+	// Returns the cooling mode configuration from the miner
+	// Used to pre-populate the cooling mode selection UI when editing a miner's settings
+	GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -225,6 +247,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.GetMinerPoolAssignments,
 		opts...,
 	)
+	fleetManagementServiceGetMinerCoolingModeHandler := connect.NewUnaryHandler(
+		FleetManagementServiceGetMinerCoolingModeProcedure,
+		svc.GetMinerCoolingMode,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
@@ -239,6 +266,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceGetBatchMinerTelemetryHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerPoolAssignmentsProcedure:
 			fleetManagementServiceGetMinerPoolAssignmentsHandler.ServeHTTP(w, r)
+		case FleetManagementServiceGetMinerCoolingModeProcedure:
+			fleetManagementServiceGetMinerCoolingModeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -270,4 +299,8 @@ func (UnimplementedFleetManagementServiceHandler) GetBatchMinerTelemetry(context
 
 func (UnimplementedFleetManagementServiceHandler) GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode is not implemented"))
 }

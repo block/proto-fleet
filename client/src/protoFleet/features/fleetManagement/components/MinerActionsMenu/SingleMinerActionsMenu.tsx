@@ -7,7 +7,8 @@ import { performanceActions, settingsActions, SupportedAction } from "./constant
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
-import { CoolingMode, PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -47,6 +48,7 @@ const SingleMinerActionsMenu = ({
     handleManagePowerDismiss,
     showCoolingModeModal,
     coolingModeCount,
+    currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     unsupportedMinersInfo,
@@ -112,6 +114,7 @@ const SingleMinerActionsMenu = ({
         handleManagePowerDismiss={handleManagePowerDismiss}
         showCoolingModeModal={showCoolingModeModal}
         coolingModeCount={coolingModeCount}
+        currentCoolingMode={currentCoolingMode}
         handleCoolingModeConfirm={handleCoolingModeConfirm}
         handleCoolingModeDismiss={handleCoolingModeDismiss}
         disabled={disabled}
@@ -142,6 +145,7 @@ interface SingleMinerActionsMenuInnerProps {
   handleManagePowerDismiss: () => void;
   showCoolingModeModal: boolean;
   coolingModeCount: number;
+  currentCoolingMode: CoolingMode | undefined;
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
   disabled?: boolean;
@@ -169,6 +173,7 @@ const SingleMinerActionsMenuInner = ({
   handleManagePowerDismiss,
   showCoolingModeModal,
   coolingModeCount,
+  currentCoolingMode,
   handleCoolingModeConfirm,
   handleCoolingModeDismiss,
   disabled = false,
@@ -269,6 +274,7 @@ const SingleMinerActionsMenuInner = ({
         <CoolingModeModal
           show={showCoolingModeModal}
           minerCount={coolingModeCount}
+          initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
         />
