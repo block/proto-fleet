@@ -285,6 +285,19 @@ const LineChart = ({
     return chartBoundingRect.width - MAX_TIMESTAMP_X_POSITION;
   }, [chartBoundingRect.width]);
 
+  // Extract just the datetime primitive from tooltip payload to avoid unnecessary re-renders
+  // The payload array is a new reference on every hover update, which would invalidate the
+  // xAxisTick memo even when hovering over the same point. By extracting the primitive value,
+  // the memo only invalidates when the datetime actually changes (hovering to a different point).
+  const tooltipDatetime = useMemo(() => {
+    if (!tooltipData.payload || tooltipData.payload.length === 0) {
+      return undefined;
+    }
+
+    const datetime = tooltipData.payload[0]?.payload?.datetime;
+    return typeof datetime === "number" ? datetime : undefined;
+  }, [tooltipData.payload]);
+
   // Memoize tick components to prevent infinite re-render loops
   // These must NOT depend on tooltipData to avoid the cycle:
   // hover → tooltipData updates → tick re-renders → triggers more updates
@@ -293,7 +306,7 @@ const LineChart = ({
   const xAxisTick = useMemo(
     () => (
       <TimeXAxisTick
-        tooltipDatetime={undefined} // Don't pass tooltipData to break the render cycle
+        tooltipDatetime={tooltipDatetime}
         dataPointCount={chartData?.length || 0}
         maxTicksToShow={maxTicksToShow}
         minXPosition={MIN_TIMESTAMP_X_POSITION}
@@ -302,7 +315,7 @@ const LineChart = ({
         timeBasedIndices={timeBasedLabelIndices}
       />
     ),
-    [chartData?.length, maxTicksToShow, maxXPosition, xAxisLabelCount, timeBasedLabelIndices],
+    [tooltipDatetime, chartData?.length, maxTicksToShow, maxXPosition, xAxisLabelCount, timeBasedLabelIndices],
   );
 
   const yAxisTick = useCallback(
