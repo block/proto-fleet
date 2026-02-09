@@ -2,7 +2,7 @@
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomText } from "../helpers/testDataHelper";
 
-test.describe("Mining Pools @setup", () => {
+test.describe("Mining Pools", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
@@ -56,7 +56,12 @@ test.describe("Mining Pools @setup", () => {
     });
   });
 
-  test("Add default mining pool to all miners", async ({ minersPage, editPoolPage, newPoolModal, commonSteps }) => {
+  test("Add default mining pool to all miners @setup", async ({
+    minersPage,
+    editPoolPage,
+    newPoolModal,
+    commonSteps,
+  }) => {
     const poolName = generateRandomText("PoolName");
     const poolUsername = generateRandomText("PoolUsername");
     await commonSteps.loginAsAdmin();

@@ -142,6 +142,11 @@ test.describe("Miners", () => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support MANAGE POWER action
+      await minersPage.filterProtoMiners();
+    });
+
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
 
@@ -206,6 +211,11 @@ test.describe("Miners", () => {
   test("MANAGE POWER for multiple miners", async ({ minersPage, page, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
+
+    await test.step("Filter Proto miners as a workaround", async () => {
+      // Workaround: Bitmain miners don't support MANAGE POWER action
+      await minersPage.filterProtoMiners();
+    });
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
     const responsePromise1 = page.waitForResponse(/SetPowerTarget/);
