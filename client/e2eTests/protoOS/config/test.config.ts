@@ -2,8 +2,8 @@ import { defaultTestConfig, type TestConfig } from "./test.config.defaults";
 
 let localConfig: Partial<TestConfig> = {};
 try {
-  // Try to import local config if it exists
-  // @ts-expect-error - Local config file may not exist
+  // Try to import local config if it exists (file is gitignored)
+  // To create: copy test.config.local.example.ts to test.config.local.ts
   const module = await import("./test.config.local");
   localConfig = module.localTestConfig || {};
 } catch {
@@ -14,9 +14,9 @@ try {
 export const testConfig: TestConfig = {
   ...defaultTestConfig,
   ...localConfig,
-  users: {
-    ...defaultTestConfig.users,
-    ...localConfig.users,
+  admin: {
+    ...defaultTestConfig.admin,
+    ...localConfig.admin,
   },
 };
 

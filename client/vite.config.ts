@@ -54,7 +54,7 @@ const moveHtmlFiles = (mode) => {
     name: "move-html-files",
     closeBundle() {
       const srcPath = resolve(_dirname, `dist/${mode}/src/${mode}/index.html`);
-      const destPath = resolve(_dirname, `/dist/${mode}/index.html`);
+      const destPath = resolve(_dirname, `dist/${mode}/index.html`);
 
       if (fs.existsSync(srcPath)) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
@@ -62,7 +62,7 @@ const moveHtmlFiles = (mode) => {
       }
 
       // Clean up the unnecessary src directory
-      const srcDir = resolve(_dirname, `/dist/${mode}/src`);
+      const srcDir = resolve(_dirname, `dist/${mode}/src`);
       if (fs.existsSync(srcDir)) {
         fs.rmSync(srcDir, { recursive: true, force: true });
       }
@@ -106,7 +106,7 @@ export default defineConfig(({ mode, command }) => {
   let proxies = {};
   const env = loadEnv(mode, process.cwd(), "");
   if (mode === "protoFleet") {
-    let proxyUrl = env.FLEET_PROXY_URL || "http://localhost:4000";
+    const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
     proxies = {
       "/api-proxy": {
         target: proxyUrl,
@@ -117,7 +117,7 @@ export default defineConfig(({ mode, command }) => {
     };
   } else {
     // For ProtoOS: Use PROXY_URL from .env file
-    const targetUrl = env.PROXY_URL;
+    const targetUrl = env.PROXY_URL || process.env.PROXY_URL;
     proxies = targetUrl
       ? {
           "/api/v1": {
@@ -130,9 +130,9 @@ export default defineConfig(({ mode, command }) => {
 
     // Log which proxy is being used for clarity
 
-    if (env.PROXY_URL) {
+    if (targetUrl) {
       // eslint-disable-next-line no-console
-      console.log(`[ProtoOS] Using direct miner connection at ${env.PROXY_URL}`);
+      console.log(`[ProtoOS] Using direct miner connection at ${targetUrl}`);
     }
   }
 
@@ -160,6 +160,9 @@ export default defineConfig(({ mode, command }) => {
     server: {
       proxy: proxies,
       historyApiFallback: true,
+    },
+    preview: {
+      proxy: proxies,
     },
   };
 });

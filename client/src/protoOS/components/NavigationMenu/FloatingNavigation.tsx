@@ -40,7 +40,7 @@ const FloatingNavigation = ({
   }, [closeMenu]);
 
   return (
-    <div className="fixed z-20 h-screen bg-surface-elevated-base p-2" data-testid="test7">
+    <div className="fixed z-20 h-screen bg-surface-elevated-base p-2">
       <button
         className={clsx("fixed top-0 left-0 z-20 h-screen w-screen bg-border-20 hover:cursor-default", {
           "animate-[fade-in_.3s_ease-in-out]": isVisible,
@@ -49,7 +49,6 @@ const FloatingNavigation = ({
         onClick={handleCloseMenu}
       />
       <div
-        data-testid="test6"
         className={clsx({
           "animate-[slide-right-nav_.3s_ease-in-out]": isVisible,
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,

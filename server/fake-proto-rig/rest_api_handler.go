@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -612,6 +613,13 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, p := range pools {
+		if err := validatePoolURL(p.URL); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+			return
+		}
+	}
+
 	// Clear existing pools
 	h.state.mu.Lock()
 	h.state.Pools = make([]*miner_data_api.Pool, 0)
@@ -704,6 +712,13 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 		return
 	}
 
+	if config.URL != "" {
+		if err := validatePoolURL(config.URL); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+			return
+		}
+	}
+
 	h.state.mu.Lock()
 	defer h.state.mu.Unlock()
 
@@ -735,8 +750,67 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	// Simulate successful connection test
+
+	type testPoolConnectionRequest struct {
+		URL      string          `json:"url"`
+		Username string          `json:"username"`
+		Password json.RawMessage `json:"password"`
+	}
+
+	var req testPoolConnectionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := validatePoolURL(req.URL); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+		return
+	}
+
+	// Optional deterministic failure simulation for tests: any URL containing "fail" triggers a connection error.
+	if strings.Contains(strings.ToLower(req.URL), "fail") {
+		h.writeError(w, http.StatusBadGateway, "CONNECTION_FAILED", "Connection failed")
+		return
+	}
+
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Connection test passed"})
+}
+
+func validatePoolURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("empty url")
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "stratum+tcp", "stratum+ssl", "stratum+tls", "stratum2+tcp", "stratum2+ssl", "stratum2+tls":
+		// ok
+	default:
+		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing hostname")
+	}
+
+	port := u.Port()
+	if port == "" {
+		return fmt.Errorf("missing port")
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("invalid port")
+	}
+
+	return nil
 }
 
 // Auth handlers

@@ -2,9 +2,9 @@ import clsx from "clsx";
 
 import { IconProps } from "./types";
 
-const LogoAlt = ({ className, width = "w-[18px]" }: IconProps) => {
+const LogoAlt = ({ className, width = "w-[18px]", testId }: IconProps) => {
   return (
-    <div className={clsx(width, className)}>
+    <div className={clsx(width, className)} data-testid={testId}>
       <svg
         width="100%"
         height="100%"

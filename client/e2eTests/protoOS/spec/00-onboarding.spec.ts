@@ -10,6 +10,8 @@ test.describe("Onboarding", () => {
 
   test("Complete onboarding flow @setup", async ({ authPage, homePage, poolPage }) => {
     const poolName = generateRandomText("PoolName");
+    const poolUsername = generateRandomText("PoolUsername");
+    const poolPassword = generateRandomText("PoolPassword");
 
     await test.step("Welcome screen - validate and start setup", async () => {
       await authPage.validateWelcomeUrl();
@@ -29,8 +31,8 @@ test.describe("Onboarding", () => {
       await authPage.validateAuthenticationUrl();
       await authPage.validateTitle("Create an admin login for your miner");
       await authPage.validateUsernameFieldDisabledWithValue("admin");
-      await authPage.inputPassword(testConfig.users.password);
-      await authPage.inputConfirmPassword(testConfig.users.password);
+      await authPage.inputPassword(testConfig.admin.password);
+      await authPage.inputConfirmPassword(testConfig.admin.password);
       await authPage.clickContinue();
     });
 
@@ -49,37 +51,13 @@ test.describe("Onboarding", () => {
       await poolPage.validatePoolModalOpened();
       await poolPage.inputPoolName(poolName, 0);
       await poolPage.inputPoolUrl(testConfig.pool.url, 0);
-      await poolPage.inputPoolUsername(testConfig.pool.username, 0);
-      await poolPage.inputPoolPassword(testConfig.pool.password, 0);
+      await poolPage.inputPoolUsername(poolUsername, 0);
+      await poolPage.inputPoolPassword(poolPassword, 0);
       await poolPage.clickTestConnection();
       await poolPage.validateConnectionSuccessful();
       await poolPage.clickSave();
       await poolPage.validateModalIsClosed();
     });
-
-    // await test.step("Add first backup pool", async () => {
-    //   await poolPage.clickAddPool();
-    //   await poolPage.validatePoolModalOpened();
-    //   await poolPage.inputPoolUrl(testConfig.pool.url, 1);
-    //   await poolPage.inputPoolUsername(testConfig.pool.username, 1);
-    //   await poolPage.inputPoolPassword(testConfig.pool.password, 1);
-    //   await poolPage.clickTestConnection();
-    //   await poolPage.validateConnectionSuccessful();
-    //   await poolPage.clickSave();
-    //   await poolPage.validateModalIsClosed();
-    // });
-
-    // await test.step("Add second backup pool", async () => {
-    //   await poolPage.clickAddPool();
-    //   await poolPage.validatePoolModalOpened();
-    //   await poolPage.inputPoolUrl(testConfig.pool.url, 2);
-    //   await poolPage.inputPoolUsername(testConfig.pool.username, 2);
-    //   await poolPage.inputPoolPassword(testConfig.pool.password, 2);
-    //   await poolPage.clickTestConnection();
-    //   await poolPage.validateConnectionSuccessful();
-    //   await poolPage.clickSave();
-    //   await poolPage.validateModalIsClosed();
-    // });
 
     await test.step("Submit one pool", async () => {
       await authPage.click("Continue");

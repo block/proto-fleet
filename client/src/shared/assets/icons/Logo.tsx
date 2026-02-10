@@ -2,9 +2,9 @@ import clsx from "clsx";
 
 import { IconProps } from "./types";
 
-const Logo = ({ className, width = "w-[63px]" }: IconProps) => {
+const Logo = ({ className, width = "w-[63px]", testId }: IconProps) => {
   return (
-    <div className={clsx(width, className)}>
+    <div className={clsx(width, className)} data-testid={testId}>
       <svg
         width="100%"
         height="100%"

@@ -21,7 +21,11 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
       {/* Top bar */}
       <div className="flex h-12 w-full items-center justify-between gap-2 self-start px-4 py-2">
         <div className="inline-flex items-center gap-2">
-          <Pause className="text-text-primary hover:cursor-pointer" onClick={openMenu} />
+          <Pause
+            className="text-text-primary hover:cursor-pointer"
+            onClick={openMenu}
+            testId="navigation-menu-button"
+          />
           <div className="text-300 text-text-primary-70">{title}</div>
         </div>
         <div className="inline-flex items-center gap-2">

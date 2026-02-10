@@ -46,7 +46,7 @@ const PoolRow = ({
   }, [title, poolName, username, url]);
 
   return (
-    <Row className="flex items-center justify-between gap-3">
+    <Row className="flex items-center justify-between gap-3" testId="pool-row">
       <div className="flex items-center gap-3">
         {priorityNumber !== undefined && (
           <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-surface-5 text-xs font-medium text-text-primary">
