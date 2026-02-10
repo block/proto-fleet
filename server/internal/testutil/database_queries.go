@@ -308,10 +308,22 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 
 		// Make each device have a unique IP to avoid constraint violations
 		// Port remains constant for the device type (e.g., 2121 for Proto, 4028 for Antminer)
-		// Only append index suffix if creating multiple devices
+		// Increment the last octet of the IP address for each device
 		uniqueHost := host
 		if count > 1 {
-			uniqueHost = fmt.Sprintf("%s.%d", host, i+1)
+			ip := net.ParseIP(host)
+			if ip != nil && ip.To4() != nil {
+				ip4 := ip.To4()
+				newOctet := int(ip4[3]) + i
+				if newOctet > 255 {
+					s.t.Fatalf("IP address overflow: starting IP %s cannot accommodate %d devices", host, count)
+				}
+				ip4[3] = byte(newOctet)
+				uniqueHost = ip4.String()
+			} else {
+				// Fallback for non-IPv4 addresses
+				uniqueHost = fmt.Sprintf("%s-%d", host, i)
+			}
 		}
 		s.createDeviceIPAssignment(device.DatabaseID, uniqueHost, portStr, protocol)
 
@@ -324,7 +336,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		})
 		assert.NoError(s.t, err)
 
-		s.t.Logf("Created test miner with ID: %s at %s:%s", device.ID, host, portStr)
+		s.t.Logf("Created test miner with ID: %s at %s:%s", device.ID, uniqueHost, portStr)
 	}
 
 	return deviceIDs
