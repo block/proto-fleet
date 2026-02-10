@@ -12,6 +12,9 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
+// Compile-time check that *Device implements sdk.Device interface.
+var _ sdk.Device = (*Device)(nil)
+
 const statusCacheTTL = 5 * time.Second
 
 // Device implements sdk.Device for a virtual miner.
@@ -195,6 +198,12 @@ func (d *Device) GetMiningPools(_ context.Context) ([]sdk.ConfiguredPool, error)
 		}
 	}
 	return result, nil
+}
+
+// UpdateMinerPassword implements sdk.DeviceConfiguration.
+func (d *Device) UpdateMinerPassword(_ context.Context, _, _ string) error {
+	slog.Info("Virtual miner password update requested (no-op)", "device_id", d.id)
+	return nil
 }
 
 // DownloadLogs implements sdk.DeviceMaintenance.
