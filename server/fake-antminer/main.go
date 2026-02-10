@@ -149,6 +149,7 @@ func startHTTPServer(ctx context.Context, state *MinerState) error {
 	mux.HandleFunc("/cgi-bin/blink.cgi", createBlinkHandler(state))
 	mux.HandleFunc("/cgi-bin/stats.cgi", createStatsHandler(state))
 	mux.HandleFunc("/cgi-bin/get_kernel_log.cgi", createKernelLogHandler(state))
+	mux.HandleFunc("/cgi-bin/passwd.cgi", createPasswordChangeHandler(state))
 
 	// Add health check endpoint (no auth required)
 	mux.HandleFunc("/health", createHealthHandler())
@@ -196,7 +197,8 @@ func pathNeedsAuth(path string) bool {
 		path == "/cgi-bin/get_kernel_log.cgi" ||
 		path == "/cgi-bin/set_miner_conf.cgi" ||
 		path == "/cgi-bin/reboot.cgi" ||
-		path == "/cgi-bin/blink.cgi"
+		path == "/cgi-bin/blink.cgi" ||
+		path == "/cgi-bin/passwd.cgi"
 }
 
 func getEnv(key, fallback string) string {

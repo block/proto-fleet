@@ -255,6 +255,20 @@ func (mr *MockDeviceConfigurationMockRecorder) SetPowerTarget(ctx, performanceMo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPowerTarget", reflect.TypeOf((*MockDeviceConfiguration)(nil).SetPowerTarget), ctx, performanceMode)
 }
 
+// UpdateMinerPassword mocks base method.
+func (m *MockDeviceConfiguration) UpdateMinerPassword(ctx context.Context, currentPassword, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMinerPassword", ctx, currentPassword, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMinerPassword indicates an expected call of UpdateMinerPassword.
+func (mr *MockDeviceConfigurationMockRecorder) UpdateMinerPassword(ctx, currentPassword, newPassword interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMinerPassword", reflect.TypeOf((*MockDeviceConfiguration)(nil).UpdateMinerPassword), ctx, currentPassword, newPassword)
+}
+
 // UpdateMiningPools mocks base method.
 func (m *MockDeviceConfiguration) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolConfig) error {
 	m.ctrl.T.Helper()
@@ -780,6 +794,20 @@ func (m *MockDevice) Unpair(ctx context.Context) error {
 func (mr *MockDeviceMockRecorder) Unpair(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockDevice)(nil).Unpair), ctx)
+}
+
+// UpdateMinerPassword mocks base method.
+func (m *MockDevice) UpdateMinerPassword(ctx context.Context, currentPassword, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMinerPassword", ctx, currentPassword, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMinerPassword indicates an expected call of UpdateMinerPassword.
+func (mr *MockDeviceMockRecorder) UpdateMinerPassword(ctx, currentPassword, newPassword interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMinerPassword", reflect.TypeOf((*MockDevice)(nil).UpdateMinerPassword), ctx, currentPassword, newPassword)
 }
 
 // UpdateMiningPools mocks base method.

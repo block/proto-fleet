@@ -25,3 +25,8 @@ type UpdateMiningPoolsPayload struct {
 	Backup1Pool *MiningPool `json:"backup1_pool,omitempty"`
 	Backup2Pool *MiningPool `json:"backup2_pool,omitempty"`
 }
+
+type UpdateMinerPasswordPayload struct {
+	NewPassword     string `json:"new_password"`
+	CurrentPassword string `json:"current_password"`
+}

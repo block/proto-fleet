@@ -423,6 +423,13 @@ message GetTimeSeriesDataResponse {
   string next_page_token = 2; // For pagination
 }
 
+// Updates miner web UI password
+message UpdateMinerPasswordRequest {
+  DeviceRef ref = 1;
+  string current_password = 2;  // Current password for verification
+  string new_password = 3;  // New password for web UI access
+}
+
 // ============================================================================
 // Error System - Miner Error Taxonomy
 // ============================================================================
@@ -589,6 +596,7 @@ service Driver {
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
   rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
+  rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
   rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);

@@ -28,6 +28,8 @@ const (
 	endpointBlink        = "/cgi-bin/blink.cgi"
 	endpointStats        = "/cgi-bin/stats.cgi"
 	endpointKernelLog    = "/cgi-bin/get_kernel_log.cgi"
+	//#nosec G101 -- API endpoint path, not credentials
+	endpointPassword = "/cgi-bin/passwd.cgi"
 )
 
 // BitmainWorkMode represents the operating mode of an Antminer device
@@ -41,6 +43,7 @@ const (
 )
 
 //go:generate mockgen -source=service.go -destination=mocks/mock_web_api_client.go -package=mocks WebAPIClient
+//nolint:interfacebloat // Antminer web API has many endpoints
 type WebAPIClient interface {
 	GetSystemInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*SystemInfo, error)
 	GetMinerSummary(ctx context.Context, connInfo *AntminerConnectionInfo) (*MinerSummary, error)
@@ -52,6 +55,7 @@ type WebAPIClient interface {
 	StartBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	StopBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	GetKernelLog(ctx context.Context, connInfo *AntminerConnectionInfo) (string, error)
+	ChangePassword(ctx context.Context, connInfo *AntminerConnectionInfo, currentPassword, newPassword string) error
 }
 
 var _ WebAPIClient = &Service{}
@@ -423,6 +427,36 @@ func (s *Service) GetKernelLog(ctx context.Context, connInfo *AntminerConnection
 		Method:   http.MethodGet,
 		Endpoint: endpointKernelLog,
 	})
+}
+
+func (s *Service) ChangePassword(ctx context.Context, connInfo *AntminerConnectionInfo, currentPassword, newPassword string) error {
+	passwordData := map[string]string{
+		"curPwd":     currentPassword,
+		"newPwd":     newPassword,
+		"confirmPwd": newPassword,
+	}
+
+	var result struct {
+		Stats string `json:"stats"`
+		Code  string `json:"code"`
+		Msg   string `json:"msg"`
+	}
+
+	err := s.request(ctx, connInfo, RequestOptions{
+		Method:   http.MethodPost,
+		Endpoint: endpointPassword,
+		Body:     passwordData,
+		Result:   &result,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to change password: %w", err)
+	}
+
+	if result.Stats != "success" {
+		return fmt.Errorf("password change failed: %s (code: %s)", result.Msg, result.Code)
+	}
+
+	return nil
 }
 
 func (s *Service) addDigestAuth(req *http.Request, creds sdk.UsernamePassword) error {

@@ -41,6 +41,7 @@ type AntminerClient interface {
 	SetMinerConfig(ctx context.Context, config *web.MinerConfig) error
 	BlinkLED(ctx context.Context, duration time.Duration) error
 	Reboot(ctx context.Context) error
+	ChangePassword(ctx context.Context, currentPassword, newPassword string) error
 
 	// Lifecycle
 	Close()

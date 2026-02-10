@@ -12,8 +12,10 @@
 package proto
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -576,6 +578,48 @@ func (c *Client) ClearAuthKey(ctx context.Context) error {
 
 	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
 		return fmt.Errorf("clear auth key failed with result: %v", resp.Msg.Result)
+	}
+
+	return nil
+}
+
+// updatePasswordRequest represents the JSON request body for password change operations.
+type updatePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// ChangePassword updates the web UI password using the REST API endpoint.
+// Requires the current password for verification.
+func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	url := fmt.Sprintf("%s/api/v1/auth/change-password", c.baseURL)
+
+	// Use proper JSON marshaling to handle special characters safely
+	requestBody := updatePasswordRequest{
+		CurrentPassword: currentPassword,
+		NewPassword:     newPassword,
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.bearerToken.Token))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("change password failed with status %d", resp.StatusCode)
 	}
 
 	return nil

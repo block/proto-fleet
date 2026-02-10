@@ -11,6 +11,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
@@ -233,6 +234,30 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 				err = unpairErr
 			}
 		}
+	case commandtype.UpdateMinerPassword:
+		var p dto.UpdateMinerPasswordPayload
+		credExtractErr := json.Unmarshal(message.Payload, &p)
+		if credExtractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
+		}
+
+		// Update device via plugin
+		err = minerInfo.UpdateMinerPassword(ctx, p)
+		if err != nil {
+			break
+		}
+
+		// Update database with encrypted password after device succeeds
+		// Note: Only needed for Antminers - Proto devices use JWT auth and don't need stored credentials
+		if minerInfo.GetType() == models.TypeAntminer {
+			// Only Antminer credentials need to be stored (used for authentication)
+			if dbErr := es.updateMinerPasswordInDB(ctx, message.DeviceID, p.NewPassword); dbErr != nil {
+				slog.Error("device password updated but database sync failed",
+					"device_id", message.DeviceID, "error", dbErr)
+				// Don't fail command - device update succeeded
+			}
+		}
+		// Proto devices: skip database storage - they use JWT auth, not stored credentials
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
@@ -269,6 +294,32 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 			return fleeterror.NewInternalErrorf("failed to unregister device from telemetry: %v", err)
 		}
 		slog.Info("device unregistered from telemetry", "device_identifier", deviceIdentifier)
+	}
+
+	return nil
+}
+
+// updateMinerPasswordInDB encrypts and stores the miner password in the database
+// after successful password update on the device. Username remains unchanged.
+func (es *ExecutionService) updateMinerPasswordInDB(ctx context.Context, deviceID int64, password string) error {
+	passwordEnc, err := es.encryptService.Encrypt([]byte(password))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
+	}
+
+	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateMinerPassword(ctx, sqlc.UpdateMinerPasswordParams{
+			PasswordEnc: passwordEnc,
+			DeviceID:    deviceID,
+		})
+	})
+	if err != nil {
+		return err
+	}
+
+	// If no rows were affected, credentials don't exist for this device (data integrity issue)
+	if rowsAffected == 0 {
+		return fleeterror.NewInternalErrorf("no credentials found for device %d - cannot update password", deviceID)
 	}
 
 	return nil

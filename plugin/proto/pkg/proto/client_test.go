@@ -564,6 +564,21 @@ func TestClientCreationWithoutInsecureTLS(t *testing.T) {
 	_ = client.Close()
 }
 
+// TestChangePassword verifies the ChangePassword method exists and has correct signature
+// TestChangePassword verifies the ChangePassword method exists with the correct signature.
+// This is a compile-time check and does not require a running proto-rig-api server.
+func TestChangePassword(t *testing.T) {
+	// Verify the method exists by creating a client and checking compilation
+	// If the method signature changes, this will fail to compile
+	client, err := NewClient("localhost", 2121, "http")
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	// Compile-time verification that the method exists with signature:
+	//     func(ctx context.Context, currentPassword, newPassword string) error
+	var _ func(context.Context, string, string) error = client.ChangePassword
+}
+
 // Helper function to reset client singletons for testing
 func resetClients() {
 	httpClientOnce = &sync.Once{}

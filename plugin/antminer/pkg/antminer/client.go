@@ -625,6 +625,24 @@ func (c *Client) Reboot(ctx context.Context) error {
 	return c.webClient.Reboot(ctx, connInfo)
 }
 
+// ChangePassword updates the miner web UI password
+func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	if c.credentials == nil {
+		return fmt.Errorf("credentials required for password change")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	if err := c.webClient.ChangePassword(ctx, connInfo, currentPassword, newPassword); err != nil {
+		return fmt.Errorf("failed to change password: %w", err)
+	}
+
+	// Update stored credentials with new password
+	c.credentials.Password = newPassword
+	c.connectInfo.Creds.Password = newPassword
+
+	return nil
+}
+
 // UpdateFirmware initiates firmware update
 func (c *Client) UpdateFirmware(ctx context.Context) error {
 	// This would typically involve web API calls for firmware management

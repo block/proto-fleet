@@ -363,6 +363,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateMessageStatusStmt, err = db.PrepareContext(ctx, updateMessageStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageStatus: %w", err)
 	}
+	if q.updateMinerPasswordStmt, err = db.PrepareContext(ctx, updateMinerPassword); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateMinerPassword: %w", err)
+	}
 	if q.updateOpenErrorStmt, err = db.PrepareContext(ctx, updateOpenError); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateOpenError: %w", err)
 	}
@@ -978,6 +981,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateMessageStatusStmt: %w", cerr)
 		}
 	}
+	if q.updateMinerPasswordStmt != nil {
+		if cerr := q.updateMinerPasswordStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateMinerPasswordStmt: %w", cerr)
+		}
+	}
 	if q.updateOpenErrorStmt != nil {
 		if cerr := q.updateOpenErrorStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateOpenErrorStmt: %w", cerr)
@@ -1205,6 +1213,7 @@ type Queries struct {
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
+	updateMinerPasswordStmt                             *sql.Stmt
 	updateOpenErrorStmt                                 *sql.Stmt
 	updateOrganizationStmt                              *sql.Stmt
 	updatePoolStmt                                      *sql.Stmt
@@ -1339,6 +1348,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
+		updateMinerPasswordStmt:                             q.updateMinerPasswordStmt,
 		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,
 		updateOrganizationStmt:                              q.updateOrganizationStmt,
 		updatePoolStmt:                                      q.updatePoolStmt,

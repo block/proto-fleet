@@ -237,6 +237,25 @@ func (s *Service) UpdateUsername(ctx context.Context, username string) error {
 	return s.userStore.UpdateUserUsername(ctx, info.UserID, trimmedUsername)
 }
 
+// VerifyCredentials verifies username and password without creating a session
+// Used for re-authentication in sensitive operations
+func (s *Service) VerifyCredentials(ctx context.Context, username, password string) error {
+	if username == "" || password == "" {
+		return fleeterror.NewInvalidArgumentError("username and password are required")
+	}
+
+	user, err := s.userStore.GetUserByUsername(ctx, username)
+	if err != nil {
+		return fleeterror.NewForbiddenErrorf("invalid credentials")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return fleeterror.NewForbiddenErrorf("invalid credentials")
+	}
+
+	return nil
+}
+
 func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

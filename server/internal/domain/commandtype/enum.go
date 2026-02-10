@@ -23,6 +23,8 @@ const (
 	FirmwareUpdate
 	// Unpair represents a command to unpair a device from the fleet
 	Unpair
+	// UpdateMinerPassword represents a command to update miner web UI password
+	UpdateMinerPassword
 )
 
 func (t *Type) String() string {
@@ -47,6 +49,8 @@ func (t *Type) String() string {
 		return "FirmwareUpdate"
 	case Unpair:
 		return "Unpair"
+	case UpdateMinerPassword:
+		return "UpdateMinerPassword"
 
 	default:
 		return "Undefined"
@@ -75,6 +79,8 @@ func FromString(s string) (Type, error) {
 		return FirmwareUpdate, nil
 	case "Unpair":
 		return Unpair, nil
+	case "UpdateMinerPassword":
+		return UpdateMinerPassword, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

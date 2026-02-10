@@ -24,22 +24,23 @@ import (
 
 // mockSDKDevice is a mock implementation of sdk.Device for testing
 type mockSDKDevice struct {
-	id                 string
-	statusFunc         func(ctx context.Context) (sdk.DeviceMetrics, error)
-	describeDeviceFunc func(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error)
-	closeFunc          func(ctx context.Context) error
-	startMiningFunc    func(ctx context.Context) error
-	stopMiningFunc     func(ctx context.Context) error
-	blinkLEDFunc       func(ctx context.Context) error
-	rebootFunc         func(ctx context.Context) error
-	setCoolingModeFunc func(ctx context.Context, mode sdk.CoolingMode) error
-	getCoolingModeFunc func(ctx context.Context) (sdk.CoolingMode, error)
-	setPowerTargetFunc func(ctx context.Context, performanceMode sdk.PerformanceMode) error
-	updatePoolsFunc    func(ctx context.Context, pools []sdk.MiningPoolConfig) error
-	downloadLogsFunc   func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
-	firmwareUpdateFunc func(ctx context.Context) error
-	getErrorsFunc      func(ctx context.Context) (sdk.DeviceErrors, error)
-	tryGetWebViewFunc  func(ctx context.Context) (string, bool, error)
+	id                      string
+	statusFunc              func(ctx context.Context) (sdk.DeviceMetrics, error)
+	describeDeviceFunc      func(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error)
+	closeFunc               func(ctx context.Context) error
+	startMiningFunc         func(ctx context.Context) error
+	stopMiningFunc          func(ctx context.Context) error
+	blinkLEDFunc            func(ctx context.Context) error
+	rebootFunc              func(ctx context.Context) error
+	setCoolingModeFunc      func(ctx context.Context, mode sdk.CoolingMode) error
+	getCoolingModeFunc      func(ctx context.Context) (sdk.CoolingMode, error)
+	setPowerTargetFunc      func(ctx context.Context, performanceMode sdk.PerformanceMode) error
+	updatePoolsFunc         func(ctx context.Context, pools []sdk.MiningPoolConfig) error
+	downloadLogsFunc        func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
+	firmwareUpdateFunc      func(ctx context.Context) error
+	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
+	tryGetWebViewFunc       func(ctx context.Context) (string, bool, error)
+	updateMinerPasswordFunc func(ctx context.Context, currentPassword string, newPassword string) error
 }
 
 func (m *mockSDKDevice) ID() string {
@@ -157,6 +158,13 @@ func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, err
 
 func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
+}
+
+func (m *mockSDKDevice) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	if m.updateMinerPasswordFunc != nil {
+		return m.updateMinerPasswordFunc(ctx, currentPassword, newPassword)
+	}
+	return nil
 }
 
 func (m *mockSDKDevice) TrySubscribe(ctx context.Context, _ []string) (<-chan sdk.DeviceMetrics, bool, error) {

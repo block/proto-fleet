@@ -128,16 +128,17 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityPollingHost: true, // This device supports RPC status polling
 
 		// Command capabilities - based on Antminer capabilities
-		sdk.CapabilityReboot:             true,  // We can reboot devices
-		sdk.CapabilityMiningStart:        false, // Not supported by Antminer
-		sdk.CapabilityMiningStop:         false, // Not supported by Antminer
-		sdk.CapabilityLEDBlink:           true,  // We can blink LED for identification
-		sdk.CapabilityFactoryReset:       false, // Factory reset not supported
-		sdk.CapabilityCoolingModeAir:     false, // Air cooling mode not configurable
-		sdk.CapabilityCoolingModeImmerse: false, // Immersion cooling mode not supported
-		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
-		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
-		sdk.CapabilityLogsDownload:       true,
+		sdk.CapabilityReboot:              true,  // We can reboot devices
+		sdk.CapabilityMiningStart:         false, // Not supported by Antminer
+		sdk.CapabilityMiningStop:          false, // Not supported by Antminer
+		sdk.CapabilityLEDBlink:            true,  // We can blink LED for identification
+		sdk.CapabilityFactoryReset:        false, // Factory reset not supported
+		sdk.CapabilityCoolingModeAir:      false, // Air cooling mode not configurable
+		sdk.CapabilityCoolingModeImmerse:  false, // Immersion cooling mode not supported
+		sdk.CapabilityPoolConfig:          true,  // We can configure mining pools
+		sdk.CapabilityPoolPriority:        true,  // We can set pool priority
+		sdk.CapabilityLogsDownload:        true,  // We can download logs
+		sdk.CapabilityUpdateMinerPassword: true,  // We can update web UI password
 
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true,  // We support real-time telemetry
@@ -469,6 +470,29 @@ func (d *Device) FirmwareUpdate(ctx context.Context) error {
 func (d *Device) Unpair(ctx context.Context) error {
 	// No specific unpair action needed for Antminer devices
 	// Unpair is handled optimistically at the database level
+	return nil
+}
+
+// UpdateMinerPassword implements the SDK Device interface.
+func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+
+	// Clear cached status since credentials are changing
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
+
+	// Update password via web API using current password for verification
+	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {
+		return fmt.Errorf("failed to update miner password: %w", err)
+	}
+
+	// Update stored credentials for future API calls (only password changes)
+	d.credentials.Password = newPassword
+	if err := d.client.SetCredentials(d.credentials); err != nil {
+		return fmt.Errorf("failed to update client credentials: %w", err)
+	}
+
 	return nil
 }
 

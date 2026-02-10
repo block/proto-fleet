@@ -385,6 +385,9 @@ type DeviceConfiguration interface {
 	GetCoolingMode(ctx context.Context) (CoolingMode, error)
 	SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error
 	UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error
+	// UpdateMinerPassword updates the web UI password
+	// currentPassword is the existing password for verification (required by some miner APIs)
+	UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error
 	// GetMiningPools returns the currently configured pools on the device
 	GetMiningPools(ctx context.Context) ([]ConfiguredPool, error)
 }
@@ -485,6 +488,8 @@ const (
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support
+	//#nosec G101 -- Capability constant name, not actual credentials
+	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support
 
 	// Power mode capabilities
 	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support

@@ -136,6 +136,25 @@ func (h *Handler) Unpair(ctx context.Context, req *connect.Request[pb.UnpairRequ
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) UpdateMinerPassword(
+	ctx context.Context,
+	req *connect.Request[pb.UpdateMinerPasswordRequest],
+) (*connect.Response[pb.UpdateMinerPasswordResponse], error) {
+	resp, err := h.commandSvc.UpdateMinerPassword(
+		ctx,
+		req.Msg.DeviceSelector,
+		req.Msg.NewPassword,
+		req.Msg.CurrentPassword,
+		req.Msg.UserUsername,
+		req.Msg.UserPassword,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)

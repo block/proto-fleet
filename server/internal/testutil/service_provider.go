@@ -145,7 +145,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	assert.NoError(t, err)
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
-	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, nil, pluginService)
+	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService)
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore, userStore)
 

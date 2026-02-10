@@ -33,19 +33,26 @@ type TelemetryListener interface {
 	RemoveDevices(ctx context.Context, deviceIDs ...tmodels.DeviceIdentifier) error
 }
 
+// UserCredentialsVerifier provides interface for verifying user credentials
+type UserCredentialsVerifier interface {
+	VerifyCredentials(ctx context.Context, username, password string) error
+}
+
 // Service handles miner command operations
 type Service struct {
 	config *Config
 
-	conn              *sql.DB
-	executionService  *ExecutionService
-	messageQueue      queue.MessageQueue
-	statusService     *StatusService
-	encryptService    *encrypt.Service
-	filesService      *files.Service
-	deviceStore       stores.DeviceStore
-	telemetryListener TelemetryListener
-	capabilityChecker *CapabilityChecker
+	conn                *sql.DB
+	executionService    *ExecutionService
+	messageQueue        queue.MessageQueue
+	statusService       *StatusService
+	encryptService      *encrypt.Service
+	filesService        *files.Service
+	deviceStore         stores.DeviceStore
+	userStore           stores.UserStore
+	credentialsVerifier UserCredentialsVerifier
+	telemetryListener   TelemetryListener
+	capabilityChecker   *CapabilityChecker
 }
 
 const defaultPoolPriority uint32 = 0
@@ -57,18 +64,20 @@ type Command struct {
 }
 
 // NewService creates a new command service instance
-func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider) *Service {
+func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, userStore stores.UserStore, credentialsVerifier UserCredentialsVerifier, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider) *Service {
 	return &Service{
-		config:            config,
-		conn:              conn,
-		executionService:  executionService,
-		messageQueue:      messageQueue,
-		statusService:     statusService,
-		encryptService:    encryptService,
-		filesService:      filesService,
-		deviceStore:       deviceStore,
-		telemetryListener: telemetryListener,
-		capabilityChecker: NewCapabilityChecker(conn, capabilitiesProvider),
+		config:              config,
+		conn:                conn,
+		executionService:    executionService,
+		messageQueue:        messageQueue,
+		statusService:       statusService,
+		encryptService:      encryptService,
+		filesService:        filesService,
+		deviceStore:         deviceStore,
+		userStore:           userStore,
+		credentialsVerifier: credentialsVerifier,
+		telemetryListener:   telemetryListener,
+		capabilityChecker:   NewCapabilityChecker(conn, capabilitiesProvider),
 	}
 }
 
@@ -530,6 +539,86 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 
 	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+// verifyUserCredentials verifies the provided username and password match the current authenticated user
+// This provides an additional security layer for sensitive operations
+func (s *Service) verifyUserCredentials(ctx context.Context, username string, password string) error {
+	// Validate required fields
+	if username == "" {
+		return fleeterror.NewInvalidArgumentError("user_username is required")
+	}
+	if password == "" {
+		return fleeterror.NewInvalidArgumentError("user_password is required")
+	}
+
+	// Use auth service to verify credentials are valid
+	if err := s.credentialsVerifier.VerifyCredentials(ctx, username, password); err != nil {
+		return err
+	}
+
+	// Verify the username matches the current authenticated session user
+	// This prevents a logged-in user from providing another user's credentials
+	user, err := s.userStore.GetUserByUsername(ctx, username)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting user: %v", err)
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	if user.ID != info.UserID {
+		return fleeterror.NewForbiddenErrorf("username does not match authenticated user")
+	}
+
+	return nil
+}
+
+func (s *Service) UpdateMinerPassword(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	newPassword string,
+	currentPassword string,
+	userUsername string,
+	userPassword string,
+) (*pb.UpdateMinerPasswordResponse, error) {
+	// Validate required fields
+	if newPassword == "" {
+		return nil, fleeterror.NewInvalidArgumentError("new_password is required")
+	}
+	if currentPassword == "" {
+		return nil, fleeterror.NewInvalidArgumentError("current_password is required")
+	}
+
+	// Verify user credentials before allowing password change
+	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
+		return nil, err
+	}
+
+	payload := dto.UpdateMinerPasswordPayload{
+		NewPassword:     newPassword,
+		CurrentPassword: currentPassword,
+	}
+
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{
+			commandType:    commandtype.UpdateMinerPassword,
+			deviceSelector: deviceSelector,
+			payload:        payload,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
+	return &pb.UpdateMinerPasswordResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {

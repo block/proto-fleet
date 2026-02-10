@@ -567,6 +567,52 @@ func TestDevice_UpdateMiningPools(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDevice_UpdateMinerPassword(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	currentPassword := "password" // testPassword from device initialization
+	newPassword := "newpassword"
+
+	// Expected credentials after update (username unchanged, only password updated)
+	expectedCredentials := sdk.UsernamePassword{
+		Username: testUsername, // Username stays the same
+		Password: newPassword,  // Only password changes
+	}
+
+	// Set up expectations for ChangePassword and SetCredentials
+	mockClient.EXPECT().ChangePassword(t.Context(), currentPassword, newPassword).Return(nil)
+	mockClient.EXPECT().SetCredentials(expectedCredentials).Return(nil)
+
+	// Test UpdateMinerPassword
+	err := device.UpdateMinerPassword(t.Context(), currentPassword, newPassword)
+	require.NoError(t, err)
+}
+
+func TestDevice_UpdateMinerPassword_ChangePasswordFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	currentPassword := "wrongpassword"
+	newPassword := "newpassword"
+
+	// Simulate password change failure (wrong current password)
+	mockClient.EXPECT().ChangePassword(t.Context(), currentPassword, newPassword).Return(assert.AnError)
+
+	// Test UpdateMinerPassword - should fail
+	err := device.UpdateMinerPassword(t.Context(), currentPassword, newPassword)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update miner password")
+}
+
 func TestDevice_GetWebViewURL(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

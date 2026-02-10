@@ -453,6 +453,60 @@ func md5Hash(text string) string {
 	return hex.EncodeToString(hash[:])
 }
 
+func createPasswordChangeHandler(state *MinerState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Limit request body size
+		r.Body = http.MaxBytesReader(w, r.Body, 1024) // 1KB limit
+
+		var req struct {
+			CurPwd     string `json:"curPwd"`
+			NewPwd     string `json:"newPwd"`
+			ConfirmPwd string `json:"confirmPwd"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"stats":"error","code":"P001","msg":"Invalid request"}`)
+			return
+		}
+
+		// Validate current password
+		state.mu.RLock()
+		currentPassword := state.Password
+		state.mu.RUnlock()
+
+		if req.CurPwd != currentPassword {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintf(w, `{"stats":"error","code":"P002","msg":"Current password incorrect"}`)
+			return
+		}
+
+		// Validate new password matches confirmation
+		if req.NewPwd != req.ConfirmPwd {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"stats":"error","code":"P003","msg":"New password and confirmation do not match"}`)
+			return
+		}
+
+		// Update password
+		state.mu.Lock()
+		state.Password = req.NewPwd
+		state.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"stats":"success","code":"P000","msg":"OK!"}`)
+	}
+}
+
 func createKernelLogHandler(state *MinerState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

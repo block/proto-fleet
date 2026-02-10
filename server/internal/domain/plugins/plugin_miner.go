@@ -304,6 +304,14 @@ func (p *PluginMiner) Unpair(ctx context.Context) error {
 	return nil
 }
 
+// UpdateMinerPassword implements interfaces.Miner
+func (p *PluginMiner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
+	if err := p.sdkDevice.UpdateMinerPassword(ctx, payload.CurrentPassword, payload.NewPassword); err != nil {
+		return fleeterror.NewInternalErrorf("failed to update miner password: %v", err)
+	}
+	return nil
+}
+
 // GetErrors implements interfaces.Miner
 func (p *PluginMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error) {
 	sdkErrors, err := p.sdkDevice.GetErrors(ctx)

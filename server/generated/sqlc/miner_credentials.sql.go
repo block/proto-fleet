@@ -28,6 +28,25 @@ func (q *Queries) GetMinerCredentialsByDeviceID(ctx context.Context, deviceID in
 	return i, err
 }
 
+const updateMinerPassword = `-- name: UpdateMinerPassword :execrows
+UPDATE miner_credentials
+SET password_enc = $1
+WHERE device_id = $2
+`
+
+type UpdateMinerPasswordParams struct {
+	PasswordEnc string
+	DeviceID    int64
+}
+
+func (q *Queries) UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswordParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateMinerPasswordStmt, updateMinerPassword, arg.PasswordEnc, arg.DeviceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertMinerCredentials = `-- name: UpsertMinerCredentials :exec
 INSERT INTO miner_credentials (device_id, username_enc, password_enc)
 VALUES ($1, $2, $3)

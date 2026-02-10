@@ -434,6 +434,20 @@ func (mr *MockMinerMockRecorder) Unpair(ctx interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockMiner)(nil).Unpair), ctx)
 }
 
+// UpdateMinerPassword mocks base method.
+func (m *MockMiner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMinerPassword", ctx, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMinerPassword indicates an expected call of UpdateMinerPassword.
+func (mr *MockMinerMockRecorder) UpdateMinerPassword(ctx, payload interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMinerPassword", reflect.TypeOf((*MockMiner)(nil).UpdateMinerPassword), ctx, payload)
+}
+
 // UpdateMiningPools mocks base method.
 func (m *MockMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	m.ctrl.T.Helper()

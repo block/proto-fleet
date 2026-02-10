@@ -139,6 +139,23 @@ message UnpairResponse {
   string batch_identifier = 1;
 }
 
+// Updates miner web UI password
+message UpdateMinerPasswordRequest {
+  DeviceSelector device_selector = 1;
+  // New password for miner web UI access
+  string new_password = 2;
+  // Current password for verification (required by miner APIs)
+  string current_password = 3;
+  // Fleet user's username for authorization
+  string user_username = 4;
+  // Fleet user's password for authorization
+  string user_password = 5;
+}
+
+message UpdateMinerPasswordResponse {
+  string batch_identifier = 1;
+}
+
 message StreamCommandBatchUpdatesRequest {
   // The identifier of the command batch to stream
   string batch_identifier = 1;
@@ -196,6 +213,7 @@ enum CommandType {
   COMMAND_TYPE_DOWNLOAD_LOGS = 7;
   COMMAND_TYPE_FIRMWARE_UPDATE = 8;
   COMMAND_TYPE_SET_POWER_TARGET = 9;
+  COMMAND_TYPE_UPDATE_MINER_PASSWORD = 10;
 }
 
 // Request to check command capabilities for selected devices
@@ -255,6 +273,10 @@ service MinerCommandService {
   // Unpairs devices from the fleet
   // Updates pairing status to UNPAIRED and clears credentials on the device
   rpc Unpair(UnpairRequest) returns (UnpairResponse);
+
+  // Updates miner web UI password on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (UpdateMinerPasswordResponse);
 
   // Checks if selected devices support a command before execution
   // Returns capability check results with unsupported miners grouped by model/firmware

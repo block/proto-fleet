@@ -150,10 +150,11 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 	// Device capabilities may differ from driver capabilities
 	// For example, some devices might not support certain features
 	capabilities := sdk.Capabilities{
-		sdk.CapabilityPollingHost: true, // This device supports status polling
-		sdk.CapabilityReboot:      true, // This device supports reboot
-		sdk.CapabilityFirmware:    true, // This device supports firmware updates
-		sdk.CapabilityPoolConfig:  true, // This device supports pool configuration
+		sdk.CapabilityPollingHost:         true, // This device supports status polling
+		sdk.CapabilityReboot:              true, // This device supports reboot
+		sdk.CapabilityFirmware:            true, // This device supports firmware updates
+		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
+		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
 	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
@@ -622,6 +623,32 @@ func (d *Device) Unpair(ctx context.Context) error {
 	d.mutex.Unlock()
 
 	slog.Info("Plugin device unpaired successfully",
+		"device_id", d.id)
+
+	return nil
+}
+
+// UpdateMinerPassword implements the SDK Device interface.
+//
+// Updates the web UI password via the /api/v1/auth/change-password REST endpoint.
+// Proto uses bearer tokens for API authentication, but the web UI has a separate password.
+func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	slog.Info("Plugin device updating miner password",
+		"device_id", d.id,
+		"host", d.deviceInfo.Host)
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	// Clear cached status since credentials are changing
+	d.lastStatus = nil
+
+	// Update password via REST API
+	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {
+		return fmt.Errorf("failed to update miner password: %w", err)
+	}
+
+	slog.Info("Plugin device password updated successfully",
 		"device_id", d.id)
 
 	return nil

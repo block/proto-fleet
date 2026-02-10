@@ -35,6 +35,20 @@ func (m *MockWebAPIClient) EXPECT() *MockWebAPIClientMockRecorder {
 	return m.recorder
 }
 
+// ChangePassword mocks base method.
+func (m *MockWebAPIClient) ChangePassword(ctx context.Context, connInfo *web.AntminerConnectionInfo, currentPassword, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChangePassword", ctx, connInfo, currentPassword, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChangePassword indicates an expected call of ChangePassword.
+func (mr *MockWebAPIClientMockRecorder) ChangePassword(ctx, connInfo, currentPassword, newPassword interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangePassword", reflect.TypeOf((*MockWebAPIClient)(nil).ChangePassword), ctx, connInfo, currentPassword, newPassword)
+}
+
 // GetKernelLog mocks base method.
 func (m *MockWebAPIClient) GetKernelLog(ctx context.Context, connInfo *web.AntminerConnectionInfo) (string, error) {
 	m.ctrl.T.Helper()

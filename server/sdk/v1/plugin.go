@@ -545,6 +545,19 @@ func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*empt
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.UpdateMinerPasswordRequest) (*emptypb.Empty, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	err := device.UpdateMinerPassword(ctx, req.CurrentPassword, req.NewPassword)
+	return &emptypb.Empty{}, err
+}
+
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -1002,6 +1015,15 @@ func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context) error {
 func (d *DeviceGRPCClient) Unpair(ctx context.Context) error {
 	_, err := d.client.Unpair(ctx, &pb.DeviceRef{
 		DeviceId: d.deviceID,
+	})
+	return err
+}
+
+func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	_, err := d.client.UpdateMinerPassword(ctx, &pb.UpdateMinerPasswordRequest{
+		Ref:             &pb.DeviceRef{DeviceId: d.deviceID},
+		CurrentPassword: currentPassword,
+		NewPassword:     newPassword,
 	})
 	return err
 }

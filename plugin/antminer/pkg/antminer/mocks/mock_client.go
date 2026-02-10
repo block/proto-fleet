@@ -53,6 +53,20 @@ func (mr *MockAntminerClientMockRecorder) BlinkLED(ctx, duration interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlinkLED", reflect.TypeOf((*MockAntminerClient)(nil).BlinkLED), ctx, duration)
 }
 
+// ChangePassword mocks base method.
+func (m *MockAntminerClient) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChangePassword", ctx, currentPassword, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChangePassword indicates an expected call of ChangePassword.
+func (mr *MockAntminerClientMockRecorder) ChangePassword(ctx, currentPassword, newPassword interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangePassword", reflect.TypeOf((*MockAntminerClient)(nil).ChangePassword), ctx, currentPassword, newPassword)
+}
+
 // Close mocks base method.
 func (m *MockAntminerClient) Close() {
 	m.ctrl.T.Helper()

@@ -41,6 +41,7 @@ const (
 	Driver_DownloadLogs_FullMethodName            = "/sdk.v1.Driver/DownloadLogs"
 	Driver_UpdateFirmware_FullMethodName          = "/sdk.v1.Driver/UpdateFirmware"
 	Driver_Unpair_FullMethodName                  = "/sdk.v1.Driver/Unpair"
+	Driver_UpdateMinerPassword_FullMethodName     = "/sdk.v1.Driver/UpdateMinerPassword"
 	Driver_DeviceStatus_FullMethodName            = "/sdk.v1.Driver/DeviceStatus"
 	Driver_GetTimeSeriesData_FullMethodName       = "/sdk.v1.Driver/GetTimeSeriesData"
 	Driver_GetDeviceWebViewURL_FullMethodName     = "/sdk.v1.Driver/GetDeviceWebViewURL"
@@ -81,6 +82,7 @@ type DriverClient interface {
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -291,6 +293,15 @@ func (c *driverClient) Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.C
 	return out, nil
 }
 
+func (c *driverClient) UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_UpdateMinerPassword_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error) {
 	out := new(DeviceMetrics)
 	err := c.cc.Invoke(ctx, Driver_DeviceStatus_FullMethodName, in, out, opts...)
@@ -400,6 +411,7 @@ type DriverServer interface {
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error)
+	UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -480,6 +492,9 @@ func (UnimplementedDriverServer) UpdateFirmware(context.Context, *DeviceRef) (*e
 }
 func (UnimplementedDriverServer) Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Unpair not implemented")
+}
+func (UnimplementedDriverServer) UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateMinerPassword not implemented")
 }
 func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeviceStatus not implemented")
@@ -890,6 +905,24 @@ func _Driver_Unpair_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_UpdateMinerPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMinerPasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).UpdateMinerPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_UpdateMinerPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).UpdateMinerPassword(ctx, req.(*UpdateMinerPasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_DeviceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeviceRef)
 	if err := dec(in); err != nil {
@@ -1091,6 +1124,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Unpair",
 			Handler:    _Driver_Unpair_Handler,
+		},
+		{
+			MethodName: "UpdateMinerPassword",
+			Handler:    _Driver_UpdateMinerPassword_Handler,
 		},
 		{
 			MethodName: "DeviceStatus",

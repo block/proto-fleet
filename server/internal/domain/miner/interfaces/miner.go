@@ -38,6 +38,7 @@ type Miner interface {
 	GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error)
 	SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error
 	UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error
+	UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error
 	BlinkLED(ctx context.Context) error
 
 	DownloadLogs(ctx context.Context, batchLogUUID string) error

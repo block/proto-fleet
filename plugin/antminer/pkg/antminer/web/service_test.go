@@ -528,3 +528,123 @@ func TestErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestChangePassword(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		// Arrange
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/cgi-bin/passwd.cgi", r.URL.Path)
+
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			// Decode request body
+			var req map[string]string
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+
+			assert.Equal(t, "oldpassword", req["curPwd"])
+			assert.Equal(t, "newpassword", req["newPwd"])
+			assert.Equal(t, "newpassword", req["confirmPwd"])
+
+			w.WriteHeader(http.StatusOK)
+			_, err = w.Write([]byte(`{"stats":"success","code":"P000","msg":"OK!"}`))
+			require.NoError(t, err)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		// Act
+		err := service.ChangePassword(t.Context(), connInfo, "oldpassword", "newpassword")
+
+		// Assert
+		require.NoError(t, err)
+	})
+
+	t.Run("wrong current password", func(t *testing.T) {
+		// Arrange
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			w.WriteHeader(http.StatusUnauthorized)
+			_, err := w.Write([]byte(`{"stats":"error","code":"P002","msg":"Current password incorrect"}`))
+			require.NoError(t, err)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		// Act
+		err := service.ChangePassword(t.Context(), connInfo, "wrongpassword", "newpassword")
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to change password")
+	})
+
+	t.Run("password mismatch", func(t *testing.T) {
+		// Arrange
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			w.WriteHeader(http.StatusBadRequest)
+			_, err := w.Write([]byte(`{"stats":"error","code":"P003","msg":"New password and confirmation do not match"}`))
+			require.NoError(t, err)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		// Act
+		err := service.ChangePassword(t.Context(), connInfo, "oldpassword", "newpassword")
+
+		// Assert
+		require.Error(t, err)
+	})
+
+	t.Run("api failure", func(t *testing.T) {
+		// Arrange
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte(`{"stats":"error","code":"P999","msg":"Unknown error"}`))
+			require.NoError(t, err)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		// Act
+		err := service.ChangePassword(t.Context(), connInfo, "oldpassword", "newpassword")
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "password change failed")
+	})
+}
