@@ -167,7 +167,9 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, err
 	}
 
-	return s.buildSnapshot(ctx, info.OrganizationID, req.PageSize, req.Cursor, req.Filter)
+	sortConfig := parseSortConfig(req.Sort)
+
+	return s.buildSnapshot(ctx, info.OrganizationID, req.PageSize, req.Cursor, req.Filter, sortConfig)
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
@@ -249,6 +251,7 @@ func (s *Service) buildSnapshot(
 	pageSize int32,
 	cursor string,
 	filterProto *pb.MinerListFilter,
+	sortConfig *interfaces.SortConfig,
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
 	filter, err := parseFilter(filterProto)
 	if err != nil {
@@ -257,7 +260,7 @@ func (s *Service) buildSnapshot(
 
 	pageSize = validatePageSize(pageSize)
 
-	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter)
+	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter, sortConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -290,8 +293,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	cursor string,
 	pageSize int32,
 	filter *interfaces.MinerFilter,
+	sortConfig *interfaces.SortConfig,
 ) ([]*pb.MinerStateSnapshot, string, int64, error) {
-	rows, nextCursor, total, err := s.deviceStore.ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter)
+	rows, nextCursor, total, err := s.deviceStore.ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter, sortConfig)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -650,6 +654,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 
 		currentMatchingDevices := make(map[string]bool)
 		sortedDeviceIDs := []string{}
+		sortConfig := parseSortConfig(req.Sort)
 
 		// Build initial tracking state of ALL miners matching the filter
 		// This is not sent to the client - they use ListMinerStateSnapshots for initial display
@@ -658,7 +663,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 			queryCtx, cancel := context.WithTimeout(streamCtx, defaultQueryTimeout)
 			defer cancel()
 
-			snapshot, err := s.buildSnapshot(queryCtx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter)
+			snapshot, err := s.buildSnapshot(queryCtx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter, sortConfig)
 			if err != nil {
 				return err
 			}

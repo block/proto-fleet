@@ -622,7 +622,7 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	filter := &interfaces.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
 	}
-	miners, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, filter)
+	miners, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, filter, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), total, "total filtered count should match broken_count")
 	require.Len(t, miners, 3, "filtered list should contain exactly 3 miners")

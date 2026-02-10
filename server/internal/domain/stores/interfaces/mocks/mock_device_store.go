@@ -222,9 +222,9 @@ func (mr *MockDeviceStoreMockRecorder) InsertDevice(ctx, device, orgID, discover
 }
 
 // ListMinerStateSnapshots mocks base method.
-func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter, sortConfig *interfaces.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListMinerStateSnapshots", ctx, orgID, cursor, pageSize, filter)
+	ret := m.ctrl.Call(m, "ListMinerStateSnapshots", ctx, orgID, cursor, pageSize, filter, sortConfig)
 	ret0, _ := ret[0].([]sqlc.ListMinerStateSnapshotsRow)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(int64)
@@ -233,9 +233,9 @@ func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int
 }
 
 // ListMinerStateSnapshots indicates an expected call of ListMinerStateSnapshots.
-func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter, sortConfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
 }
 
 // UpdateDeviceInfo mocks base method.

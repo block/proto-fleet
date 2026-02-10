@@ -657,8 +657,11 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	return offlineDevices, nil
 }
 
-// ListMinerStateSnapshots retrieves both paired and unpaired devices using a unified query
-func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+// ListMinerStateSnapshots retrieves both paired and unpaired devices using a unified query.
+// Note: sortConfig is accepted but not yet used. Sorting implementation is in DASH-1239.
+func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter, sortConfig *stores.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+	_ = sortConfig // Sorting implementation deferred to DASH-1239
+
 	// Decode cursor - now just a simple ID
 	cursorID := int64(0)
 	if cursor != "" {
