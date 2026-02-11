@@ -60,8 +60,8 @@ func (c *SortConfig) IsValid() bool {
 	return validField && validDirection
 }
 
-// IsTelemetrySort returns true if sorting by a telemetry field (hashrate, temp, power, efficiency).
-// These fields require joining the device_metrics table.
+// IsTelemetrySort returns true if sorting by a telemetry-derived field.
+// These fields require the latest_metrics CTE and telemetry join.
 func (c *SortConfig) IsTelemetrySort() bool {
 	if c == nil {
 		return false
@@ -69,16 +69,8 @@ func (c *SortConfig) IsTelemetrySort() bool {
 	return c.Field == SortFieldHashrate ||
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||
-		c.Field == SortFieldEfficiency
-}
-
-// IsIssuesSort returns true if sorting by issues count.
-// This field requires a subquery on the errors table.
-func (c *SortConfig) IsIssuesSort() bool {
-	if c == nil {
-		return false
-	}
-	return c.Field == SortFieldIssues
+		c.Field == SortFieldEfficiency ||
+		c.Field == SortFieldIssues
 }
 
 // IsUnspecified returns true if no sort is specified (use default).

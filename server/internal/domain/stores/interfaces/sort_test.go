@@ -130,7 +130,7 @@ func TestSortConfig_IsTelemetrySort(t *testing.T) {
 		{
 			name:     "issues field",
 			config:   &SortConfig{Field: SortFieldIssues},
-			expected: false,
+			expected: true,
 		},
 		{
 			name:     "firmware field",
@@ -142,46 +142,6 @@ func TestSortConfig_IsTelemetrySort(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, tc.config.IsTelemetrySort())
-		})
-	}
-}
-
-func TestSortConfig_IsIssuesSort(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *SortConfig
-		expected bool
-	}{
-		{
-			name:     "nil config",
-			config:   nil,
-			expected: false,
-		},
-		{
-			name:     "name field",
-			config:   &SortConfig{Field: SortFieldName},
-			expected: false,
-		},
-		{
-			name:     "issues field",
-			config:   &SortConfig{Field: SortFieldIssues},
-			expected: true,
-		},
-		{
-			name:     "firmware field",
-			config:   &SortConfig{Field: SortFieldFirmware},
-			expected: false,
-		},
-		{
-			name:     "hashrate field",
-			config:   &SortConfig{Field: SortFieldHashrate},
-			expected: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.config.IsIssuesSort())
 		})
 	}
 }

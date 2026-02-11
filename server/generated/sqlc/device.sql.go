@@ -934,89 +934,10 @@ SELECT
     COALESCE(d.id, 0) as device_id
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
-    AND d.deleted_at IS NULL
-    AND d.org_id = $2
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dd.org_id = $2
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    -- Cursor pagination (applied early for performance)
-    AND ($3::bigint IS NULL OR dd.id > $3)
-    -- Pairing status filter
-    AND (
-        $4::text IS NULL
-        OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
-           = ANY($5::text[])
-    )
-    -- Type filter
-    AND ($6::text IS NULL OR dd.type = ANY($7::text[]))
-    -- Status filter with error handling
-    -- Priority: offline/sleeping status takes precedence over errors
-    AND (
-        $8::text IS NULL
-        OR (
-            ds.status::text = ANY($9::text[])
-            AND (
-                -- For offline/sleeping/needs-pool filters: include devices regardless of errors
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                -- For active status: exclude devices with errors (only show truly healthy)
-                OR (ds.status = 'ACTIVE' AND NOT EXISTS (
-                    SELECT 1 FROM errors
-                    WHERE errors.device_id = d.id
-                      AND errors.org_id = $2
-                      AND errors.closed_at IS NULL
-                      AND errors.severity IN (1, 2, 3)
-                ))
-                -- For error status: include devices with errors
-                OR ($10::boolean = TRUE)
-            )
-        )
-        -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
-        OR ($10::boolean = TRUE
-            AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
-        -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
-        OR ($10::boolean = TRUE
-            AND EXISTS (
-                SELECT 1 FROM errors
-                WHERE errors.device_id = d.id
-                  AND errors.org_id = $2
-                  AND errors.closed_at IS NULL
-                  AND errors.severity IN (1, 2, 3)
-            )
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
-    )
-    -- Component error filter - only include devices with matching errors when filter is provided
-    AND (
-        $11::text IS NULL
-        OR EXISTS (
-            SELECT 1 FROM errors
-            WHERE errors.device_id = d.id
-              AND errors.closed_at IS NULL
-              AND errors.component_type = ANY($12::int[])
-        )
-    )
-ORDER BY dd.id
-LIMIT $1
+WHERE FALSE
 `
-
-type ListMinerStateSnapshotsParams struct {
-	Limit                     int32
-	OrgID                     int64
-	CursorID                  sql.NullInt64
-	PairingStatusFilter       sql.NullString
-	PairingStatusValues       []string
-	TypeFilter                sql.NullString
-	TypeValues                []string
-	StatusFilter              sql.NullString
-	StatusValues              []string
-	NeedsAttentionFilter      sql.NullBool
-	ErrorComponentTypesFilter sql.NullString
-	ErrorComponentTypeValues  []int32
-}
 
 type ListMinerStateSnapshotsRow struct {
 	DeviceIdentifier string
@@ -1037,23 +958,12 @@ type ListMinerStateSnapshotsRow struct {
 	DeviceID         int64
 }
 
-// Unified query that supports all filters including component error filtering
-// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
-func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStateSnapshotsParams) ([]ListMinerStateSnapshotsRow, error) {
-	rows, err := q.query(ctx, q.listMinerStateSnapshotsStmt, listMinerStateSnapshots,
-		arg.Limit,
-		arg.OrgID,
-		arg.CursorID,
-		arg.PairingStatusFilter,
-		pq.Array(arg.PairingStatusValues),
-		arg.TypeFilter,
-		pq.Array(arg.TypeValues),
-		arg.StatusFilter,
-		pq.Array(arg.StatusValues),
-		arg.NeedsAttentionFilter,
-		arg.ErrorComponentTypesFilter,
-		pq.Array(arg.ErrorComponentTypeValues),
-	)
+// TYPE GENERATION STUB - This query is never executed.
+// The actual list query uses a hand-written query builder in device.go
+// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
+// This stub exists solely to generate the ListMinerStateSnapshotsRow type.
+func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerStateSnapshotsRow, error) {
+	rows, err := q.query(ctx, q.listMinerStateSnapshotsStmt, listMinerStateSnapshots)
 	if err != nil {
 		return nil, err
 	}

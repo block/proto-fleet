@@ -312,8 +312,10 @@ ORDER BY ds.status_timestamp DESC
 LIMIT $1;
 
 -- name: ListMinerStateSnapshots :many
--- Unified query that supports all filters including component error filtering
--- Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
+-- TYPE GENERATION STUB - This query is never executed.
+-- The actual list query uses a hand-written query builder in device.go
+-- because sqlc cannot parameterize ORDER BY direction or dynamic columns.
+-- This stub exists solely to generate the ListMinerStateSnapshotsRow type.
 SELECT
     dd.device_identifier,
     COALESCE(d.mac_address, '') as mac_address,
@@ -333,73 +335,9 @@ SELECT
     COALESCE(d.id, 0) as device_id
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
-    AND d.deleted_at IS NULL
-    AND d.org_id = sqlc.arg('org_id')
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dd.org_id = sqlc.arg('org_id')
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    -- Cursor pagination (applied early for performance)
-    AND (sqlc.narg('cursor_id')::bigint IS NULL OR dd.id > sqlc.narg('cursor_id'))
-    -- Pairing status filter
-    AND (
-        sqlc.narg('pairing_status_filter')::text IS NULL
-        OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
-           = ANY(sqlc.arg('pairing_status_values')::text[])
-    )
-    -- Type filter
-    AND (sqlc.narg('type_filter')::text IS NULL OR dd.type = ANY(sqlc.arg('type_values')::text[]))
-    -- Status filter with error handling
-    -- Priority: offline/sleeping status takes precedence over errors
-    AND (
-        sqlc.narg('status_filter')::text IS NULL
-        OR (
-            ds.status::text = ANY(sqlc.arg('status_values')::text[])
-            AND (
-                -- For offline/sleeping/needs-pool filters: include devices regardless of errors
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                -- For active status: exclude devices with errors (only show truly healthy)
-                OR (ds.status = 'ACTIVE' AND NOT EXISTS (
-                    SELECT 1 FROM errors
-                    WHERE errors.device_id = d.id
-                      AND errors.org_id = sqlc.arg('org_id')
-                      AND errors.closed_at IS NULL
-                      AND errors.severity IN (1, 2, 3)
-                ))
-                -- For error status: include devices with errors
-                OR (sqlc.narg('needs_attention_filter')::boolean = TRUE)
-            )
-        )
-        -- For needs attention filter: only include auth needed devices that are not offline/sleeping/needs pool
-        OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
-            AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
-        -- For needs attention filter: only include devices with errors that are not offline/sleeping/needs pool
-        OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
-            AND EXISTS (
-                SELECT 1 FROM errors
-                WHERE errors.device_id = d.id
-                  AND errors.org_id = sqlc.arg('org_id')
-                  AND errors.closed_at IS NULL
-                  AND errors.severity IN (1, 2, 3)
-            )
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
-    )
-    -- Component error filter - only include devices with matching errors when filter is provided
-    AND (
-        sqlc.narg('error_component_types_filter')::text IS NULL
-        OR EXISTS (
-            SELECT 1 FROM errors
-            WHERE errors.device_id = d.id
-              AND errors.closed_at IS NULL
-              AND errors.component_type = ANY(sqlc.arg('error_component_type_values')::int[])
-        )
-    )
-ORDER BY dd.id
-LIMIT $1;
+WHERE FALSE;
 
 
 -- name: GetTotalMinerStateSnapshots :one

@@ -510,6 +510,123 @@ Invoke the `@remove-obvious-comments` agent to automatically identify and remove
   3. Document your findings in comments
   4. Add defensive validation if contracts are implicit
 
+### Writing Valuable Tests
+
+Tests should verify behavior that could realistically break in production. A valuable test:
+
+- Tests business logic, edge cases, or error handling that requires careful thought
+- Verifies non-obvious behavior that a developer might accidentally break
+- Catches bugs that wouldn't be caught by the compiler or type system
+- Tests integration points between components
+
+#### Low-Value Tests to Avoid
+
+Trivial nil/empty checks:
+
+```go
+// ❌ Low value - tests obvious nil behavior
+func TestFoo_NilInput(t *testing.T) {
+    result := foo(nil)
+    assert.Nil(t, result)
+}
+
+// ❌ Low value - tests obvious empty behavior
+func TestFoo_EmptyString(t *testing.T) {
+    result := foo("")
+    assert.Equal(t, "", result)
+}
+```
+
+Testing standard library behavior:
+
+```go
+// ❌ Low value - tests base64 library, not our code
+func TestDecode_InvalidBase64(t *testing.T) {
+    _, err := decode("not-valid-base64!!!")
+    assert.Error(t, err)
+}
+
+// ❌ Low value - tests JSON library, not our code
+func TestDecode_InvalidJSON(t *testing.T) {
+    _, err := decode(base64.Encode([]byte("not json")))
+    assert.Error(t, err)
+}
+```
+
+Redundant enumeration tests:
+
+```go
+// ❌ Low value - 22 tests that just verify serialization works for every enum value
+// If one works, they all work - this is testing the serializer, not business logic
+func TestRoundTrip_AllFields(t *testing.T) {
+    for _, field := range allFields {
+        for _, dir := range allDirections {
+            // ... same serialization test 22 times
+        }
+    }
+}
+```
+
+Tests that just verify compilation:
+
+```go
+// ❌ Low value - if types don't match, the compiler catches it
+func TestNewClient_ReturnsClient(t *testing.T) {
+    c := NewClient()
+    assert.NotNil(t, c)
+}
+```
+
+#### High-Value Tests to Write
+
+Business logic with edge cases:
+
+```go
+// ✅ High value - tests specific business rule about config mismatch
+func TestDecodeCursor_ConfigMismatchRejected(t *testing.T) {
+    // Changing sort config between pages should be rejected
+    cursor := encodeCursor(&sortedCursor{Field: Name, Direction: Asc})
+    _, err := decodeCursor(cursor, &SortConfig{Field: IP, Direction: Desc})
+    assert.ErrorContains(t, err, "cursor sort config mismatch")
+}
+```
+
+Non-obvious special cases:
+
+```go
+// ✅ High value - tests that ERROR status triggers additional filter logic
+func TestBuildFilterParams_ErrorStatusTriggersNeedsAttention(t *testing.T) {
+    filter := &MinerFilter{DeviceStatusFilter: []Status{StatusError}}
+    params := buildFilterParams(filter)
+    assert.True(t, params.needsAttentionFilter)
+}
+```
+
+Integration between components:
+
+```go
+// ✅ High value - tests that sort config properly flows through to SQL generation
+func TestBuildKeysetSQL_TelemetrySortWithNullHandling(t *testing.T) {
+    // Tests the complex NULL handling in telemetry sorts
+    cursor := &sortedCursor{SortValue: "", CursorID: 25}  // NULL telemetry
+    config := &SortConfig{Field: Hashrate, Direction: Asc}
+
+    sql, args := buildKeysetSQL(cursor, config, 2)
+
+    assert.Contains(t, sql, "IS NULL")
+    assert.Contains(t, sql, "dd.id > $2")
+}
+```
+
+#### Test Guidelines Summary
+
+1. Don't test nil/empty inputs unless there's specific business logic for them
+2. Don't test that libraries work (base64, JSON, etc.)
+3. Don't write enumeration tests that run the same logic N times for N enum values
+4. Do test business rules, especially non-obvious ones
+5. Do test edge cases that could break in production
+6. One good integration test > 20 trivial unit tests
+
 ### Self-Review Checklist for Claude Code
 
 Before marking work as complete or asking the user to review, verify:

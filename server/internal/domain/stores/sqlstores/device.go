@@ -365,7 +365,7 @@ func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
 		for _, status := range filter.DeviceStatusFilter {
-			deviceFilter = append(deviceFilter, status.String())
+			deviceFilter = append(deviceFilter, string(toDeviceStatus(status)))
 		}
 		statusFilter = sql.NullString{String: strings.Join(deviceFilter, ","), Valid: true}
 	}
@@ -657,108 +657,22 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	return offlineDevices, nil
 }
 
-// ListMinerStateSnapshots retrieves both paired and unpaired devices using a unified query.
-// Note: sortConfig is accepted but not yet used. Sorting implementation is in DASH-1239.
+// ListMinerStateSnapshots retrieves both paired and unpaired devices using a query builder.
+// Supports sorted pagination using keyset pagination with cursor encoding.
 func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter, sortConfig *stores.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
-	_ = sortConfig // Sorting implementation deferred to DASH-1239
-
-	// Decode cursor - now just a simple ID
-	cursorID := int64(0)
-	if cursor != "" {
-		decoded, err := base64.StdEncoding.DecodeString(cursor)
-		if err != nil {
-			return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor: %v", err)
-		}
-		_, err = fmt.Sscanf(string(decoded), "%d", &cursorID)
-		if err != nil {
-			return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
-		}
+	// Decode cursor - sorted cursor format
+	decodedCursor, err := decodeSortedCursor(cursor, sortConfig)
+	if err != nil {
+		return nil, "", 0, err
 	}
 
 	// Build filter parameters
-	var statusFilter sql.NullString
-	var statusValues []string
-	needsAttentionFilter := false
-	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
-		statusFilter = sql.NullString{String: "active", Valid: true}
-		for _, status := range filter.DeviceStatusFilter {
-			statusValues = append(statusValues, string(toDeviceStatus(status)))
-			// Special case: if ERROR status is requested, also include AUTHENTICATION_NEEDED devices
-			// This implements "needs attention" = ERROR status OR AUTHENTICATION_NEEDED pairing
-			if status == minermodels.MinerStatusError {
-				needsAttentionFilter = true
-			}
-		}
-	}
+	fp := buildMinerFilterParams(filter)
 
-	var typeFilter sql.NullString
-	var typeValues []string
-	if filter != nil && len(filter.MinerType) > 0 {
-		typeFilter = sql.NullString{String: "active", Valid: true}
-		for _, t := range filter.MinerType {
-			typeValues = append(typeValues, t.String())
-		}
-	}
-
-	// Parse pairing status filter - convert proto enums to database enum strings
-	// Pass the list of statuses directly to SQL instead of boolean flags
-	var pairingStatusFilter sql.NullString
-	var pairingStatusValues []string
-
-	if filter != nil && len(filter.PairingStatuses) > 0 {
-		// Filter is provided - convert proto enums to sqlc enums
-		pairingStatusFilter = sql.NullString{String: "active", Valid: true}
-		for _, status := range filter.PairingStatuses {
-			if status == fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED {
-				// UNSPECIFIED means "return all" - skip adding to filter
-				// If this is the only status, clear the filter entirely
-				continue
-			}
-			pairingStatusValues = append(pairingStatusValues, string(ProtoPairingStatusToSQL(status)))
-			// Note: Unknown pairing statuses will be converted to default (UNPAIRED) by helper
-			// This provides forward compatibility if new statuses are added
-		}
-
-		// If no valid pairing statuses were added (all were UNSPECIFIED or unknown),
-		// clear the filter to return all devices
-		if len(pairingStatusValues) == 0 {
-			pairingStatusFilter = sql.NullString{}
-		}
-	}
-
-	// If no pairing statuses provided at all, filter remains nil (return all)
-
-	// Build component type filter parameters
-	var errorComponentTypesFilter sql.NullString
-	var errorComponentTypeValues []int32
-	if filter != nil && len(filter.ErrorComponentTypes) > 0 {
-		errorComponentTypesFilter = sql.NullString{String: "active", Valid: true}
-		errorComponentTypeValues = make([]int32, len(filter.ErrorComponentTypes))
-		for i, ct := range filter.ErrorComponentTypes {
-			// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
-			errorComponentTypeValues[i] = int32(ct)
-		}
-	}
-
-	// Call unified query with all filter parameters
-	// Pass needsAttentionFilter to SQL for special OR logic handling
-	// Pass errorComponentTypesFilter to SQL for component type filtering
-	rows, err := s.getQueries(ctx).ListMinerStateSnapshots(ctx, sqlc.ListMinerStateSnapshotsParams{
-		OrgID:                     orgID,
-		CursorID:                  sql.NullInt64{Int64: cursorID, Valid: cursorID > 0},
-		StatusFilter:              statusFilter,
-		StatusValues:              statusValues,
-		TypeFilter:                typeFilter,
-		TypeValues:                typeValues,
-		PairingStatusFilter:       pairingStatusFilter,
-		PairingStatusValues:       pairingStatusValues,
-		NeedsAttentionFilter:      sql.NullBool{Bool: needsAttentionFilter, Valid: needsAttentionFilter},
-		ErrorComponentTypesFilter: errorComponentTypesFilter,
-		ErrorComponentTypeValues:  errorComponentTypeValues,
-		Limit:                     pageSize + 1,
-	})
+	// Execute query with filters and sorting
+	rows, err := s.executeListQuery(ctx, orgID, decodedCursor, pageSize, fp, sortConfig)
 	if err != nil {
-		return nil, "", 0, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		return nil, "", 0, err
 	}
 
 	// Process results
@@ -767,31 +681,163 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		rows = rows[:pageSize]
 	}
 
-	// Build next cursor - simple encoding of just the ID
+	// Build next cursor - sorted cursor encoding
 	var nextCursor string
 	if hasMore && len(rows) > 0 {
 		lastRow := rows[len(rows)-1]
-		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", lastRow.CursorID)))
+		sortField := stores.SortFieldUnspecified
+		sortDir := stores.SortDirectionUnspecified
+		if sortConfig != nil {
+			sortField = sortConfig.Field
+			sortDir = sortConfig.Direction
+		}
+		nextCursor = encodeSortedCursor(&sortedCursor{
+			SortField:     sortField,
+			SortDirection: sortDir,
+			SortValue:     extractSortValueForCursorFromRow(lastRow, sortConfig),
+			CursorID:      lastRow.CursorID,
+		})
 	}
 
-	// Get total count with same filter parameters (including needs attention OR logic)
+	// Get total count with same filters (still uses SQLC for count query)
 	total, err := s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
 		OrgID:                     orgID,
-		StatusFilter:              statusFilter,
-		StatusValues:              statusValues,
-		TypeFilter:                typeFilter,
-		TypeValues:                typeValues,
-		PairingStatusFilter:       pairingStatusFilter,
-		PairingStatusValues:       pairingStatusValues,
-		NeedsAttentionFilter:      sql.NullBool{Bool: needsAttentionFilter, Valid: needsAttentionFilter},
-		ErrorComponentTypesFilter: errorComponentTypesFilter,
-		ErrorComponentTypeValues:  errorComponentTypeValues,
+		StatusFilter:              fp.statusFilter,
+		StatusValues:              fp.statusValues,
+		TypeFilter:                fp.typeFilter,
+		TypeValues:                fp.typeValues,
+		PairingStatusFilter:       fp.pairingStatusFilter,
+		PairingStatusValues:       fp.pairingStatusValues,
+		NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+		ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
+		ErrorComponentTypeValues:  fp.errorComponentTypeValues,
 	})
 	if err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	return rows, nextCursor, total, nil
+	// Convert to SQLC row type for return
+	result := make([]sqlc.ListMinerStateSnapshotsRow, len(rows))
+	for i, row := range rows {
+		result[i] = row.ListMinerStateSnapshotsRow
+	}
+
+	return result, nextCursor, total, nil
+}
+
+// minerStateRow extends the SQLC row with optional telemetry sort value.
+type minerStateRow struct {
+	sqlc.ListMinerStateSnapshotsRow
+	SortTelemetryValue sql.NullFloat64
+}
+
+// executeListQuery builds and executes the miner list query with all filters and sorting.
+func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, cursor *sortedCursor, pageSize int32, fp minerFilterParams, sortConfig *stores.SortConfig) ([]minerStateRow, error) {
+	query, args := s.buildListQuerySQL(orgID, cursor, pageSize, fp, sortConfig)
+
+	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+	}
+	defer sqlRows.Close()
+
+	// Determine if we need to scan telemetry value
+	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
+
+	rows := make([]minerStateRow, 0, pageSize+1)
+	for sqlRows.Next() {
+		var row minerStateRow
+		if isTelemetrySort {
+			err = sqlRows.Scan(
+				&row.DeviceIdentifier,
+				&row.MacAddress,
+				&row.SerialNumber,
+				&row.Model,
+				&row.Manufacturer,
+				&row.Type,
+				&row.FirmwareVersion,
+				&row.DeviceStatus,
+				&row.StatusTimestamp,
+				&row.StatusDetails,
+				&row.IpAddress,
+				&row.Port,
+				&row.UrlScheme,
+				&row.PairingStatus,
+				&row.CursorID,
+				&row.DeviceID,
+				&row.SortTelemetryValue,
+			)
+		} else {
+			err = sqlRows.Scan(
+				&row.DeviceIdentifier,
+				&row.MacAddress,
+				&row.SerialNumber,
+				&row.Model,
+				&row.Manufacturer,
+				&row.Type,
+				&row.FirmwareVersion,
+				&row.DeviceStatus,
+				&row.StatusTimestamp,
+				&row.StatusDetails,
+				&row.IpAddress,
+				&row.Port,
+				&row.UrlScheme,
+				&row.PairingStatus,
+				&row.CursorID,
+				&row.DeviceID,
+			)
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		}
+		rows = append(rows, row)
+	}
+
+	if err := sqlRows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+	}
+
+	return rows, nil
+}
+
+// buildListQuerySQL builds the SQL query for listing miners with filters and sorting.
+func (s *SQLDeviceStore) buildListQuerySQL(orgID int64, cursor *sortedCursor, pageSize int32, fp minerFilterParams, sortConfig *stores.SortConfig) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	// Add CTE for telemetry sorting
+	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
+	if isTelemetrySort {
+		metricExpr := getTelemetryMetricExpression(sortConfig.Field)
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", metricExpr)
+	}
+
+	// Base query with optional telemetry column
+	if isTelemetrySort {
+		sb.WriteString(minerBaseQueryWithTelemetry)
+		sb.WriteString(" " + minerTelemetryJoin)
+	} else {
+		sb.WriteString(minerBaseQuery)
+	}
+
+	// Keyset pagination condition
+	keysetSQL, keysetArgs := buildKeysetSQL(cursor, sortConfig, argNum)
+	if keysetSQL != "" {
+		sb.WriteString(" " + keysetSQL)
+		args = append(args, keysetArgs...)
+		argNum += len(keysetArgs)
+	}
+
+	// Apply filters
+	args, argNum = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	// ORDER BY and LIMIT
+	sb.WriteString(" " + buildSortOrderClause(sortConfig))
+	fmt.Fprintf(&sb, " LIMIT $%d", argNum)
+	args = append(args, pageSize+1)
+
+	return sb.String(), args
 }
 
 // AllDevicesBelongToOrg returns true if all provided device identifiers belong to the specified organization.
