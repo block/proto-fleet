@@ -6,6 +6,9 @@ This folder contains the Windows installer script and the PS2EXE builder used to
 - `fleet-installer.ps1`: The installer script (runs in PowerShell or when compiled to EXE).
 - `build-fleet-installer-exe.ps1`: Builds `fleet.exe` using PS2EXE.
 - `fleet.exe`: The compiled Windows installer (generated in CI and included in release tarballs).
+- `fleet-uninstaller.ps1`: The uninstaller script (runs in PowerShell or when compiled to EXE).
+- `build-fleet-uninstaller-exe.ps1`: Builds `uninstall.exe` using PS2EXE.
+- `uninstall.exe`: The compiled Windows uninstaller.
 
 ## Build the EXE
 From this directory:
@@ -24,6 +27,23 @@ You can override both:
 ./build-fleet-installer-exe.ps1 -InputScript .\fleet-installer.ps1 -OutputExe .\fleet.exe
 ```
 
+## Build the Uninstaller EXE
+From this directory:
+
+```powershell
+./build-fleet-uninstaller-exe.ps1
+```
+
+Defaults:
+- Input script: `./fleet-uninstaller.ps1`
+- Output EXE: `./uninstall.exe`
+
+You can override both:
+
+```powershell
+./build-fleet-uninstaller-exe.ps1 -InputScript .\fleet-uninstaller.ps1 -OutputExe .\uninstall.exe
+```
+
 ## Run the installer
 You can run the script directly:
 
@@ -35,6 +55,19 @@ Or run the EXE:
 
 ```powershell
 ./fleet.exe
+```
+
+## Run the uninstaller
+You can run the script directly:
+
+```powershell
+./fleet-uninstaller.ps1
+```
+
+Or run the EXE (primary UX):
+
+```powershell
+./uninstall.exe
 ```
 
 ## Default behavior (double‑clicking the EXE)
@@ -50,7 +83,9 @@ If you build `fleet.exe` with no custom parameters and simply run it (double‑c
 - WSL/Docker: installs and configures if missing; may prompt to enable auto‑start at login
 
 ## Release packaging
-Release CI includes `fleet.exe` inside the deployment bundle at `deployment/install/fleet.exe`.
+Release CI includes Windows EXEs inside the deployment bundle:
+- `deployment/install/fleet.exe`
+- `deployment/install/uninstall.exe`
 
 ## How it finds the deployment
 The installer looks for an extracted Proto Fleet release (deployment root) by searching upward from:
