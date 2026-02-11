@@ -411,6 +411,372 @@ function Read-SecureInput {
     return $plainText
 }
 
+function Show-ChoiceDialog {
+    param(
+        [string]$Prompt,
+        [hashtable[]]$Options,
+        [string]$DefaultValue = ""
+    )
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Proto Fleet Installer"
+    $form.StartPosition = "CenterScreen"
+    $form.Width = 640
+    $form.Height = 360
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = $Prompt
+    $label.Left = 10
+    $label.Top = 10
+    $label.Width = 600
+    $label.Height = 30
+    $form.Controls.Add($label)
+
+    $details = New-Object System.Windows.Forms.TextBox
+    $details.Left = 10
+    $details.Top = 45
+    $details.Width = 600
+    $details.Height = 190
+    $details.Multiline = $true
+    $details.ReadOnly = $true
+    $details.ScrollBars = "Vertical"
+    $details.BackColor = [System.Drawing.SystemColors]::Window
+    $details.TabStop = $false
+    $details.Text = ($Options | ForEach-Object {
+        ("- {0}`r`n  {1}" -f $_.Label, $_.Description)
+    }) -join "`r`n`r`n"
+    $form.Controls.Add($details)
+
+    $buttonPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttonPanel.Left = 10
+    $buttonPanel.Top = 245
+    $buttonPanel.Width = 600
+    $buttonPanel.Height = 60
+    $buttonPanel.FlowDirection = "LeftToRight"
+    $buttonPanel.WrapContents = $true
+    $form.Controls.Add($buttonPanel)
+
+    $script:ChoiceDialogValue = ""
+    foreach ($opt in $Options) {
+        $btn = New-Object System.Windows.Forms.Button
+        $btn.Text = $opt.Label
+        $btn.Width = 180
+        $btn.Height = 32
+        $btn.Tag = $opt.Value
+        if ($opt.Value -eq $DefaultValue) {
+            $form.AcceptButton = $btn
+        }
+        $btn.Add_Click({
+            param($sender, $eventArgs)
+            $script:ChoiceDialogValue = $sender.Tag
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        })
+        $buttonPanel.Controls.Add($btn)
+    }
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Text = "Cancel"
+    $cancelButton.Width = 100
+    $cancelButton.Height = 32
+    $cancelButton.Add_Click({ $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel })
+    $buttonPanel.Controls.Add($cancelButton)
+
+    $form.CancelButton = $cancelButton
+
+    $result = $form.ShowDialog()
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK -and -not [string]::IsNullOrWhiteSpace($script:ChoiceDialogValue)) {
+        if ($env:PROTOFLEET_DEBUG -eq "1") {
+            Write-Host ("DEBUG: Choice dialog selected value: {0}" -f $script:ChoiceDialogValue)
+        }
+        return $script:ChoiceDialogValue
+    }
+    return ""
+}
+
+function Read-ChoicePrompt {
+    param(
+        [string]$Prompt,
+        [hashtable[]]$Options,
+        [string]$DefaultValue
+    )
+
+    if ($script:UseGuiPrompts) {
+        return (Show-ChoiceDialog -Prompt $Prompt -Options $Options -DefaultValue $DefaultValue)
+    }
+
+    Write-Host ""
+    Write-Host $Prompt
+    Write-Host ""
+    foreach ($opt in $Options) {
+        Write-Host ("- {0}" -f $opt.Label)
+        Write-Host ("  {0}" -f $opt.Description)
+        Write-Host ""
+    }
+
+    $accepted = @{}
+    foreach ($opt in $Options) {
+        $accepted[$opt.Value.ToLower()] = $opt.Value
+        $accepted[$opt.Label.ToLower()] = $opt.Value
+    }
+
+    $defaultLabel = ($Options | Where-Object { $_.Value -eq $DefaultValue } | Select-Object -First 1).Label
+    if ([string]::IsNullOrWhiteSpace($defaultLabel)) { $defaultLabel = $DefaultValue }
+
+    while ($true) {
+        $answer = Read-HostLine ("Type choice [{0}]" -f $defaultLabel)
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            return $DefaultValue
+        }
+        $key = $answer.Trim().ToLower()
+        if ($accepted.ContainsKey($key)) {
+            return $accepted[$key]
+        }
+        Write-WarningMsg "Invalid choice. Please type one of the option names shown above."
+    }
+}
+
+function Show-CertDialog {
+    param(
+        [string]$Prompt,
+        [string]$Details,
+        [bool]$ShowOpenFolder
+    )
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Proto Fleet Installer"
+    $form.StartPosition = "CenterScreen"
+    $form.Width = 680
+    $form.Height = 420
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = $Prompt
+    $label.Left = 10
+    $label.Top = 10
+    $label.Width = 640
+    $label.Height = 30
+    $form.Controls.Add($label)
+
+    $detailsBox = New-Object System.Windows.Forms.TextBox
+    $detailsBox.Left = 10
+    $detailsBox.Top = 45
+    $detailsBox.Width = 640
+    $detailsBox.Height = 250
+    $detailsBox.Multiline = $true
+    $detailsBox.ReadOnly = $true
+    $detailsBox.ScrollBars = "Vertical"
+    $detailsBox.BackColor = [System.Drawing.SystemColors]::Window
+    $detailsBox.TabStop = $false
+    $detailsBox.Text = $Details
+    $form.Controls.Add($detailsBox)
+
+    $buttonPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttonPanel.Left = 10
+    $buttonPanel.Top = 305
+    $buttonPanel.Width = 640
+    $buttonPanel.Height = 70
+    $buttonPanel.FlowDirection = "LeftToRight"
+    $buttonPanel.WrapContents = $true
+    $form.Controls.Add($buttonPanel)
+
+    $script:CertDialogAction = ""
+
+    $selectCert = New-Object System.Windows.Forms.Button
+    $selectCert.Text = "Select cert.pem"
+    $selectCert.Width = 140
+    $selectCert.Height = 32
+    $selectCert.Add_Click({
+        $script:CertDialogAction = "selectcert"
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Close()
+    })
+    $buttonPanel.Controls.Add($selectCert)
+
+    $selectKey = New-Object System.Windows.Forms.Button
+    $selectKey.Text = "Select key.pem"
+    $selectKey.Width = 140
+    $selectKey.Height = 32
+    $selectKey.Add_Click({
+        $script:CertDialogAction = "selectkey"
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Close()
+    })
+    $buttonPanel.Controls.Add($selectKey)
+
+    if ($ShowOpenFolder) {
+        $openFolder = New-Object System.Windows.Forms.Button
+        $openFolder.Text = "Open folder"
+        $openFolder.Width = 120
+        $openFolder.Height = 32
+        $openFolder.Add_Click({
+            $script:CertDialogAction = "openfolder"
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        })
+        $buttonPanel.Controls.Add($openFolder)
+    }
+
+    $checkNow = New-Object System.Windows.Forms.Button
+    $checkNow.Text = "Check now"
+    $checkNow.Width = 110
+    $checkNow.Height = 32
+    $checkNow.Add_Click({
+        $script:CertDialogAction = "check"
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Close()
+    })
+    $buttonPanel.Controls.Add($checkNow)
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Text = "Cancel"
+    $cancelButton.Width = 90
+    $cancelButton.Height = 32
+    $cancelButton.Add_Click({ $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel })
+    $buttonPanel.Controls.Add($cancelButton)
+
+    $form.CancelButton = $cancelButton
+
+    $result = $form.ShowDialog()
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $script:CertDialogAction
+    }
+    return "cancel"
+}
+
+function Handle-UserProvidedCerts {
+    param([string]$DeploymentPath)
+
+    $sslDir = "$DeploymentPath/ssl"
+    $sslCert = "$sslDir/cert.pem"
+    $sslKey = "$sslDir/key.pem"
+
+    Invoke-WslExec -Executable "/bin/mkdir" -Arguments @("-p", $sslDir) -Root | Out-Null
+
+    $windowsSslDir = ConvertFrom-WSLPath $sslDir
+    if ($windowsSslDir -notmatch '^[A-Za-z]:\\') {
+        $windowsSslDir = ""
+    }
+
+    $certStatus = "missing"
+    $keyStatus = "missing"
+
+    while ($true) {
+        $certExists = Test-WslPathExists -Path $sslCert -File -Root
+        $keyExists = Test-WslPathExists -Path $sslKey -File -Root
+        $certStatus = if ($certExists) { "present" } else { "missing" }
+        $keyStatus = if ($keyExists) { "present" } else { "missing" }
+
+        $detailsLines = @(
+            "Place the following files in the ssl/ directory:",
+            "- cert.pem (certificate, include full chain if provided)",
+            "- key.pem (private key)",
+            "",
+            "WSL path:",
+            $sslDir
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($windowsSslDir)) {
+            $detailsLines += ""
+            $detailsLines += "Windows path:"
+            $detailsLines += $windowsSslDir
+        }
+
+        $detailsLines += ""
+        $detailsLines += ("Status: cert.pem is {0}, key.pem is {1}" -f $certStatus, $keyStatus)
+        $detailsText = ($detailsLines -join "`r`n")
+
+        if ($script:UseGuiPrompts) {
+            $action = Show-CertDialog -Prompt "Provide your TLS certificates:" -Details $detailsText -ShowOpenFolder:([string]::IsNullOrWhiteSpace($windowsSslDir) -eq $false)
+            switch ($action) {
+                "selectcert" {
+                    $certFile = Show-OpenFileDialog -Title "Select cert.pem" -Filter "PEM files (*.pem)|*.pem|All files (*.*)|*.*"
+                    if (-not [string]::IsNullOrWhiteSpace($certFile)) {
+                        Copy-ToWSL -WindowsFilePath $certFile -WSLTempPath $sslCert
+                    }
+                }
+                "selectkey" {
+                    $keyFile = Show-OpenFileDialog -Title "Select key.pem" -Filter "PEM files (*.pem)|*.pem|All files (*.*)|*.*"
+                    if (-not [string]::IsNullOrWhiteSpace($keyFile)) {
+                        Copy-ToWSL -WindowsFilePath $keyFile -WSLTempPath $sslKey
+                    }
+                }
+                "openfolder" {
+                    if (-not [string]::IsNullOrWhiteSpace($windowsSslDir)) {
+                        try {
+                            Start-Process -FilePath "explorer.exe" -ArgumentList $windowsSslDir | Out-Null
+                        }
+                        catch {
+                            Write-WarningMsg "Failed to open folder: $($_.Exception.Message)"
+                        }
+                    }
+                }
+                "check" {
+                    $certExists = Test-WslPathExists -Path $sslCert -File -Root
+                    $keyExists = Test-WslPathExists -Path $sslKey -File -Root
+                    if ($certExists -and $keyExists) {
+                        Write-Success "TLS certificate files found."
+                        return $true
+                    }
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Missing cert.pem or key.pem in the ssl folder. Please place both files and try again.",
+                        "Proto Fleet Installer",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Warning
+                    ) | Out-Null
+                }
+                default {
+                    return $false
+                }
+            }
+        }
+        else {
+            Write-Block $detailsLines
+            Write-Host ""
+
+            $certPath = Read-HostLine "Enter path to cert.pem (leave blank if already placed)"
+            if (-not [string]::IsNullOrWhiteSpace($certPath)) {
+                if (-not (Test-Path -LiteralPath $certPath)) {
+                    Write-WarningMsg "File not found: $certPath"
+                }
+                else {
+                    Copy-ToWSL -WindowsFilePath $certPath -WSLTempPath $sslCert
+                }
+            }
+
+            $keyPath = Read-HostLine "Enter path to key.pem (leave blank if already placed)"
+            if (-not [string]::IsNullOrWhiteSpace($keyPath)) {
+                if (-not (Test-Path -LiteralPath $keyPath)) {
+                    Write-WarningMsg "File not found: $keyPath"
+                }
+                else {
+                    Copy-ToWSL -WindowsFilePath $keyPath -WSLTempPath $sslKey
+                }
+            }
+
+            $confirm = Read-YesNoPrompt "Check for cert.pem and key.pem now?" -DefaultYes:$true
+            if (-not $confirm) {
+                return $false
+            }
+
+            $certExists = Test-WslPathExists -Path $sslCert -File -Root
+            $keyExists = Test-WslPathExists -Path $sslKey -File -Root
+            if ($certExists -and $keyExists) {
+                Write-Success "TLS certificate files found."
+                return $true
+            }
+
+            Write-WarningMsg "Missing cert.pem or key.pem in ssl/."
+            Write-Host "Please place both files and try again."
+        }
+    }
+}
+
 # ============================================================================
 # Exit / Pause / Error
 # ============================================================================
@@ -691,39 +1057,109 @@ function Ensure-WslAutoStartTask {
         return
     }
 
-    Write-Host "Set up WSL + Docker to start at Windows login?"
-    $consent = Read-YesNoPrompt "Enable auto-start on login? (No = you'll start WSL manually after reboot)" -DefaultYes:$true
-    if (-not $consent) {
-        Write-Host "Auto-start not enabled."
-        return
+    $taskName = "ProtoFleet-StartWSL"
+    $distro = $script:WslDistro
+    $arguments = if ([string]::IsNullOrWhiteSpace($distro)) {
+        '-u root --exec /bin/sh -lc "systemctl start docker || service docker start"'
+    }
+    else {
+        ('-d ' + $distro + ' -u root --exec /bin/sh -lc "systemctl start docker || service docker start"')
+    }
+
+    $existingTask = $null
+    try {
+        $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    }
+    catch {
+        $existingTask = $null
+    }
+
+    if ($existingTask) {
+        $existingAction = $existingTask.Actions | Select-Object -First 1
+        $actionMatch = $false
+        if ($existingAction) {
+            $actionMatch = ($existingAction.Execute -ieq "wsl.exe" -and $existingAction.Arguments -eq $arguments)
+        }
+
+        $taskEnabled = $true
+        if ($existingTask.State -eq "Disabled") {
+            $taskEnabled = $false
+        }
+        elseif ($existingTask.Settings -and $existingTask.Settings.Enabled -eq $false) {
+            $taskEnabled = $false
+        }
+
+        if ($actionMatch -and $taskEnabled) {
+            Write-Success "Auto-start task already configured: $taskName"
+            return
+        }
+
+        Write-Host "Auto-start task exists but needs updates."
+        $update = Read-YesNoPrompt "Update/enable the auto-start task now?" -DefaultYes:$true
+        if (-not $update) {
+            Write-Host "Auto-start task left unchanged."
+            return
+        }
+    }
+    else {
+        Write-Host "Set up WSL + Docker to start at Windows login?"
+        $consent = Read-YesNoPrompt "Enable auto-start on login? (No = you'll start WSL manually after reboot)" -DefaultYes:$true
+        if (-not $consent) {
+            Write-Host "Auto-start not enabled."
+            return
+        }
     }
 
     Write-Host "Configuring WSL auto-start task..."
 
-    $taskName = "ProtoFleet-StartWSL"
-    $distro = $script:WslDistro
-    $arguments = if ([string]::IsNullOrWhiteSpace($distro)) {
-        '--exec /bin/sh -lc "systemctl start docker || service docker start"'
-    }
-    else {
-        ('-d ' + $distro + ' --exec /bin/sh -lc "systemctl start docker || service docker start"')
-    }
+    $manualCmd = ('schtasks /Create /F /TN "{0}" /SC ONLOGON /DELAY 0000:10 /RL LIMITED /RU "{1}" /TR "wsl.exe {2}"' -f $taskName, $env:USERNAME, $arguments)
 
     try {
         $action = New-ScheduledTaskAction -Execute "wsl.exe" -Argument $arguments
-        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -Delay "00:00:10"
         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
         $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal
 
         Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
         Write-Success "Created scheduled task: $taskName"
-        Write-Host "This will start WSL and Docker at login."
+        Write-Host "This will start WSL and Docker at login (10s delay)."
+
+        $verifyOk = $false
+        try {
+            $verifyTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($verifyTask) { $verifyOk = $true }
+        }
+        catch {
+            $verifyOk = $false
+        }
+
+        if (-not $verifyOk) {
+            Write-WarningMsg "Scheduled task was not found after creation. Auto-start may not work."
+            Write-Host "You can create it manually with:"
+            Write-Host $manualCmd
+            if ($script:UseGuiPrompts) {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "The auto-start task was not found after creation. Auto-start may not work.`n`nYou can create it manually using:`n$manualCmd",
+                    "Proto Fleet Installer",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                ) | Out-Null
+            }
+        }
     }
     catch {
         Write-WarningMsg "Failed to create scheduled task for WSL auto-start."
         Write-Host $_.Exception.Message
         Write-Host "You can create it manually with:"
-        Write-Host ('schtasks /Create /F /TN "{0}" /SC ONLOGON /RL LIMITED /RU "{1}" /TR "wsl.exe {2}"' -f $taskName, $env:USERNAME, $arguments)
+        Write-Host $manualCmd
+        if ($script:UseGuiPrompts) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Failed to create the auto-start task. Auto-start may not work.`n`nYou can create it manually using:`n$manualCmd",
+                "Proto Fleet Installer",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+        }
     }
 }
 
@@ -2302,28 +2738,17 @@ function New-EnvironmentFile {
     }
 
     Write-Host ""
-    $menuLines = @(
-        "Proto Fleet requires secure credentials for its backend services.",
-        "",
-        "How would you like to configure backend passwords?",
-        "1) Auto-generate secure passwords (recommended)",
-        "- System will create strong random passwords",
-        "- You do not need to remember these passwords",
-        "- Suitable for most installations",
-        "2) Set custom passwords",
-        "- You will specify each password manually",
-        "- Only needed for specific security policies"
+    $credentialOptions = @(
+        @{ Value = "auto"; Label = "Auto-generate (Recommended)"; Description = "Creates strong random passwords and keys. Most users should choose this." },
+        @{ Value = "custom"; Label = "Custom credentials"; Description = "You enter each password and key manually." }
     )
-    Write-Block $menuLines
 
     if ($script:SimpleSetup -or $Force -or $Silent) {
-        $choice = "1"
+        $choice = "auto"
     }
     else {
-        $choice = Read-HostLine "Select option [1]"
-        if ([string]::IsNullOrWhiteSpace($choice)) {
-            $choice = "1"
-        }
+        $choice = Read-ChoicePrompt -Prompt "How would you like to configure backend credentials?" -Options $credentialOptions -DefaultValue "auto"
+        if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "auto" }
     }
 
     $touchResult = Invoke-WslExec -Executable "/usr/bin/touch" -Arguments @("--", $envFile) -Root
@@ -2333,7 +2758,7 @@ function New-EnvironmentFile {
         Invoke-Exit 1
     }
 
-    if ($choice -eq "2") {
+    if ($choice -eq "custom") {
         if ($Silent) {
             Write-ErrorMsg "Custom password entry is not available in Silent mode."
             Invoke-Exit 1
@@ -2486,51 +2911,51 @@ function Set-SSLConfiguration {
         $protocolMode = "https"
     }
     else {
-        $sslMenu = @(
-            "No SSL certificates found.",
-            "",
-            "Options:",
-            "1) HTTP only (no encryption) - simplest for isolated LANs",
-            "2) HTTPS with self-signed certificate - browsers will show warnings",
-            "3) HTTPS with your own certificates - place cert.pem and key.pem in ssl/ dir"
+        $sslOptions = @(
+            @{ Value = "http"; Label = "HTTP only (Recommended for internal LAN)"; Description = "No encryption. Simplest for private networks." },
+            @{ Value = "selfsigned"; Label = "HTTPS with self-signed certificate"; Description = "Generates a certificate automatically. Browsers will show a warning." },
+            @{ Value = "owncerts"; Label = "HTTPS with your own certificates"; Description = "Provide cert.pem and key.pem. The installer will help you place and verify them." }
         )
-        Write-Block $sslMenu
 
-        if ($Force -or $Silent) {
-            $sslChoice = "1"
-        }
-        else {
-            $sslChoice = Read-HostLine "Select option [1]"
-            if ([string]::IsNullOrWhiteSpace($sslChoice)) {
-                $sslChoice = "1"
+        $protocolMode = $null
+        while (-not $protocolMode) {
+            if ($Force -or $Silent) {
+                $sslChoice = "http"
             }
-        }
+            else {
+                $sslChoice = Read-ChoicePrompt -Prompt "No SSL certificates found. Choose how to configure HTTPS:" -Options $sslOptions -DefaultValue "http"
+                if ([string]::IsNullOrWhiteSpace($sslChoice)) { $sslChoice = "http" }
+            }
 
-        switch ($sslChoice) {
-            "2" {
-                if (New-SelfSignedCertificate -DeploymentPath $DeploymentPath) {
-                    $protocolMode = "https"
+            switch ($sslChoice) {
+                "selfsigned" {
+                    if (New-SelfSignedCertificate -DeploymentPath $DeploymentPath) {
+                        $protocolMode = "https"
+                    }
+                    else {
+                        Write-WarningMsg "Falling back to HTTP mode"
+                        $protocolMode = "http"
+                    }
                 }
-                else {
-                    Write-WarningMsg "Falling back to HTTP mode"
+                "owncerts" {
+                    $ok = Handle-UserProvidedCerts -DeploymentPath $DeploymentPath
+                    if ($ok) {
+                        $protocolMode = "https"
+                    }
+                    else {
+                        if ($Silent) {
+                            Write-ErrorMsg "TLS certificates not provided in Silent mode."
+                            Invoke-Exit 1
+                        }
+                        Write-WarningMsg "TLS certificates were not provided. Choose another option."
+                    }
+                }
+                default {
+                    Write-Block @(
+                        "Using HTTP mode (no encryption)."
+                    )
                     $protocolMode = "http"
                 }
-            }
-            "3" {
-                Write-Block @(
-                    "Please place your SSL certificates in the ssl/ directory:",
-                    "- cert.pem (certificate)",
-                    "- key.pem (private key)",
-                    "",
-                    "Then run this installer again."
-                )
-                Invoke-Exit 0
-            }
-            default {
-                Write-Block @(
-                    "Using HTTP mode (no encryption)."
-                )
-                $protocolMode = "http"
             }
         }
     }
@@ -2592,6 +3017,53 @@ function Write-DockerDnsGuidance {
         Write-WarningMsg "Detected a DNS resolver issue inside WSL (127.0.0.53)."
         Write-Host "We will apply a WSL DNS fix (static resolv.conf) and restart WSL before retrying."
     }
+}
+
+function Ensure-DockerDnsOverride {
+    Write-Host "Applying Docker daemon DNS override..."
+    $scriptText = @'
+set -e
+mkdir -p /etc/docker
+conf=/etc/docker/daemon.json
+dns='{"dns":["1.1.1.1","8.8.8.8"]}'
+
+if [ -f "$conf" ]; then
+  if grep -q '"dns"' "$conf"; then
+    echo "dns-present"
+    exit 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import json
+path = "/etc/docker/daemon.json"
+with open(path, "r") as f:
+    data = json.load(f)
+data["dns"] = ["1.1.1.1", "8.8.8.8"]
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+print("dns-added")
+PY
+    exit 0
+  fi
+  echo "dns-skip-existing"
+  exit 0
+fi
+
+echo "$dns" > "$conf"
+echo "dns-written"
+'@
+
+    $result = Invoke-WslRootCapture $scriptText
+    if ($result -match "dns-skip-existing") {
+        Write-WarningMsg "Existing /etc/docker/daemon.json found, but python3 is unavailable. Skipping DNS override."
+        return $false
+    }
+    if ($result -match "dns-present") {
+        Write-Host "Docker daemon already has DNS configured."
+        return $true
+    }
+    Write-Host "Docker DNS override applied."
+    return $true
 }
 
 function Ensure-WslDnsFix {
@@ -2984,6 +3456,23 @@ Continue?
 
 if ($Silent) {
     $Force = $true
+    $script:SimpleSetup = $true
+}
+elseif ($Guided) {
+    $script:SimpleSetup = $false
+}
+else {
+    $setupOptions = @(
+        @{ Value = "simple"; Label = "Simple (Recommended)"; Description = "Automatic configuration. Generates secure passwords and uses HTTP. Best for quick installs." },
+        @{ Value = "guided"; Label = "Guided (Advanced)"; Description = "Step-by-step configuration including SSL options and custom credentials." }
+    )
+    $choice = Read-ChoicePrompt -Prompt "Choose setup type:" -Options $setupOptions -DefaultValue "simple"
+    if ($choice -eq "guided") {
+        $script:SimpleSetup = $false
+    }
+    else {
+        $script:SimpleSetup = $true
+    }
 }
 
 # WSL/Docker Setup
@@ -3079,13 +3568,7 @@ else {
     }
 }
 
-$script:SimpleSetup = $true
-if ($Guided) {
-    Write-Host ""
-    Write-Host "Use simple setup (auto-generate passwords + HTTP)?"
-    $simpleChoice = Read-YesNoPrompt "Continue with simple setup?" -DefaultYes:$true
-    if (-not $simpleChoice) { $script:SimpleSetup = $false }
-}
+# $script:SimpleSetup set from setup selection above
 
 $skipExtraction = $false
 
@@ -3255,18 +3738,77 @@ Show-Status -DeploymentPath $deploymentPath -ProtocolMode $protocolMode
 Write-Success "Full installation complete."
 Write-Host "Ensuring WSL and Docker are running..."
 if ([string]::IsNullOrWhiteSpace($script:WslDistro)) {
-    $pokeArgs = '--exec /bin/sh -lc "systemctl start docker || service docker start"'
+    $pokeArgs = '-u root --exec /bin/sh -lc "systemctl start docker || service docker start"'
+    $checkArgs = '-u root --exec /bin/sh -lc "test -S /var/run/docker.sock && (pgrep dockerd >/dev/null 2>&1 || pidof dockerd >/dev/null 2>&1) && (systemctl is-active docker >/dev/null 2>&1 || service docker status >/dev/null 2>&1)"'
+    $journalArgs = '-u root --exec /bin/sh -lc "journalctl -u docker --no-pager -n 120 2>/dev/null || true"'
 }
 else {
-    $pokeArgs = ('-d {0} --exec /bin/sh -lc "systemctl start docker || service docker start"' -f $script:WslDistro)
+    $pokeArgs = ('-d {0} -u root --exec /bin/sh -lc "systemctl start docker || service docker start"' -f $script:WslDistro)
+    $checkArgs = ('-d {0} -u root --exec /bin/sh -lc "test -S /var/run/docker.sock && (pgrep dockerd >/dev/null 2>&1 || pidof dockerd >/dev/null 2>&1) && (systemctl is-active docker >/dev/null 2>&1 || service docker status >/dev/null 2>&1)"' -f $script:WslDistro)
+    $journalArgs = ('-d {0} -u root --exec /bin/sh -lc "journalctl -u docker --no-pager -n 120 2>/dev/null || true"' -f $script:WslDistro)
 }
-$pokeResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $pokeArgs -TimeoutSeconds 30
-if ($pokeResult.ExitCode -eq 0) {
-    Write-Success "WSL is running."
+$attempts = 0
+$maxAttempts = 2
+$dockerOk = $false
+$dnsFixApplied = $false
+
+function Test-DockerStable {
+    param([string]$Args)
+    $checkResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $Args -TimeoutSeconds 20
+    if ($checkResult.ExitCode -ne 0) { return $false }
+    Start-Sleep -Seconds 10
+    $checkResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $Args -TimeoutSeconds 20
+    return ($checkResult.ExitCode -eq 0)
+}
+
+while (-not $dockerOk -and $attempts -lt $maxAttempts) {
+    $attempts++
+    $pokeResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $pokeArgs -TimeoutSeconds 30
+    if ($pokeResult.ExitCode -ne 0 -and $pokeResult.Output) {
+        Write-Host $pokeResult.Output
+    }
+
+    Start-Sleep -Seconds 5
+    if (Test-DockerStable -Args $checkArgs) {
+        $dockerOk = $true
+        break
+    }
+
+    $journal = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $journalArgs -TimeoutSeconds 20
+    $journalText = $journal.Output
+    $dnsError = $false
+    if ($journalText -match 'server misbehaving' -or $journalText -match 'lookup .* on 127\.0\.0\.53' -or $journalText -match 'failed to do request: Head "https://registry-1.docker.io') {
+        $dnsError = $true
+    }
+
+    if ($dnsError -and -not $dnsFixApplied) {
+        Write-WarningMsg "Docker appears to be failing due to DNS resolution in WSL."
+        Write-Host "Applying a Docker-specific DNS override and retrying once..."
+        $dnsFixApplied = $true
+        $applied = Ensure-DockerDnsOverride
+        if ($applied) {
+            Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $pokeArgs -TimeoutSeconds 30 | Out-Null
+            if (Test-DockerStable -Args $checkArgs) {
+                $dockerOk = $true
+                break
+            }
+        }
+    }
+}
+
+if ($dockerOk) {
+    Write-Success "WSL and Docker are running."
 }
 else {
-    Write-WarningMsg "WSL did not confirm as running."
-    if ($pokeResult.Output) { Write-Host $pokeResult.Output }
+    Write-WarningMsg "Docker did not remain running after startup attempts."
+    $journal = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $journalArgs -TimeoutSeconds 20
+    if ($journal.Output) {
+        Write-Host "Recent Docker service logs:"
+        Write-Host $journal.Output
+    }
+    Write-Host "WSL stops when no Linux processes remain."
+    Write-Host "If needed, open PowerShell and run: wsl"
+    Write-Host "Then run inside WSL: sudo systemctl start docker (or: sudo service docker start)"
 }
 Invoke-Exit 0
 
