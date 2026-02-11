@@ -83,6 +83,26 @@ describe("Pool selection page", () => {
     expect(getByText(`Assign to ${numberOfMiners} miners`)).toBeInTheDocument();
   });
 
+  test("uses numberOfMiners override when provided (Select All scenario)", () => {
+    // Simulates the "Select All" scenario where:
+    // - deviceIdentifiers contains only 50 visible miners from pagination
+    // - numberOfMiners is the actual total count (e.g., 297)
+    const visibleDeviceIdentifiers = Array.from({ length: 50 }, (_, i) => `device-${i}`);
+    const totalMinerCount = 297;
+
+    const { getByText } = render(
+      <PoolSelectionPage
+        deviceIdentifiers={visibleDeviceIdentifiers}
+        numberOfMiners={totalMinerCount}
+        onAssignPools={onAssignPools}
+        onDismiss={onCancel}
+      />,
+    );
+
+    // Should show the override count (297), not the deviceIdentifiers length (50)
+    expect(getByText(`Assign to ${totalMinerCount} miners`)).toBeInTheDocument();
+  });
+
   test("disables assign button when no pools are configured", async () => {
     const { getByText } = render(
       <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,

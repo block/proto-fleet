@@ -82,6 +82,7 @@ const MinerActionsMenu = ({
         <PoolSelectionPageWrapper
           selectedMiners={selectedMinersWithStatus}
           selectionMode={selectionMode}
+          poolNeededCount={totalCount}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
