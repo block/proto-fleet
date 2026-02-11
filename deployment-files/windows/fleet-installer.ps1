@@ -3019,53 +3019,6 @@ function Write-DockerDnsGuidance {
     }
 }
 
-function Ensure-DockerDnsOverride {
-    Write-Host "Applying Docker daemon DNS override..."
-    $scriptText = @'
-set -e
-mkdir -p /etc/docker
-conf=/etc/docker/daemon.json
-dns='{"dns":["1.1.1.1","8.8.8.8"]}'
-
-if [ -f "$conf" ]; then
-  if grep -q '"dns"' "$conf"; then
-    echo "dns-present"
-    exit 0
-  fi
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - <<'PY'
-import json
-path = "/etc/docker/daemon.json"
-with open(path, "r") as f:
-    data = json.load(f)
-data["dns"] = ["1.1.1.1", "8.8.8.8"]
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-print("dns-added")
-PY
-    exit 0
-  fi
-  echo "dns-skip-existing"
-  exit 0
-fi
-
-echo "$dns" > "$conf"
-echo "dns-written"
-'@
-
-    $result = Invoke-WslRootCapture $scriptText
-    if ($result -match "dns-skip-existing") {
-        Write-WarningMsg "Existing /etc/docker/daemon.json found, but python3 is unavailable. Skipping DNS override."
-        return $false
-    }
-    if ($result -match "dns-present") {
-        Write-Host "Docker daemon already has DNS configured."
-        return $true
-    }
-    Write-Host "Docker DNS override applied."
-    return $true
-}
-
 function Ensure-WslDnsFix {
     Write-Host "Applying WSL DNS fix..."
     Invoke-WslRootCapture @"
@@ -3736,80 +3689,7 @@ Wait-ForHealthyServices -DeploymentPath $deploymentPath | Out-Null
 Show-Status -DeploymentPath $deploymentPath -ProtocolMode $protocolMode
 
 Write-Success "Full installation complete."
-Write-Host "Ensuring WSL and Docker are running..."
-if ([string]::IsNullOrWhiteSpace($script:WslDistro)) {
-    $pokeArgs = '-u root --exec /bin/sh -lc "systemctl start docker || service docker start"'
-    $checkArgs = '-u root --exec /bin/sh -lc "test -S /var/run/docker.sock && (pgrep dockerd >/dev/null 2>&1 || pidof dockerd >/dev/null 2>&1) && (systemctl is-active docker >/dev/null 2>&1 || service docker status >/dev/null 2>&1)"'
-    $journalArgs = '-u root --exec /bin/sh -lc "journalctl -u docker --no-pager -n 120 2>/dev/null || true"'
-}
-else {
-    $pokeArgs = ('-d {0} -u root --exec /bin/sh -lc "systemctl start docker || service docker start"' -f $script:WslDistro)
-    $checkArgs = ('-d {0} -u root --exec /bin/sh -lc "test -S /var/run/docker.sock && (pgrep dockerd >/dev/null 2>&1 || pidof dockerd >/dev/null 2>&1) && (systemctl is-active docker >/dev/null 2>&1 || service docker status >/dev/null 2>&1)"' -f $script:WslDistro)
-    $journalArgs = ('-d {0} -u root --exec /bin/sh -lc "journalctl -u docker --no-pager -n 120 2>/dev/null || true"' -f $script:WslDistro)
-}
-$attempts = 0
-$maxAttempts = 2
-$dockerOk = $false
-$dnsFixApplied = $false
-
-function Test-DockerStable {
-    param([string]$Args)
-    $checkResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $Args -TimeoutSeconds 20
-    if ($checkResult.ExitCode -ne 0) { return $false }
-    Start-Sleep -Seconds 10
-    $checkResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $Args -TimeoutSeconds 20
-    return ($checkResult.ExitCode -eq 0)
-}
-
-while (-not $dockerOk -and $attempts -lt $maxAttempts) {
-    $attempts++
-    $pokeResult = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $pokeArgs -TimeoutSeconds 30
-    if ($pokeResult.ExitCode -ne 0 -and $pokeResult.Output) {
-        Write-Host $pokeResult.Output
-    }
-
-    Start-Sleep -Seconds 5
-    if (Test-DockerStable -Args $checkArgs) {
-        $dockerOk = $true
-        break
-    }
-
-    $journal = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $journalArgs -TimeoutSeconds 20
-    $journalText = $journal.Output
-    $dnsError = $false
-    if ($journalText -match 'server misbehaving' -or $journalText -match 'lookup .* on 127\.0\.0\.53' -or $journalText -match 'failed to do request: Head "https://registry-1.docker.io') {
-        $dnsError = $true
-    }
-
-    if ($dnsError -and -not $dnsFixApplied) {
-        Write-WarningMsg "Docker appears to be failing due to DNS resolution in WSL."
-        Write-Host "Applying a Docker-specific DNS override and retrying once..."
-        $dnsFixApplied = $true
-        $applied = Ensure-DockerDnsOverride
-        if ($applied) {
-            Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $pokeArgs -TimeoutSeconds 30 | Out-Null
-            if (Test-DockerStable -Args $checkArgs) {
-                $dockerOk = $true
-                break
-            }
-        }
-    }
-}
-
-if ($dockerOk) {
-    Write-Success "WSL and Docker are running."
-}
-else {
-    Write-WarningMsg "Docker did not remain running after startup attempts."
-    $journal = Invoke-ProcessCapture -FileName "wsl.exe" -Arguments $journalArgs -TimeoutSeconds 20
-    if ($journal.Output) {
-        Write-Host "Recent Docker service logs:"
-        Write-Host $journal.Output
-    }
-    Write-Host "WSL stops when no Linux processes remain."
-    Write-Host "If needed, open PowerShell and run: wsl"
-    Write-Host "Then run inside WSL: sudo systemctl start docker (or: sudo service docker start)"
-}
+Write-WarningMsg "If you cannot reach Fleet yet, open PowerShell and run: wsl"
 Invoke-Exit 0
 
 
