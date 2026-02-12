@@ -1002,6 +1002,182 @@ describe("List", () => {
     });
   });
 
+  describe("sorting", () => {
+    it("calls onSort with DESC direction when clicking unsorted column", () => {
+      // Arrange
+      const onSort = vi.fn();
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          onSort={onSort}
+        />,
+      );
+
+      const headerButtons = getByTestId("list-header").querySelectorAll("button");
+      fireEvent.click(headerButtons[0]); // Click "name" column
+
+      // Assert
+      expect(onSort).toHaveBeenCalledWith("name", "desc");
+    });
+
+    it("toggles direction from DESC to ASC when clicking currently sorted column", () => {
+      // Arrange
+      const onSort = vi.fn();
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+      const currentSort = { field: "name" as keyof TestItem, direction: "desc" as const };
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          currentSort={currentSort}
+          onSort={onSort}
+        />,
+      );
+
+      const headerButtons = getByTestId("list-header").querySelectorAll("button");
+      fireEvent.click(headerButtons[0]); // Click "name" column (currently sorted DESC)
+
+      // Assert
+      expect(onSort).toHaveBeenCalledWith("name", "asc");
+    });
+
+    it("toggles direction from ASC to DESC when clicking currently sorted column", () => {
+      // Arrange
+      const onSort = vi.fn();
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+      const currentSort = { field: "name" as keyof TestItem, direction: "asc" as const };
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          currentSort={currentSort}
+          onSort={onSort}
+        />,
+      );
+
+      const headerButtons = getByTestId("list-header").querySelectorAll("button");
+      fireEvent.click(headerButtons[0]); // Click "name" column (currently sorted ASC)
+
+      // Assert
+      expect(onSort).toHaveBeenCalledWith("name", "desc");
+    });
+
+    it("sets aria-sort to ascending when column is sorted ASC", () => {
+      // Arrange
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+      const currentSort = { field: "name" as keyof TestItem, direction: "asc" as const };
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          currentSort={currentSort}
+        />,
+      );
+
+      const headerCells = getByTestId("list-header").querySelectorAll("th");
+
+      // Assert
+      expect(headerCells[0]).toHaveAttribute("aria-sort", "ascending");
+    });
+
+    it("sets aria-sort to descending when column is sorted DESC", () => {
+      // Arrange
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+      const currentSort = { field: "name" as keyof TestItem, direction: "desc" as const };
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          currentSort={currentSort}
+        />,
+      );
+
+      const headerCells = getByTestId("list-header").querySelectorAll("th");
+
+      // Assert
+      expect(headerCells[0]).toHaveAttribute("aria-sort", "descending");
+    });
+
+    it("does not set aria-sort on unsorted columns", () => {
+      // Arrange
+      const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
+      const currentSort = { field: "name" as keyof TestItem, direction: "asc" as const };
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+          currentSort={currentSort}
+        />,
+      );
+
+      const headerCells = getByTestId("list-header").querySelectorAll("th");
+
+      // Assert - "status" column (index 1) is not sorted
+      expect(headerCells[1]).not.toHaveAttribute("aria-sort");
+    });
+
+    it("renders buttons only for sortable columns", () => {
+      // Arrange
+      const sortableColumns = new Set<keyof TestItem>(["name"]); // Only name is sortable
+
+      // Act
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          sortableColumns={sortableColumns}
+        />,
+      );
+
+      const headerButtons = getByTestId("list-header").querySelectorAll("button");
+
+      // Assert - only 1 button for the sortable "name" column
+      expect(headerButtons).toHaveLength(1);
+      expect(headerButtons[0]).toHaveTextContent(testColTitles.name);
+    });
+  });
+
   describe("client-side filtering with Select All", () => {
     // Filter function that reduces items based on status
     const filterByActiveStatus = (item: TestItem) => item.status === "active";

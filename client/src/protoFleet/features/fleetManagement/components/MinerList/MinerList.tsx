@@ -12,6 +12,7 @@ import {
   minerTypes,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
+import { SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
@@ -33,6 +34,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import type { SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -73,6 +75,16 @@ type MinerListProps = {
    * Whether the list is currently loading more items.
    */
   isLoadingMore?: boolean;
+  /**
+   * Current sort configuration from URL/store.
+   * Passed down from parent to enable controlled sorting.
+   */
+  currentSort?: { field: MinerColumn; direction: SortDirection };
+  /**
+   * Callback when user clicks a sortable column header.
+   * Parent handles URL update and API request.
+   */
+  onSort?: (field: MinerColumn, direction: SortDirection) => void;
 };
 
 // TODO: move this to state when we
@@ -104,6 +116,8 @@ const MinerList = ({
   onLoadMore,
   hasMore = false,
   isLoadingMore = false,
+  currentSort,
+  onSort,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -125,8 +139,8 @@ const MinerList = ({
   );
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
+  const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  // Determine if any filters are currently active from URL params
   const hasActiveFilters = useMemo(() => {
     return searchParams.has("status") || searchParams.has("issues") || searchParams.has("type");
   }, [searchParams]);
@@ -317,6 +331,9 @@ const MinerList = ({
           isLoadingMore={isLoadingMore}
           isRowDisabled={isRowDisabled}
           columnsExemptFromDisabledStyling={new Set([minerCols.status, minerCols.issues])}
+          sortableColumns={sortableColumnsSet}
+          currentSort={currentSort}
+          onSort={onSort}
         />
       )}
     </>

@@ -1,5 +1,7 @@
 import { ReactNode } from "react";
 
+export type SortDirection = "asc" | "desc";
+
 export type ColConfig<ListItem, ItemKey, ColKey extends string = keyof ListItem & string> = {
   [K in ColKey]?: {
     component?: (item: ListItem, selectedItems: ItemKey[]) => ReactNode;

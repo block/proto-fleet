@@ -438,10 +438,14 @@ EOF
 - Example: Instead of `#nosec G115` on int conversions, add range validation
 - If suppression is necessary, include a detailed comment explaining why
 
-**Avoid Obvious Comments**
-- Comments should explain **why**, not **what**
-- If the code is self-explanatory, don't add a comment
-- Remove comments that just restate what the code does
+**Comments: Less Is More**
+
+Prioritize self-documenting code. The best code is clear enough that it requires few comments. Use descriptive variable, function, and class names, and break down complex logic into smaller, focused methods to express intent directly in the code.
+
+- **Explain why, not what**: Comments should provide context that the code itself cannot. Explain the rationale behind a specific approach, a complex business rule, or a workaround for a non-obvious edge case.
+- **Avoid redundancy**: Do not restate in comments what is already obvious from the code.
+- **Be clear and brief**: If a comment is extensive, it often indicates that the underlying code is too complex and needs refactoring. Use concise and precise language.
+- **Use sparingly**: Comments are an "apology" for a failure to express intent in code. Use them as a last resort.
 
 *Examples of obvious comments to avoid:*
 ```go

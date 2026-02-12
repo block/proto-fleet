@@ -6,9 +6,10 @@ import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
-import { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
+import { ColConfig, ColTitles, ListAction, SortDirection } from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import SortIndicator from "@/shared/components/SortIndicator";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
@@ -103,6 +104,20 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * These columns will maintain full opacity even when the row is disabled.
    */
   columnsExemptFromDisabledStyling?: Set<ColKey>;
+  /**
+   * Set of column keys that support sorting.
+   * When provided, these columns will have clickable headers with sort indicators.
+   */
+  sortableColumns?: Set<ColKey>;
+  /**
+   * Current sort state. When provided, shows sort indicator on the sorted column.
+   */
+  currentSort?: { field: ColKey; direction: SortDirection };
+  /**
+   * Callback fired when a sortable column header is clicked.
+   * The direction passed is the NEW direction to sort by.
+   */
+  onSort?: (field: ColKey, direction: SortDirection) => void;
 };
 
 const cellClassList = "text-left";
@@ -153,6 +168,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   isLoadingMore = false,
   isRowDisabled,
   columnsExemptFromDisabledStyling,
+  sortableColumns,
+  currentSort,
+  onSort,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -161,6 +179,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const [hoveredHeader, setHoveredHeader] = useState<ColKey | null>(null);
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
   const prevCustomSelectedLengthRef = useRef<number | undefined>(undefined);
 
@@ -483,21 +502,59 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       </th>
                     )}
 
-                    {activeCols.map((row, idx) => (
-                      <th
-                        className={clsx(
-                          "pl-2",
-                          thClassList,
-                          idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                          idx === 0 && columnShadowBaseClassList,
-                          idx === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
-                        )}
-                        key={idx}
-                        style={paddingCssVariables}
-                      >
-                        <div className={clsx("truncate overflow-hidden", colConfig[row]?.width)}>{colTitles[row]}</div>
-                      </th>
-                    ))}
+                    {activeCols.map((row, idx) => {
+                      const isSortable = sortableColumns?.has(row);
+                      const isCurrentSort = currentSort?.field === row;
+                      const sortDirection = isCurrentSort ? currentSort.direction : undefined;
+                      const isHovering = hoveredHeader === row;
+
+                      const handleHeaderClick = () => {
+                        if (!isSortable || !onSort) return;
+
+                        const newDirection: SortDirection = !isCurrentSort || sortDirection === "asc" ? "desc" : "asc";
+                        onSort(row, newDirection);
+                      };
+
+                      return (
+                        <th
+                          className={clsx(
+                            "pl-2",
+                            thClassList,
+                            idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                            idx === 0 && columnShadowBaseClassList,
+                            idx === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                          )}
+                          key={idx}
+                          style={paddingCssVariables}
+                          aria-sort={isCurrentSort ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
+                        >
+                          {isSortable ? (
+                            <button
+                              type="button"
+                              className={clsx(
+                                "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
+                                colConfig[row]?.width,
+                              )}
+                              onClick={handleHeaderClick}
+                              onMouseEnter={() => setHoveredHeader(row)}
+                              onMouseLeave={() => setHoveredHeader(null)}
+                            >
+                              {colTitles[row]}
+                              <SortIndicator direction={sortDirection} isHovering={isHovering} />
+                            </button>
+                          ) : (
+                            <div
+                              className={clsx(
+                                "inline-flex items-center truncate overflow-hidden",
+                                colConfig[row]?.width,
+                              )}
+                            >
+                              {colTitles[row]}
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
                     {actions.length > 0 && (
                       <th className={thClassList}>
                         <div className="w-11 truncate overflow-hidden" />

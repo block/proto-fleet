@@ -1,6 +1,8 @@
 import Alert from "./Alert";
+import ArrowDown from "./ArrowDown";
 import ArrowLeftCompact from "./ArrowLeftCompact";
 import ArrowRight from "./ArrowRight";
+import ArrowUp from "./ArrowUp";
 import Asic from "./Asic";
 import BankAccount from "./BankAccount";
 import Bitcoin from "./Bitcoin";
@@ -76,8 +78,10 @@ import Unpair from "./Unpair";
 
 export {
   Alert,
+  ArrowDown,
   ArrowLeftCompact,
   ArrowRight,
+  ArrowUp,
   Asic,
   BankAccount,
   Bitcoin,
