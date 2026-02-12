@@ -51,5 +51,5 @@ export const componentIssues = {
   psu: "psu",
 };
 
-/** Placeholder text displayed for metrics when miner is inactive (offline/sleeping) */
+/** Placeholder text displayed when a miner list value is unavailable */
 export const INACTIVE_PLACEHOLDER = "—";

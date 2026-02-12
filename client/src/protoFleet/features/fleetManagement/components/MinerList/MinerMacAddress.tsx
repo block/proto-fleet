@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { useMinerMacAddress } from "@/protoFleet/store";
 
 type MinerMacAddressProps = {
@@ -6,7 +7,7 @@ type MinerMacAddressProps = {
 
 const MinerMacAddress = ({ deviceIdentifier }: MinerMacAddressProps) => {
   const macAddress = useMinerMacAddress(deviceIdentifier);
-  return <span>{macAddress || "-"}</span>;
+  return <span>{macAddress || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerMacAddress;

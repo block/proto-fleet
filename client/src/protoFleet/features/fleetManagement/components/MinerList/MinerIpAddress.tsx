@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { useMinerIpAddress } from "@/protoFleet/store";
 
 type MinerIpAddressProps = {
@@ -6,7 +7,7 @@ type MinerIpAddressProps = {
 
 const MinerIpAddress = ({ deviceIdentifier }: MinerIpAddressProps) => {
   const ipAddress = useMinerIpAddress(deviceIdentifier);
-  return <span>{ipAddress || "-"}</span>;
+  return <span>{ipAddress || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerIpAddress;

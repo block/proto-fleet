@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { useMinerModel } from "@/protoFleet/store";
 
 type MinerTypeProps = {
@@ -6,7 +7,7 @@ type MinerTypeProps = {
 
 const MinerType = ({ deviceIdentifier }: MinerTypeProps) => {
   const model = useMinerModel(deviceIdentifier);
-  return <span>{model || "—"}</span>;
+  return <span>{model || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerType;

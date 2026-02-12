@@ -1,3 +1,4 @@
+import { INACTIVE_PLACEHOLDER } from "./constants";
 import { useMinerFirmwareVersion } from "@/protoFleet/store";
 
 type MinerFirmwareProps = {
@@ -6,7 +7,7 @@ type MinerFirmwareProps = {
 
 const MinerFirmware = ({ deviceIdentifier }: MinerFirmwareProps) => {
   const firmwareVersion = useMinerFirmwareVersion(deviceIdentifier);
-  return <span>{firmwareVersion || "—"}</span>;
+  return <span>{firmwareVersion || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerFirmware;
