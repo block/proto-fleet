@@ -28,6 +28,8 @@ import {
   StreamCommandBatchUpdatesResponse,
   UnpairRequest,
   UnpairResponse,
+  UpdateMinerPasswordRequestSchema,
+  UpdateMinerPasswordResponse,
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -104,6 +106,16 @@ interface CheckCommandCapabilitiesProps {
   deviceSelector: DeviceSelector;
   commandType: CommandType;
   onSuccess: (value: CheckCommandCapabilitiesResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface UpdateMinerPasswordProps {
+  deviceSelector: DeviceSelector;
+  newPassword: string;
+  currentPassword: string;
+  userUsername: string;
+  userPassword: string;
+  onSuccess: (value: UpdateMinerPasswordResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -332,6 +344,39 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const updateMinerPassword = useCallback(
+    async ({
+      deviceSelector,
+      newPassword,
+      currentPassword,
+      userUsername,
+      userPassword,
+      onSuccess,
+      onError,
+    }: UpdateMinerPasswordProps) => {
+      const request = create(UpdateMinerPasswordRequestSchema, {
+        deviceSelector,
+        newPassword,
+        currentPassword,
+        userUsername,
+        userPassword,
+      });
+
+      await minerCommandClient
+        .updateMinerPassword(request)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   return useMemo(
     () => ({
       blinkLED,
@@ -344,6 +389,7 @@ const useMinerCommand = () => {
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,
+      updateMinerPassword,
     }),
     [
       blinkLED,
@@ -356,6 +402,7 @@ const useMinerCommand = () => {
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,
+      updateMinerPassword,
     ],
   );
 };

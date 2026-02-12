@@ -27,6 +27,7 @@ import {
   StreamCommandBatchUpdatesRequestSchema,
   UnpairRequestSchema,
   UnpairResponse,
+  UpdateMinerPasswordResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
@@ -36,6 +37,7 @@ import {
   BulkAction,
   type UnsupportedMinersInfo,
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
+import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
@@ -49,7 +51,7 @@ import {
   // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
   LEDIndicator,
-  // Lock, // TODO: Uncomment when Security is implemented
+  Lock,
   MiningPools,
   Play,
   Power,
@@ -90,6 +92,7 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.downloadLogs]: { description: "Log downloads", commandType: CommandType.DOWNLOAD_LOGS },
   [settingsActions.miningPool]: { description: "Pool switching", commandType: CommandType.UPDATE_MINING_POOLS },
   [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
+  [settingsActions.security]: { description: "Password updates", commandType: CommandType.UPDATE_MINER_PASSWORD },
   [performanceActions.managePower]: { description: "Power mode changes", commandType: CommandType.SET_POWER_TARGET },
 };
 
@@ -134,6 +137,7 @@ export const useMinerActions = ({
     setPowerTarget,
     setCoolingMode,
     checkCommandCapabilities,
+    updateMinerPassword,
   } = useMinerCommand();
 
   const startBatchOperation = useStartBatchOperation();
@@ -149,6 +153,14 @@ export const useMinerActions = ({
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
+  const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
+  const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
+  const [securityFilteredSelector, setSecurityFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
+  const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
+  const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string } | undefined>(
+    undefined,
+  );
+  const [hasThirdPartyMiners, setHasThirdPartyMiners] = useState(false);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
@@ -506,6 +518,84 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
+  // Security (password update) handlers
+  const handleFleetAuthenticated = useCallback((username: string, password: string) => {
+    // Store Fleet credentials for use in Step 2
+    setFleetCredentials({ username, password });
+    setShowAuthenticateFleetModal(false);
+    setShowUpdatePasswordModal(true);
+  }, []);
+
+  const handlePasswordConfirm = useCallback(
+    (currentPassword: string, newPassword: string) => {
+      const selectorToUse = securityFilteredSelector ?? deviceSelector;
+      const deviceIdsToUse = securityFilteredDeviceIds ?? deviceIdentifiers;
+
+      if (!selectorToUse || !fleetCredentials) return;
+
+      setShowUpdatePasswordModal(false);
+      setSecurityFilteredSelector(undefined);
+      setSecurityFilteredDeviceIds(undefined);
+      setFleetCredentials(undefined);
+
+      const id = pushToast({
+        message: `${loadingMessages[settingsActions.security]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
+
+      updateMinerPassword({
+        deviceSelector: selectorToUse,
+        newPassword,
+        currentPassword,
+        userUsername: fleetCredentials.username,
+        userPassword: fleetCredentials.password,
+        onSuccess: (value: UpdateMinerPasswordResponse) => {
+          startBatchOperation({
+            batchIdentifier: value.batchIdentifier,
+            action: settingsActions.security,
+            deviceIdentifiers: deviceIdsToUse,
+          });
+          handleSuccess(settingsActions.security, id, value.batchIdentifier);
+        },
+        onError: handleError.bind(null, id),
+      });
+
+      setCurrentAction(null);
+    },
+    [
+      securityFilteredSelector,
+      securityFilteredDeviceIds,
+      deviceSelector,
+      deviceIdentifiers,
+      fleetCredentials,
+      updateMinerPassword,
+      handleSuccess,
+      handleError,
+      onActionComplete,
+      startBatchOperation,
+    ],
+  );
+
+  const handlePasswordDismiss = useCallback(() => {
+    setShowUpdatePasswordModal(false);
+    setSecurityFilteredSelector(undefined);
+    setSecurityFilteredDeviceIds(undefined);
+    setFleetCredentials(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const handleAuthDismiss = useCallback(() => {
+    setShowAuthenticateFleetModal(false);
+    setSecurityFilteredSelector(undefined);
+    setSecurityFilteredDeviceIds(undefined);
+    setFleetCredentials(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
   const handleConfirmation = useCallback(
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
       // Use filtered selector/identifiers if provided (from unsupported miners modal),
@@ -786,11 +876,35 @@ export const useMinerActions = ({
       }
     };
 
-    // TODO: Implement Security action
-    // const handleSecurity = () => {
-    //   setCurrentAction(settingsActions.security);
-    //   // TODO show modal
-    // };
+    const handleManageSecurity = async () => {
+      onActionStart?.();
+
+      // Check if third-party miners are in the selection
+      const miners = useFleetStore.getState().fleet.miners;
+      const hasThirdParty = selectedMiners.some((m) => {
+        const miner = miners[m.deviceIdentifier];
+        return miner?.manufacturer?.toLowerCase() === minerTypes.bitmain;
+      });
+      setHasThirdPartyMiners(hasThirdParty);
+
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        settingsActions.security,
+        (filteredSelector, filteredDeviceIds) => {
+          // Store filtered values for use in handlePasswordConfirm
+          setSecurityFilteredSelector(filteredSelector);
+          setSecurityFilteredDeviceIds(filteredDeviceIds);
+          setCurrentAction(settingsActions.security);
+          setShowAuthenticateFleetModal(true);
+        },
+      );
+      if (!modalShown) {
+        // No filtering needed - clear any stale filtered values
+        setSecurityFilteredSelector(undefined);
+        setSecurityFilteredDeviceIds(undefined);
+        setCurrentAction(settingsActions.security);
+        setShowAuthenticateFleetModal(true);
+      }
+    };
 
     const sleepAction: BulkAction<SupportedAction> = {
       action: deviceActions.shutdown,
@@ -926,14 +1040,13 @@ export const useMinerActions = ({
         actionHandler: handleCoolingMode,
         requiresConfirmation: false,
       },
-      // TODO: Implement Security action
-      // {
-      //   action: settingsActions.security,
-      //   title: "Security",
-      //   icon: <Lock />,
-      //   actionHandler: handleSecurity,
-      //   requiresConfirmation: false,
-      // },
+      {
+        action: settingsActions.security,
+        title: "Manage security",
+        icon: <Lock />,
+        actionHandler: handleManageSecurity,
+        requiresConfirmation: false,
+      },
       {
         action: deviceActions.unpair,
         title: "Unpair",
@@ -991,6 +1104,13 @@ export const useMinerActions = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    showUpdatePasswordModal,
+    hasThirdPartyMiners,
+    handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
+    handleAuthDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,

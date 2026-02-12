@@ -6,9 +6,11 @@ import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
+import { UpdateMinerPasswordModal } from "./ManageSecurity";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -51,6 +53,13 @@ const SingleMinerActionsMenu = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    showUpdatePasswordModal,
+    hasThirdPartyMiners,
+    handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
+    handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -117,6 +126,13 @@ const SingleMinerActionsMenu = ({
         currentCoolingMode={currentCoolingMode}
         handleCoolingModeConfirm={handleCoolingModeConfirm}
         handleCoolingModeDismiss={handleCoolingModeDismiss}
+        showAuthenticateFleetModal={showAuthenticateFleetModal}
+        showUpdatePasswordModal={showUpdatePasswordModal}
+        hasThirdPartyMiners={hasThirdPartyMiners}
+        handleFleetAuthenticated={handleFleetAuthenticated}
+        handlePasswordConfirm={handlePasswordConfirm}
+        handlePasswordDismiss={handlePasswordDismiss}
+        handleAuthDismiss={handleAuthDismiss}
         disabled={disabled}
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
@@ -148,6 +164,13 @@ interface SingleMinerActionsMenuInnerProps {
   currentCoolingMode: CoolingMode | undefined;
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
+  showAuthenticateFleetModal: boolean;
+  showUpdatePasswordModal: boolean;
+  hasThirdPartyMiners: boolean;
+  handleFleetAuthenticated: (username: string, password: string) => void;
+  handlePasswordConfirm: (currentPassword: string, newPassword: string) => void;
+  handlePasswordDismiss: () => void;
+  handleAuthDismiss: () => void;
   disabled?: boolean;
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
@@ -176,6 +199,13 @@ const SingleMinerActionsMenuInner = ({
   currentCoolingMode,
   handleCoolingModeConfirm,
   handleCoolingModeDismiss,
+  showAuthenticateFleetModal,
+  showUpdatePasswordModal,
+  hasThirdPartyMiners,
+  handleFleetAuthenticated,
+  handlePasswordConfirm,
+  handlePasswordDismiss,
+  handleAuthDismiss,
   disabled = false,
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
@@ -277,6 +307,21 @@ const SingleMinerActionsMenuInner = ({
           initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
+        />
+      )}
+      {showAuthenticateFleetModal && (
+        <AuthenticateFleetModal
+          show={showAuthenticateFleetModal}
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showUpdatePasswordModal && (
+        <UpdateMinerPasswordModal
+          show={showUpdatePasswordModal}
+          hasThirdPartyMiners={hasThirdPartyMiners}
+          onConfirm={handlePasswordConfirm}
+          onDismiss={handlePasswordDismiss}
         />
       )}
     </div>

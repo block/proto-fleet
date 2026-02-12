@@ -4,7 +4,9 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
+import { UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { type SelectionMode } from "@/shared/components/List";
@@ -46,6 +48,13 @@ const MinerActionsMenu = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    showUpdatePasswordModal,
+    hasThirdPartyMiners,
+    handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
+    handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -102,6 +111,21 @@ const MinerActionsMenu = ({
           initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
+        />
+      )}
+      {showAuthenticateFleetModal && (
+        <AuthenticateFleetModal
+          show={showAuthenticateFleetModal}
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showUpdatePasswordModal && (
+        <UpdateMinerPasswordModal
+          show={showUpdatePasswordModal}
+          hasThirdPartyMiners={hasThirdPartyMiners}
+          onConfirm={handlePasswordConfirm}
+          onDismiss={handlePasswordDismiss}
         />
       )}
     </PopoverProvider>

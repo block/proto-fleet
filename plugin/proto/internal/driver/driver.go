@@ -97,6 +97,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		// Power mode capabilities
 		sdk.CapabilityPowerModeEfficiency: true, // We support efficiency/low power mode
 
+		// Security capabilities
+		sdk.CapabilityUpdateMinerPassword: true, // We can update miner web UI password
+
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true, // We support real-time telemetry
 		sdk.CapabilityHistoricalData:    true, // We support historical data
