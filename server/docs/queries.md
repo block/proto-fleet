@@ -43,7 +43,7 @@ The core query that powers all error list views. Supports:
 - **6 filter types**: device, device_type, severity, miner_error, component_type, component_id
 - **Cursor pagination** on `(severity, last_seen_at, error_id)`
 
-> **TODO(DASH-1048)**: Add CASE statement to support OR logic via `use_or_logic` parameter.
+> **TODO**: Add CASE statement to support OR logic via `use_or_logic` parameter.
 
 ### Filter Logic Pattern
 

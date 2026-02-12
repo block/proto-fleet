@@ -557,7 +557,7 @@ func applyCursor(pageToken string) (sql.NullInt32, sql.NullTime, sql.NullString)
 }
 
 // buildQueryParams converts QueryOptions to sqlc.QueryErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildQueryParams(opts *models.QueryOptions) sqlc.QueryErrorsParams {
 	filter := opts.Filter
 	if filter == nil {
@@ -578,7 +578,7 @@ func buildQueryParams(opts *models.QueryOptions) sqlc.QueryErrorsParams {
 }
 
 // buildCountParams converts QueryOptions to sqlc.CountErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildCountParams(opts *models.QueryOptions) sqlc.CountErrorsParams {
 	filter := opts.Filter
 	if filter == nil {
@@ -849,7 +849,7 @@ func (s *SQLErrorStore) CountComponents(ctx context.Context, opts *models.QueryO
 // ============================================================================
 
 // buildDeviceQueryParams converts QueryOptions to sqlc.QueryDeviceIDsWithErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildDeviceQueryParams(opts *models.QueryOptions) sqlc.QueryDeviceIDsWithErrorsParams {
 	filter := opts.Filter
 	if filter == nil {
@@ -876,7 +876,7 @@ func buildDeviceQueryParams(opts *models.QueryOptions) sqlc.QueryDeviceIDsWithEr
 }
 
 // buildDeviceCountParams converts QueryOptions to sqlc.CountDevicesWithErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildDeviceCountParams(opts *models.QueryOptions) sqlc.CountDevicesWithErrorsParams {
 	filter := opts.Filter
 	if filter == nil {
@@ -895,7 +895,7 @@ func buildDeviceCountParams(opts *models.QueryOptions) sqlc.CountDevicesWithErro
 }
 
 // buildComponentQueryParams converts QueryOptions to sqlc.QueryComponentKeysWithErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildComponentQueryParams(opts *models.QueryOptions) sqlc.QueryComponentKeysWithErrorsParams {
 	filter := opts.Filter
 	if filter == nil {
@@ -927,7 +927,7 @@ func buildComponentQueryParams(opts *models.QueryOptions) sqlc.QueryComponentKey
 }
 
 // buildComponentCountParams converts QueryOptions to sqlc.CountComponentsWithErrorsParams.
-// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+// TODO: Re-add UseOrLogic parameter to support OR filter logic.
 func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWithErrorsParams {
 	filter := opts.Filter
 	if filter == nil {

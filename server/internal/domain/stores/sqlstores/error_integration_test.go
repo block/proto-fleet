@@ -618,7 +618,7 @@ func TestSQLErrorStore_QueryErrors_WithDeviceFilter_ShouldFilterByDevice(t *test
 
 // TestSQLErrorStore_QueryErrors_WithMultipleFilters_ShouldMatchAll verifies that
 // when multiple filter criteria are provided, ALL must match (AND logic).
-// TODO(DASH-1048): Add OR logic test when OR filter support is implemented.
+// TODO: Add OR logic test when OR filter support is implemented.
 func TestSQLErrorStore_QueryErrors_WithMultipleFilters_ShouldMatchAll(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

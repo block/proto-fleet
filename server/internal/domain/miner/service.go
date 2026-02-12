@@ -24,7 +24,7 @@ import (
 var _ telemetry.MinerGetter = &Service{}
 
 type Service struct {
-	// TODO: DASH-579: Refactor this to use a store instead of SQLConnectionManager directly
+	// TODO: Refactor this to use a store instead of SQLConnectionManager directly
 	sqlstores.SQLConnectionManager
 	userStore      stores.UserStore
 	encryptService *encrypt.Service

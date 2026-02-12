@@ -102,7 +102,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	// Use mock proto discoverer for testing instead of legacy implementation.
 	// Note: This mock won't actually discover devices - tests requiring discovery
 	// should set up EXPECT() calls with appropriate return values.
-	// TODO(DASH-887): Replace with plugin-based test infrastructure when available.
+	// TODO: Replace with plugin-based test infrastructure when available.
 	discoverer := NewMockProtoDiscoverer(ctrl)
 
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(db)

@@ -47,11 +47,11 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
         ...pool,
         name: pool.poolName,
         password: "",
-        // TODO fix me in the DASH-522
+        // TODO: fix priority assignment
         priority: pool.poolId,
       }));
     const maxExistingPriority = Math.max(
-      // TODO fix me in the DASH-522
+      // TODO: fix priority assignment
       ...existingPools.map((pool: Pool) => Number(pool.poolId)),
     );
     const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(existingPools.length);

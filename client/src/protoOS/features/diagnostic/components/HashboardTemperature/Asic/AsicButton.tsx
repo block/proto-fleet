@@ -51,7 +51,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       case "frequency":
       case "voltage":
         // These metrics are not yet available in AsicData
-        // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+        // TODO: confirm whether frequency and voltage will be returned from the API
         return undefined;
       default:
         return undefined;
@@ -115,7 +115,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       return formatMetricDisplay(formatted || "--");
     }
 
-    // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+    // TODO: confirm whether frequency and voltage will be returned from the API
     // Frequency and voltage are not yet available
     return formatMetricDisplay("--");
   }

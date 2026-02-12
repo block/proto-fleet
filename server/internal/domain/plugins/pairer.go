@@ -79,7 +79,7 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 }
 
 // PairDevice handles the entire pairing process using the plugin
-// TODO(DASH-818): Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password with out bespoke miner integrations.
+// TODO: Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password without bespoke miner integrations.
 func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	plugin, err := p.manager.GetPluginWithCapability(p.minerType, sdk.CapabilityPairing)
 	if err != nil {
@@ -226,7 +226,7 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 // - UsernamePassword: Stores encrypted username/password (e.g., Antminer devices)
 // - APIKey: No storage (org-level keys derived on-demand, device-specific keys not yet supported)
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
-// will require extending pb.Credentials (see TODO DASH-818).
+// will require extending pb.Credentials.
 func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
 	if err != nil {
@@ -338,7 +338,7 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 		Version: "v1",
 	}
 
-	// TODO(ASH-899): Make adaptive based on device info not hardcoded miner type
+	// TODO: Make adaptive based on device info not hardcoded miner type
 	if p.minerType == models.TypeProto {
 		fleetPublicKey, err := p.GetMinerPublicKey(ctx, orgID)
 		if err != nil {

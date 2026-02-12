@@ -146,7 +146,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
               key: "hashrate",
               title: "Hashrate (GH/s)",
             },
-            // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+            // TODO: confirm whether frequency and voltage will be returned from the API
             // {
             //   key: "frequency",
             //   title: "Frequency (MHz)",

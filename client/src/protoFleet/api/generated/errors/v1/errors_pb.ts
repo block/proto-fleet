@@ -1165,7 +1165,7 @@ export const ResultViewSchema: GenEnum<ResultView> = /*@__PURE__*/ enumDesc(file
 
 /**
  * Global logic for combining filter criteria.
- * TODO(DASH-1048): Currently only AND logic is implemented. OR support planned.
+ * TODO: Currently only AND logic is implemented. OR support planned.
  *
  * @generated from enum errors.v1.GlobalLogic
  */

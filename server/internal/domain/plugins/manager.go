@@ -249,7 +249,7 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 }
 
 // determineMinerTypes determines which miner types a plugin supports, this is to support legacy miner integrations
-// TODO(DASH-818): Remove this logic once minimal miner plugins have been thoroughly validated in lab.
+// TODO: Remove this logic once minimal miner plugins have been thoroughly validated in lab.
 func determineMinerTypes(pluginName string, caps sdk.Capabilities) []models.Type {
 	var types []models.Type
 

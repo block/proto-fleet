@@ -33,7 +33,7 @@ var _ interfaces.MinerInfo = &PluginMiner{}
 // interfaces.Miner interface does not include a Close() method. Currently, SDK devices are
 // cleaned up implicitly when the plugin process is killed during plugin manager shutdown.
 //
-// TODO(DASH-XXX): Consider adding explicit device lifecycle management:
+// TODO: Consider adding explicit device lifecycle management:
 //   - Option 1: Add Close() to interfaces.Miner interface (breaking change)
 //   - Option 2: Track SDK devices in plugin manager and close them during shutdown
 //   - Option 3: Document that plugin processes handle cleanup on exit

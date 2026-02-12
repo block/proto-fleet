@@ -101,7 +101,7 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 }
 
 // SetupMockMinerServer is deprecated and should not be used.
-// TODO(DASH-887): SetupMockMinerServer should be reimplemented using plugin-based test infrastructure
+// TODO: SetupMockMinerServer should be reimplemented using plugin-based test infrastructure
 // Deprecated: This function was removed with legacy proto implementation. Use plugin-based testing instead.
 func SetupMockMinerServer(t *testing.T, _ interface{}, _ bool, _ ...int) *httptest.Server {
 	t.Skip("SetupMockMinerServer removed with legacy proto implementation - needs rewrite with plugin infrastructure")

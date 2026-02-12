@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
+// TODO: Rewrite test using plugin-based test infrastructure
 func TestCommandHandler(t *testing.T) {
-	t.Skip("Disabled pending DASH-887")
+	t.Skip("Disabled pending plugin-based test infrastructure")
 }

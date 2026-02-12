@@ -90,11 +90,11 @@ func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.Disco
 	}
 }
 
-// TODO(DASH-887): setUpMockMinerServer should be reimplemented using plugin-based test infrastructure
+// TODO: setUpMockMinerServer should be reimplemented using plugin-based test infrastructure
 // This functionality should be reimplemented using the proto plugin's integration test
 // helpers (see plugin/proto/tests/integration) when needed for server integration testing.
 func setUpMockMinerServer(t *testing.T) (string, string) {
-	t.Skip("Disabled pending DASH-887")
+	t.Skip("Disabled pending plugin-based test infrastructure")
 	return "", ""
 }
 

@@ -9,7 +9,7 @@ import (
 // ============================================================================
 
 // FilterLogic determines how filter criteria are combined.
-// TODO(DASH-1048): Re-enable OR logic support in SQL queries and service layer.
+// TODO: Re-enable OR logic support in SQL queries and service layer.
 type FilterLogic uint
 
 const (

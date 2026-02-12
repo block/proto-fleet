@@ -46,8 +46,8 @@ func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *testing.T) {
-	// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending DASH-887 - requires plugin support for Antminer")
+	// TODO: Rewrite test using plugin-based test infrastructure
+	t.Skip("Disabled pending plugin-based test infrastructure - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnError(t *testing.T) {
@@ -113,8 +113,8 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 }
 
 func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
-	// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending DASH-887 - requires plugin support for Antminer")
+	// TODO: Rewrite test using plugin-based test infrastructure
+	t.Skip("Disabled pending plugin-based test infrastructure - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnCorrectType(t *testing.T) {
@@ -185,8 +185,8 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithProtoMinerToken_ShouldReturnProtoMiner(t *testing.T) {
-	// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending DASH-887")
+	// TODO: Rewrite test using plugin-based test infrastructure
+	t.Skip("Disabled pending plugin-based test infrastructure")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(t *testing.T) {

@@ -335,7 +335,7 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	return &DeviceInfo{
 		SerialNumber: resp.Msg.CbSn,
 		MacAddress:   resp.Msg.Mac,
-		Model:        "Rig", // TODO(DASH-782): Get actual model from API when available
+		Model:        "Rig", // TODO: Get actual model from API when available
 		Manufacturer: "Proto",
 	}, nil
 }

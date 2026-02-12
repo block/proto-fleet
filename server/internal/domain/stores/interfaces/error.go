@@ -22,12 +22,12 @@ type ErrorStore interface {
 	// All provided filter criteria must match for an error to be returned.
 	// Time range and include_closed filters are always applied.
 	// Returns errors sorted by severity ASC (critical first), last_seen_at DESC, error_id DESC.
-	// TODO(DASH-1048): Add OR logic support where any filter criterion can match.
+	// TODO: Add OR logic support where any filter criterion can match.
 	QueryErrors(ctx context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error)
 
 	// CountErrors returns the total count of errors matching filter criteria.
 	// Uses AND logic: all provided filter criteria must match.
-	// TODO(DASH-1048): Add OR logic support controlled by opts.Filter.Logic.
+	// TODO: Add OR logic support controlled by opts.Filter.Logic.
 	CountErrors(ctx context.Context, opts *models.QueryOptions) (int64, error)
 
 	// GetErrorByErrorID retrieves a single error by its ULID, scoped to organization.

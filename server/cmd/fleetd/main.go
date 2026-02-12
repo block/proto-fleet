@@ -167,7 +167,7 @@ func start(config *Config) error {
 		slog.Warn("Plugin health check failed, continuing startup", "error", err)
 	}
 
-	// TODO(DASH-887): Remove hard dependency on proto plugin once:
+	// TODO: Remove hard dependency on proto plugin once:
 	// 1. Plugin health checks can detect and report plugin loading failures
 	// 2. The system can gracefully handle missing plugins (disable features vs. fatal error)
 	// 3. UI can show which plugin-based features are unavailable

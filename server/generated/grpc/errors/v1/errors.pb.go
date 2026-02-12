@@ -456,7 +456,7 @@ func (ResultView) EnumDescriptor() ([]byte, []int) {
 }
 
 // Global logic for combining filter criteria.
-// TODO(DASH-1048): Currently only AND logic is implemented. OR support planned.
+// TODO: Currently only AND logic is implemented. OR support planned.
 type GlobalLogic int32
 
 const (

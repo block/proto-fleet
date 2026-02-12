@@ -69,7 +69,7 @@ func TypeFromString(s string) (Type, error) {
 }
 
 // TypeFromDeviceInfo converts type string and model to Type enum, using model to disambiguate "asic" type.
-// TODO(DASH-900): Replace Type enum with model-based plugin routing system
+// TODO: Replace Type enum with model-based plugin routing system
 func TypeFromDeviceInfo(typeStr, model string) (Type, error) {
 	// When type is ambiguous "asic", use model to determine the actual miner type
 	if strings.ToLower(typeStr) == "asic" {
