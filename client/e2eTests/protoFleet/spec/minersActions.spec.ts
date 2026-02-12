@@ -303,7 +303,7 @@ test.describe("Miners", () => {
       const minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickCoolingModeButton();
-      await minersPage.clickAirCooledOption();
+      await minersPage.validateAirCooledOptionSelected();
       await minersPage.clickUpdateCoolingModeConfirm();
     });
 

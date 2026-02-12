@@ -162,6 +162,10 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("cooling-mode-popover-button").click();
   }
 
+  async validateAirCooledOptionSelected() {
+    await expect(this.page.getByTestId("cooling-option-air").locator("input")).toBeChecked();
+  }
+
   async clickAirCooledOption() {
     await this.page.getByTestId("cooling-option-air").locator("input").click();
   }
