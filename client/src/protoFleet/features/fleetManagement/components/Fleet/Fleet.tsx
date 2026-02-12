@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
+import {
+  MinerSortConfigSchema,
+  PairingStatus,
+  SortDirection,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
@@ -8,7 +13,13 @@ import useFleet from "@/protoFleet/api/useFleet";
 import { useStreamDeviceErrors } from "@/protoFleet/api/useStreamDeviceErrors";
 import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
+import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import {
+  COLUMN_TO_SORT_FIELD,
+  SORT_FIELD_TO_COLUMN,
+} from "@/protoFleet/features/fleetManagement/components/MinerList/sortConfig";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useVisibleMiners } from "@/protoFleet/hooks";
@@ -24,14 +35,27 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
 
 const Fleet = () => {
+  const navigate = useNavigate();
   const { visibleMinerIds, registerMiner } = useVisibleMiners({
     rootMargin: "100px", // Preload telemetry for miners 100px before they enter viewport
     debounceMs: 300, // Debounce visibility updates during scroll
   });
 
-  // Get filter from URL - memoize to avoid recreating on every render
+  // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
   const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+  const currentSortConfig = useMemo(() => parseSortFromURL(searchParams), [searchParams]);
+
+  // Convert proto SortField to MinerColumn for UI component
+  const currentSort = useMemo(() => {
+    if (!currentSortConfig) return undefined;
+    const column = SORT_FIELD_TO_COLUMN[currentSortConfig.field];
+    if (!column) return undefined;
+    return {
+      field: column,
+      direction: currentSortConfig.direction === SortDirection.ASC ? "asc" : "desc",
+    } as const;
+  }, [currentSortConfig]);
 
   // Get count of miners requiring authentication (disabled rows)
   const { totalMiners: totalAuthNeededMiners } = useAuthNeededMiners({ pageSize: 1, filter: currentFilter });
@@ -43,6 +67,7 @@ const Fleet = () => {
     pageSize: 50,
     visibleMinerIds,
     filter: currentFilter,
+    sort: currentSortConfig,
     pairingStatuses: FLEET_PAIRING_STATUSES,
   });
 
@@ -88,6 +113,7 @@ const Fleet = () => {
 
   useStreamMinerListUpdates({
     filter: currentFilter,
+    sort: currentSortConfig,
   });
 
   // Reset telemetry cache when batch operations complete to refetch fresh status data
@@ -131,6 +157,22 @@ const Fleet = () => {
     setShowAddMinersModal(false);
   };
 
+  const handleSort = useCallback(
+    (column: MinerColumn, direction: "asc" | "desc") => {
+      const sortField = COLUMN_TO_SORT_FIELD[column];
+      if (!sortField) return;
+
+      const sortDirection = direction === "asc" ? SortDirection.ASC : SortDirection.DESC;
+      const newSortConfig = create(MinerSortConfigSchema, { field: sortField, direction: sortDirection });
+
+      // Update URL with new sort params (preserves existing filter params)
+      const params = new URLSearchParams(searchParams);
+      encodeSortToURL(params, newSortConfig);
+      navigate(`?${params.toString()}`, { replace: true });
+    },
+    [searchParams, navigate],
+  );
+
   return (
     <>
       <div className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
@@ -154,6 +196,8 @@ const Fleet = () => {
           onLoadMore={loadMore}
           hasMore={hasMore}
           isLoadingMore={isLoading}
+          currentSort={currentSort}
+          onSort={handleSort}
         />
       </ErrorBoundary>
 

@@ -246,10 +246,15 @@ const MinerList = ({
       });
 
       // Navigate with URL params instead of calling parent callback
+      // Start fresh with filter params, then preserve existing sort params
       const params = encodeFilterToURL(minerFilter);
+      const sortParam = searchParams.get("sort");
+      const dirParam = searchParams.get("dir");
+      if (sortParam) params.set("sort", sortParam);
+      if (dirParam) params.set("dir", dirParam);
       navigate(`?${params.toString()}`, { replace: true });
     },
-    [navigate],
+    [navigate, searchParams],
   );
   // Show null state when no miners are paired and not loading
   const showNullState = !loading && totalMiners === 0 && !hasActiveFilters;

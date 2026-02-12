@@ -19,11 +19,11 @@ func TestGetSortExpression(t *testing.T) {
 		{"mac address field", stores.SortFieldMACAddress, "COALESCE(device.mac_address, '')"},
 		{"status field", stores.SortFieldStatus, "device_status.status"},
 		{"device type field", stores.SortFieldDeviceType, "discovered_device.type"},
-		{"hashrate field", stores.SortFieldHashrate, "latest_metrics.sort_telemetry_value"},
-		{"temperature field", stores.SortFieldTemperature, "latest_metrics.sort_telemetry_value"},
-		{"power field", stores.SortFieldPower, "latest_metrics.sort_telemetry_value"},
-		{"efficiency field", stores.SortFieldEfficiency, "latest_metrics.sort_telemetry_value"},
-		{"issues field", stores.SortFieldIssues, "latest_metrics.sort_telemetry_value"},
+		{"hashrate field", stores.SortFieldHashrate, "latest_metrics.sort_value"},
+		{"temperature field", stores.SortFieldTemperature, "latest_metrics.sort_value"},
+		{"power field", stores.SortFieldPower, "latest_metrics.sort_value"},
+		{"efficiency field", stores.SortFieldEfficiency, "latest_metrics.sort_value"},
+		{"issues field", stores.SortFieldIssues, "COALESCE(error_counts.open_error_count, 0)"},
 		{"firmware field", stores.SortFieldFirmware, "discovered_device.firmware_version"},
 		{"unspecified field", stores.SortFieldUnspecified, ""},
 		{"unknown field", stores.SortField(999), ""},
@@ -143,11 +143,11 @@ func TestGetTelemetryMetricExpression(t *testing.T) {
 		field    stores.SortField
 		expected string
 	}{
-		{"hashrate", stores.SortFieldHashrate, "m.hashrate"},
-		{"temperature", stores.SortFieldTemperature, "m.temperature"},
-		{"power", stores.SortFieldPower, "m.power"},
-		{"efficiency", stores.SortFieldEfficiency, "CASE WHEN m.hashrate > 0 THEN m.power / m.hashrate ELSE NULL END"},
-		{"issues", stores.SortFieldIssues, "(m.hashboard_errors + m.fan_errors + m.psu_errors)"},
+		{"hashrate", stores.SortFieldHashrate, "device_metrics.hash_rate_hs"},
+		{"temperature", stores.SortFieldTemperature, "device_metrics.temp_c"},
+		{"power", stores.SortFieldPower, "device_metrics.power_w"},
+		{"efficiency", stores.SortFieldEfficiency, "device_metrics.efficiency_jh"},
+		{"issues", stores.SortFieldIssues, "NULL"},
 		{"non-telemetry field", stores.SortFieldName, "NULL"},
 		{"unspecified", stores.SortFieldUnspecified, "NULL"},
 	}

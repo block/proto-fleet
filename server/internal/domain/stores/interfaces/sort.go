@@ -69,8 +69,16 @@ func (c *SortConfig) IsTelemetrySort() bool {
 	return c.Field == SortFieldHashrate ||
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||
-		c.Field == SortFieldEfficiency ||
-		c.Field == SortFieldIssues
+		c.Field == SortFieldEfficiency
+}
+
+// IsIssuesSort returns true if sorting by issue count.
+// Issues require a separate CTE counting from the errors table.
+func (c *SortConfig) IsIssuesSort() bool {
+	if c == nil {
+		return false
+	}
+	return c.Field == SortFieldIssues
 }
 
 // IsUnspecified returns true if no sort is specified (use default).

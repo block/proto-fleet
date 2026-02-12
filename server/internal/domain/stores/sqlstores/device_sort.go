@@ -54,7 +54,7 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 	}
 
 	// Handle NULL values for sorts on nullable columns
-	if sortConfig.IsTelemetrySort() || canSortFieldBeNull(sortConfig.Field) {
+	if sortConfig.IsTelemetrySort() || sortConfig.IsIssuesSort() || canSortFieldBeNull(sortConfig.Field) {
 		if cursor.SortValue == "" {
 			// Cursor row had NULL value - only compare IDs among NULLs
 			return fmt.Sprintf("AND (%s IS NULL AND discovered_device.id %s $%d)", sortExpr, operator, argNum), []any{cursor.CursorID}
@@ -104,9 +104,9 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 		stores.SortFieldPower,
 		stores.SortFieldEfficiency,
 		stores.SortFieldIssues:
-		// These sorts use the sort_telemetry_value column
-		if row.SortTelemetryValue.Valid {
-			return strconv.FormatFloat(row.SortTelemetryValue.Float64, 'f', -1, 64)
+		// These sorts use the sort_value column
+		if row.SortValue.Valid {
+			return strconv.FormatFloat(row.SortValue.Float64, 'f', -1, 64)
 		}
 		return ""
 	case stores.SortFieldFirmware:

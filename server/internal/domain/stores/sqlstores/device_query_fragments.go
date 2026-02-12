@@ -18,10 +18,8 @@ import (
 // or the actual pairing status for paired devices.
 const pairingStatusExpr = "CASE WHEN device.id IS NOT NULL THEN COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END"
 
-// minerBaseQuery is the base SELECT/FROM/JOIN/WHERE for miner state queries.
-// Uses discovered_device as the base table since it contains all devices (paired and unpaired).
-// Parameter: $1 = org_id
-const minerBaseQuery = `SELECT
+// minerSelectColumns contains the common SELECT columns for miner state queries.
+const minerSelectColumns = `SELECT
     discovered_device.device_identifier,
     COALESCE(device.mac_address, '') as mac_address,
     device.serial_number,
@@ -37,44 +35,40 @@ const minerBaseQuery = `SELECT
     discovered_device.url_scheme,
     ` + pairingStatusExpr + ` as pairing_status,
     discovered_device.id as cursor_id,
-    COALESCE(device.id, 0) as device_id
-FROM discovered_device
-LEFT JOIN device ON discovered_device.id = device.discovered_device_id
-    AND device.deleted_at IS NULL
-    AND device.org_id = $1
-LEFT JOIN device_pairing ON device.id = device_pairing.device_id
-LEFT JOIN device_status ON device.id = device_status.device_id
-WHERE discovered_device.org_id = $1
-    AND discovered_device.is_active = TRUE
-    AND discovered_device.deleted_at IS NULL`
+    COALESCE(device.id, 0) as device_id`
 
-// minerBaseQueryWithTelemetry is the base query with an additional sort_telemetry_value column.
-// Used when sorting by telemetry fields (hashrate, temperature, power, efficiency, issues).
-// Parameter: $1 = org_id
-const minerBaseQueryWithTelemetry = `SELECT
-    discovered_device.device_identifier,
-    COALESCE(device.mac_address, '') as mac_address,
-    device.serial_number,
-    discovered_device.model,
-    discovered_device.manufacturer,
-    discovered_device.type,
-    discovered_device.firmware_version,
-    device_status.status as device_status,
-    device_status.status_timestamp,
-    device_status.status_details,
-    discovered_device.ip_address,
-    discovered_device.port,
-    discovered_device.url_scheme,
-    ` + pairingStatusExpr + ` as pairing_status,
-    discovered_device.id as cursor_id,
-    COALESCE(device.id, 0) as device_id,
-    latest_metrics.sort_telemetry_value
+// minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
+// Parameter: $1 = org_id (used in device join condition)
+const minerFromJoins = `
 FROM discovered_device
 LEFT JOIN device ON discovered_device.id = device.discovered_device_id
     AND device.deleted_at IS NULL
     AND device.org_id = $1
 LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id`
+
+// minerWhereClause constrains results to the org's active, non-deleted devices.
+// Parameter: $1 = org_id
+const minerWhereClause = `
+WHERE discovered_device.org_id = $1
+    AND discovered_device.is_active = TRUE
+    AND discovered_device.deleted_at IS NULL`
+
+// minerBaseQuery is the base SELECT/FROM/JOIN/WHERE for miner state queries.
+// Uses discovered_device as the base table since it contains all devices (paired and unpaired).
+// Includes NULL sort_value column for consistent column count across all query variants.
+// Parameter: $1 = org_id
+const minerBaseQuery = minerSelectColumns + `,
+    NULL::float8 as sort_value` + minerFromJoins + minerWhereClause
+
+// minerBaseQueryWithSortValue builds the base query with a custom sort value column.
+// Used for telemetry and issues sorting where we need an additional sort_value column.
+// Does NOT include WHERE clause - caller must add minerWhereClause after any additional JOINs.
+// Parameter: $1 = org_id
+func minerBaseQueryWithSortValue(sortValueExpr string) string {
+	return minerSelectColumns + `,
+    ` + sortValueExpr + ` as sort_value` + minerFromJoins
+}
 
 // actionableErrorSeverities defines which error severities trigger "needs attention" state.
 // Values: 1=CRITICAL, 2=ERROR, 3=WARNING. Excludes INFO=4 and UNSPECIFIED=0.
@@ -97,11 +91,11 @@ var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldMACAddress:  "COALESCE(device.mac_address, '')",
 	stores.SortFieldStatus:      "device_status.status",
 	stores.SortFieldDeviceType:  "discovered_device.type",
-	stores.SortFieldHashrate:    "latest_metrics.sort_telemetry_value",
-	stores.SortFieldTemperature: "latest_metrics.sort_telemetry_value",
-	stores.SortFieldPower:       "latest_metrics.sort_telemetry_value",
-	stores.SortFieldEfficiency:  "latest_metrics.sort_telemetry_value",
-	stores.SortFieldIssues:      "latest_metrics.sort_telemetry_value",
+	stores.SortFieldHashrate:    "latest_metrics.sort_value",
+	stores.SortFieldTemperature: "latest_metrics.sort_value",
+	stores.SortFieldPower:       "latest_metrics.sort_value",
+	stores.SortFieldEfficiency:  "latest_metrics.sort_value",
+	stores.SortFieldIssues:      "COALESCE(error_counts.open_error_count, 0)",
 	stores.SortFieldFirmware:    "discovered_device.firmware_version",
 }
 
@@ -109,36 +103,51 @@ var sortExpressions = map[stores.SortField]string{
 // values for sorting. It extracts the appropriate metric based on the sort field.
 // Parameter: $1 = org_id, uses sort_metric_type placeholder for the metric selector
 var latestMetricsCTE = `WITH latest_metrics AS (
-    SELECT DISTINCT ON (m.device_id)
-        m.device_id,
-        %s as sort_telemetry_value
-    FROM metrics m
-    INNER JOIN device d2 ON m.device_id = d2.id
+    SELECT DISTINCT ON (device_metrics.device_identifier)
+        device_metrics.device_identifier,
+        %s as sort_value
+    FROM device_metrics
+    INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
         AND d2.deleted_at IS NULL
         AND d2.org_id = $1
-    WHERE m.timestamp > NOW() - INTERVAL '` + telemetryFreshnessWindow + `'
-    ORDER BY m.device_id, m.timestamp DESC
+    WHERE device_metrics.time > NOW() - INTERVAL '` + telemetryFreshnessWindow + `'
+    ORDER BY device_metrics.device_identifier, device_metrics.time DESC
+)`
+
+// errorCountsCTE is the Common Table Expression that counts open errors per device
+// for issues sorting.
+// Parameter: $1 = org_id
+var errorCountsCTE = `WITH error_counts AS (
+    SELECT e.device_id, COUNT(*) as open_error_count
+    FROM errors e
+    INNER JOIN device d ON e.device_id = d.id
+        AND d.deleted_at IS NULL
+        AND d.org_id = $1
+    WHERE e.org_id = $1
+        AND e.closed_at IS NULL
+    GROUP BY e.device_id
 )`
 
 // minerTelemetryJoin is the LEFT JOIN clause for telemetry sorting queries.
-const minerTelemetryJoin = `LEFT JOIN latest_metrics ON device.id = latest_metrics.device_id`
+const minerTelemetryJoin = `LEFT JOIN latest_metrics ON device.device_identifier = latest_metrics.device_identifier`
+
+// errorCountsJoin is the LEFT JOIN clause for issues sorting queries.
+const errorCountsJoin = `LEFT JOIN error_counts ON device.id = error_counts.device_id`
 
 // getTelemetryMetricExpression returns the SQL expression for extracting
-// the sort value from the metrics table for the given sort field.
+// the sort value from the device_metrics table for the given sort field.
 // Only telemetry-based fields have metric expressions; all others return "NULL".
 func getTelemetryMetricExpression(field stores.SortField) string {
 	//nolint:exhaustive // Non-telemetry fields intentionally return "NULL" via default
 	switch field {
 	case stores.SortFieldHashrate:
-		return "m.hashrate"
+		return "device_metrics.hash_rate_hs"
 	case stores.SortFieldTemperature:
-		return "m.temperature"
+		return "device_metrics.temp_c"
 	case stores.SortFieldPower:
-		return "m.power"
+		return "device_metrics.power_w"
 	case stores.SortFieldEfficiency:
-		return "CASE WHEN m.hashrate > 0 THEN m.power / m.hashrate ELSE NULL END"
-	case stores.SortFieldIssues:
-		return "(m.hashboard_errors + m.fan_errors + m.psu_errors)"
+		return "device_metrics.efficiency_jh"
 	default:
 		return "NULL"
 	}

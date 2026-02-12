@@ -5,6 +5,8 @@ import {
   DeviceStatusUpdateSchema,
   MinerListFilter,
   MinerListFilterSchema,
+  MinerSortConfig,
+  MinerSortConfigSchema,
   MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -20,6 +22,11 @@ import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster
 
 type UseFleetOptions = {
   filter?: MinerListFilter;
+  /**
+   * Sort configuration for ordering miners.
+   * When undefined, uses default server-side ordering (discovery order).
+   */
+  sort?: MinerSortConfig;
   pageSize?: number;
   pairingStatuses?: PairingStatus[];
   /**
@@ -92,6 +99,7 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
 const useFleet = (options: UseFleetOptions = {}) => {
   const {
     filter,
+    sort,
     pageSize = 20,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
     scope = "local",
@@ -229,7 +237,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Fetch initial list using one-time query
   const fetchMinerList = useCallback(
-    async (filter: MinerListFilter | undefined, pageCursor?: string) => {
+    async (filter: MinerListFilter | undefined, sort: MinerSortConfig | undefined, pageCursor?: string) => {
       setIsLoading(true);
 
       // Reset initial load flag for non-pagination fetches (filter change or refetch)
@@ -245,6 +253,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           pageSize,
           cursor: pageCursor,
           filter: filterWithPairingStatuses,
+          sort: sort ? [sort] : undefined,
         });
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts } = response;
@@ -341,6 +350,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
     filterRef.current = filter;
   }, [filter]);
 
+  // Store sort in a ref for stable callbacks
+  const sortRef = useRef(sort);
+  useEffect(() => {
+    sortRef.current = sort;
+  }, [sort]);
+
   // Store cursor in a ref for stable loadMore callback
   const cursorRef = useRef(cursor);
   useEffect(() => {
@@ -363,15 +378,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const loadMore = useCallback(() => {
     if (hasMoreRef.current && !isLoadingRef.current) {
       // Fetch next page - use refs to get current values
-      fetchMinerListRef.current(filterRef.current, cursorRef.current);
+      fetchMinerListRef.current(filterRef.current, sortRef.current, cursorRef.current);
     }
   }, []);
 
   // Stable refetch callback - uses refs to avoid recreating on state changes
   const refetch = useCallback(() => {
     if (!isLoadingRef.current) {
-      // Reset cursor to start fresh - use ref for current filter
-      fetchMinerListRef.current(filterRef.current, undefined);
+      // Reset cursor to start fresh - use ref for current filter and sort
+      fetchMinerListRef.current(filterRef.current, sortRef.current, undefined);
     }
   }, []);
 
@@ -388,11 +403,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
     };
   }, [refetch, scope]);
 
-  // Track if this is the initial load and previous filter
+  // Track if this is the initial load and previous filter/sort
   const hasLoadedRef = useRef(false);
   const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
+  const previousSortRef = useRef<MinerSortConfig | undefined>(undefined);
 
-  // Fetch data when filter changes
+  // Fetch data when filter or sort changes
   useEffect(() => {
     // Check if filter actually changed using protobuf deep equality
     const filtersEqual =
@@ -401,24 +417,33 @@ const useFleet = (options: UseFleetOptions = {}) => {
         filter !== undefined &&
         equals(MinerListFilterSchema, previousFilterRef.current, filter));
 
-    const filterChanged = !filtersEqual;
+    // Check if sort actually changed using protobuf deep equality
+    const sortsEqual =
+      previousSortRef.current === sort || // Both undefined or same reference
+      (previousSortRef.current !== undefined &&
+        sort !== undefined &&
+        equals(MinerSortConfigSchema, previousSortRef.current, sort));
 
-    if (hasLoadedRef.current && !filterChanged) {
-      return; // Skip if not first load and filter hasn't changed
+    const filterChanged = !filtersEqual;
+    const sortChanged = !sortsEqual;
+
+    if (hasLoadedRef.current && !filterChanged && !sortChanged) {
+      return; // Skip if not first load and neither filter nor sort has changed
     }
 
     // Update refs
     previousFilterRef.current = filter;
+    previousSortRef.current = sort;
     hasLoadedRef.current = true;
 
-    // Reset cursor for new filter
-    if (filterChanged) {
+    // Reset cursor for new filter or sort
+    if (filterChanged || sortChanged) {
       setCursor(undefined);
     }
 
-    // Fetch with filter using ref to avoid dependency
-    void fetchMinerListRef.current(filter, undefined);
-  }, [filter]);
+    // Fetch with filter and sort
+    void fetchMinerListRef.current(filter, sort, undefined);
+  }, [filter, sort]);
 
   // Cleanup streaming on unmount
   useEffect(() => {

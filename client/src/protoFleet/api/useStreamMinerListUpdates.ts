@@ -6,6 +6,8 @@ import {
   MeasurementConfig_MeasurementType,
   MinerListFilter,
   MinerListFilterSchema,
+  MinerSortConfig,
+  MinerSortConfigSchema,
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
@@ -14,6 +16,7 @@ import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 type UseStreamMinerListUpdatesOptions = {
   filter?: MinerListFilter;
+  sort?: MinerSortConfig;
 };
 
 /**
@@ -38,7 +41,7 @@ type UseStreamMinerListUpdatesOptions = {
  * ```
  */
 const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {}) => {
-  const { filter } = options;
+  const { filter, sort } = options;
   const { handleAuthErrors } = useAuthErrors();
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -51,8 +54,15 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
     filterRef.current = filter;
   }, [filter]);
 
-  // Track previous filter for deep comparison
+  // Store sort in a ref for stable callback
+  const sortRef = useRef(sort);
+  useEffect(() => {
+    sortRef.current = sort;
+  }, [sort]);
+
+  // Track previous filter and sort for deep comparison
   const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
+  const previousSortRef = useRef<MinerSortConfig | undefined>(undefined);
 
   // Start streaming miner list updates
   const startStream = useCallback(async () => {
@@ -70,12 +80,14 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
     setIsLoading(true);
     setError(null);
 
-    // Use ref to get current filter value
+    // Use refs to get current filter and sort values
     const currentFilter = filterRef.current;
+    const currentSort = sortRef.current;
 
     try {
       const request = create(StreamMinerListUpdatesRequestSchema, {
         filter: currentFilter,
+        sort: currentSort ? [currentSort] : undefined,
         dataMode: DataMode.METADATA,
         heartbeatIntervalSeconds: 30,
         connectionId: getConnectionId(),
@@ -152,7 +164,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
     }
   }, [handleAuthErrors]);
 
-  // Start stream on mount and restart when filter actually changes (deep comparison)
+  // Start stream on mount and restart when filter or sort actually changes (deep comparison)
   useEffect(() => {
     // Check if filter actually changed using protobuf deep equality
     const filtersEqual =
@@ -161,13 +173,21 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         filter !== undefined &&
         equals(MinerListFilterSchema, previousFilterRef.current, filter));
 
-    if (filtersEqual && abortControllerRef.current) {
-      // Filter hasn't actually changed and stream is running, skip restart
+    // Check if sort actually changed using protobuf deep equality
+    const sortsEqual =
+      previousSortRef.current === sort || // Both undefined or same reference
+      (previousSortRef.current !== undefined &&
+        sort !== undefined &&
+        equals(MinerSortConfigSchema, previousSortRef.current, sort));
+
+    if (filtersEqual && sortsEqual && abortControllerRef.current) {
+      // Neither filter nor sort has actually changed and stream is running, skip restart
       return;
     }
 
-    // Update previous filter ref
+    // Update previous refs
     previousFilterRef.current = filter;
+    previousSortRef.current = sort;
 
     startStream();
 
@@ -179,7 +199,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         abortControllerRef.current = null;
       }
     };
-  }, [filter, startStream]);
+  }, [filter, sort, startStream]);
 
   return {
     isLoading,

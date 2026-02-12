@@ -728,7 +728,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 // minerStateRow extends the SQLC row with optional telemetry sort value.
 type minerStateRow struct {
 	sqlc.ListMinerStateSnapshotsRow
-	SortTelemetryValue sql.NullFloat64
+	SortValue sql.NullFloat64
 }
 
 // executeListQuery builds and executes the miner list query with all filters and sorting.
@@ -741,52 +741,28 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 	}
 	defer sqlRows.Close()
 
-	// Determine if we need to scan telemetry value
-	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
-
 	rows := make([]minerStateRow, 0, pageSize+1)
 	for sqlRows.Next() {
 		var row minerStateRow
-		if isTelemetrySort {
-			err = sqlRows.Scan(
-				&row.DeviceIdentifier,
-				&row.MacAddress,
-				&row.SerialNumber,
-				&row.Model,
-				&row.Manufacturer,
-				&row.Type,
-				&row.FirmwareVersion,
-				&row.DeviceStatus,
-				&row.StatusTimestamp,
-				&row.StatusDetails,
-				&row.IpAddress,
-				&row.Port,
-				&row.UrlScheme,
-				&row.PairingStatus,
-				&row.CursorID,
-				&row.DeviceID,
-				&row.SortTelemetryValue,
-			)
-		} else {
-			err = sqlRows.Scan(
-				&row.DeviceIdentifier,
-				&row.MacAddress,
-				&row.SerialNumber,
-				&row.Model,
-				&row.Manufacturer,
-				&row.Type,
-				&row.FirmwareVersion,
-				&row.DeviceStatus,
-				&row.StatusTimestamp,
-				&row.StatusDetails,
-				&row.IpAddress,
-				&row.Port,
-				&row.UrlScheme,
-				&row.PairingStatus,
-				&row.CursorID,
-				&row.DeviceID,
-			)
-		}
+		err = sqlRows.Scan(
+			&row.DeviceIdentifier,
+			&row.MacAddress,
+			&row.SerialNumber,
+			&row.Model,
+			&row.Manufacturer,
+			&row.Type,
+			&row.FirmwareVersion,
+			&row.DeviceStatus,
+			&row.StatusTimestamp,
+			&row.StatusDetails,
+			&row.IpAddress,
+			&row.Port,
+			&row.UrlScheme,
+			&row.PairingStatus,
+			&row.CursorID,
+			&row.DeviceID,
+			&row.SortValue,
+		)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
 		}
@@ -806,17 +782,26 @@ func (s *SQLDeviceStore) buildListQuerySQL(orgID int64, cursor *sortedCursor, pa
 	args := []any{orgID}
 	argNum := 2
 
-	// Add CTE for telemetry sorting
 	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
+	isIssuesSort := sortConfig != nil && sortConfig.IsIssuesSort()
+
+	// Add CTE for telemetry or issues sorting
 	if isTelemetrySort {
 		metricExpr := getTelemetryMetricExpression(sortConfig.Field)
 		fmt.Fprintf(&sb, latestMetricsCTE+" ", metricExpr)
+	} else if isIssuesSort {
+		sb.WriteString(errorCountsCTE + " ")
 	}
 
-	// Base query with optional telemetry column
+	// Base query with appropriate sort column
 	if isTelemetrySort {
-		sb.WriteString(minerBaseQueryWithTelemetry)
+		sb.WriteString(minerBaseQueryWithSortValue("latest_metrics.sort_value"))
 		sb.WriteString(" " + minerTelemetryJoin)
+		sb.WriteString(minerWhereClause)
+	} else if isIssuesSort {
+		sb.WriteString(minerBaseQueryWithSortValue("COALESCE(error_counts.open_error_count, 0)::float8"))
+		sb.WriteString(" " + errorCountsJoin)
+		sb.WriteString(minerWhereClause)
 	} else {
 		sb.WriteString(minerBaseQuery)
 	}
