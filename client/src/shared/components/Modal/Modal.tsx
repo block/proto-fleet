@@ -101,18 +101,18 @@ const Modal = ({
     <PageOverlay show={showModal} position="top">
       <div
         className={clsx(
-          "relative h-fit rounded-3xl bg-surface-elevated-base p-6 pt-0 shadow-300",
+          "relative h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
-            "min-w-[min(calc(100vw-theme(spacing.4)),360px)]": size === sizes.small,
-            "min-w-[min(calc(100vw-theme(spacing.4)),640px)]": size === sizes.large,
-            "min-w-[min(calc(100vw-theme(spacing.4)),1024px)]": size === sizes.extraLarge,
+            "min-w-[min(calc(100vw-(--spacing(4))),360px)]": size === sizes.small,
+            "min-w-[min(calc(100vw-(--spacing(4))),640px)]": size === sizes.large,
+            "min-w-[min(calc(100vw-(--spacing(4))),1024px)]": size === sizes.extraLarge,
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
             "max-w-[640px]": size === sizes.small,
             "max-w-[1024px]": size === sizes.large,
             "max-w-[1280px]": size === sizes.extraLarge,
             "h-full w-full max-w-full overflow-y-auto rounded-none": size === sizes.fullscreen,
-            "mt-16 max-h-[calc(100vh-theme(spacing.32))] overflow-auto": size !== sizes.fullscreen,
+            "mt-16 max-h-[calc(100vh-(--spacing(32)))] overflow-auto": size !== sizes.fullscreen,
             "pt-0": showHeader,
           },
           className,

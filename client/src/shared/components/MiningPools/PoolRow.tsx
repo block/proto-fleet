@@ -47,7 +47,7 @@ const PoolRow = ({
 
   return (
     <Row className="flex items-center justify-between gap-3" testId="pool-row">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         {priorityNumber !== undefined && (
           <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-surface-5 text-xs font-medium text-text-primary">
             {priorityNumber}
@@ -63,7 +63,7 @@ const PoolRow = ({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Button variant={variants.secondary} size={sizes.compact} text="Update" onClick={onClick} testId={testId} />
         {suffixElement}
       </div>
