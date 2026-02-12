@@ -20,7 +20,7 @@ const Tab = memo(({ id, label, value, units, isActive, onClick }: TabProps) => {
       aria-selected={isActive}
       onClick={() => onClick && onClick(id)}
       className={clsx(
-        "relative m-0 flex-1 p-6 text-left",
+        "relative m-0 flex-1 p-6 text-left phone:p-4",
         "rounded-2xl",
         isActive ? "bg-core-primary-fill **:text-text-contrast **:opacity-100" : "bg-core-primary-5",
       )}
