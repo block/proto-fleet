@@ -75,6 +75,7 @@ type MinerState struct {
 
 	// Authentication
 	AuthPublicKey string
+	Password      string
 
 	// Onboarding status - set to true when pools are configured
 	Onboarded bool
@@ -286,11 +287,26 @@ func (s *MinerState) GetAuthKey() string {
 	return s.AuthPublicKey
 }
 
-// ClearAuthKey clears the authentication public key.
+// ClearAuthKey clears the authentication public key and password to keep auth state consistent.
 func (s *MinerState) ClearAuthKey() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.AuthPublicKey = ""
+	s.Password = ""
+}
+
+// SetPassword safely sets the password.
+func (s *MinerState) SetPassword(password string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Password = password
+}
+
+// GetPassword returns the current password.
+func (s *MinerState) GetPassword() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Password
 }
 
 // SetOnboarded sets the onboarding status.

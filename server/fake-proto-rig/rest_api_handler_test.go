@@ -10,6 +10,162 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
+func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetPassword("correctPassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/change-password",
+		strings.NewReader(`{"current_password":"wrongPassword","new_password":"newPassword123"}`))
+	h.handleChangePassword(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "correctPassword" {
+		t.Fatal("password should not have changed")
+	}
+}
+
+func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetPassword("correctPassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/change-password",
+		strings.NewReader(`{"current_password":"correctPassword","new_password":"newPassword123"}`))
+	h.handleChangePassword(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "newPassword123" {
+		t.Fatalf("expected password to be updated to %q, got %q", "newPassword123", state.GetPassword())
+	}
+}
+
+func TestHandleLogin_WrongPassword_Returns401(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetPassword("correctPassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"password":"wrongPassword"}`))
+	h.handleLogin(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleLogin_CorrectPassword_Returns200(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetPassword("correctPassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"password":"correctPassword"}`))
+	h.handleLogin(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleLogin_NoPasswordSet_AcceptsAny(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"password":"anything"}`))
+	h.handleLogin(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleSetPassword_ValidPassword_StoresPassword(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password",
+		strings.NewReader(`{"password":"validPass123"}`))
+	h.handleSetPassword(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "validPass123" {
+		t.Fatalf("expected password %q, got %q", "validPass123", state.GetPassword())
+	}
+
+	if state.GetAuthKey() == "" {
+		t.Fatal("expected auth key to be set")
+	}
+}
+
+func TestHandleSetPassword_TooShort_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password",
+		strings.NewReader(`{"password":"short"}`))
+	h.handleSetPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "" {
+		t.Fatal("password should not have been set")
+	}
+}
+
+func TestHandleChangePassword_NewPasswordTooShort_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetPassword("correctPassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/change-password",
+		strings.NewReader(`{"current_password":"correctPassword","new_password":"short"}`))
+	h.handleChangePassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "correctPassword" {
+		t.Fatal("password should not have changed")
+	}
+}
+
+func TestClearAuthKey_AlsoClearsPassword(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("some-key")
+	state.SetPassword("somePassword")
+
+	state.ClearAuthKey()
+
+	if state.GetAuthKey() != "" {
+		t.Fatal("expected auth key to be cleared")
+	}
+	if state.GetPassword() != "" {
+		t.Fatal("expected password to be cleared")
+	}
+}
+
 func TestHandleTestPoolConnection_InvalidURL_Returns400(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)

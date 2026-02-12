@@ -13,6 +13,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
+const minPasswordLength = 8
+
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
 // MessageResponse is a generic response with a message
@@ -32,6 +34,17 @@ type ErrorResponse struct {
 type AuthTokens struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+}
+
+// PasswordRequest matches the OpenAPI PasswordRequest schema (used for login and set-password).
+type PasswordRequest struct {
+	Password string `json:"password"`
+}
+
+// ChangePasswordRequest matches the OpenAPI ChangePasswordRequest schema.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 // PoolConfigInner is a single pool configuration (matches OpenAPI PoolConfig_inner)
@@ -820,7 +833,18 @@ func (h *RESTApiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	// Return mock JWT tokens
+
+	var req PasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if storedPassword := h.state.GetPassword(); storedPassword != "" && req.Password != storedPassword {
+		h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid password")
+		return
+	}
+
 	h.writeJSON(w, http.StatusOK, AuthTokens{
 		AccessToken:  "mock-access-token-" + time.Now().Format(time.RFC3339),
 		RefreshToken: "mock-refresh-token-" + time.Now().Format(time.RFC3339),
@@ -852,8 +876,18 @@ func (h *RESTApiHandler) handleSetPassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Set a mock auth key to indicate password is set
-	// In a real system, this would hash and store the password
+	var req PasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if len(req.Password) < minPasswordLength {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Password must be at least 8 characters long")
+		return
+	}
+
+	h.state.SetPassword(req.Password)
 	h.state.SetAuthKey("mock-password-hash")
 
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Password set successfully"})
@@ -864,6 +898,25 @@ func (h *RESTApiHandler) handleChangePassword(w http.ResponseWriter, r *http.Req
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if storedPassword := h.state.GetPassword(); storedPassword != "" && req.CurrentPassword != storedPassword {
+		h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Current password is incorrect")
+		return
+	}
+
+	if len(req.NewPassword) < minPasswordLength {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "New password must be at least 8 characters long")
+		return
+	}
+
+	h.state.SetPassword(req.NewPassword)
+
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Password changed successfully"})
 }
 
