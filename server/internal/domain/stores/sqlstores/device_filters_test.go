@@ -2,6 +2,8 @@ package sqlstores
 
 import (
 	"database/sql"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -164,6 +166,33 @@ func TestAppendFilterSQL_ArgNumbersIncrement(t *testing.T) {
 	assert.Contains(t, sb.String(), "$5") // First filter uses starting argNum
 	assert.Contains(t, sb.String(), "$6") // Second filter increments
 	assert.Equal(t, 7, resultArgNum)
+}
+
+func TestAppendFilterSQL_NoRawSliceArgs(t *testing.T) {
+	// Verifies no raw Go slices are passed as query args.
+	// database/sql cannot convert []string or []int32 to PostgreSQL arrays —
+	// they must be wrapped with pq.Array() (which implements driver.Valuer).
+	// Raw slices cause: "sql: converting argument $N type: unsupported type []string"
+	var sb strings.Builder
+	args := []any{"initial_org_id"}
+	fp := minerFilterParams{
+		pairingStatusFilter:       validNullString(),
+		pairingStatusValues:       []string{"PAIRED"},
+		typeFilter:                validNullString(),
+		typeValues:                []string{"proto"},
+		statusFilter:              validNullString(),
+		statusValues:              []string{"ACTIVE"},
+		errorComponentTypesFilter: validNullString(),
+		errorComponentTypeValues:  []int32{1, 2},
+	}
+
+	resultArgs, _ := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	for i, arg := range resultArgs {
+		kind := reflect.TypeOf(arg).Kind()
+		assert.NotEqual(t, reflect.Slice, kind,
+			fmt.Sprintf("arg at position %d is a raw slice (%T); must be wrapped with pq.Array()", i, arg))
+	}
 }
 
 // validNullString creates a valid sql.NullString for testing.

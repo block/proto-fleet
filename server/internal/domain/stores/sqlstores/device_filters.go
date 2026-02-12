@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lib/pq"
+
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
@@ -83,13 +85,13 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, fp minerFilterParams) ([]any, int) {
 	if fp.pairingStatusFilter.Valid {
 		fmt.Fprintf(sb, " AND (%s = ANY($%d::text[]))", pairingStatusExpr, argNum)
-		args = append(args, fp.pairingStatusValues)
+		args = append(args, pq.Array(fp.pairingStatusValues))
 		argNum++
 	}
 
 	if fp.typeFilter.Valid {
 		fmt.Fprintf(sb, " AND discovered_device.type = ANY($%d::text[])", argNum)
-		args = append(args, fp.typeValues)
+		args = append(args, pq.Array(fp.typeValues))
 		argNum++
 	}
 
@@ -102,7 +104,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 				"SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 				" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s))",
 			argNum, nonActionableStatuses, argNum+1, actionableErrorSeverities)
-		args = append(args, fp.statusValues, orgID)
+		args = append(args, pq.Array(fp.statusValues), orgID)
 		argNum += 2
 
 		if fp.needsAttentionFilter {
@@ -136,7 +138,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			" AND EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 				" AND errors.closed_at IS NULL AND errors.component_type = ANY($%d::int[]))",
 			argNum)
-		args = append(args, fp.errorComponentTypeValues)
+		args = append(args, pq.Array(fp.errorComponentTypeValues))
 		argNum++
 	}
 
