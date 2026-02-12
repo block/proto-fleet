@@ -111,6 +111,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const [localMinerIds, setLocalMinerIds] = useState<string[]>([]);
   const [localMiners, setLocalMiners] = useState<Record<string, MinerStateSnapshot>>({});
   const [localTotalMiners, setLocalTotalMiners] = useState(0);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Choose state source based on scope
   const globalMinerIds = useMinerIds();
@@ -256,7 +257,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           sort: sort ? [sort] : undefined,
         });
 
-        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts } = response;
+        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts, models } = response;
 
         // Update state based on scope
         if (scope === "global") {
@@ -275,6 +276,11 @@ const useFleet = (options: UseFleetOptions = {}) => {
           store.fleet.setTotalMiners(responseTotalMiners);
           if (totalStateCounts) {
             store.fleet.setDeviceStatusCounts(totalStateCounts);
+          }
+
+          // Update available models for filter dropdown
+          if (models && models.length > 0) {
+            setAvailableModels(models);
           }
 
           // Note: Telemetry streaming is handled by the separate useEffect
@@ -513,6 +519,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),
     refetch,
+    availableModels,
   };
 };
 

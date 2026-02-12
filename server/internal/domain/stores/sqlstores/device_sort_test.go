@@ -18,7 +18,7 @@ func TestGetSortExpression(t *testing.T) {
 		{"ip address field", stores.SortFieldIPAddress, "discovered_device.ip_address"},
 		{"mac address field", stores.SortFieldMACAddress, "COALESCE(device.mac_address, '')"},
 		{"status field", stores.SortFieldStatus, "device_status.status"},
-		{"device type field", stores.SortFieldDeviceType, "discovered_device.type"},
+		{"model field", stores.SortFieldModel, "discovered_device.model"},
 		{"hashrate field", stores.SortFieldHashrate, "latest_metrics.sort_value"},
 		{"temperature field", stores.SortFieldTemperature, "latest_metrics.sort_value"},
 		{"power field", stores.SortFieldPower, "latest_metrics.sort_value"},

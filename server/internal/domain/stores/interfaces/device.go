@@ -21,7 +21,7 @@ import (
 type MinerFilter struct {
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
-	MinerType           []mm.Type
+	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 }
 
@@ -58,7 +58,7 @@ type DeviceStore interface {
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
-	GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]mm.Type, error)
+	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)

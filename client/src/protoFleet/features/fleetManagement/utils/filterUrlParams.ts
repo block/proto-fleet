@@ -1,11 +1,10 @@
 import { create } from "@bufbuild/protobuf";
-import { componentIssues, deviceStatusFilterStates, minerTypes } from "../components/MinerList/constants";
+import { componentIssues, deviceStatusFilterStates } from "../components/MinerList/constants";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
   type MinerListFilter,
   MinerListFilterSchema,
-  MinerType,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";
 
@@ -15,7 +14,7 @@ import type { ActiveFilters } from "@/shared/components/List/Filters/types";
 const URL_PARAMS = {
   STATUS: "status",
   ISSUES: "issues",
-  TYPE: "type",
+  MODEL: "model",
 } as const;
 
 /**
@@ -93,22 +92,9 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     }
   }
 
-  // Encode miner types
-  if (filter.types.length > 0) {
-    const typeValues = new Set<string>();
-    filter.types.forEach((type) => {
-      switch (type) {
-        case MinerType.PROTO_RIG:
-          typeValues.add(minerTypes.protoRig);
-          break;
-        case MinerType.BITMAIN:
-          typeValues.add(minerTypes.bitmain);
-          break;
-      }
-    });
-    if (typeValues.size > 0) {
-      params.set(URL_PARAMS.TYPE, Array.from(typeValues).sort().join(","));
-    }
+  // Encode models
+  if (filter.models.length > 0) {
+    params.set(URL_PARAMS.MODEL, filter.models.sort().join(","));
   }
 
   return params;
@@ -120,10 +106,10 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
 export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | undefined {
   const statusParam = params.get(URL_PARAMS.STATUS);
   const issuesParam = params.get(URL_PARAMS.ISSUES);
-  const typeParam = params.get(URL_PARAMS.TYPE);
+  const modelParam = params.get(URL_PARAMS.MODEL);
 
   // If no filter params, return undefined
-  if (!statusParam && !issuesParam && !typeParam) {
+  if (!statusParam && !issuesParam && !modelParam) {
     return undefined;
   }
 
@@ -176,17 +162,12 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     });
   }
 
-  // Parse miner types
-  if (typeParam) {
-    const typeValues = typeParam.split(",");
-    typeValues.forEach((value) => {
-      switch (value) {
-        case minerTypes.protoRig:
-          filter.types.push(MinerType.PROTO_RIG);
-          break;
-        case minerTypes.bitmain:
-          filter.types.push(MinerType.BITMAIN);
-          break;
+  // Parse models
+  if (modelParam) {
+    const modelValues = modelParam.split(",");
+    modelValues.forEach((model) => {
+      if (model) {
+        filter.models.push(model);
       }
     });
   }
@@ -223,12 +204,12 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.issues = Array.from(new Set(issueValues));
   }
 
-  // Parse type dropdown
-  const typeParam = params.get(URL_PARAMS.TYPE);
-  if (typeParam) {
-    const typeValues = typeParam.split(",");
+  // Parse model dropdown
+  const modelParam = params.get(URL_PARAMS.MODEL);
+  if (modelParam) {
+    const modelValues = modelParam.split(",");
     // Deduplicate to prevent infinite loops from duplicate URL params
-    activeFilters.dropdownFilters.type = Array.from(new Set(typeValues));
+    activeFilters.dropdownFilters.model = Array.from(new Set(modelValues));
   }
 
   return activeFilters;
@@ -255,10 +236,10 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
     params.set(URL_PARAMS.ISSUES, issueFilters.sort().join(","));
   }
 
-  // Encode type dropdown
-  const typeFilters = filters.dropdownFilters.type;
-  if (typeFilters && typeFilters.length > 0) {
-    params.set(URL_PARAMS.TYPE, typeFilters.sort().join(","));
+  // Encode model dropdown
+  const modelFilters = filters.dropdownFilters.model;
+  if (modelFilters && modelFilters.length > 0) {
+    params.set(URL_PARAMS.MODEL, modelFilters.sort().join(","));
   }
 
   return params;

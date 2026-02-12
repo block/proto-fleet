@@ -61,14 +61,14 @@ func TestBuildMinerFilterParams_PairingStatusUnspecifiedOnly(t *testing.T) {
 func TestBuildMinerFilterParams_CombinedFilters(t *testing.T) {
 	filter := &stores.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusActive},
-		MinerType:          []minermodels.Type{minermodels.TypeProto},
+		ModelNames:         []string{"S21 XP"},
 		PairingStatuses:    []fm.PairingStatus{fm.PairingStatus_PAIRING_STATUS_PAIRED},
 	}
 
 	params := buildMinerFilterParams(filter)
 
 	assert.True(t, params.statusFilter.Valid)
-	assert.True(t, params.typeFilter.Valid)
+	assert.True(t, params.modelFilter.Valid)
 	assert.True(t, params.pairingStatusFilter.Valid)
 }
 
@@ -133,8 +133,8 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 	fp := minerFilterParams{
 		pairingStatusFilter: validNullString(),
 		pairingStatusValues: []string{"PAIRED"},
-		typeFilter:          validNullString(),
-		typeValues:          []string{"proto"},
+		modelFilter:         validNullString(),
+		modelValues:         []string{"S21 XP"},
 		statusFilter:        validNullString(),
 		statusValues:        []string{"ACTIVE"},
 	}
@@ -143,9 +143,9 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	assert.Contains(t, sb.String(), "pairing_status")
-	assert.Contains(t, sb.String(), "discovered_device.type")
+	assert.Contains(t, sb.String(), "discovered_device.model")
 	assert.Contains(t, sb.String(), "device_status.status")
-	assert.Len(t, resultArgs, 5) // initial + pairing + type + status + orgID
+	assert.Len(t, resultArgs, 5) // initial + pairing + model + status + orgID
 	assert.Equal(t, 6, resultArgNum)
 }
 
@@ -157,8 +157,8 @@ func TestAppendFilterSQL_ArgNumbersIncrement(t *testing.T) {
 	fp := minerFilterParams{
 		pairingStatusFilter: validNullString(),
 		pairingStatusValues: []string{"PAIRED"},
-		typeFilter:          validNullString(),
-		typeValues:          []string{"proto"},
+		modelFilter:         validNullString(),
+		modelValues:         []string{"S21 XP"},
 	}
 
 	_, resultArgNum := appendFilterSQL(&sb, args, argNum, 1, fp)
@@ -178,8 +178,8 @@ func TestAppendFilterSQL_NoRawSliceArgs(t *testing.T) {
 	fp := minerFilterParams{
 		pairingStatusFilter:       validNullString(),
 		pairingStatusValues:       []string{"PAIRED"},
-		typeFilter:                validNullString(),
-		typeValues:                []string{"proto"},
+		modelFilter:               validNullString(),
+		modelValues:               []string{"S21 XP"},
 		statusFilter:              validNullString(),
 		statusValues:              []string{"ACTIVE"},
 		errorComponentTypesFilter: validNullString(),

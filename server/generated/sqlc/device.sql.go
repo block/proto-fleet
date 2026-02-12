@@ -87,13 +87,13 @@ WHERE d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
-  AND ($3::text IS NULL OR dd.type = ANY(string_to_array($3, ',')))
+  AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
 `
 
 type CountMinersByStateParams struct {
 	OrgID        int64
 	StatusFilter sql.NullString
-	TypeFilter   sql.NullString
+	ModelFilter  sql.NullString
 }
 
 type CountMinersByStateRow struct {
@@ -129,7 +129,7 @@ type CountMinersByStateRow struct {
 // - Offline/sleeping status takes precedence over errors
 // Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
 func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
-	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState, arg.OrgID, arg.StatusFilter, arg.TypeFilter)
+	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState, arg.OrgID, arg.StatusFilter, arg.ModelFilter)
 	var i CountMinersByStateRow
 	err := row.Scan(
 		&i.OfflineCount,
@@ -228,31 +228,32 @@ func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, 
 	return items, nil
 }
 
-const getAvailableMinerTypes = `-- name: GetAvailableMinerTypes :many
-SELECT DISTINCT dd.type
+const getAvailableModels = `-- name: GetAvailableModels :many
+SELECT DISTINCT dd.model
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = $1
-  AND dd.type IS NOT NULL
-ORDER BY dd.type
+  AND dd.model IS NOT NULL
+  AND dd.model != ''
+ORDER BY dd.model
 `
 
-func (q *Queries) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]string, error) {
-	rows, err := q.query(ctx, q.getAvailableMinerTypesStmt, getAvailableMinerTypes, orgID)
+func (q *Queries) GetAvailableModels(ctx context.Context, orgID int64) ([]sql.NullString, error) {
+	rows, err := q.query(ctx, q.getAvailableModelsStmt, getAvailableModels, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items []sql.NullString
 	for rows.Next() {
-		var type_ string
-		if err := rows.Scan(&type_); err != nil {
+		var model sql.NullString
+		if err := rows.Scan(&model); err != nil {
 			return nil, err
 		}
-		items = append(items, type_)
+		items = append(items, model)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -770,8 +771,8 @@ WHERE dd.org_id = $1
         OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
            = ANY($3::text[])
     )
-    -- Type filter
-    AND ($4::text IS NULL OR dd.type = ANY($5::text[]))
+    -- Model filter
+    AND ($4::text IS NULL OR dd.model = ANY($5::text[]))
     -- Status filter with error handling
     AND (
         $6::text IS NULL
@@ -820,8 +821,8 @@ type GetTotalMinerStateSnapshotsParams struct {
 	OrgID                     int64
 	PairingStatusFilter       sql.NullString
 	PairingStatusValues       []string
-	TypeFilter                sql.NullString
-	TypeValues                []string
+	ModelFilter               sql.NullString
+	ModelValues               []string
 	StatusFilter              sql.NullString
 	StatusValues              []string
 	NeedsAttentionFilter      sql.NullBool
@@ -836,8 +837,8 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 		arg.OrgID,
 		arg.PairingStatusFilter,
 		pq.Array(arg.PairingStatusValues),
-		arg.TypeFilter,
-		pq.Array(arg.TypeValues),
+		arg.ModelFilter,
+		pq.Array(arg.ModelValues),
 		arg.StatusFilter,
 		pq.Array(arg.StatusValues),
 		arg.NeedsAttentionFilter,
@@ -860,17 +861,17 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
     AND d.org_id = $1
     AND dd.is_active = TRUE
     AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
-    AND ($3::text IS NULL OR dd.type = ANY(string_to_array($3, ',')))
+    AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
 `
 
 type GetTotalPairedDevicesParams struct {
 	OrgID        int64
 	StatusFilter sql.NullString
-	TypeFilter   sql.NullString
+	ModelFilter  sql.NullString
 }
 
 func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedDevicesParams) (int64, error) {
-	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices, arg.OrgID, arg.StatusFilter, arg.TypeFilter)
+	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices, arg.OrgID, arg.StatusFilter, arg.ModelFilter)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

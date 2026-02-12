@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import MinerType from "./MinerType";
+import MinerModel from "./MinerModel";
 import { useMinerModel } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/store", () => ({
@@ -9,7 +9,7 @@ vi.mock("@/protoFleet/store", () => ({
 
 const mockUseMinerModel = vi.mocked(useMinerModel);
 
-describe("MinerType", () => {
+describe("MinerModel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -17,7 +17,7 @@ describe("MinerType", () => {
   it("renders the model name when available", () => {
     mockUseMinerModel.mockReturnValue("Proto Rig");
 
-    render(<MinerType deviceIdentifier="test-device-1" />);
+    render(<MinerModel deviceIdentifier="test-device-1" />);
 
     expect(screen.getByText("Proto Rig")).toBeInTheDocument();
   });
@@ -25,7 +25,7 @@ describe("MinerType", () => {
   it("renders placeholder when model is null", () => {
     mockUseMinerModel.mockReturnValue(null as any);
 
-    render(<MinerType deviceIdentifier="test-device-2" />);
+    render(<MinerModel deviceIdentifier="test-device-2" />);
 
     expect(screen.getByText("—")).toBeInTheDocument();
   });
@@ -33,7 +33,7 @@ describe("MinerType", () => {
   it("renders placeholder when model is undefined", () => {
     mockUseMinerModel.mockReturnValue(undefined as any);
 
-    render(<MinerType deviceIdentifier="test-device-3" />);
+    render(<MinerModel deviceIdentifier="test-device-3" />);
 
     expect(screen.getByText("—")).toBeInTheDocument();
   });
@@ -41,7 +41,7 @@ describe("MinerType", () => {
   it("renders placeholder when model is empty string", () => {
     mockUseMinerModel.mockReturnValue("");
 
-    render(<MinerType deviceIdentifier="test-device-4" />);
+    render(<MinerModel deviceIdentifier="test-device-4" />);
 
     expect(screen.getByText("—")).toBeInTheDocument();
   });
@@ -49,7 +49,7 @@ describe("MinerType", () => {
   it("renders Bitmain model names", () => {
     mockUseMinerModel.mockReturnValue("Antminer S19");
 
-    render(<MinerType deviceIdentifier="test-device-5" />);
+    render(<MinerModel deviceIdentifier="test-device-5" />);
 
     expect(screen.getByText("Antminer S19")).toBeInTheDocument();
   });
@@ -57,7 +57,7 @@ describe("MinerType", () => {
   it("calls useMinerModel with correct deviceIdentifier", () => {
     mockUseMinerModel.mockReturnValue("Proto Rig");
 
-    render(<MinerType deviceIdentifier="specific-miner-id" />);
+    render(<MinerModel deviceIdentifier="specific-miner-id" />);
 
     expect(mockUseMinerModel).toHaveBeenCalledWith("specific-miner-id");
   });

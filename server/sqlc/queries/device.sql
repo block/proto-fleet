@@ -53,7 +53,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
     AND d.org_id = $1
     AND dd.is_active = TRUE
     AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
-    AND (sqlc.narg('type_filter')::text IS NULL OR dd.type = ANY(string_to_array(sqlc.narg('type_filter'), ',')));
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')));
 
 -- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
@@ -232,7 +232,7 @@ WHERE d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
-  AND (sqlc.narg('type_filter')::text IS NULL OR dd.type = ANY(string_to_array(sqlc.narg('type_filter'), ',')));
+  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')));
 
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (
@@ -276,16 +276,17 @@ JOIN device d ON ds.device_id = d.id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL;
 
--- name: GetAvailableMinerTypes :many
-SELECT DISTINCT dd.type
+-- name: GetAvailableModels :many
+SELECT DISTINCT dd.model
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = $1
-  AND dd.type IS NOT NULL
-ORDER BY dd.type
+  AND dd.model IS NOT NULL
+  AND dd.model != ''
+ORDER BY dd.model
 ;
 
 -- name: GetOfflineDevices :many
@@ -359,8 +360,8 @@ WHERE dd.org_id = sqlc.arg('org_id')
         OR CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END
            = ANY(sqlc.arg('pairing_status_values')::text[])
     )
-    -- Type filter
-    AND (sqlc.narg('type_filter')::text IS NULL OR dd.type = ANY(sqlc.arg('type_values')::text[]))
+    -- Model filter
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(sqlc.arg('model_values')::text[]))
     -- Status filter with error handling
     AND (
         sqlc.narg('status_filter')::text IS NULL

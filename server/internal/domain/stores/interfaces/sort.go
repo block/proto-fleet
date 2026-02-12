@@ -12,7 +12,7 @@ const (
 	SortFieldIPAddress   SortField = 2
 	SortFieldMACAddress  SortField = 3
 	SortFieldStatus      SortField = 4
-	SortFieldDeviceType  SortField = 5
+	SortFieldModel       SortField = 5
 	SortFieldHashrate    SortField = 6
 	SortFieldTemperature SortField = 7
 	SortFieldPower       SortField = 8
@@ -47,7 +47,7 @@ func (c *SortConfig) IsValid() bool {
 		c.Field == SortFieldIPAddress ||
 		c.Field == SortFieldMACAddress ||
 		c.Field == SortFieldStatus ||
-		c.Field == SortFieldDeviceType ||
+		c.Field == SortFieldModel ||
 		c.Field == SortFieldHashrate ||
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||

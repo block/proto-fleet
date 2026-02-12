@@ -289,12 +289,12 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 }
 
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
-	statusFilter, typeFilter := buildFilterParams(filter)
+	statusFilter, modelFilter := buildFilterParams(filter)
 
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
 		OrgID:        orgID,
 		StatusFilter: statusFilter,
-		TypeFilter:   typeFilter,
+		ModelFilter:  modelFilter,
 	})
 }
 
@@ -320,12 +320,12 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // The SQL query handles bucket assignment with status-first priority:
 // Offline > Sleeping > Needs Attention > Hashing
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
-	statusFilter, typeFilter := buildFilterParams(filter)
+	statusFilter, modelFilter := buildFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
 		OrgID:        orgID,
 		StatusFilter: statusFilter,
-		TypeFilter:   typeFilter,
+		ModelFilter:  modelFilter,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
@@ -339,29 +339,21 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 	}, nil
 }
 
-func (s *SQLDeviceStore) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]minermodels.Type, error) {
-	typeStrings, err := s.getQueries(ctx).GetAvailableMinerTypes(ctx, orgID)
+func (s *SQLDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([]string, error) {
+	nullModels, err := s.getQueries(ctx).GetAvailableModels(ctx, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get available miner types: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
 	}
-
-	types := make([]minermodels.Type, 0, len(typeStrings))
-	for _, typeStr := range typeStrings {
-		if typeStr == ambiguousASICType {
-			continue
+	models := make([]string, 0, len(nullModels))
+	for _, m := range nullModels {
+		if m.Valid && m.String != "" {
+			models = append(models, m.String)
 		}
-		minerType, err := minermodels.TypeFromString(typeStr)
-		if err != nil {
-			// Skip unknown types
-			continue
-		}
-		types = append(types, minerType)
 	}
-
-	return types, nil
+	return models, nil
 }
 
-func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql.NullString) {
+func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter sql.NullString) {
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
 		for _, status := range filter.DeviceStatusFilter {
@@ -370,15 +362,11 @@ func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql
 		statusFilter = sql.NullString{String: strings.Join(deviceFilter, ","), Valid: true}
 	}
 
-	if filter != nil && len(filter.MinerType) > 0 {
-		typeStrings := make([]string, len(filter.MinerType))
-		for i, t := range filter.MinerType {
-			typeStrings[i] = t.String()
-		}
-		typeFilter = sql.NullString{String: strings.Join(typeStrings, ","), Valid: true}
+	if filter != nil && len(filter.ModelNames) > 0 {
+		modelFilter = sql.NullString{String: strings.Join(filter.ModelNames, ","), Valid: true}
 	}
 
-	return statusFilter, typeFilter
+	return statusFilter, modelFilter
 }
 
 func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {
@@ -704,8 +692,8 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		OrgID:                     orgID,
 		StatusFilter:              fp.statusFilter,
 		StatusValues:              fp.statusValues,
-		TypeFilter:                fp.typeFilter,
-		TypeValues:                fp.typeValues,
+		ModelFilter:               fp.modelFilter,
+		ModelValues:               fp.modelValues,
 		PairingStatusFilter:       fp.pairingStatusFilter,
 		PairingStatusValues:       fp.pairingStatusValues,
 		NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},

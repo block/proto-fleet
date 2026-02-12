@@ -52,7 +52,7 @@ beforeEach(async () => {
     hasMore: false,
     isLoading: false,
     hasInitialLoadCompleted: true,
-    setFilter: vi.fn(),
+    availableModels: [],
     loadMore: vi.fn(),
     refetch: mockRefetchAuthNeededMiners,
   });
@@ -117,7 +117,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -150,7 +150,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -177,7 +177,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -306,7 +306,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -401,7 +401,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -462,7 +462,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -509,7 +509,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -528,7 +528,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -553,7 +553,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -573,7 +573,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -619,7 +619,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -683,7 +683,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });
@@ -702,7 +702,7 @@ describe("CompleteSetup", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetchAuthNeededMiners,
       });

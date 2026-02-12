@@ -3,23 +3,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
-import {
-  componentIssues,
-  deviceStatusFilterStates,
-  minerCols,
-  minerColTitles,
-  type MinerColumn,
-  minerTypes,
-} from "./constants";
+import { componentIssues, deviceStatusFilterStates, minerCols, minerColTitles, type MinerColumn } from "./constants";
 import minerColConfig from "./minerColConfig";
 import { SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import {
-  MinerListFilterSchema,
-  MinerType,
-  PairingStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -85,13 +74,18 @@ type MinerListProps = {
    * Parent handles URL update and API request.
    */
   onSort?: (field: MinerColumn, direction: SortDirection) => void;
+  /**
+   * Available model names for the model filter dropdown.
+   * Comes from the API response.
+   */
+  availableModels?: string[];
 };
 
 // TODO: move this to state when we
 // implement row customization
 const activeCols: MinerColumn[] = [
   minerCols.name,
-  minerCols.type,
+  minerCols.model,
   minerCols.macAddress,
   minerCols.ipAddress,
   minerCols.status,
@@ -118,6 +112,7 @@ const MinerList = ({
   isLoadingMore = false,
   currentSort,
   onSort,
+  availableModels = [],
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -142,7 +137,7 @@ const MinerList = ({
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const hasActiveFilters = useMemo(() => {
-    return searchParams.has("status") || searchParams.has("issues") || searchParams.has("type");
+    return searchParams.has("status") || searchParams.has("issues") || searchParams.has("model");
   }, [searchParams]);
 
   const filters = useMemo(() => {
@@ -176,16 +171,13 @@ const MinerList = ({
       },
       {
         type: "dropdown",
-        title: "Type",
-        value: "type",
-        options: [
-          { id: minerTypes.protoRig, label: "Proto Rig" },
-          { id: minerTypes.bitmain, label: "Bitmain" },
-        ],
+        title: "Model",
+        value: "model",
+        options: availableModels.map((model) => ({ id: model, label: model })),
         defaultOptionIds: [],
       },
     ] as FilterItem[];
-  }, []);
+  }, [availableModels]);
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
@@ -216,17 +208,10 @@ const MinerList = ({
       }
       // If statusFilters is undefined or empty, don't add any status filter (show all)
 
-      const typeFilters = filters.dropdownFilters.type;
-      typeFilters?.forEach((filter) => {
-        switch (filter) {
-          case minerTypes.protoRig:
-            minerFilter.types.push(MinerType.PROTO_RIG);
-            break;
-          case minerTypes.bitmain:
-            minerFilter.types.push(MinerType.BITMAIN);
-            break;
-        }
-      });
+      const modelFilters = filters.dropdownFilters.model;
+      if (modelFilters && modelFilters.length > 0) {
+        minerFilter.models.push(...modelFilters);
+      }
       const issueFilters = filters.dropdownFilters.issues;
       issueFilters?.forEach((issue) => {
         switch (issue) {

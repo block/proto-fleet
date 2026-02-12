@@ -97,8 +97,11 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 			return string(row.DeviceStatus.DeviceStatusEnum)
 		}
 		return ""
-	case stores.SortFieldDeviceType:
-		return row.Type
+	case stores.SortFieldModel:
+		if row.Model.Valid {
+			return row.Model.String
+		}
+		return ""
 	case stores.SortFieldHashrate,
 		stores.SortFieldTemperature,
 		stores.SortFieldPower,

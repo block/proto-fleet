@@ -5,11 +5,11 @@ import MinerFirmware from "./MinerFirmware";
 import MinerIpAddress from "./MinerIpAddress";
 import MinerIssuesCell from "./MinerIssuesCell";
 import MinerMacAddress from "./MinerMacAddress";
+import MinerModel from "./MinerModel";
 import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
 import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
-import MinerType from "./MinerType";
 import { type DeviceListItem } from "./types";
 import { type ColConfig } from "@/shared/components/List/types";
 
@@ -18,8 +18,8 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
     component: (device: DeviceListItem) => <MinerName deviceIdentifier={device.deviceIdentifier} />,
     width: "min-w-20",
   },
-  [minerCols.type]: {
-    component: (device: DeviceListItem) => <MinerType deviceIdentifier={device.deviceIdentifier} />,
+  [minerCols.model]: {
+    component: (device: DeviceListItem) => <MinerModel deviceIdentifier={device.deviceIdentifier} />,
     width: "min-w-28",
   },
   [minerCols.macAddress]: {

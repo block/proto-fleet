@@ -16,8 +16,8 @@ import (
 type minerFilterParams struct {
 	statusFilter              sql.NullString
 	statusValues              []string
-	typeFilter                sql.NullString
-	typeValues                []string
+	modelFilter               sql.NullString
+	modelValues               []string
 	pairingStatusFilter       sql.NullString
 	pairingStatusValues       []string
 	needsAttentionFilter      bool
@@ -45,12 +45,10 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		}
 	}
 
-	// Type filter
-	if len(filter.MinerType) > 0 {
-		fp.typeFilter = sql.NullString{Valid: true}
-		for _, t := range filter.MinerType {
-			fp.typeValues = append(fp.typeValues, t.String())
-		}
+	// Model filter
+	if len(filter.ModelNames) > 0 {
+		fp.modelFilter = sql.NullString{Valid: true}
+		fp.modelValues = filter.ModelNames
 	}
 
 	// Pairing status filter
@@ -89,9 +87,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum++
 	}
 
-	if fp.typeFilter.Valid {
-		fmt.Fprintf(sb, " AND discovered_device.type = ANY($%d::text[])", argNum)
-		args = append(args, pq.Array(fp.typeValues))
+	if fp.modelFilter.Valid {
+		fmt.Fprintf(sb, " AND discovered_device.model = ANY($%d::text[])", argNum)
+		args = append(args, pq.Array(fp.modelValues))
 		argNum++
 	}
 

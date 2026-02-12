@@ -5,7 +5,7 @@ import { SortField } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetma
 /** Maps UI column keys to proto SortField enum values. */
 export const COLUMN_TO_SORT_FIELD: Partial<Record<MinerColumn, SortField>> = {
   [minerCols.name]: SortField.NAME,
-  [minerCols.type]: SortField.DEVICE_TYPE,
+  [minerCols.model]: SortField.MODEL,
   [minerCols.macAddress]: SortField.MAC_ADDRESS,
   [minerCols.ipAddress]: SortField.IP_ADDRESS,
   [minerCols.status]: SortField.STATUS,
@@ -23,7 +23,7 @@ export const COLUMN_TO_SORT_FIELD: Partial<Record<MinerColumn, SortField>> = {
  */
 export const SORT_FIELD_TO_COLUMN: Partial<Record<SortField, MinerColumn>> = {
   [SortField.NAME]: minerCols.name,
-  [SortField.DEVICE_TYPE]: minerCols.type,
+  [SortField.MODEL]: minerCols.model,
   [SortField.MAC_ADDRESS]: minerCols.macAddress,
   [SortField.IP_ADDRESS]: minerCols.ipAddress,
   [SortField.STATUS]: minerCols.status,

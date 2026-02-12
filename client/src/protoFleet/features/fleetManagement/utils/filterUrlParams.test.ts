@@ -48,11 +48,11 @@ describe("filterUrlParams", () => {
       expect(activeFilters.dropdownFilters.issues).toContain("fan");
     });
 
-    it("should deduplicate type values from URL", () => {
-      const params = new URLSearchParams("type=proto-rig,proto-rig");
+    it("should deduplicate model values from URL", () => {
+      const params = new URLSearchParams("model=Proto Rig,Proto Rig");
       const activeFilters = parseUrlToActiveFilters(params);
 
-      expect(activeFilters.dropdownFilters.type?.length).toBe(1);
+      expect(activeFilters.dropdownFilters.model?.length).toBe(1);
     });
   });
 });

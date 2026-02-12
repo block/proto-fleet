@@ -90,7 +90,7 @@ var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldIPAddress:   "discovered_device.ip_address",
 	stores.SortFieldMACAddress:  "COALESCE(device.mac_address, '')",
 	stores.SortFieldStatus:      "device_status.status",
-	stores.SortFieldDeviceType:  "discovered_device.type",
+	stores.SortFieldModel:       "discovered_device.model",
 	stores.SortFieldHashrate:    "latest_metrics.sort_value",
 	stores.SortFieldTemperature: "latest_metrics.sort_value",
 	stores.SortFieldPower:       "latest_metrics.sort_value",

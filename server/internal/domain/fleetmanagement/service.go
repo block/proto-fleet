@@ -273,9 +273,9 @@ func (s *Service) buildSnapshot(
 		}
 	}
 
-	availableTypes, err := s.deviceStore.GetAvailableMinerTypes(ctx, orgID)
+	availableModels, err := s.deviceStore.GetAvailableModels(ctx, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get available miner types: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
 	}
 
 	return &pb.ListMinerStateSnapshotsResponse{
@@ -283,7 +283,7 @@ func (s *Service) buildSnapshot(
 		Cursor:           nextCursor,
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
-		MinerTypes:       convertMinerTypesToProto(availableTypes),
+		Models:           availableModels,
 	}, nil
 }
 
@@ -496,22 +496,8 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.DeviceStatusFilter = statusFilters
 	}
 
-	if len(pbFilter.Types) > 0 {
-		minerTypes := make([]mm.Type, 0, len(pbFilter.Types))
-		for _, t := range pbFilter.Types {
-			switch t {
-			case pb.MinerType_MINER_TYPE_PROTO_RIG:
-				minerTypes = append(minerTypes, mm.TypeProto)
-			case pb.MinerType_MINER_TYPE_BITMAIN:
-				minerTypes = append(minerTypes, mm.TypeAntminer)
-			case pb.MinerType_MINER_TYPE_UNSPECIFIED:
-				// Skip unspecified types
-				continue
-			default:
-				return nil, fleeterror.NewInternalErrorf("unsupported miner type: %v", t)
-			}
-		}
-		filter.MinerType = minerTypes
+	if len(pbFilter.Models) > 0 {
+		filter.ModelNames = pbFilter.Models
 	}
 
 	return filter, nil
@@ -869,17 +855,17 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 		}
 	}
 
-	if len(filter.MinerType) > 0 {
-		deviceType := mm.ParseDeviceTypeOrUnknown(device.Type, device.Model)
-
-		typeMatches := false
-		for _, allowedType := range filter.MinerType {
-			if deviceType == allowedType {
-				typeMatches = true
+	// Model filter: case-sensitive exact match.
+	// Filter values should come from availableModels returned by the API.
+	if len(filter.ModelNames) > 0 {
+		modelMatches := false
+		for _, allowedModel := range filter.ModelNames {
+			if device.Model == allowedModel {
+				modelMatches = true
 				break
 			}
 		}
-		if !typeMatches {
+		if !modelMatches {
 			return false
 		}
 	}

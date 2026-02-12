@@ -102,8 +102,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
-	if q.getAvailableMinerTypesStmt, err = db.PrepareContext(ctx, getAvailableMinerTypes); err != nil {
-		return nil, fmt.Errorf("error preparing query GetAvailableMinerTypes: %w", err)
+	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
 	}
 	if q.getBatchLogStmt, err = db.PrepareContext(ctx, getBatchLog); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchLog: %w", err)
@@ -546,9 +546,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
-	if q.getAvailableMinerTypesStmt != nil {
-		if cerr := q.getAvailableMinerTypesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getAvailableMinerTypesStmt: %w", cerr)
+	if q.getAvailableModelsStmt != nil {
+		if cerr := q.getAvailableModelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAvailableModelsStmt: %w", cerr)
 		}
 	}
 	if q.getBatchLogStmt != nil {
@@ -1126,7 +1126,7 @@ type Queries struct {
 	getAllDeviceStatusDailyAggregatesStmt               *sql.Stmt
 	getAllDeviceStatusHourlyAggregatesStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
-	getAvailableMinerTypesStmt                          *sql.Stmt
+	getAvailableModelsStmt                              *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
@@ -1261,7 +1261,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllDeviceStatusDailyAggregatesStmt:               q.getAllDeviceStatusDailyAggregatesStmt,
 		getAllDeviceStatusHourlyAggregatesStmt:              q.getAllDeviceStatusHourlyAggregatesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
-		getAvailableMinerTypesStmt:                          q.getAvailableMinerTypesStmt,
+		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,

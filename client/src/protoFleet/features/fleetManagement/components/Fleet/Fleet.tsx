@@ -62,14 +62,15 @@ const Fleet = () => {
 
   // Fetch all devices (both paired and unpaired) with a single API call
   // Metadata only - telemetry is fetched separately via useBatchTelemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, hasInitialLoadCompleted, loadMore, refetch } = useFleet({
-    scope: "global",
-    pageSize: 50,
-    visibleMinerIds,
-    filter: currentFilter,
-    sort: currentSortConfig,
-    pairingStatuses: FLEET_PAIRING_STATUSES,
-  });
+  const { minerIds, totalMiners, hasMore, isLoading, hasInitialLoadCompleted, loadMore, refetch, availableModels } =
+    useFleet({
+      scope: "global",
+      pageSize: 50,
+      visibleMinerIds,
+      filter: currentFilter,
+      sort: currentSortConfig,
+      pairingStatuses: FLEET_PAIRING_STATUSES,
+    });
 
   const { fetchBatchTelemetry, resetFetchedIds } = useBatchTelemetry();
 
@@ -198,6 +199,7 @@ const Fleet = () => {
           isLoadingMore={isLoading}
           currentSort={currentSort}
           onSort={handleSort}
+          availableModels={availableModels}
         />
       </ErrorBoundary>
 

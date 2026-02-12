@@ -64,9 +64,9 @@ beforeEach(() => {
     hasMore: false,
     isLoading: false,
     hasInitialLoadCompleted: true,
-    setFilter: vi.fn(),
     loadMore: vi.fn(),
     refetch: vi.fn(),
+    availableModels: [],
   });
 
   vi.mocked(useMinerPairing).mockReturnValue({
@@ -92,6 +92,7 @@ beforeEach(() => {
     hasInitialLoadCompleted: true,
     loadMore: vi.fn(),
     refetch: mockRefetchFleet,
+    availableModels: [],
   });
 
   vi.clearAllMocks();
@@ -460,7 +461,7 @@ describe("AuthenticateMiners", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: mockRefetch,
       });
@@ -484,7 +485,7 @@ describe("AuthenticateMiners", () => {
         hasMore: false,
         isLoading: true,
         hasInitialLoadCompleted: false,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: vi.fn(),
       });
@@ -502,7 +503,7 @@ describe("AuthenticateMiners", () => {
         hasMore: false,
         isLoading: false,
         hasInitialLoadCompleted: true,
-        setFilter: vi.fn(),
+        availableModels: [],
         loadMore: vi.fn(),
         refetch: vi.fn(),
       });

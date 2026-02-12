@@ -72,19 +72,19 @@ func (mr *MockDeviceStoreMockRecorder) GetAllPairedDeviceIdentifiers(ctx interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllPairedDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetAllPairedDeviceIdentifiers), ctx)
 }
 
-// GetAvailableMinerTypes mocks base method.
-func (m *MockDeviceStore) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]models.Type, error) {
+// GetAvailableModels mocks base method.
+func (m *MockDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAvailableMinerTypes", ctx, orgID)
-	ret0, _ := ret[0].([]models.Type)
+	ret := m.ctrl.Call(m, "GetAvailableModels", ctx, orgID)
+	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetAvailableMinerTypes indicates an expected call of GetAvailableMinerTypes.
-func (mr *MockDeviceStoreMockRecorder) GetAvailableMinerTypes(ctx, orgID interface{}) *gomock.Call {
+// GetAvailableModels indicates an expected call of GetAvailableModels.
+func (mr *MockDeviceStoreMockRecorder) GetAvailableModels(ctx, orgID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailableMinerTypes", reflect.TypeOf((*MockDeviceStore)(nil).GetAvailableMinerTypes), ctx, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailableModels", reflect.TypeOf((*MockDeviceStore)(nil).GetAvailableModels), ctx, orgID)
 }
 
 // GetDeviceByDeviceIdentifier mocks base method.

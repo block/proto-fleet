@@ -20,12 +20,12 @@ type UseAuthNeededMinersReturn = {
   isLoading: boolean;
   /** Whether the initial load has completed */
   hasInitialLoadCompleted: boolean;
-  /** Update the filter for the miner list */
-  setFilter: (filter: MinerListFilter) => void;
   /** Load the next page of miners */
   loadMore: () => void;
   /** Refetch the miner list from the beginning */
   refetch: () => void;
+  /** Available models for filter dropdown */
+  availableModels: string[];
 };
 
 /**

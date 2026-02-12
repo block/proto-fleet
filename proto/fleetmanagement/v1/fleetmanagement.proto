@@ -263,8 +263,8 @@ enum SortField {
   SORT_FIELD_MAC_ADDRESS = 3;
   // Sort by device status (active first, then error, offline last)
   SORT_FIELD_STATUS = 4;
-  // Sort by device type (proto, bitmain)
-  SORT_FIELD_DEVICE_TYPE = 5;
+  // Sort by device model (e.g., "S21 XP", "M60")
+  SORT_FIELD_MODEL = 5;
   // Sort by hashrate (TH/s)
   SORT_FIELD_HASHRATE = 6;
   // Sort by temperature (Celsius)
@@ -311,9 +311,9 @@ message MinerListFilter {
   // Uses ComponentType from errors.v1 package
   repeated errors.v1.ComponentType error_component_types = 4;
 
-  // Filter by miner types (acts as OR condition)
-  // Returns miners that match any of the specified types
-  repeated MinerType types = 5;
+  // Filter by device models (acts as OR condition)
+  // Returns miners that match any of the specified model names (e.g., "S21 XP", "M60")
+  repeated string models = 5;
 
   // Filter by pairing statuses (acts as OR condition)
   // Returns miners that match any of the specified pairing statuses
@@ -348,10 +348,10 @@ message ListMinerStateSnapshotsResponse {
   // Status filters do not affect these counts, because they act as OR condition.
   telemetry.v1.MinerStateCounts total_state_counts = 4;
 
-  // List of all miner types that exist in the user's fleet
-  // Useful for dynamically building type filter options in the UI
-  // This includes all types across all pages, not just the current page
-  repeated MinerType miner_types = 5;
+  // List of all device models that exist in the user's fleet
+  // Useful for dynamically building model filter options in the UI
+  // This includes all models across all pages, not just the current page (e.g., "S21 XP", "M60")
+  repeated string models = 5;
 }
 
 // Request for getting miner state counts without fetching miner data
