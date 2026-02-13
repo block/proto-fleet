@@ -2089,11 +2089,12 @@ func (h *RESTApiHandler) generateHashboardTimeSeries(fields []string, indexes []
 	}
 
 	fieldUnits := map[string]string{
-		"hashrate":   "TH/s",
-		"inletTemp":  "°C",
-		"outletTemp": "°C",
-		"power":      "W",
-		"efficiency": "J/TH",
+		"hashrate":    "TH/s",
+		"inletTemp":   "°C",
+		"outletTemp":  "°C",
+		"temperature": "°C",
+		"power":       "W",
+		"efficiency":  "J/TH",
 	}
 
 	for _, idx := range indexes {
@@ -2121,6 +2122,8 @@ func (h *RESTApiHandler) generateHashboardTimeSeries(fields []string, indexes []
 				baseValue = defaultHashboardInletTemp
 			case "outletTemp":
 				baseValue = defaultHashboardOutletTemp
+			case "temperature":
+				baseValue = defaultHashboardAvgTemp
 			case "power":
 				baseValue = defaultHashboardPower
 			case "efficiency":

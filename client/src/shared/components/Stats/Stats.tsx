@@ -21,9 +21,9 @@ const Stats = ({
   divide,
 }: StatsProps) => {
   return (
-    <div className={clsx("grid", grid, gap, padding, divide)}>
+    <div className={clsx("grid", grid, gap, padding, divide)} data-testid="stats-container">
       {stats.map((stat) => (
-        <div key={stat.label ?? stat.value}>
+        <div key={stat.label ?? stat.value} data-testid="stats-item">
           <Stat {...stat} size={size} />
         </div>
       ))}

@@ -200,8 +200,7 @@ export function formatValue(currentValue?: Measurement, displayUnits?: boolean) 
 
   return (
     getDisplayValue(currentValue.value) +
-    (isTemperature ? "º" : "") +
-    (currentValue.units && displayUnits ? ` ${currentValue.units}` : "")
+    (currentValue.units && displayUnits ? ` ${isTemperature ? "°" : ""}${currentValue.units}` : "")
   );
 }
 

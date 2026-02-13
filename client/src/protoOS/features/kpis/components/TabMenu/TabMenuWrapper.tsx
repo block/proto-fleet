@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
-import { convertAndFormatMeasurement, useMiner, useTemperatureUnit } from "@/protoOS/store";
+import { convertAndFormatMeasurement, convertValueUnits, useMiner, useTemperatureUnit } from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type TabMenuWrapperProps = {
   basePath?: string; // Optional base path for navigation
@@ -32,8 +33,19 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
       },
       temperature: {
         name: "Temperature",
-        value: convertAndFormatMeasurement(miner?.temperature?.latest, temperatureUnit, false),
-        units: miner?.temperature ? temperatureUnit : undefined,
+        value: (() => {
+          const latest = miner?.temperature?.latest;
+          if (!latest) return undefined;
+          if (latest.value === null) return "N/A";
+          const converted = convertValueUnits(latest, temperatureUnit);
+          return converted?.value === null || converted?.value === undefined ? "N/A" : getDisplayValue(converted.value);
+        })(),
+        units:
+          miner?.temperature?.latest?.value === null
+            ? undefined
+            : miner?.temperature
+              ? "°" + temperatureUnit
+              : undefined,
         path: "/temperature",
       },
     }),

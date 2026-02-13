@@ -24,6 +24,7 @@ const Tab = memo(({ id, label, value, units, isActive, onClick }: TabProps) => {
         "rounded-2xl",
         isActive ? "bg-core-primary-fill **:text-text-contrast **:opacity-100" : "bg-core-primary-5",
       )}
+      data-testid={`tab-${id}`}
     >
       <Stat label={label} value={value} units={units} headingLevel={2} size="large" />
     </button>

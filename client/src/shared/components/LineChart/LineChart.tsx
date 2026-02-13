@@ -353,7 +353,7 @@ const LineChart = ({
   );
 
   return (
-    <div ref={chartRef} className="min-h-100 flex-1 [&_*]:!outline-none">
+    <div ref={chartRef} className="min-h-100 flex-1 [&_*]:!outline-none" data-testid="line-chart">
       <ChartWrapper className="mb-10 h-full w-full">
         {chartData?.length ? (
           <RechartsLineChart
