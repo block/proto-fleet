@@ -1,0 +1,58 @@
+name: Windows C# Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-csharp-checks.yml"
+      - "deployment-files/windows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-csharp-checks.yml"
+      - "deployment-files/windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Format, Build, and Package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Setup .NET SDK from global.json
+        uses: actions/setup-dotnet@baa11fbfe1d6520db94683bd5c7a3818018e4309 # v5.1.0
+        with:
+          global-json-file: deployment-files/windows/global.json
+
+      - name: Show .NET SDK info
+        shell: powershell
+        run: dotnet --info
+
+      - name: Restore installer solution
+        shell: powershell
+        run: dotnet restore deployment-files/windows/ProtoFleet.Installer.sln --configfile deployment-files/windows/NuGet.Config
+
+      - name: Check formatting
+        shell: powershell
+        run: dotnet format deployment-files/windows/ProtoFleet.Installer.sln --verify-no-changes --no-restore
+
+      - name: Build installer solution
+        shell: powershell
+        run: dotnet build deployment-files/windows/ProtoFleet.Installer.sln -c Release --no-restore
+
+      - name: Validate installer packaging
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          $outputDir = Join-Path $env:RUNNER_TEMP "proto-fleet-installer"
+          ./build-fleet-installer.ps1 -Configuration Release -OutputDir $outputDir
+          $installerPath = Join-Path $outputDir "installer.exe"
+          if (-not (Test-Path $installerPath)) {
+            throw "No installer executable produced at $installerPath."
+          }
+          Write-Host "Validated installer package: $installerPath"

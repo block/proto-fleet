@@ -1,124 +1,181 @@
 # Proto Fleet Windows Installer
 
-This folder contains the Windows installer script and the PS2EXE builder used to generate a standalone EXE.
+This directory contains the C# WPF Windows installer implementation:
 
-## Files
-- `fleet-installer.ps1`: The installer script (runs in PowerShell or when compiled to EXE).
-- `build-fleet-installer-exe.ps1`: Builds `fleet.exe` using PS2EXE.
-- `fleet.exe`: The compiled Windows installer (generated in CI and included in release tarballs).
-- `fleet-uninstaller.ps1`: The uninstaller script (runs in PowerShell or when compiled to EXE).
-- `build-fleet-uninstaller-exe.ps1`: Builds `uninstall.exe` using PS2EXE.
-- `uninstall.exe`: The compiled Windows uninstaller.
+- `src/ProtoFleet.Installer.App`
 
-## Build the EXE
+## Installer (v1)
+
+### Highlights
+- Single self-contained `win-x64` `.exe`
+- Native WPF wizard UI
+- Elevation at launch (UAC)
+- Native C# orchestration for WSL + Docker + deployment flow
+- Minimal CLI inputs with GUI-first behavior
+
+### Build
 From this directory:
 
 ```powershell
-./build-fleet-installer-exe.ps1
+./build-fleet-installer.ps1
 ```
 
-Defaults:
-- Input script: `./fleet-installer.ps1`
-- Output EXE: `./fleet.exe`
-
-You can override both:
+From the repository root:
 
 ```powershell
-./build-fleet-installer-exe.ps1 -InputScript .\fleet-installer.ps1 -OutputExe .\fleet.exe
+./deployment-files/windows/build-fleet-installer.ps1
 ```
 
-## Build the Uninstaller EXE
-From this directory:
+`build-fleet-installer.ps1` uses the local `NuGet.Config` in this folder, so it does not depend on user-level NuGet source setup.
+The local `global.json` pins the .NET SDK line to .NET 8 for reproducible builds even if newer SDKs (for example .NET 10) are installed.
 
+The generated executable is `installer.exe`.
+
+## Prerequisites (Windows 11)
+
+Run all setup commands in an elevated PowerShell session.
+
+### Required
+- Windows 11 (x64) with local Administrator access
+- Virtualization enabled in BIOS/UEFI
+- .NET SDK 8.x (compatible with `global.json`)
+- WSL feature support (`Microsoft-Windows-Subsystem-Linux`, `VirtualMachinePlatform`)
+
+### Install with winget (preferred)
 ```powershell
-./build-fleet-uninstaller-exe.ps1
+winget --version
+winget install --id Microsoft.DotNet.SDK.8 --source winget
+winget install --id Microsoft.WSL --source winget
 ```
 
-Defaults:
-- Input script: `./fleet-uninstaller.ps1`
-- Output EXE: `./uninstall.exe`
+After installing prerequisites, open a new elevated PowerShell session before continuing so updated PATH/tooling is available.
 
-You can override both:
+### Fallback official links
+- .NET SDK 8 downloads: `https://dotnet.microsoft.com/download/dotnet/8.0`
+- WSL install docs: `https://learn.microsoft.com/windows/wsl/install`
 
+### Quick verification
 ```powershell
-./build-fleet-uninstaller-exe.ps1 -InputScript .\fleet-uninstaller.ps1 -OutputExe .\uninstall.exe
+dotnet --info
+wsl --status
 ```
 
-## Run the installer
-You can run the script directly:
+### Optional CLI Inputs
+- `-DeploymentPath <path>`
+- `-TarballPath <path>`
+- `-ConfigFile <path>`
+- `-InstallDir <wsl-path>`
+- `-Version <label>`
+- `-Guided true|false`
+- `-ProtocolMode auto|http|https-self-signed|https-existing`
+- `-EnableAutoStartTask true|false`
 
+### Project Layout
+- `ProtoFleet.Installer.sln`
+- `src/ProtoFleet.Installer.App`: WPF UI and orchestration wiring
+- `src/ProtoFleet.Installer.Core`: workflow contracts, shared services, step runner
+- `src/ProtoFleet.Installer.Platform.Windows`: host checks, elevation, scheduled task
+- `src/ProtoFleet.Installer.Platform.Wsl`: WSL/Docker/deployment operations
+- `tests/ProtoFleet.Installer.Tests`: unit tests for parser/resolution/env logic
+
+### WSL Ubuntu Install Notes
+- The installer intentionally tries multiple WSL install command forms for Ubuntu:
+  - `wsl --install --no-launch -d <name>`
+  - `wsl --install --no-launch --distribution <name>`
+  - `wsl --install --no-launch <name>`
+- Reason: WSL behavior can vary by Windows/WSL build, and some environments accept one form while rejecting another.
+- If web-download is needed, the installer prefers concrete distro names (for example `Ubuntu-24.04`, `Ubuntu-22.04`) because the generic `Ubuntu` alias can intermittently return HTTP 404 from the web catalog.
+- Linux user provisioning behavior:
+  - Linux user provisioning is interactive-only: complete Ubuntu first-run username/password setup in the Ubuntu window.
+  - Installer shows recovery actions (`Check Setup`, `Open Ubuntu Window`, `Copy Command`) while monitoring for completion.
+- If Windows reboot is required during WSL setup, installer stores resume state and registers a one-time auto-resume entry so setup continues automatically after reboot.
+
+## Manual Test Plan (Windows 11)
+
+### Safety warning
+The reset steps below are intentionally destructive.
+- `wsl --unregister <Distro>` permanently deletes that distro filesystem.
+- Disabling Windows features requires reboot and may impact other local workflows.
+
+Back up any required WSL data before running these tests.
+
+### 1) Baseline environment capture
 ```powershell
-./fleet-installer.ps1
+dotnet --info
+wsl --status
+wsl --list --verbose
+Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux |
+  Select-Object FeatureName,State
+Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform |
+  Select-Object FeatureName,State
 ```
+Expected:
+- `dotnet` resolves and reports SDK compatible with `global.json`.
+- You can see current WSL state and installed distros.
 
-Or run the EXE:
-
+### 2) Scenario A: Fresh machine path (no Ubuntu distro)
 ```powershell
-./fleet.exe
+wsl --shutdown
+wsl --list --verbose
+# If Ubuntu exists, unregister it:
+wsl --unregister Ubuntu
+wsl --unregister Ubuntu-22.04
+wsl --unregister Ubuntu-24.04
 ```
+Then run installer and validate:
+- Installer handles distro installation path.
+- Installer reaches Linux user setup wait step and resumes correctly after setup.
 
-## Run the uninstaller
-You can run the script directly:
-
+### 3) Scenario B: Force WSL default version 1
 ```powershell
-./fleet-uninstaller.ps1
+wsl --set-default-version 1
+wsl --status
 ```
+Then run installer and validate:
+- Installer detects/fixes prerequisites for modern WSL flow.
+- Final deployment succeeds.
 
-Or run the EXE (primary UX):
-
+### 4) Scenario C: Disable WSL features entirely
 ```powershell
-./uninstall.exe
+wsl --shutdown
+dism.exe /online /disable-feature /featurename:Microsoft-Windows-Subsystem-Linux /norestart
+dism.exe /online /disable-feature /featurename:VirtualMachinePlatform /norestart
+shutdown /r /t 0
 ```
-
-## Default behavior (double‑clicking the EXE)
-If you build `fleet.exe` with no custom parameters and simply run it (double‑click), the installer uses these defaults:
-
-- `InstallDir`: `~/proto-fleet` inside WSL (resolved to the WSL user’s home)
-- `Guided`: off (no extra guided prompts)
-- `Simple setup`: on
-- `SSL mode`: HTTP (no TLS)
-- Credentials: auto‑generated for backend services
-- Deployment discovery: searches upward from the EXE location and current working directory
-- If no deployment is found: prompts for a local `proto-fleet-*.tar.gz` tarball
-- WSL/Docker: installs and configures if missing; may prompt to enable auto‑start at login
-
-## Release packaging
-Release CI includes Windows EXEs inside the deployment bundle:
-- `deployment/install/fleet.exe`
-- `deployment/install/uninstall.exe`
-
-## How it finds the deployment
-The installer looks for an extracted Proto Fleet release (deployment root) by searching upward from:
-- The EXE/script location
-- The current working directory
-
-A valid deployment root must contain:
-- `docker-compose.yaml`
-- `server/`
-- `client/`
-
-It also accepts an explicit deployment path:
-
+After reboot:
 ```powershell
-./fleet-installer.ps1 -DeploymentPath "C:\path\to\extracted\release\any\subfolder"
+Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux |
+  Select-Object FeatureName,State
+Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform |
+  Select-Object FeatureName,State
 ```
+Then run installer and validate:
+- Installer requests/enables required feature setup path.
+- Reboot-required flow is handled.
 
-Or via environment variable:
+### 5) Scenario D: Reboot/resume behavior
+Trigger any path that returns reboot required, then verify:
+- Auto-resume state is persisted.
+- Installer resumes after reboot and continues from checkpoint.
+- End state reaches completion page.
 
+### 6) Scenario E: Packaging verification
 ```powershell
-$env:PROTOFLEET_DEPLOYMENT_PATH = "C:\path\to\extracted\release"
-./fleet.exe
+.\build-fleet-installer.ps1 -Configuration Release -OutputDir .\artifacts\release-installer
+Get-ChildItem .\artifacts\release-installer\installer.exe
+```
+Expected:
+- `installer.exe` exists at the specified output directory.
+
+### 7) Restore machine defaults after testing
+```powershell
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+wsl --set-default-version 2
+shutdown /r /t 0
 ```
 
-If no extracted deployment is found, the installer will prompt for a `proto-fleet-*.tar.gz` tarball.
-
-## Common options
-- `-TarballPath`: Path to a local `proto-fleet-*.tar.gz`
-- `-ConfigFile`: Path to a `.env` config file
-- `-Guided`: Enable guided prompts
-- `-Silent`: Non-interactive mode
-- `-Force`: Skip confirmation prompts where possible
-
-## Notes
-- The installer requires Administrator privileges for WSL/Docker setup.
-- If the deployment is under a Windows path that WSL cannot access, it will copy the deployment into WSL automatically.
+After reboot, optional Ubuntu reinstall:
+```powershell
+wsl --install -d Ubuntu
+```

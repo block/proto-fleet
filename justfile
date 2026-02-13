@@ -160,3 +160,6 @@ test-proto-os-headed: test-proto-os-setup
 test-proto-os-wip: test-proto-os-setup
   npx playwright test --headed --grep @wip --project=desktop
   
+[working-directory: 'deployment-files/windows']
+build-windows-installer:
+  powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1

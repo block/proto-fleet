@@ -1,0 +1,16 @@
+<Application x:Class="ProtoFleet.Installer.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <Color x:Key="BgTop">#F7FAFC</Color>
+        <Color x:Key="BgBottom">#E6EEF5</Color>
+        <LinearGradientBrush x:Key="BackgroundGradient"
+                StartPoint="0,0"
+                EndPoint="1,1">
+            <GradientStop Color="{StaticResource BgTop}"
+                    Offset="0"/>
+            <GradientStop Color="{StaticResource BgBottom}"
+                    Offset="1"/>
+        </LinearGradientBrush>
+    </Application.Resources>
+</Application>
