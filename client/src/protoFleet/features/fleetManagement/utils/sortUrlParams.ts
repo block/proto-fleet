@@ -23,13 +23,11 @@ const URL_TO_SORT_FIELD: Record<string, SortField> = {
   name: SortField.NAME,
   ip: SortField.IP_ADDRESS,
   mac: SortField.MAC_ADDRESS,
-  status: SortField.STATUS,
   model: SortField.MODEL,
   hashrate: SortField.HASHRATE,
   temp: SortField.TEMPERATURE,
   power: SortField.POWER,
   efficiency: SortField.EFFICIENCY,
-  issues: SortField.ISSUES,
   firmware: SortField.FIRMWARE,
 };
 
@@ -41,13 +39,11 @@ const SORT_FIELD_TO_URL: Partial<Record<SortField, string>> = {
   [SortField.NAME]: "name",
   [SortField.IP_ADDRESS]: "ip",
   [SortField.MAC_ADDRESS]: "mac",
-  [SortField.STATUS]: "status",
   [SortField.MODEL]: "model",
   [SortField.HASHRATE]: "hashrate",
   [SortField.TEMPERATURE]: "temp",
   [SortField.POWER]: "power",
   [SortField.EFFICIENCY]: "efficiency",
-  [SortField.ISSUES]: "issues",
   [SortField.FIRMWARE]: "firmware",
 };
 

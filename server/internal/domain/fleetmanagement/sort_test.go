@@ -78,19 +78,6 @@ func TestParseSortConfig(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "valid config - issues",
-			input: []*pb.MinerSortConfig{
-				{
-					Field:     pb.SortField_SORT_FIELD_ISSUES,
-					Direction: pb.SortDirection_SORT_DIRECTION_ASC,
-				},
-			},
-			expected: &interfaces.SortConfig{
-				Field:     interfaces.SortFieldIssues,
-				Direction: interfaces.SortDirectionAsc,
-			},
-		},
-		{
 			name: "valid config - firmware",
 			input: []*pb.MinerSortConfig{
 				{

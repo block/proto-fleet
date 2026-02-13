@@ -14,12 +14,10 @@ const SORT_CONFIG: Partial<Record<MinerColumn, SortColumnConfig>> = {
   [minerCols.model]: { field: SortField.MODEL, defaultDirection: SORT_ASC },
   [minerCols.macAddress]: { field: SortField.MAC_ADDRESS, defaultDirection: SORT_ASC },
   [minerCols.ipAddress]: { field: SortField.IP_ADDRESS, defaultDirection: SORT_ASC },
-  [minerCols.status]: { field: SortField.STATUS, defaultDirection: SORT_ASC },
   [minerCols.hashrate]: { field: SortField.HASHRATE, defaultDirection: SORT_DESC },
   [minerCols.efficiency]: { field: SortField.EFFICIENCY, defaultDirection: SORT_DESC },
   [minerCols.powerUsage]: { field: SortField.POWER, defaultDirection: SORT_DESC },
   [minerCols.temperature]: { field: SortField.TEMPERATURE, defaultDirection: SORT_DESC },
-  [minerCols.issues]: { field: SortField.ISSUES, defaultDirection: SORT_DESC },
   [minerCols.firmware]: { field: SortField.FIRMWARE, defaultDirection: SORT_ASC },
 };
 

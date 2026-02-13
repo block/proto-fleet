@@ -1365,37 +1365,6 @@ func TestListMinerStateSnapshots_SortByHashrate(t *testing.T) {
 	require.Equal(t, "device-low-hash", miners[2].DeviceIdentifier, "lowest hashrate should be third")
 }
 
-// TestListMinerStateSnapshots_SortByIssues verifies error count sorting works
-// against the actual errors table.
-func TestListMinerStateSnapshots_SortByIssues(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	// Arrange
-	conn := testutil.GetTestDB(t)
-	ctx := t.Context()
-	store := sqlstores.NewSQLDeviceStore(conn)
-
-	setupIssuesSortingTestData(t, conn)
-
-	sortConfig := &interfaces.SortConfig{
-		Field:     interfaces.SortFieldIssues,
-		Direction: interfaces.SortDirectionDesc,
-	}
-
-	// Act
-	miners, _, _, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, nil, sortConfig)
-
-	// Assert
-	require.NoError(t, err)
-	require.Len(t, miners, 3)
-	// Device with most open errors should be first (descending order)
-	require.Equal(t, "device-many-errors", miners[0].DeviceIdentifier, "device with 3 errors should be first")
-	require.Equal(t, "device-one-error", miners[1].DeviceIdentifier, "device with 1 error should be second")
-	require.Equal(t, "device-no-errors", miners[2].DeviceIdentifier, "device with 0 errors should be last")
-}
-
 // setupTelemetrySortingTestData creates test devices with different hashrates for telemetry sorting tests.
 func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
@@ -1447,63 +1416,5 @@ func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 			VALUES (NOW(), $1, $2, 72.5, 1500.0, 15.0)
 		`, d.identifier, d.hashRate)
 		require.NoError(t, err)
-	}
-}
-
-// setupIssuesSortingTestData creates test devices with different error counts for issues sorting tests.
-func setupIssuesSortingTestData(t *testing.T, conn *sql.DB) {
-	t.Helper()
-
-	// Insert organization
-	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
-		ON CONFLICT (id) DO NOTHING
-	`)
-	require.NoError(t, err)
-
-	// Define test devices with different error counts
-	devices := []struct {
-		id         int64
-		identifier string
-		errorCount int
-	}{
-		{201, "device-no-errors", 0},
-		{202, "device-one-error", 1},
-		{203, "device-many-errors", 3},
-	}
-
-	for i, d := range devices {
-		// Insert discovered device
-		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
-			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
-		`, d.id, d.identifier, fmt.Sprintf("192.168.200.%d", 100+i))
-		require.NoError(t, err)
-
-		// Insert device
-		_, err = conn.Exec(`
-			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-			VALUES ($1, 1, $2, $3, $4)
-		`, d.id, d.id, d.identifier, fmt.Sprintf("BB:CC:DD:EE:%02d:01", i))
-		require.NoError(t, err)
-
-		// Insert device pairing
-		_, err = conn.Exec(`
-			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-			VALUES ($1, 'PAIRED', NOW())
-		`, d.id)
-		require.NoError(t, err)
-
-		// Insert open errors for this device
-		for range d.errorCount {
-			errorID := ulid.Make().String()
-			//nolint:dupword // SQL syntax requires NOW() twice for first_seen_at and last_seen_at
-			_, err = conn.Exec(`
-				INSERT INTO errors (org_id, device_id, error_id, miner_error, severity, summary, first_seen_at, last_seen_at, closed_at)
-				VALUES (1, $1, $2, 1, 1, 'Test error', NOW(), NOW(), NULL)
-			`, d.id, errorID)
-			require.NoError(t, err)
-		}
 	}
 }

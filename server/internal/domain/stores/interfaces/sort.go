@@ -6,18 +6,17 @@ import "fmt"
 type SortField int32
 
 // Sort field constants matching proto SortField enum values.
+// Note: Status (4) and Issues (10) are reserved/removed - sorting by these fields is not supported.
 const (
 	SortFieldUnspecified SortField = 0
 	SortFieldName        SortField = 1
 	SortFieldIPAddress   SortField = 2
 	SortFieldMACAddress  SortField = 3
-	SortFieldStatus      SortField = 4
 	SortFieldModel       SortField = 5
 	SortFieldHashrate    SortField = 6
 	SortFieldTemperature SortField = 7
 	SortFieldPower       SortField = 8
 	SortFieldEfficiency  SortField = 9
-	SortFieldIssues      SortField = 10
 	SortFieldFirmware    SortField = 11
 )
 
@@ -46,13 +45,11 @@ func (c *SortConfig) IsValid() bool {
 	validField := c.Field == SortFieldName ||
 		c.Field == SortFieldIPAddress ||
 		c.Field == SortFieldMACAddress ||
-		c.Field == SortFieldStatus ||
 		c.Field == SortFieldModel ||
 		c.Field == SortFieldHashrate ||
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||
 		c.Field == SortFieldEfficiency ||
-		c.Field == SortFieldIssues ||
 		c.Field == SortFieldFirmware
 
 	validDirection := c.Direction == SortDirectionAsc || c.Direction == SortDirectionDesc
@@ -70,15 +67,6 @@ func (c *SortConfig) IsTelemetrySort() bool {
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||
 		c.Field == SortFieldEfficiency
-}
-
-// IsIssuesSort returns true if sorting by issue count.
-// Issues require a separate CTE counting from the errors table.
-func (c *SortConfig) IsIssuesSort() bool {
-	if c == nil {
-		return false
-	}
-	return c.Field == SortFieldIssues
 }
 
 // IsUnspecified returns true if no sort is specified (use default).

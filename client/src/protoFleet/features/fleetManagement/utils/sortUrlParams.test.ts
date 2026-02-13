@@ -83,13 +83,11 @@ describe("sortUrlParams", () => {
         { url: "name", expected: SortField.NAME },
         { url: "ip", expected: SortField.IP_ADDRESS },
         { url: "mac", expected: SortField.MAC_ADDRESS },
-        { url: "status", expected: SortField.STATUS },
         { url: "model", expected: SortField.MODEL },
         { url: "hashrate", expected: SortField.HASHRATE },
         { url: "temp", expected: SortField.TEMPERATURE },
         { url: "power", expected: SortField.POWER },
         { url: "efficiency", expected: SortField.EFFICIENCY },
-        { url: "issues", expected: SortField.ISSUES },
         { url: "firmware", expected: SortField.FIRMWARE },
       ];
 
@@ -170,13 +168,11 @@ describe("sortUrlParams", () => {
         { field: SortField.NAME, expected: "name" },
         { field: SortField.IP_ADDRESS, expected: "ip" },
         { field: SortField.MAC_ADDRESS, expected: "mac" },
-        { field: SortField.STATUS, expected: "status" },
         { field: SortField.MODEL, expected: "model" },
         { field: SortField.HASHRATE, expected: "hashrate" },
         { field: SortField.TEMPERATURE, expected: "temp" },
         { field: SortField.POWER, expected: "power" },
         { field: SortField.EFFICIENCY, expected: "efficiency" },
-        { field: SortField.ISSUES, expected: "issues" },
         { field: SortField.FIRMWARE, expected: "firmware" },
       ];
 

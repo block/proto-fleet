@@ -89,13 +89,11 @@ var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldName:        "TRIM(COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))",
 	stores.SortFieldIPAddress:   "discovered_device.ip_address",
 	stores.SortFieldMACAddress:  "COALESCE(device.mac_address, '')",
-	stores.SortFieldStatus:      "device_status.status",
 	stores.SortFieldModel:       "discovered_device.model",
 	stores.SortFieldHashrate:    "latest_metrics.sort_value",
 	stores.SortFieldTemperature: "latest_metrics.sort_value",
 	stores.SortFieldPower:       "latest_metrics.sort_value",
 	stores.SortFieldEfficiency:  "latest_metrics.sort_value",
-	stores.SortFieldIssues:      "COALESCE(error_counts.open_error_count, 0)",
 	stores.SortFieldFirmware:    "discovered_device.firmware_version",
 }
 
@@ -114,25 +112,8 @@ var latestMetricsCTE = `WITH latest_metrics AS (
     ORDER BY device_metrics.device_identifier, device_metrics.time DESC
 )`
 
-// errorCountsCTE is the Common Table Expression that counts open errors per device
-// for issues sorting.
-// Parameter: $1 = org_id
-var errorCountsCTE = `WITH error_counts AS (
-    SELECT e.device_id, COUNT(*) as open_error_count
-    FROM errors e
-    INNER JOIN device d ON e.device_id = d.id
-        AND d.deleted_at IS NULL
-        AND d.org_id = $1
-    WHERE e.org_id = $1
-        AND e.closed_at IS NULL
-    GROUP BY e.device_id
-)`
-
 // minerTelemetryJoin is the LEFT JOIN clause for telemetry sorting queries.
 const minerTelemetryJoin = `LEFT JOIN latest_metrics ON device.device_identifier = latest_metrics.device_identifier`
-
-// errorCountsJoin is the LEFT JOIN clause for issues sorting queries.
-const errorCountsJoin = `LEFT JOIN error_counts ON device.id = error_counts.device_id`
 
 // getTelemetryMetricExpression returns the SQL expression for extracting
 // the sort value from the device_metrics table for the given sort field.
