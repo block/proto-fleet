@@ -15,8 +15,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support SLEEP action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support SLEEP action
+      await minersPage.filterRigMiners();
     });
 
     let minerIp: string;
@@ -43,8 +43,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support WAKE action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support WAKE action
+      await minersPage.filterRigMiners();
     });
 
     await test.step("Select all miners and wake them up", async () => {
@@ -61,6 +61,7 @@ test.describe("Miners", () => {
 
     await test.step("Validate none of the miners are sleeping", async () => {
       await minersPage.validateNoMinerWithStatus("Sleeping");
+      await minersPage.validateNoMinerWithStatus("Waking");
     });
   });
 
@@ -143,8 +144,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support MANAGE POWER action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support MANAGE POWER action
+      await minersPage.filterRigMiners();
     });
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
@@ -213,8 +214,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support MANAGE POWER action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support MANAGE POWER action
+      await minersPage.filterRigMiners();
     });
 
     const requestPromise1 = page.waitForRequest(/SetPowerTarget/);
@@ -292,8 +293,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support COOLING_MODE action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support COOLING_MODE action
+      await minersPage.filterRigMiners();
     });
 
     const requestPromise = page.waitForRequest(/SetCoolingMode/);
@@ -332,8 +333,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support COOLING_MODE action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support COOLING_MODE action
+      await minersPage.filterRigMiners();
     });
 
     const requestPromise = page.waitForRequest(/SetCoolingMode/);
@@ -372,8 +373,8 @@ test.describe("Miners", () => {
     await commonSteps.goToMinersPage();
 
     await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Bitmain miners don't support COOLING_MODE action
-      await minersPage.filterProtoMiners();
+      // Workaround: Antminer miners don't support COOLING_MODE action
+      await minersPage.filterRigMiners();
     });
 
     const requestPromise = page.waitForRequest(/SetCoolingMode/);

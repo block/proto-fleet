@@ -21,8 +21,8 @@ export class MinersPage extends BasePage {
     expect(await rows.count()).toBeGreaterThanOrEqual(5);
   }
 
-  private async filterMinersByType(minerType: string) {
-    await this.click("Type");
+  private async filterMinersByModel(minerType: string) {
+    await this.page.getByTestId("filter-dropdown-Model").click();
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
@@ -31,30 +31,25 @@ export class MinersPage extends BasePage {
     await this.click("Apply");
   }
 
-  async filterProtoMiners() {
-    await this.filterMinersByType("Proto Rig");
-    await this.waitForBitmainMinersToDisappear();
+  async filterRigMiners() {
+    await this.filterMinersByModel("Rig");
+    await this.waitForAntminersToDisappear();
   }
 
-  async filterBitmainMiners() {
-    await this.filterMinersByType("Bitmain");
-    await this.waitForProtoMinersToDisappear();
-  }
-
-  async waitForBitmainMinersToDisappear() {
-    const bitmainRows = this.page
+  async waitForAntminersToDisappear() {
+    const antminerRows = this.page
       .getByTestId("list-body")
       .locator("tr")
-      .filter({ has: this.page.getByTestId("name").getByText("Bitmain") });
-    await expect(bitmainRows).toHaveCount(0);
+      .filter({ has: this.page.getByTestId("name").getByText("Antminer") });
+    await expect(antminerRows).toHaveCount(0);
   }
 
-  async waitForProtoMinersToDisappear() {
-    const protoRigRows = this.page
+  async waitForRigMinersToDisappear() {
+    const rigRows = this.page
       .getByTestId("list-body")
       .locator("tr")
-      .filter({ has: this.page.getByTestId("name").getByText("Proto") });
-    await expect(protoRigRows).toHaveCount(0);
+      .filter({ has: this.page.getByTestId("name").getByText("Rig") });
+    await expect(rigRows).toHaveCount(0);
   }
 
   async getMinerRowByIp(ipAddress: string): Promise<Locator> {
@@ -237,9 +232,12 @@ export class MinersPage extends BasePage {
 
   async validateMinerStatus(ipAddress: string, expectedStatus: string) {
     const minerRow = await this.getMinerRowByIp(ipAddress);
-    await expect(minerRow.locator(`//td[@data-testid='status']`)).toHaveText(expectedStatus, {
+    const statusCell = minerRow.locator(`//td[@data-testid='status']`);
+    const spinner = statusCell.locator('[class*="animate-spin"]');
+    await expect(spinner).toBeHidden({
       timeout: PROLONGED_TIMEOUT,
     });
+    await expect(statusCell).toHaveText(expectedStatus);
   }
 
   private async waitForColumnValuesToLoad(columnTestId: string) {
