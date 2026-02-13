@@ -6,7 +6,7 @@ import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
-import { ColConfig, ColTitles, ListAction, SortDirection } from "@/shared/components/List/types";
+import { ColConfig, ColTitles, ListAction, SORT_ASC, SORT_DESC, SortDirection } from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SortIndicator from "@/shared/components/SortIndicator";
@@ -118,6 +118,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * The direction passed is the NEW direction to sort by.
    */
   onSort?: (field: ColKey, direction: SortDirection) => void;
+  /**
+   * Optional callback to determine the default sort direction for a column.
+   * Called when clicking on a column that isn't currently sorted.
+   * Defaults to "desc" if not provided.
+   */
+  getDefaultSortDirection?: (field: ColKey) => SortDirection;
 };
 
 const cellClassList = "text-left";
@@ -171,6 +177,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   sortableColumns,
   currentSort,
   onSort,
+  getDefaultSortDirection,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -511,7 +518,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       const handleHeaderClick = () => {
                         if (!isSortable || !onSort) return;
 
-                        const newDirection: SortDirection = !isCurrentSort || sortDirection === "asc" ? "desc" : "asc";
+                        let newDirection: SortDirection;
+                        if (isCurrentSort) {
+                          // Toggle direction when clicking currently sorted column
+                          newDirection = sortDirection === SORT_ASC ? SORT_DESC : SORT_ASC;
+                        } else {
+                          // Use callback or default to ASC for new columns (matches server default)
+                          newDirection = getDefaultSortDirection?.(row) ?? SORT_ASC;
+                        }
                         onSort(row, newDirection);
                       };
 
@@ -526,7 +540,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                           )}
                           key={idx}
                           style={paddingCssVariables}
-                          aria-sort={isCurrentSort ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
+                          aria-sort={
+                            isCurrentSort ? (sortDirection === SORT_ASC ? "ascending" : "descending") : undefined
+                          }
                         >
                           {isSortable ? (
                             <button
@@ -540,7 +556,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                               onMouseLeave={() => setHoveredHeader(null)}
                             >
                               {colTitles[row]}
-                              <SortIndicator direction={sortDirection} isHovering={isHovering} />
+                              <SortIndicator
+                                direction={sortDirection}
+                                defaultDirection={getDefaultSortDirection?.(row)}
+                                isHovering={isHovering}
+                              />
                             </button>
                           ) : (
                             <div

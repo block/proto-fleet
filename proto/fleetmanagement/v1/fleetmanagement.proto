@@ -198,7 +198,7 @@ message ListMinerStateSnapshotsRequest {
   MinerListFilter filter = 3;
 
   // Sort configuration for results ordering
-  // If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+  // If not specified or empty, uses default sort by name ASC (alphabetical)
   // Currently only the first element is used; multi-column sorting reserved for future
   repeated MinerSortConfig sort = 4;
 }
@@ -253,7 +253,7 @@ enum PairingStatus {
 
 // Field to sort miners by in list operations
 enum SortField {
-  // Unspecified sort field - uses default sort (discovery order)
+  // Unspecified sort field - uses default sort (name ASC)
   SORT_FIELD_UNSPECIFIED = 0;
   // Sort by miner name
   SORT_FIELD_NAME = 1;
@@ -281,7 +281,7 @@ enum SortField {
 
 // Direction to sort results
 enum SortDirection {
-  // Unspecified direction - defaults to ASC
+  // Unspecified direction - server defaults to ASC.
   SORT_DIRECTION_UNSPECIFIED = 0;
   // Ascending order (A-Z, 0-9, lowest first)
   SORT_DIRECTION_ASC = 1;
@@ -448,7 +448,7 @@ message StreamMinerListUpdatesRequest {
   string connection_id = 6;
 
   // Sort configuration for initial snapshot and additions
-  // If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+  // If not specified or empty, uses default sort by name ASC (alphabetical)
   // Currently only the first element is used; multi-column sorting reserved for future
   // Note: Real-time updates modify miners in place without re-sorting
   repeated MinerSortConfig sort = 7;

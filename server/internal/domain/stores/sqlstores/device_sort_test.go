@@ -38,14 +38,28 @@ func TestGetSortExpression(t *testing.T) {
 }
 
 func TestBuildSortOrderClause(t *testing.T) {
+	t.Run("nil config defaults to name ASC", func(t *testing.T) {
+		// Arrange & Act
+		result := buildSortOrderClause(nil)
+
+		// Assert
+		assert.Contains(t, result, "ORDER BY")
+		assert.Contains(t, result, "ASC")
+		assert.Contains(t, result, "NULLS LAST")
+		assert.Contains(t, result, "COALESCE(discovered_device.manufacturer")
+	})
+
 	t.Run("ascending sort by name", func(t *testing.T) {
+		// Arrange
 		config := &stores.SortConfig{
 			Field:     stores.SortFieldName,
 			Direction: stores.SortDirectionAsc,
 		}
 
+		// Act
 		result := buildSortOrderClause(config)
 
+		// Assert
 		assert.Contains(t, result, "ORDER BY")
 		assert.Contains(t, result, "ASC")
 		assert.Contains(t, result, "NULLS LAST")
@@ -68,7 +82,25 @@ func TestBuildSortOrderClause(t *testing.T) {
 }
 
 func TestBuildKeysetSQL(t *testing.T) {
+	t.Run("nil config uses name sort ASC", func(t *testing.T) {
+		// Arrange
+		cursor := &sortedCursor{
+			SortValue: "Bitmain S21",
+			CursorID:  50,
+		}
+
+		// Act
+		sql, args := buildKeysetSQL(cursor, nil, 2)
+
+		// Assert - uses name expression with ASC (> operator)
+		assert.Contains(t, sql, "> ($2, $3)")
+		assert.Contains(t, sql, "::text")
+		assert.Contains(t, sql, "COALESCE(discovered_device.manufacturer")
+		assert.Equal(t, []any{"Bitmain S21", int64(50)}, args)
+	})
+
 	t.Run("ascending non-telemetry sort", func(t *testing.T) {
+		// Arrange
 		cursor := &sortedCursor{
 			SortValue: "Bitmain",
 			CursorID:  50,
@@ -78,8 +110,10 @@ func TestBuildKeysetSQL(t *testing.T) {
 			Direction: stores.SortDirectionAsc,
 		}
 
+		// Act
 		sql, args := buildKeysetSQL(cursor, config, 2)
 
+		// Assert
 		assert.Contains(t, sql, "> ($2, $3)")
 		assert.Contains(t, sql, "::text")
 		assert.Equal(t, []any{"Bitmain", int64(50)}, args)

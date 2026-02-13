@@ -1,11 +1,13 @@
 import clsx from "clsx";
 
 import { ArrowDown, ArrowUp } from "@/shared/assets/icons";
-import { SortDirection } from "@/shared/components/List/types";
+import { SORT_ASC, SORT_DESC, SortDirection } from "@/shared/components/List/types";
 
 export interface SortIndicatorProps {
   /** Current sort direction. undefined means the column is not currently sorted. */
   direction?: SortDirection;
+  /** Default sort direction for this column when first clicked. Used for hover preview. */
+  defaultDirection?: SortDirection;
   /** Whether the parent element is being hovered. */
   isHovering?: boolean;
   /** Optional additional CSS classes. */
@@ -18,13 +20,18 @@ export interface SortIndicatorProps {
  *
  * Behavior:
  * - Not sorted + not hovering: invisible placeholder
- * - Not sorted + hovering: grey down arrow (DESC preview)
+ * - Not sorted + hovering: grey arrow showing defaultDirection preview
  * - Sorted ASC + not hovering: primary up arrow
  * - Sorted ASC + hovering: grey down arrow (DESC preview)
  * - Sorted DESC + not hovering: primary down arrow
  * - Sorted DESC + hovering: grey up arrow (ASC preview)
  */
-const SortIndicator = ({ direction, isHovering = false, className }: SortIndicatorProps) => {
+const SortIndicator = ({
+  direction,
+  defaultDirection = SORT_ASC,
+  isHovering = false,
+  className,
+}: SortIndicatorProps) => {
   const isSorted = direction !== undefined;
   const isVisible = isHovering || isSorted;
 
@@ -32,11 +39,12 @@ const SortIndicator = ({ direction, isHovering = false, className }: SortIndicat
   let colorClass = "";
 
   if (isHovering) {
-    const nextDirection = direction === "desc" ? "asc" : "desc";
-    ArrowIcon = nextDirection === "asc" ? ArrowUp : ArrowDown;
+    // When hovering, show preview of what clicking will do
+    const nextDirection = isSorted ? (direction === SORT_DESC ? SORT_ASC : SORT_DESC) : defaultDirection;
+    ArrowIcon = nextDirection === SORT_ASC ? ArrowUp : ArrowDown;
     colorClass = "text-text-primary-50";
   } else if (isSorted) {
-    ArrowIcon = direction === "asc" ? ArrowUp : ArrowDown;
+    ArrowIcon = direction === SORT_ASC ? ArrowUp : ArrowDown;
   } else {
     ArrowIcon = ArrowDown;
   }

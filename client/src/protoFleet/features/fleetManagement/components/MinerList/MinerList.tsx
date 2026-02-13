@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { componentIssues, deviceStatusFilterStates, minerCols, minerColTitles, type MinerColumn } from "./constants";
 import minerColConfig from "./minerColConfig";
-import { SORTABLE_COLUMNS } from "./sortConfig";
+import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -23,7 +23,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
-import type { SortDirection } from "@/shared/components/List/types";
+import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -324,6 +324,7 @@ const MinerList = ({
           sortableColumns={sortableColumnsSet}
           currentSort={currentSort}
           onSort={onSort}
+          getDefaultSortDirection={getDefaultSortDirection}
         />
       )}
     </>

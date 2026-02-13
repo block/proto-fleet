@@ -1,39 +1,43 @@
 import { minerCols, type MinerColumn } from "./constants";
 
 import { SortField } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 
-/** Maps UI column keys to proto SortField enum values. */
-export const COLUMN_TO_SORT_FIELD: Partial<Record<MinerColumn, SortField>> = {
-  [minerCols.name]: SortField.NAME,
-  [minerCols.model]: SortField.MODEL,
-  [minerCols.macAddress]: SortField.MAC_ADDRESS,
-  [minerCols.ipAddress]: SortField.IP_ADDRESS,
-  [minerCols.status]: SortField.STATUS,
-  [minerCols.hashrate]: SortField.HASHRATE,
-  [minerCols.efficiency]: SortField.EFFICIENCY,
-  [minerCols.powerUsage]: SortField.POWER,
-  [minerCols.temperature]: SortField.TEMPERATURE,
-  [minerCols.issues]: SortField.ISSUES,
-  [minerCols.firmware]: SortField.FIRMWARE,
+type SortColumnConfig = {
+  field: SortField;
+  defaultDirection: SortDirection;
 };
 
-/**
- * Reverse mapping from SortField to column key.
- * Used when parsing sort from URL.
- */
-export const SORT_FIELD_TO_COLUMN: Partial<Record<SortField, MinerColumn>> = {
-  [SortField.NAME]: minerCols.name,
-  [SortField.MODEL]: minerCols.model,
-  [SortField.MAC_ADDRESS]: minerCols.macAddress,
-  [SortField.IP_ADDRESS]: minerCols.ipAddress,
-  [SortField.STATUS]: minerCols.status,
-  [SortField.HASHRATE]: minerCols.hashrate,
-  [SortField.EFFICIENCY]: minerCols.efficiency,
-  [SortField.POWER]: minerCols.powerUsage,
-  [SortField.TEMPERATURE]: minerCols.temperature,
-  [SortField.ISSUES]: minerCols.issues,
-  [SortField.FIRMWARE]: minerCols.firmware,
+/** Single source of truth for sortable column configuration. */
+const SORT_CONFIG: Partial<Record<MinerColumn, SortColumnConfig>> = {
+  [minerCols.name]: { field: SortField.NAME, defaultDirection: SORT_ASC },
+  [minerCols.model]: { field: SortField.MODEL, defaultDirection: SORT_ASC },
+  [minerCols.macAddress]: { field: SortField.MAC_ADDRESS, defaultDirection: SORT_ASC },
+  [minerCols.ipAddress]: { field: SortField.IP_ADDRESS, defaultDirection: SORT_ASC },
+  [minerCols.status]: { field: SortField.STATUS, defaultDirection: SORT_ASC },
+  [minerCols.hashrate]: { field: SortField.HASHRATE, defaultDirection: SORT_DESC },
+  [minerCols.efficiency]: { field: SortField.EFFICIENCY, defaultDirection: SORT_DESC },
+  [minerCols.powerUsage]: { field: SortField.POWER, defaultDirection: SORT_DESC },
+  [minerCols.temperature]: { field: SortField.TEMPERATURE, defaultDirection: SORT_DESC },
+  [minerCols.issues]: { field: SortField.ISSUES, defaultDirection: SORT_DESC },
+  [minerCols.firmware]: { field: SortField.FIRMWARE, defaultDirection: SORT_ASC },
 };
 
-/** Columns that support sorting (derived from mapping) */
-export const SORTABLE_COLUMNS = Object.keys(COLUMN_TO_SORT_FIELD) as MinerColumn[];
+/** Columns that support sorting. */
+export const SORTABLE_COLUMNS = Object.keys(SORT_CONFIG) as MinerColumn[];
+
+/** Gets the SortField for a column, or undefined if not sortable. */
+export function getSortField(column: MinerColumn): SortField | undefined {
+  return SORT_CONFIG[column]?.field;
+}
+
+/** Gets the column for a SortField, or undefined if not found. Used when parsing sort from URL. */
+export function getColumnForSortField(field: SortField): MinerColumn | undefined {
+  const entry = Object.entries(SORT_CONFIG).find(([, config]) => config.field === field);
+  return entry?.[0] as MinerColumn | undefined;
+}
+
+/** Gets the default sort direction for a column. */
+export function getDefaultSortDirection(column: MinerColumn): SortDirection {
+  return SORT_CONFIG[column]?.defaultDirection ?? SORT_ASC;
+}

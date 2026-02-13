@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import {
+  type MinerSortConfig,
   MinerSortConfigSchema,
   PairingStatus,
   SortDirection,
+  SortField,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
@@ -15,8 +17,8 @@ import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdate
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import {
-  COLUMN_TO_SORT_FIELD,
-  SORT_FIELD_TO_COLUMN,
+  getColumnForSortField,
+  getSortField,
 } from "@/protoFleet/features/fleetManagement/components/MinerList/sortConfig";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
@@ -30,9 +32,16 @@ import {
   useNotifyPairingCompleted,
 } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
+import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
 // Stable reference to prevent re-renders
 const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
+
+// Default sort: Name ascending (alphabetical A-Z)
+const DEFAULT_SORT_CONFIG: MinerSortConfig = create(MinerSortConfigSchema, {
+  field: SortField.NAME,
+  direction: SortDirection.ASC,
+});
 
 const Fleet = () => {
   const navigate = useNavigate();
@@ -44,16 +53,16 @@ const Fleet = () => {
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
   const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
-  const currentSortConfig = useMemo(() => parseSortFromURL(searchParams), [searchParams]);
+  const currentSortConfig = useMemo(() => parseSortFromURL(searchParams) ?? DEFAULT_SORT_CONFIG, [searchParams]);
 
   // Convert proto SortField to MinerColumn for UI component
   const currentSort = useMemo(() => {
     if (!currentSortConfig) return undefined;
-    const column = SORT_FIELD_TO_COLUMN[currentSortConfig.field];
+    const column = getColumnForSortField(currentSortConfig.field);
     if (!column) return undefined;
     return {
       field: column,
-      direction: currentSortConfig.direction === SortDirection.ASC ? "asc" : "desc",
+      direction: currentSortConfig.direction === SortDirection.ASC ? SORT_ASC : SORT_DESC,
     } as const;
   }, [currentSortConfig]);
 
@@ -160,10 +169,10 @@ const Fleet = () => {
 
   const handleSort = useCallback(
     (column: MinerColumn, direction: "asc" | "desc") => {
-      const sortField = COLUMN_TO_SORT_FIELD[column];
+      const sortField = getSortField(column);
       if (!sortField) return;
 
-      const sortDirection = direction === "asc" ? SortDirection.ASC : SortDirection.DESC;
+      const sortDirection = direction === SORT_ASC ? SortDirection.ASC : SortDirection.DESC;
       const newSortConfig = create(MinerSortConfigSchema, { field: sortField, direction: sortDirection });
 
       // Update URL with new sort params (preserves existing filter params)

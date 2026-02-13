@@ -1003,7 +1003,7 @@ describe("List", () => {
   });
 
   describe("sorting", () => {
-    it("calls onSort with DESC direction when clicking unsorted column", () => {
+    it("calls onSort with ASC direction when clicking unsorted column (default)", () => {
       // Arrange
       const onSort = vi.fn();
       const sortableColumns = new Set<keyof TestItem>(["name", "value"]);
@@ -1024,8 +1024,8 @@ describe("List", () => {
       const headerButtons = getByTestId("list-header").querySelectorAll("button");
       fireEvent.click(headerButtons[0]); // Click "name" column
 
-      // Assert
-      expect(onSort).toHaveBeenCalledWith("name", "desc");
+      // Assert - defaults to ASC when no getDefaultSortDirection callback provided
+      expect(onSort).toHaveBeenCalledWith("name", "asc");
     });
 
     it("toggles direction from DESC to ASC when clicking currently sorted column", () => {

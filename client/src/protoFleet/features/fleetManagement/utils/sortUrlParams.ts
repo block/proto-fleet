@@ -5,6 +5,7 @@ import {
   SortDirection,
   SortField,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
 /**
  * URL parameter keys for sort state
@@ -71,7 +72,7 @@ export function parseSortFromURL(params: URLSearchParams): MinerSortConfig | und
   }
 
   const dirParam = params.get(URL_PARAMS.DIR);
-  const direction = dirParam === "asc" ? SortDirection.ASC : SortDirection.DESC;
+  const direction = dirParam === SORT_ASC ? SortDirection.ASC : SortDirection.DESC;
 
   return create(MinerSortConfigSchema, { field, direction });
 }
@@ -98,5 +99,5 @@ export function encodeSortToURL(params: URLSearchParams, sort: MinerSortConfig |
   }
 
   params.set(URL_PARAMS.SORT, urlField);
-  params.set(URL_PARAMS.DIR, sort.direction === SortDirection.ASC ? "asc" : "desc");
+  params.set(URL_PARAMS.DIR, sort.direction === SortDirection.ASC ? SORT_ASC : SORT_DESC);
 }

@@ -314,7 +314,7 @@ export type ListMinerStateSnapshotsRequest = Message<"fleetmanagement.v1.ListMin
 
   /**
    * Sort configuration for results ordering
-   * If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+   * If not specified or empty, uses default sort by name ASC (alphabetical)
    * Currently only the first element is used; multi-column sorting reserved for future
    *
    * @generated from field: repeated fleetmanagement.v1.MinerSortConfig sort = 4;
@@ -741,7 +741,7 @@ export type StreamMinerListUpdatesRequest = Message<"fleetmanagement.v1.StreamMi
 
   /**
    * Sort configuration for initial snapshot and additions
-   * If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+   * If not specified or empty, uses default sort by name ASC (alphabetical)
    * Currently only the first element is used; multi-column sorting reserved for future
    * Note: Real-time updates modify miners in place without re-sorting
    *
@@ -1357,7 +1357,7 @@ export const PairingStatusSchema: GenEnum<PairingStatus> =
  */
 export enum SortField {
   /**
-   * Unspecified sort field - uses default sort (discovery order)
+   * Unspecified sort field - uses default sort (name ASC)
    *
    * @generated from enum value: SORT_FIELD_UNSPECIFIED = 0;
    */
@@ -1453,7 +1453,7 @@ export const SortFieldSchema: GenEnum<SortField> = /*@__PURE__*/ enumDesc(file_f
  */
 export enum SortDirection {
   /**
-   * Unspecified direction - defaults to ASC
+   * Unspecified direction - server defaults to ASC.
    *
    * @generated from enum value: SORT_DIRECTION_UNSPECIFIED = 0;
    */

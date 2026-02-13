@@ -14,9 +14,20 @@ describe("SortIndicator", () => {
       expect(indicator).toHaveClass("invisible");
     });
 
-    it("renders grey down arrow when hovering (DESC preview)", () => {
+    it("renders grey arrow showing defaultDirection when hovering (defaults to DESC)", () => {
       // Act
       const { container } = render(<SortIndicator direction={undefined} isHovering />);
+
+      // Assert
+      const indicator = container.querySelector("div");
+      expect(indicator).toHaveClass("text-text-primary-50");
+      // Default is DESC, so should show down arrow
+      expect(container.querySelector("svg")).toBeTruthy();
+    });
+
+    it("renders grey up arrow when hovering with defaultDirection=asc", () => {
+      // Act
+      const { container } = render(<SortIndicator direction={undefined} defaultDirection="asc" isHovering />);
 
       // Assert
       const indicator = container.querySelector("div");

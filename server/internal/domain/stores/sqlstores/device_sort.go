@@ -15,19 +15,21 @@ func getSortExpression(field stores.SortField) string {
 	return ""
 }
 
+// defaultSortExpr is the expression used for default sorting (name field).
+// This ensures consistent default sort behavior even when no sort config is provided.
+var defaultSortExpr = sortExpressions[stores.SortFieldName]
+
 func buildSortOrderClause(sortConfig *stores.SortConfig) string {
-	if sortConfig == nil || sortConfig.IsUnspecified() {
-		return "ORDER BY discovered_device.id ASC"
-	}
-
-	sortExpr := getSortExpression(sortConfig.Field)
-	if sortExpr == "" {
-		return "ORDER BY discovered_device.id ASC"
-	}
-
+	sortExpr := defaultSortExpr
 	direction := "ASC"
-	if sortConfig.Direction == stores.SortDirectionDesc {
-		direction = "DESC"
+
+	if sortConfig != nil && !sortConfig.IsUnspecified() {
+		if expr := getSortExpression(sortConfig.Field); expr != "" {
+			sortExpr = expr
+			if sortConfig.Direction == stores.SortDirectionDesc {
+				direction = "DESC"
+			}
+		}
 	}
 
 	return fmt.Sprintf("ORDER BY (%s) %s NULLS LAST, discovered_device.id %s", sortExpr, direction, direction)
@@ -39,22 +41,26 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 		return "", nil
 	}
 
-	if sortConfig == nil || sortConfig.IsUnspecified() {
-		return fmt.Sprintf("AND discovered_device.id > $%d", argNum), []any{cursor.CursorID}
-	}
-
-	sortExpr := getSortExpression(sortConfig.Field)
-	if sortExpr == "" {
-		return fmt.Sprintf("AND discovered_device.id > $%d", argNum), []any{cursor.CursorID}
+	// Use name sort as default for consistency with buildSortOrderClause
+	sortExpr := defaultSortExpr
+	direction := stores.SortDirectionAsc
+	isNullableSort := false
+	if sortConfig != nil && !sortConfig.IsUnspecified() {
+		expr := getSortExpression(sortConfig.Field)
+		if expr != "" {
+			sortExpr = expr
+			direction = sortConfig.Direction
+			isNullableSort = sortConfig.IsTelemetrySort() || sortConfig.IsIssuesSort() || canSortFieldBeNull(sortConfig.Field)
+		}
 	}
 
 	operator := ">"
-	if sortConfig.Direction == stores.SortDirectionDesc {
+	if direction == stores.SortDirectionDesc {
 		operator = "<"
 	}
 
 	// Handle NULL values for sorts on nullable columns
-	if sortConfig.IsTelemetrySort() || sortConfig.IsIssuesSort() || canSortFieldBeNull(sortConfig.Field) {
+	if isNullableSort {
 		if cursor.SortValue == "" {
 			// Cursor row had NULL value - only compare IDs among NULLs
 			return fmt.Sprintf("AND (%s IS NULL AND discovered_device.id %s $%d)", sortExpr, operator, argNum), []any{cursor.CursorID}
@@ -74,11 +80,13 @@ func canSortFieldBeNull(field stores.SortField) bool {
 
 // extractSortValueForCursorFromRow extracts the sort field value from an extended row for cursor encoding.
 func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.SortConfig) string {
-	if sortConfig == nil {
-		return ""
+	field := stores.SortFieldName
+	if sortConfig != nil && !sortConfig.IsUnspecified() {
+		field = sortConfig.Field
 	}
-	switch sortConfig.Field {
-	case stores.SortFieldName:
+
+	switch field {
+	case stores.SortFieldUnspecified, stores.SortFieldName:
 		manufacturer := ""
 		if row.Manufacturer.Valid {
 			manufacturer = row.Manufacturer.String
@@ -117,8 +125,7 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 			return row.FirmwareVersion.String
 		}
 		return ""
-	case stores.SortFieldUnspecified:
+	default:
 		return ""
 	}
-	return ""
 }

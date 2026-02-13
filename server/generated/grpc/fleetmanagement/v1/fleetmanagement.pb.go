@@ -322,7 +322,7 @@ func (PairingStatus) EnumDescriptor() ([]byte, []int) {
 type SortField int32
 
 const (
-	// Unspecified sort field - uses default sort (discovery order)
+	// Unspecified sort field - uses default sort (name ASC)
 	SortField_SORT_FIELD_UNSPECIFIED SortField = 0
 	// Sort by miner name
 	SortField_SORT_FIELD_NAME SortField = 1
@@ -411,7 +411,7 @@ func (SortField) EnumDescriptor() ([]byte, []int) {
 type SortDirection int32
 
 const (
-	// Unspecified direction - defaults to ASC
+	// Unspecified direction - server defaults to ASC.
 	SortDirection_SORT_DIRECTION_UNSPECIFIED SortDirection = 0
 	// Ascending order (A-Z, 0-9, lowest first)
 	SortDirection_SORT_DIRECTION_ASC SortDirection = 1
@@ -819,7 +819,7 @@ type ListMinerStateSnapshotsRequest struct {
 	// Filter criteria for the miners to return
 	Filter *MinerListFilter `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
 	// Sort configuration for results ordering
-	// If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+	// If not specified or empty, uses default sort by name ASC (alphabetical)
 	// Currently only the first element is used; multi-column sorting reserved for future
 	Sort          []*MinerSortConfig `protobuf:"bytes,4,rep,name=sort,proto3" json:"sort,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1559,7 +1559,7 @@ type StreamMinerListUpdatesRequest struct {
 	// Client should generate a UUID once per tab lifecycle and reuse it for all requests.
 	ConnectionId string `protobuf:"bytes,6,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
 	// Sort configuration for initial snapshot and additions
-	// If not specified or empty, uses default sort by discovered_device.id ASC (discovery order)
+	// If not specified or empty, uses default sort by name ASC (alphabetical)
 	// Currently only the first element is used; multi-column sorting reserved for future
 	// Note: Real-time updates modify miners in place without re-sorting
 	Sort          []*MinerSortConfig `protobuf:"bytes,7,rep,name=sort,proto3" json:"sort,omitempty"`
