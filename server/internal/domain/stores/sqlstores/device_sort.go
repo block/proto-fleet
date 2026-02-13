@@ -50,7 +50,7 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 		if expr != "" {
 			sortExpr = expr
 			direction = sortConfig.Direction
-			isNullableSort = sortConfig.IsTelemetrySort() || sortConfig.IsIssuesSort() || canSortFieldBeNull(sortConfig.Field)
+			isNullableSort = sortConfig.IsTelemetrySort() || canSortFieldBeNull(sortConfig.Field)
 		}
 	}
 
@@ -75,7 +75,7 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 
 // canSortFieldBeNull returns true for non-telemetry fields that can have NULL values.
 func canSortFieldBeNull(field stores.SortField) bool {
-	return field == stores.SortFieldStatus || field == stores.SortFieldFirmware
+	return field == stores.SortFieldFirmware
 }
 
 // extractSortValueForCursorFromRow extracts the sort field value from an extended row for cursor encoding.
@@ -100,11 +100,6 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 		return row.IpAddress
 	case stores.SortFieldMACAddress:
 		return row.MacAddress
-	case stores.SortFieldStatus:
-		if row.DeviceStatus.Valid {
-			return string(row.DeviceStatus.DeviceStatusEnum)
-		}
-		return ""
 	case stores.SortFieldModel:
 		if row.Model.Valid {
 			return row.Model.String
@@ -113,9 +108,8 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 	case stores.SortFieldHashrate,
 		stores.SortFieldTemperature,
 		stores.SortFieldPower,
-		stores.SortFieldEfficiency,
-		stores.SortFieldIssues:
-		// These sorts use the sort_value column
+		stores.SortFieldEfficiency:
+		// Telemetry sorts use the sort_value column
 		if row.SortValue.Valid {
 			return strconv.FormatFloat(row.SortValue.Float64, 'f', -1, 64)
 		}

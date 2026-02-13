@@ -771,24 +771,17 @@ func (s *SQLDeviceStore) buildListQuerySQL(orgID int64, cursor *sortedCursor, pa
 	argNum := 2
 
 	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
-	isIssuesSort := sortConfig != nil && sortConfig.IsIssuesSort()
 
-	// Add CTE for telemetry or issues sorting
+	// Add CTE for telemetry sorting
 	if isTelemetrySort {
 		metricExpr := getTelemetryMetricExpression(sortConfig.Field)
 		fmt.Fprintf(&sb, latestMetricsCTE+" ", metricExpr)
-	} else if isIssuesSort {
-		sb.WriteString(errorCountsCTE + " ")
 	}
 
 	// Base query with appropriate sort column
 	if isTelemetrySort {
 		sb.WriteString(minerBaseQueryWithSortValue("latest_metrics.sort_value"))
 		sb.WriteString(" " + minerTelemetryJoin)
-		sb.WriteString(minerWhereClause)
-	} else if isIssuesSort {
-		sb.WriteString(minerBaseQueryWithSortValue("COALESCE(error_counts.open_error_count, 0)::float8"))
-		sb.WriteString(" " + errorCountsJoin)
 		sb.WriteString(minerWhereClause)
 	} else {
 		sb.WriteString(minerBaseQuery)

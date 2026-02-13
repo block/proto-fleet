@@ -33,11 +33,6 @@ func TestSortConfig_IsValid(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "valid config - issues",
-			config:   &SortConfig{Field: SortFieldIssues, Direction: SortDirectionAsc},
-			expected: true,
-		},
-		{
 			name:     "valid config - firmware",
 			config:   &SortConfig{Field: SortFieldFirmware, Direction: SortDirectionDesc},
 			expected: true,
@@ -128,11 +123,6 @@ func TestSortConfig_IsTelemetrySort(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "issues field",
-			config:   &SortConfig{Field: SortFieldIssues},
-			expected: false, // Issues uses separate error_counts CTE
-		},
-		{
 			name:     "firmware field",
 			config:   &SortConfig{Field: SortFieldFirmware},
 			expected: false,
@@ -142,46 +132,6 @@ func TestSortConfig_IsTelemetrySort(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, tc.config.IsTelemetrySort())
-		})
-	}
-}
-
-func TestSortConfig_IsIssuesSort(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *SortConfig
-		expected bool
-	}{
-		{
-			name:     "nil config",
-			config:   nil,
-			expected: false,
-		},
-		{
-			name:     "name field",
-			config:   &SortConfig{Field: SortFieldName},
-			expected: false,
-		},
-		{
-			name:     "hashrate field",
-			config:   &SortConfig{Field: SortFieldHashrate},
-			expected: false,
-		},
-		{
-			name:     "issues field",
-			config:   &SortConfig{Field: SortFieldIssues},
-			expected: true,
-		},
-		{
-			name:     "firmware field",
-			config:   &SortConfig{Field: SortFieldFirmware},
-			expected: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.config.IsIssuesSort())
 		})
 	}
 }
