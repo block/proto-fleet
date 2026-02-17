@@ -154,9 +154,13 @@ export const useMinerActions = ({
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
   const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
+  const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
   const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
+  const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
   const [securityFilteredSelector, setSecurityFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
+  const [poolFilteredSelector, setPoolFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
+  const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string } | undefined>(
     undefined,
   );
@@ -518,13 +522,22 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
-  // Security (password update) handlers
-  const handleFleetAuthenticated = useCallback((username: string, password: string) => {
-    // Store Fleet credentials for use in Step 2
-    setFleetCredentials({ username, password });
-    setShowAuthenticateFleetModal(false);
-    setShowUpdatePasswordModal(true);
-  }, []);
+  // Fleet authentication handler (shared for security and pool)
+  const handleFleetAuthenticated = useCallback(
+    (username: string, password: string) => {
+      // Store Fleet credentials
+      setFleetCredentials({ username, password });
+      setShowAuthenticateFleetModal(false);
+
+      // Show the appropriate next modal based on purpose
+      if (authenticationPurpose === "security") {
+        setShowUpdatePasswordModal(true);
+      } else if (authenticationPurpose === "pool") {
+        setShowPoolSelectionPage(true);
+      }
+    },
+    [authenticationPurpose],
+  );
 
   const handlePasswordConfirm = useCallback(
     (currentPassword: string, newPassword: string) => {
@@ -589,8 +602,11 @@ export const useMinerActions = ({
 
   const handleAuthDismiss = useCallback(() => {
     setShowAuthenticateFleetModal(false);
+    setAuthenticationPurpose(null);
     setSecurityFilteredSelector(undefined);
     setSecurityFilteredDeviceIds(undefined);
+    setPoolFilteredSelector(undefined);
+    setPoolFilteredDeviceIds(undefined);
     setFleetCredentials(undefined);
     setCurrentAction(null);
     onActionComplete?.();
@@ -714,6 +730,9 @@ export const useMinerActions = ({
 
   const handleCancel = useCallback(() => {
     setCurrentAction(null);
+    setShowPoolSelectionPage(false);
+    setFleetCredentials(undefined);
+    setAuthenticationPurpose(null);
     onActionComplete?.();
   }, [onActionComplete]);
 
@@ -841,9 +860,28 @@ export const useMinerActions = ({
     // };
 
     // Settings actions handlers
-    const handleMiningPool = () => {
-      setCurrentAction(settingsActions.miningPool);
+    const handleMiningPool = async () => {
       onActionStart?.();
+
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        settingsActions.miningPool,
+        (filteredSelector, filteredDeviceIds) => {
+          // Store filtered values for use after authentication
+          setPoolFilteredSelector(filteredSelector);
+          setPoolFilteredDeviceIds(filteredDeviceIds);
+          setCurrentAction(settingsActions.miningPool);
+          setAuthenticationPurpose("pool");
+          setShowAuthenticateFleetModal(true);
+        },
+      );
+      if (!modalShown) {
+        // No filtering needed - clear any stale filtered values
+        setPoolFilteredSelector(undefined);
+        setPoolFilteredDeviceIds(undefined);
+        setCurrentAction(settingsActions.miningPool);
+        setAuthenticationPurpose("pool");
+        setShowAuthenticateFleetModal(true);
+      }
     };
 
     const handleCoolingMode = async () => {
@@ -894,6 +932,7 @@ export const useMinerActions = ({
           setSecurityFilteredSelector(filteredSelector);
           setSecurityFilteredDeviceIds(filteredDeviceIds);
           setCurrentAction(settingsActions.security);
+          setAuthenticationPurpose("security");
           setShowAuthenticateFleetModal(true);
         },
       );
@@ -902,9 +941,34 @@ export const useMinerActions = ({
         setSecurityFilteredSelector(undefined);
         setSecurityFilteredDeviceIds(undefined);
         setCurrentAction(settingsActions.security);
+        setAuthenticationPurpose("security");
         setShowAuthenticateFleetModal(true);
       }
     };
+
+    // TODO: Firmware update action - when implemented, add Fleet user authentication requirement
+    // similar to handleMiningPool and handleManageSecurity patterns above.
+    // Example implementation:
+    // const handleFirmwareUpdate = async () => {
+    //   onActionStart?.();
+    //   const modalShown = await checkAndShowUnsupportedMinersModal(
+    //     deviceActions.firmwareUpdate, // Add to constants when implemented
+    //     (filteredSelector, filteredDeviceIds) => {
+    //       setFirmwareFilteredSelector(filteredSelector);
+    //       setFirmwareFilteredDeviceIds(filteredDeviceIds);
+    //       setCurrentAction(deviceActions.firmwareUpdate);
+    //       setAuthenticationPurpose("firmware"); // Add new purpose type
+    //       setShowAuthenticateFleetModal(true);
+    //     },
+    //   );
+    //   if (!modalShown) {
+    //     setFirmwareFilteredSelector(undefined);
+    //     setFirmwareFilteredDeviceIds(undefined);
+    //     setCurrentAction(deviceActions.firmwareUpdate);
+    //     setAuthenticationPurpose("firmware");
+    //     setShowAuthenticateFleetModal(true);
+    //   }
+    // };
 
     const sleepAction: BulkAction<SupportedAction> = {
       action: deviceActions.shutdown,
@@ -1096,6 +1160,10 @@ export const useMinerActions = ({
     displayCount,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    poolFilteredSelector,
+    poolFilteredDeviceIds,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,

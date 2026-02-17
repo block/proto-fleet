@@ -40,6 +40,9 @@ const MinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    poolFilteredDeviceIds,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -66,6 +69,14 @@ const MinerActionsMenu = ({
     onActionComplete,
   });
 
+  // Use filtered device IDs for pool selection if available
+  const poolMiners = useMemo(() => {
+    if (poolFilteredDeviceIds) {
+      return poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }));
+    }
+    return selectedMinersWithStatus;
+  }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
+
   return (
     <PopoverProvider>
       <BulkActionsWidget<SupportedAction>
@@ -87,11 +98,13 @@ const MinerActionsMenu = ({
         onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
         onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
       />
-      {currentAction === settingsActions.miningPool && (
+      {showPoolSelectionPage && fleetCredentials && (
         <PoolSelectionPageWrapper
-          selectedMiners={selectedMinersWithStatus}
+          selectedMiners={poolMiners}
           selectionMode={selectionMode}
-          poolNeededCount={totalCount}
+          poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
+          userUsername={fleetCredentials.username}
+          userPassword={fleetCredentials.password}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}

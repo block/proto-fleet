@@ -379,3 +379,77 @@ func TestService_UpdateMinerPassword_WithUserAuthentication(t *testing.T) {
 		}
 	})
 }
+
+func TestService_UpdateMiningPools_WithUserAuthentication(t *testing.T) {
+	t.Run("rejects update with invalid user credentials", func(t *testing.T) {
+		mockVerifier := &mockCredentialsVerifier{
+			shouldFail: true,
+			failError:  fleeterror.NewForbiddenErrorf("invalid credentials"),
+		}
+
+		service := &Service{
+			credentialsVerifier: mockVerifier,
+			userStore:           &mockUserStoreForAuth{users: map[string]interfaces.User{}},
+		}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID:         1,
+			OrganizationID: 100,
+		})
+
+		_, err := service.UpdateMiningPools(
+			ctx,
+			nil, // device selector
+			nil, // default pool
+			nil, // backup 1 pool
+			nil, // backup 2 pool
+			"testuser",
+			"wrongpass",
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid credentials")
+	})
+
+	t.Run("rejects update when username does not match session", func(t *testing.T) {
+		mockVerifier := &mockCredentialsVerifier{
+			shouldFail: false, // Credentials are valid
+		}
+
+		mockUserStore := &mockUserStoreForAuth{
+			users: map[string]interfaces.User{
+				"attacker": {ID: 2, Username: "attacker"},
+			},
+		}
+
+		service := &Service{
+			credentialsVerifier: mockVerifier,
+			userStore:           mockUserStore,
+		}
+
+		// User 1 is logged in
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID:         1,
+			OrganizationID: 100,
+		})
+
+		// But provides credentials for user 2
+		_, err := service.UpdateMiningPools(
+			ctx,
+			nil,
+			nil,
+			nil,
+			nil,
+			"attacker", // User ID 2
+			"attackerpass",
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "username does not match authenticated user")
+
+		var fleetErr fleeterror.FleetError
+		if assert.ErrorAs(t, err, &fleetErr, "Should be a FleetError") {
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode, "Should be a PermissionDenied error")
+		}
+	})
+}

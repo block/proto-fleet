@@ -26,6 +26,16 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerFrame", () => ({
   default: () => <div data-testid="miner-frame">Miner Frame</div>,
 }));
 
+vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
+  default: ({ onAuthenticated }: { onAuthenticated: (username: string, password: string) => void }) => (
+    <div data-testid="authenticate-fleet-modal">
+      <button onClick={() => onAuthenticated("testuser", "testpass")} data-testid="authenticate-button">
+        Authenticate
+      </button>
+    </div>
+  ),
+}));
+
 describe("MinerName", () => {
   const mockWindowOpen = vi.fn();
   const deviceIdentifier = "test-device-id";
@@ -87,7 +97,7 @@ describe("MinerName", () => {
       expect(screen.getByTestId("status-modal")).toBeInTheDocument();
     });
 
-    it("should show pool selection when clicking alert icon for mining pool needed", async () => {
+    it("should show Fleet auth modal then pool selection when clicking alert icon for mining pool needed", async () => {
       const user = userEvent.setup();
 
       // Mock needs mining pool
@@ -100,7 +110,16 @@ describe("MinerName", () => {
       await user.click(alertButton);
 
       expect(mockWindowOpen).not.toHaveBeenCalled();
+
+      // First should show Fleet auth modal
+      expect(screen.getByTestId("authenticate-fleet-modal")).toBeInTheDocument();
+
+      // After authenticating, should show pool selection
+      const authenticateButton = screen.getByTestId("authenticate-button");
+      await user.click(authenticateButton);
+
       expect(screen.getByTestId("pool-selection")).toBeInTheDocument();
+      expect(screen.queryByTestId("authenticate-fleet-modal")).not.toBeInTheDocument();
     });
   });
 

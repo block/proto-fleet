@@ -45,6 +45,8 @@ const SingleMinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -115,6 +117,8 @@ const SingleMinerActionsMenu = ({
         handleConfirmationClick={handleConfirmationClick}
         handleCancelClick={handleCancelClick}
         selectedMiners={selectedMiners}
+        showPoolSelectionPage={showPoolSelectionPage}
+        fleetCredentials={fleetCredentials}
         handleMiningPoolSuccess={handleMiningPoolSuccess}
         handleMiningPoolError={handleMiningPoolError}
         handleCancel={handleCancel}
@@ -153,6 +157,8 @@ interface SingleMinerActionsMenuInnerProps {
   handleConfirmationClick: () => void;
   handleCancelClick: () => void;
   selectedMiners: MinerSelection[];
+  showPoolSelectionPage: boolean;
+  fleetCredentials: { username: string; password: string } | undefined;
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
   handleCancel: () => void;
@@ -188,6 +194,8 @@ const SingleMinerActionsMenuInner = ({
   handleConfirmationClick,
   handleCancelClick,
   selectedMiners,
+  showPoolSelectionPage,
+  fleetCredentials,
   handleMiningPoolSuccess,
   handleMiningPoolError,
   handleCancel,
@@ -284,10 +292,12 @@ const SingleMinerActionsMenuInner = ({
             />
           );
         })}
-      {currentAction === settingsActions.miningPool && (
+      {showPoolSelectionPage && fleetCredentials && (
         <PoolSelectionPageWrapper
           selectedMiners={selectedMiners}
           selectionMode="subset"
+          userUsername={fleetCredentials.username}
+          userPassword={fleetCredentials.password}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}

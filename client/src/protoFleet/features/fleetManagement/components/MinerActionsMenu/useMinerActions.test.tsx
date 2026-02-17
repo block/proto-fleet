@@ -328,7 +328,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should set currentAction when mining pool action handler is called", () => {
+    it("should show authentication modal when mining pool action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -341,10 +341,11 @@ describe("useMinerActions", () => {
 
       const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
 
-      act(() => {
-        poolAction?.actionHandler();
+      await act(async () => {
+        await poolAction?.actionHandler();
       });
 
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
       expect(result.current.currentAction).toBe(settingsActions.miningPool);
       expect(onActionStart).toHaveBeenCalled();
     });
@@ -1347,6 +1348,170 @@ describe("useMinerActions", () => {
 
       expect(result.current.unsupportedMinersInfo.show).toBe(false);
       expect(result.current.currentAction).toBe(deviceActions.reboot);
+    });
+  });
+
+  describe("Mining pool authentication flow", () => {
+    it("should show authentication modal when mining pool action handler is called", async () => {
+      const onActionStart = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionStart,
+        }),
+      );
+
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.currentAction).toBe(settingsActions.miningPool);
+      expect(onActionStart).toHaveBeenCalled();
+    });
+
+    it("should show pool selection page after successful authentication", async () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Trigger mining pool action
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+
+      // Authenticate with credentials
+      act(() => {
+        result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showAuthenticateFleetModal).toBe(false);
+      expect(result.current.showPoolSelectionPage).toBe(true);
+      expect(result.current.fleetCredentials).toEqual({ username: "testuser", password: "testpass" });
+    });
+
+    it("should store pool filtered device IDs when capability check returns partial support", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+
+      // Unsupported miners modal should be shown
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
+
+      // Continue with supported miners only
+      await act(async () => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      // Should show auth modal with filtered device IDs stored
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.poolFilteredDeviceIds).toEqual(["device-1"]);
+    });
+
+    it("should dismiss pool selection page and reset state when handleCancel is called", async () => {
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      // Trigger mining pool action and authenticate
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+
+      act(() => {
+        result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showPoolSelectionPage).toBe(true);
+
+      // Cancel/dismiss
+      act(() => {
+        result.current.handleCancel();
+      });
+
+      expect(result.current.showPoolSelectionPage).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+      expect(result.current.fleetCredentials).toBeUndefined();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should proceed directly to pool selection when all miners support the action", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: true,
+          noneSupported: false,
+          supportedCount: 2,
+          unsupportedCount: 0,
+          totalCount: 2,
+          unsupportedGroups: [],
+          supportedDeviceIdentifiers: ["device-1", "device-2"],
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+
+      // Should show auth modal directly (no unsupported miners modal)
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.poolFilteredDeviceIds).toBeUndefined();
     });
   });
 });
