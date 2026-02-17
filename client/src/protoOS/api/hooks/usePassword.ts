@@ -18,6 +18,14 @@ interface ChangePasswordProps {
   onSuccess?: () => void;
 }
 
+const isPasswordVerificationError = (err: unknown): boolean => {
+  const message = (err as { error?: { message?: string } })?.error?.message;
+  return typeof message === "string" && message.includes("Password verification error");
+};
+
+const getErrorMessage = (err: unknown, fallback = "An error occurred"): string =>
+  (err as { error?: { message?: string } })?.error?.message ?? fallback;
+
 const usePassword = () => {
   const { api } = useMinerHosting();
   const authHeader = useAuthHeader();
@@ -28,27 +36,32 @@ const usePassword = () => {
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
       if (!api) return;
 
-      const performSetPassword = async () => {
-        await api
-          .setPassword({ password })
-          .then(() => {
-            // Update store to reflect that password is now set
-            setPasswordSet(true);
-            onSuccess?.();
-          })
-          .catch((err) => {
-            handleAuthErrors({
-              error: err,
-              onError: () => onError?.(err?.error?.message ?? "An error occurred"),
-              onSuccess: () => performSetPassword(),
-            });
-          })
-          .finally(() => {
-            onFinally?.();
-          });
+      const onSetSuccess = () => {
+        setPasswordSet(true);
+        onSuccess?.();
       };
 
-      await performSetPassword();
+      await api
+        .setPassword({ password })
+        .then(() => {
+          onSetSuccess();
+          onFinally?.();
+        })
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(getErrorMessage(err));
+              onFinally?.();
+            },
+            onSuccess: () =>
+              api
+                .setPassword({ password })
+                .then(onSetSuccess)
+                .catch((retryErr) => onError?.(getErrorMessage(retryErr)))
+                .finally(() => onFinally?.()),
+          });
+        });
     },
     [api, handleAuthErrors, setPasswordSet],
   );
@@ -57,25 +70,34 @@ const usePassword = () => {
     async ({ changePasswordRequest, onSuccess, onError, onFinally }: ChangePasswordProps) => {
       if (!api) return;
 
-      const performChangePassword = async () => {
-        await api
-          .changePassword(changePasswordRequest, authHeader)
-          .then(() => {
-            onSuccess?.();
-          })
-          .catch((err) => {
-            handleAuthErrors({
-              error: err,
-              onError: () => onError?.(err?.error?.message ?? "An error occurred"),
-              onSuccess: () => performChangePassword(),
-            });
-          })
-          .finally(() => {
+      await api
+        .changePassword(changePasswordRequest, authHeader)
+        .then(() => {
+          onSuccess?.();
+          onFinally?.();
+        })
+        .catch((err) => {
+          if (isPasswordVerificationError(err)) {
+            onError?.(getErrorMessage(err));
             onFinally?.();
+            return;
+          }
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(getErrorMessage(err));
+              onFinally?.();
+            },
+            onSuccess: (accessToken) =>
+              api
+                .changePassword(changePasswordRequest, {
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                })
+                .then(() => onSuccess?.())
+                .catch((retryErr) => onError?.(getErrorMessage(retryErr)))
+                .finally(() => onFinally?.()),
           });
-      };
-
-      await performChangePassword();
+        });
     },
     [authHeader, api, handleAuthErrors],
   );
