@@ -9,6 +9,8 @@ export type BulkAction<ActionType> = {
   actionHandler: () => void;
   requiresConfirmation: boolean;
   confirmation?: ActionWarnDialogOptions;
+  /** Shows a thicker divider after this action to separate groups */
+  showGroupDivider?: boolean;
 };
 
 export type ActionWarnDialogOptions = {

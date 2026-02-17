@@ -1013,39 +1013,8 @@ export const useMinerActions = ({
           : [sleepAction]; // Single miner active: show sleep only
 
     return [
-      // Device actions
-      {
-        action: deviceActions.blinkLEDs,
-        title: "Blink LEDs",
-        icon: <LEDIndicator />,
-        actionHandler: handleBlinkLEDs,
-        requiresConfirmation: false,
-      },
-      // TODO: Implement Download Logs action
-      // {
-      //   action: deviceActions.downloadLogs,
-      //   title: "Download logs",
-      //   icon: <Terminal />,
-      //   actionHandler: handleDownloadLogs,
-      //   requiresConfirmation: false,
-      // },
-      // TODO: Implement Factory Reset action
-      // {
-      //   action: deviceActions.factoryReset,
-      //   title: "Factory reset",
-      //   icon: <ArrowLeftCompact />,
-      //   actionHandler: handleFactoryReset,
-      //   requiresConfirmation: true,
-      //   confirmation: {
-      //     title: `Reset ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"} to factory default?`,
-      //     subtitle: `Resetting ${numberOfMiners === 1 ? "this miner" : "these miners"} will remove all settings and mining pool information. You will not lose any mining rewards.`,
-      //     confirmAction: {
-      //       title: "Reset",
-      //       variant: variants.secondaryDanger,
-      //     },
-      //     testId: "factory-reset-confirm-button",
-      //   },
-      // },
+      // Device actions - ordered per design specifications
+      ...powerStateActions, // Sleep/Wake up at top
       {
         action: deviceActions.reboot,
         title: "Reboot",
@@ -1062,8 +1031,24 @@ export const useMinerActions = ({
           testId: "reboot-confirm-button",
         },
       },
-      ...powerStateActions,
-      // Performance actions
+      {
+        action: deviceActions.blinkLEDs,
+        title: "Blink LEDs",
+        icon: <LEDIndicator />,
+        actionHandler: handleBlinkLEDs,
+        requiresConfirmation: false,
+        showGroupDivider: true, // End of device actions group
+      },
+      // TODO: Implement Download Logs action
+      // {
+      //   action: deviceActions.downloadLogs,
+      //   title: "Download logs",
+      //   icon: <Terminal />,
+      //   actionHandler: handleDownloadLogs,
+      //   requiresConfirmation: false,
+      //   showGroupDivider: true, // End of device actions group (when implemented, move divider here)
+      // },
+      // Performance and settings actions
       {
         action: performanceActions.managePower,
         title: "Manage power",
@@ -1071,6 +1056,7 @@ export const useMinerActions = ({
         actionHandler: handleManagePower,
         requiresConfirmation: false,
       },
+      // TODO: Implement firmware update action
       // TODO: Implement Curtail action
       // {
       //   action: performanceActions.curtail,
@@ -1089,21 +1075,25 @@ export const useMinerActions = ({
       //     testId: "curtail-confirm-button",
       //   },
       // },
-      // Settings actions
       {
         action: settingsActions.miningPool,
-        title: "Edit mining pool",
+        title: "Edit pool",
         icon: <MiningPools />,
         actionHandler: handleMiningPool,
         requiresConfirmation: false,
       },
       {
         action: settingsActions.coolingMode,
-        title: "Cooling mode",
+        title: "Change cooling mode",
         icon: <Fan />,
         actionHandler: handleCoolingMode,
         requiresConfirmation: false,
+        showGroupDivider: true, // End of performance/settings group
       },
+      // TODO: Implement Rename action
+      // TODO: Implement Add to group action
+      // TODO: Implement Add to rack action - when implemented, add showGroupDivider: true to end organization group
+      // Security and dangerous actions (same group)
       {
         action: settingsActions.security,
         title: "Manage security",

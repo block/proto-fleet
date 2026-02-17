@@ -15,6 +15,7 @@ import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
@@ -252,24 +253,28 @@ const SingleMinerActionsMenuInner = ({
       />
       {isOpen && (
         <Popover
-          className="!space-y-0 px-4 pt-2 pb-1"
+          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           position={positions["bottom right"]}
-          size={popoverSizes.medium}
+          size={popoverSizes.small}
           offset={8}
           testId="single-miner-actions-popover"
         >
           {popoverActions.map((action) => (
-            <Row
-              key={action.title}
-              className="text-emphasis-300"
-              prefixIcon={action.icon}
-              testId={action.action + "-popover-button"}
-              onClick={() => handleAction(action)}
-              compact
-              divider
-            >
-              {action.title}
-            </Row>
+            <>
+              <div key={action.title} className="px-4">
+                <Row
+                  className="text-emphasis-300"
+                  prefixIcon={action.icon}
+                  testId={action.action + "-popover-button"}
+                  onClick={() => handleAction(action)}
+                  compact
+                  divider={false}
+                >
+                  {action.title}
+                </Row>
+              </div>
+              {action.showGroupDivider && <Divider key={`${action.title}-divider`} />}
+            </>
           ))}
         </Popover>
       )}
