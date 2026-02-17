@@ -52,6 +52,7 @@ const MinerActionsMenu = ({
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
+    authenticationPurpose,
     showUpdatePasswordModal,
     hasThirdPartyMiners,
     handleFleetAuthenticated,
@@ -129,6 +130,7 @@ const MinerActionsMenu = ({
       {showAuthenticateFleetModal && (
         <AuthenticateFleetModal
           show={showAuthenticateFleetModal}
+          purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
         />

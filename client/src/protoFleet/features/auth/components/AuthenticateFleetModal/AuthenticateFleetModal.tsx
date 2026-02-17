@@ -6,13 +6,21 @@ import { groupVariants } from "@/shared/components/ButtonGroup/constants";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 
+const purposeToSettingsType: Record<string, string> = {
+  security: "security",
+  pool: "pool",
+};
+
 interface AuthenticateFleetModalProps {
   show: boolean;
+  purpose?: "security" | "pool";
   onAuthenticated: (username: string, password: string) => void;
   onDismiss: () => void;
 }
 
-const AuthenticateFleetModal = ({ show, onAuthenticated, onDismiss }: AuthenticateFleetModalProps) => {
+const AuthenticateFleetModal = ({ show, purpose, onAuthenticated, onDismiss }: AuthenticateFleetModalProps) => {
+  const settingsType = purpose ? purposeToSettingsType[purpose] : undefined;
+  const title = settingsType ? `Log in to update your ${settingsType} settings` : "Log in to update settings";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -70,7 +78,7 @@ const AuthenticateFleetModal = ({ show, onAuthenticated, onDismiss }: Authentica
   return (
     <Modal
       show={show}
-      title="Log in to update your security settings"
+      title={title}
       description="Contact your system administrator if you need access to edit settings."
       onDismiss={onDismiss}
       icon={null}

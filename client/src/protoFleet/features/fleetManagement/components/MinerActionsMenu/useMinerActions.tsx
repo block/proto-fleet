@@ -1173,6 +1173,7 @@ export const useMinerActions = ({
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
+    authenticationPurpose,
     showUpdatePasswordModal,
     hasThirdPartyMiners,
     handleFleetAuthenticated,

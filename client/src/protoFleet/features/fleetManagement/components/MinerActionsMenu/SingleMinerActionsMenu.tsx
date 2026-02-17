@@ -56,6 +56,7 @@ const SingleMinerActionsMenu = ({
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
+    authenticationPurpose,
     showUpdatePasswordModal,
     hasThirdPartyMiners,
     handleFleetAuthenticated,
@@ -131,6 +132,7 @@ const SingleMinerActionsMenu = ({
         handleCoolingModeConfirm={handleCoolingModeConfirm}
         handleCoolingModeDismiss={handleCoolingModeDismiss}
         showAuthenticateFleetModal={showAuthenticateFleetModal}
+        authenticationPurpose={authenticationPurpose}
         showUpdatePasswordModal={showUpdatePasswordModal}
         hasThirdPartyMiners={hasThirdPartyMiners}
         handleFleetAuthenticated={handleFleetAuthenticated}
@@ -171,6 +173,7 @@ interface SingleMinerActionsMenuInnerProps {
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
   showAuthenticateFleetModal: boolean;
+  authenticationPurpose: "security" | "pool" | null;
   showUpdatePasswordModal: boolean;
   hasThirdPartyMiners: boolean;
   handleFleetAuthenticated: (username: string, password: string) => void;
@@ -208,6 +211,7 @@ const SingleMinerActionsMenuInner = ({
   handleCoolingModeConfirm,
   handleCoolingModeDismiss,
   showAuthenticateFleetModal,
+  authenticationPurpose,
   showUpdatePasswordModal,
   hasThirdPartyMiners,
   handleFleetAuthenticated,
@@ -322,6 +326,7 @@ const SingleMinerActionsMenuInner = ({
       {showAuthenticateFleetModal && (
         <AuthenticateFleetModal
           show={showAuthenticateFleetModal}
+          purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
         />

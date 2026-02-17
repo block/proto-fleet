@@ -99,6 +99,7 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
       {isStatusModalOpen && !needsAuthentication && needsMiningPool && showFleetAuth && (
         <AuthenticateFleetModal
           show={showFleetAuth}
+          purpose="pool"
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleModalClose}
         />

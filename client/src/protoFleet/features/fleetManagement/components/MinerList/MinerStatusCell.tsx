@@ -57,6 +57,7 @@ const MinerStatusCell = ({ deviceIdentifier, selectedItems }: MinerStatusCellPro
       {isModalOpen && !needsAuthentication && needsMiningPool && showFleetAuth && (
         <AuthenticateFleetModal
           show={showFleetAuth}
+          purpose="pool"
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleModalClose}
         />
