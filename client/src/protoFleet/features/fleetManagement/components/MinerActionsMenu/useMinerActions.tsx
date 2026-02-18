@@ -63,7 +63,7 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 export interface MinerSelection {
   deviceIdentifier: string;
@@ -290,7 +290,12 @@ export const useMinerActions = ({
   }, [onActionComplete]);
 
   const handleSuccess = useCallback(
-    (action: SupportedAction, originalToastId: number, batchIdentifier: string) => {
+    (
+      action: SupportedAction,
+      originalToastId: number,
+      batchIdentifier: string,
+      onBatchComplete?: (successDeviceIds: string[], failureDeviceIds: string[]) => void,
+    ) => {
       const streamAbortController = new AbortController();
 
       let errorToastId: number | null = null;
@@ -311,10 +316,12 @@ export const useMinerActions = ({
           successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
           failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
 
-          updateToast(originalToastId, {
-            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-            status: TOAST_STATUSES.success,
-          });
+          if (successCount > 0) {
+            updateToast(originalToastId, {
+              message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+              status: TOAST_STATUSES.success,
+            });
+          }
 
           if (failureCount > 0) {
             if (!errorToastId) {
@@ -339,13 +346,19 @@ export const useMinerActions = ({
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
-        updateToast(originalToastId, {
-          message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-          status: TOAST_STATUSES.success,
-        });
+        if (successCount > 0) {
+          updateToast(originalToastId, {
+            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+            status: TOAST_STATUSES.success,
+          });
+        } else {
+          removeToast(originalToastId);
+        }
 
         // Reset telemetry cache and immediately fetch fresh status for status polling
         resetFetchedIds();
+
+        onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
         // Immediately remove failed devices from batch (revert to their original status)
         if (failureDeviceIds.length > 0) {
@@ -566,11 +579,17 @@ export const useMinerActions = ({
 
       // Show the appropriate next modal based on purpose
       if (authenticationPurpose === "security") {
-        // Group miners by model/manufacturer and show the manage security modal
         const deviceIdsToUse = securityFilteredDeviceIds ?? deviceIdentifiers;
         const groups = groupMinersByModel(deviceIdsToUse);
-        setMinerGroups(groups);
-        setShowManageSecurityModal(true);
+        const allProto = groups.every((g) => g.manufacturer === minerTypes.protoRig);
+
+        if (allProto) {
+          setHasThirdPartyMiners(false);
+          setShowUpdatePasswordModal(true);
+        } else {
+          setMinerGroups(groups);
+          setShowManageSecurityModal(true);
+        }
       } else if (authenticationPurpose === "pool") {
         setShowPoolSelectionPage(true);
       }
@@ -637,15 +656,47 @@ export const useMinerActions = ({
             action: settingsActions.security,
             deviceIdentifiers: deviceIdsToUse,
           });
-          handleSuccess(settingsActions.security, id, value.batchIdentifier);
 
-          // Update the group status if we're in the manage security flow
-          if (currentGroupForUpdate) {
+          const groupSnapshot = currentGroupForUpdate;
+          if (groupSnapshot) {
             setMinerGroups((prev) =>
-              prev.map((g) => (g === currentGroupForUpdate ? { ...g, status: "updated" as const } : g)),
+              prev.map((g) => (g === groupSnapshot ? { ...g, status: "loading" as const } : g)),
             );
-            setCurrentGroupForUpdate(null);
-          } else {
+          }
+
+          handleSuccess(
+            settingsActions.security,
+            id,
+            value.batchIdentifier,
+            groupSnapshot
+              ? (successIds, failureIds) => {
+                  setMinerGroups((prev) => {
+                    const rest = prev.filter(
+                      (g) =>
+                        !(
+                          g.manufacturer === groupSnapshot.manufacturer &&
+                          g.model === groupSnapshot.model &&
+                          g.status === "loading"
+                        ),
+                    );
+                    if (successIds.length > 0 && failureIds.length > 0) {
+                      return [
+                        ...rest,
+                        { ...groupSnapshot, deviceIdentifiers: successIds, count: successIds.length, status: "updated" as const },
+                        { ...groupSnapshot, deviceIdentifiers: failureIds, count: failureIds.length, status: "pending" as const },
+                      ];
+                    }
+                    if (successIds.length > 0) {
+                      return [...rest, { ...groupSnapshot, status: "updated" as const }];
+                    }
+                    return [...rest, { ...groupSnapshot, status: "failed" as const }];
+                  });
+                  setCurrentGroupForUpdate(null);
+                }
+              : undefined,
+          );
+
+          if (!currentGroupForUpdate) {
             // Not in manage security modal flow - clear credentials and close
             setFleetCredentials(undefined);
             setSecurityFilteredDeviceIds(undefined);

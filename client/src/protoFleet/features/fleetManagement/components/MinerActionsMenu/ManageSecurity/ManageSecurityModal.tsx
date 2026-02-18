@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { DismissCircleDark, Fleet, LogoAlt, Success } from "@/shared/assets/icons";
+import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -13,7 +14,7 @@ export interface MinerGroup {
   manufacturer: string;
   count: number;
   deviceIdentifiers: string[];
-  status: "pending" | "updated" | "failed";
+  status: "pending" | "loading" | "updated" | "failed";
   successCount?: number;
   failureCount?: number;
 }
@@ -39,45 +40,33 @@ const ManageSecurityModal = ({
   const sortedGroups = useMemo(() => {
     return [...minerGroups].sort((a, b) => {
       // Proto rigs always come first
-      if (a.manufacturer === "proto" && b.manufacturer !== "proto") return -1;
-      if (a.manufacturer !== "proto" && b.manufacturer === "proto") return 1;
+      if (a.manufacturer === minerTypes.protoRig && b.manufacturer !== minerTypes.protoRig) return -1;
+      if (a.manufacturer !== minerTypes.protoRig && b.manufacturer === minerTypes.protoRig) return 1;
       // Otherwise sort alphabetically by model
       return a.model.localeCompare(b.model);
     });
   }, [minerGroups]);
 
-  // Determine if any updates have been made
-  const hasUpdates = minerGroups.some((group) => group.status !== "pending");
 
   const getIconForGroup = (group: MinerGroup) => {
-    if (group.manufacturer === "proto") {
+    if (group.status === "updated") {
+      return (
+        <div className="text-intent-success-fill">
+          <Success width={iconSizes.medium} />
+        </div>
+      );
+    }
+    if (group.manufacturer === minerTypes.protoRig) {
       return <LogoAlt width={iconSizes.medium} />;
     }
     return <Fleet width={iconSizes.medium} />;
   };
 
-  const getStatusIcon = (group: MinerGroup) => {
-    if (group.status === "updated") {
-      return (
-        <div className="text-intent-positive">
-          <Success width={iconSizes.small} />
-        </div>
-      );
-    }
-    if (group.status === "failed") {
-      return (
-        <div className="text-intent-critical">
-          <Success width={iconSizes.small} />
-        </div>
-      );
-    }
-    return null;
-  };
-
   const getActionButton = (group: MinerGroup) => {
-    if (group.status === "pending") {
+    if (group.status === "pending" || group.status === "failed" || group.status === "loading") {
+      const isLoading = group.status === "loading";
       return (
-        <Button variant={variants.secondary} onClick={() => onUpdateGroup(group)}>
+        <Button variant={variants.secondary} onClick={() => onUpdateGroup(group)} loading={isLoading}>
           Update
         </Button>
       );
@@ -121,7 +110,7 @@ const ManageSecurityModal = ({
 
           <div className="flex flex-col">
             {sortedGroups.map((group, index) => (
-              <div key={`${group.manufacturer}-${group.model}`}>
+              <div key={`${group.manufacturer}-${group.model}-${group.status}`}>
                 <Row
                   prefixIcon={getIconForGroup(group)}
                   suffixIcon={
@@ -129,7 +118,6 @@ const ManageSecurityModal = ({
                       <span className="text-text-secondary text-300 whitespace-nowrap">
                         {group.count} {group.count === 1 ? "miner" : "miners"}
                       </span>
-                      {getStatusIcon(group)}
                       {getActionButton(group)}
                     </div>
                   }
@@ -142,11 +130,6 @@ const ManageSecurityModal = ({
             ))}
           </div>
 
-          {hasUpdates && (
-            <div className="bg-intent-positive-10 text-intent-positive-text mt-6 rounded-lg px-3 py-2 text-200">
-              Updates have been applied to selected groups
-            </div>
-          )}
         </div>
       </div>
     </PageOverlay>

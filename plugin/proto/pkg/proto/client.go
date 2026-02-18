@@ -17,6 +17,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -589,17 +590,60 @@ type updatePasswordRequest struct {
 	NewPassword     string `json:"new_password"`
 }
 
+// loginRequest represents the JSON request body for the miner login endpoint.
+type loginRequest struct {
+	Password string `json:"password"`
+}
+
+// verifyCurrentPassword validates the current password by attempting to authenticate
+// with the miner's login endpoint. The change-password endpoint accepts any request
+// with a valid Bearer token without checking current_password, so we must verify it
+// separately to prevent successful password changes with wrong credentials.
+func (c *Client) verifyCurrentPassword(ctx context.Context, password string) error {
+	url := fmt.Sprintf("%s/api/v1/auth/login", c.baseURL)
+
+	bodyBytes, err := json.Marshal(loginRequest{Password: password})
+	if err != nil {
+		return fmt.Errorf("failed to marshal login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute login request: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("incorrect current password")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("password verification failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // ChangePassword updates the web UI password using the REST API endpoint.
-// Requires the current password for verification.
+// Verifies the current password before applying the change.
 func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	if err := c.verifyCurrentPassword(ctx, currentPassword); err != nil {
+		return err
+	}
+
 	url := fmt.Sprintf("%s/api/v1/auth/change-password", c.baseURL)
 
-	// Use proper JSON marshaling to handle special characters safely
-	requestBody := updatePasswordRequest{
+	bodyBytes, err := json.Marshal(updatePasswordRequest{
 		CurrentPassword: currentPassword,
 		NewPassword:     newPassword,
-	}
-	bodyBytes, err := json.Marshal(requestBody)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
@@ -617,6 +661,7 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("change password failed with status %d", resp.StatusCode)

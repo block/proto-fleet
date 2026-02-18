@@ -338,8 +338,14 @@ const PoolSelectionPage = ({
           className="sticky top-0 z-10 pb-14"
           title="Assign pools"
           titleSize="text-heading-100"
-          icon={<DismissCircleDark width="w-[24px]" />}
-          iconOnClick={onCancel}
+          icon={
+            <DismissCircleDark
+              width="w-[24px]"
+              onClick={onCancel}
+              className="cursor-pointer"
+              testId="header-icon-button"
+            />
+          }
           inline
           buttonSize={sizes.base}
           buttons={[
@@ -353,12 +359,12 @@ const PoolSelectionPage = ({
           ]}
         />
 
-        <div className="mx-auto max-w-4xl">
-          <div className="flex flex-col gap-6">
+        <div className="mx-auto max-w-[800px]">
+          <div className="flex flex-col">
             {/* Page header */}
-            <div className="flex flex-col gap-1">
+            <div className="mb-6 flex flex-col">
               <h1 className="text-heading-300 text-text-primary">Assign pools to your miner</h1>
-              <p className="text-body-300 text-text-secondary">
+              <p className="text-300 text-text-primary-70">
                 Add up to 3 pools in order of priority. If a pool fails or is removed, Fleet switches to the next
                 available pool automatically.
               </p>
@@ -396,7 +402,7 @@ const PoolSelectionPage = ({
             {isLoadingInitialState ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16">
                 <ProgressCircular size={32} indeterminate />
-                <span className="text-body-300 text-text-secondary">Loading pool configuration...</span>
+                <span className="text-text-secondary text-300">Loading pool configuration...</span>
               </div>
             ) : !hasConfiguredPools ? (
               // Empty state - just the Add pool button aligned left
