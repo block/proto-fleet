@@ -6,7 +6,7 @@ import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
-import { UpdateMinerPasswordModal } from "./ManageSecurity";
+import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -67,6 +67,11 @@ const SingleMinerActionsMenu = ({
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalDone,
+    handleSecurityModalDismiss,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
@@ -144,6 +149,11 @@ const SingleMinerActionsMenu = ({
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
         handleUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
+        showManageSecurityModal={showManageSecurityModal}
+        minerGroups={minerGroups}
+        handleUpdateGroup={handleUpdateGroup}
+        handleSecurityModalDone={handleSecurityModalDone}
+        handleSecurityModalDismiss={handleSecurityModalDismiss}
       />
     </PopoverProvider>
   );
@@ -185,6 +195,11 @@ interface SingleMinerActionsMenuInnerProps {
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
   handleUnsupportedMinersDismiss: () => void;
+  showManageSecurityModal: boolean;
+  minerGroups: import("./ManageSecurity").MinerGroup[];
+  handleUpdateGroup: (group: import("./ManageSecurity").MinerGroup) => void;
+  handleSecurityModalDone: () => void;
+  handleSecurityModalDismiss: () => void;
 }
 
 const SingleMinerActionsMenuInner = ({
@@ -223,6 +238,11 @@ const SingleMinerActionsMenuInner = ({
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
   handleUnsupportedMinersDismiss,
+  showManageSecurityModal,
+  minerGroups,
+  handleUpdateGroup,
+  handleSecurityModalDone,
+  handleSecurityModalDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -334,6 +354,15 @@ const SingleMinerActionsMenuInner = ({
           purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showManageSecurityModal && (
+        <ManageSecurityModal
+          show={showManageSecurityModal}
+          minerGroups={minerGroups}
+          onUpdateGroup={handleUpdateGroup}
+          onDismiss={handleSecurityModalDismiss}
+          onDone={handleSecurityModalDone}
         />
       )}
       {showUpdatePasswordModal && (

@@ -9,6 +9,7 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
+import { type MinerGroup } from "./ManageSecurity";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   BlinkLEDRequestSchema,
@@ -157,7 +158,6 @@ export const useMinerActions = ({
   const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
   const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
-  const [securityFilteredSelector, setSecurityFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [poolFilteredSelector, setPoolFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -167,6 +167,9 @@ export const useMinerActions = ({
   const [hasThirdPartyMiners, setHasThirdPartyMiners] = useState(false);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
+  const [showManageSecurityModal, setShowManageSecurityModal] = useState(false);
+  const [minerGroups, setMinerGroups] = useState<MinerGroup[]>([]);
+  const [currentGroupForUpdate, setCurrentGroupForUpdate] = useState<MinerGroup | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -194,6 +197,38 @@ export const useMinerActions = ({
 
     return allHaveSameStatus ? firstStatus : undefined;
   }, [selectedMiners]);
+
+  // Group miners by model and manufacturer for security modal
+  const groupMinersByModel = useCallback((deviceIds: string[]): MinerGroup[] => {
+    const miners = useFleetStore.getState().fleet.miners;
+    const groupMap = new Map<string, MinerGroup>();
+
+    deviceIds.forEach((id) => {
+      const miner = miners[id];
+      if (!miner) return;
+
+      const manufacturer = miner.manufacturer?.toLowerCase() || "unknown";
+      const model = miner.model || "Unknown Model";
+      const key = `${manufacturer}-${model}`;
+
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          name: miner.name || model,
+          model,
+          manufacturer,
+          count: 0,
+          deviceIdentifiers: [],
+          status: "pending",
+        });
+      }
+
+      const group = groupMap.get(key)!;
+      group.count++;
+      group.deviceIdentifiers.push(id);
+    });
+
+    return Array.from(groupMap.values());
+  }, []);
 
   // Check for unsupported miners using server-side capability checking.
   // Returns a promise that resolves to true if the modal was shown.
@@ -531,25 +566,57 @@ export const useMinerActions = ({
 
       // Show the appropriate next modal based on purpose
       if (authenticationPurpose === "security") {
-        setShowUpdatePasswordModal(true);
+        // Group miners by model/manufacturer and show the manage security modal
+        const deviceIdsToUse = securityFilteredDeviceIds ?? deviceIdentifiers;
+        const groups = groupMinersByModel(deviceIdsToUse);
+        setMinerGroups(groups);
+        setShowManageSecurityModal(true);
       } else if (authenticationPurpose === "pool") {
         setShowPoolSelectionPage(true);
       }
     },
-    [authenticationPurpose],
+    [authenticationPurpose, securityFilteredDeviceIds, deviceIdentifiers, groupMinersByModel],
   );
+
+  // Handle clicking "Update" for a group in the manage security modal
+  const handleUpdateGroup = useCallback((group: MinerGroup) => {
+    setCurrentGroupForUpdate(group);
+    setHasThirdPartyMiners(group.manufacturer !== minerTypes.protoRig);
+    setShowUpdatePasswordModal(true);
+  }, []);
+
+  // Handle clicking "Done" in the manage security modal
+  const handleSecurityModalDone = useCallback(() => {
+    setShowManageSecurityModal(false);
+    setMinerGroups([]);
+    setFleetCredentials(undefined);
+    setSecurityFilteredDeviceIds(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  // Handle dismissing the manage security modal
+  const handleSecurityModalDismiss = useCallback(() => {
+    setShowManageSecurityModal(false);
+    setMinerGroups([]);
+    setFleetCredentials(undefined);
+    setSecurityFilteredDeviceIds(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
 
   const handlePasswordConfirm = useCallback(
     (currentPassword: string, newPassword: string) => {
-      const selectorToUse = securityFilteredSelector ?? deviceSelector;
-      const deviceIdsToUse = securityFilteredDeviceIds ?? deviceIdentifiers;
+      // If we have a current group (from manage security modal), use its device IDs
+      // Otherwise fall back to the original security filtered selector/device IDs
+      const deviceIdsToUse = currentGroupForUpdate
+        ? currentGroupForUpdate.deviceIdentifiers
+        : (securityFilteredDeviceIds ?? deviceIdentifiers);
+      const selectorToUse = createDeviceSelector("subset", deviceIdsToUse);
 
-      if (!selectorToUse || !fleetCredentials) return;
+      if (!fleetCredentials) return;
 
       setShowUpdatePasswordModal(false);
-      setSecurityFilteredSelector(undefined);
-      setSecurityFilteredDeviceIds(undefined);
-      setFleetCredentials(undefined);
 
       const id = pushToast({
         message: `${loadingMessages[settingsActions.security]} ${minersMessage}`,
@@ -571,16 +638,37 @@ export const useMinerActions = ({
             deviceIdentifiers: deviceIdsToUse,
           });
           handleSuccess(settingsActions.security, id, value.batchIdentifier);
+
+          // Update the group status if we're in the manage security flow
+          if (currentGroupForUpdate) {
+            setMinerGroups((prev) =>
+              prev.map((g) => (g === currentGroupForUpdate ? { ...g, status: "updated" as const } : g)),
+            );
+            setCurrentGroupForUpdate(null);
+          } else {
+            // Not in manage security modal flow - clear credentials and close
+            setFleetCredentials(undefined);
+            setSecurityFilteredDeviceIds(undefined);
+          }
         },
-        onError: handleError.bind(null, id),
+        onError: (error: string) => {
+          handleError(id, error);
+
+          // Update the group status to failed if we're in the manage security flow
+          if (currentGroupForUpdate) {
+            setMinerGroups((prev) =>
+              prev.map((g) => (g === currentGroupForUpdate ? { ...g, status: "failed" as const } : g)),
+            );
+            setCurrentGroupForUpdate(null);
+          }
+        },
       });
 
       setCurrentAction(null);
     },
     [
-      securityFilteredSelector,
+      currentGroupForUpdate,
       securityFilteredDeviceIds,
-      deviceSelector,
       deviceIdentifiers,
       fleetCredentials,
       updateMinerPassword,
@@ -593,17 +681,24 @@ export const useMinerActions = ({
 
   const handlePasswordDismiss = useCallback(() => {
     setShowUpdatePasswordModal(false);
-    setSecurityFilteredSelector(undefined);
+    setCurrentGroupForUpdate(null);
+
+    // If we're in the manage security modal flow, don't clear everything
+    if (showManageSecurityModal) {
+      // Just clear the current group, keep the modal open
+      return;
+    }
+
+    // Not in manage security flow - clear everything
     setSecurityFilteredDeviceIds(undefined);
     setFleetCredentials(undefined);
     setCurrentAction(null);
     onActionComplete?.();
-  }, [onActionComplete]);
+  }, [showManageSecurityModal, onActionComplete]);
 
   const handleAuthDismiss = useCallback(() => {
     setShowAuthenticateFleetModal(false);
     setAuthenticationPurpose(null);
-    setSecurityFilteredSelector(undefined);
     setSecurityFilteredDeviceIds(undefined);
     setPoolFilteredSelector(undefined);
     setPoolFilteredDeviceIds(undefined);
@@ -927,9 +1022,8 @@ export const useMinerActions = ({
 
       const modalShown = await checkAndShowUnsupportedMinersModal(
         settingsActions.security,
-        (filteredSelector, filteredDeviceIds) => {
+        (_filteredSelector, filteredDeviceIds) => {
           // Store filtered values for use in handlePasswordConfirm
-          setSecurityFilteredSelector(filteredSelector);
           setSecurityFilteredDeviceIds(filteredDeviceIds);
           setCurrentAction(settingsActions.security);
           setAuthenticationPurpose("security");
@@ -938,7 +1032,6 @@ export const useMinerActions = ({
       );
       if (!modalShown) {
         // No filtering needed - clear any stale filtered values
-        setSecurityFilteredSelector(undefined);
         setSecurityFilteredDeviceIds(undefined);
         setCurrentAction(settingsActions.security);
         setAuthenticationPurpose("security");
@@ -1173,5 +1266,10 @@ export const useMinerActions = ({
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalDone,
+    handleSecurityModalDismiss,
   };
 };

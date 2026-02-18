@@ -20,7 +20,7 @@ import { MiningPool } from "./types";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
 import usePools from "@/protoFleet/api/usePools";
-import { Alert, Dismiss, Success } from "@/shared/assets/icons";
+import { Alert, DismissCircleDark, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
@@ -333,12 +333,12 @@ const PoolSelectionPage = ({
 
   return (
     <PageOverlay show>
-      <div className="h-full w-full overflow-auto bg-surface-base p-6">
+      <div className="h-full w-full overflow-auto bg-surface-base px-6 pt-4 pb-6">
         <Header
           className="sticky top-0 z-10 pb-14"
           title="Assign pools"
-          titleSize="text-heading-200"
-          icon={<Dismiss />}
+          titleSize="text-heading-100"
+          icon={<DismissCircleDark width="w-[24px]" />}
           iconOnClick={onCancel}
           inline
           buttonSize={sizes.base}

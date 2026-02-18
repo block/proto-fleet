@@ -4,7 +4,7 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
-import { UpdateMinerPasswordModal } from "./ManageSecurity";
+import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -62,6 +62,11 @@ const MinerActionsMenu = ({
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalDone,
+    handleSecurityModalDismiss,
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
@@ -133,6 +138,15 @@ const MinerActionsMenu = ({
           purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showManageSecurityModal && (
+        <ManageSecurityModal
+          show={showManageSecurityModal}
+          minerGroups={minerGroups}
+          onUpdateGroup={handleUpdateGroup}
+          onDismiss={handleSecurityModalDismiss}
+          onDone={handleSecurityModalDone}
         />
       )}
       {showUpdatePasswordModal && (

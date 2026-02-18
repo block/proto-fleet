@@ -127,8 +127,11 @@ const UpdateMinerPasswordModal = ({
       ]}
       size="small"
       divider={false}
+      className="w-full"
+      buttonSize="base"
+      contentHeaderClassName="text-heading-300"
     >
-      <div className="text-text-secondary mb-6 text-200">
+      <div className="mb-6 text-300 text-text-primary-70">
         This password will be required to make any changes to pools or miner performance.
       </div>
 
