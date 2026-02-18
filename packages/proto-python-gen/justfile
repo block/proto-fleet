@@ -1,0 +1,166 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+package_name := "proto-python-gen"
+version := "0.1.0"
+package_root := justfile_directory()
+repo_root := package_root / "../.."
+
+default:
+  just --list
+
+# Bootstrap Python venv with pinned deps
+setup:
+  @bash "{{package_root}}/setup.sh"
+
+# Run integration tests against test protos
+test: setup
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  TEST_OUTPUT="{{package_root}}/tests/output"
+  rm -rf "${TEST_OUTPUT}"
+
+  echo "=== Test: generate from test protos ==="
+  "{{package_root}}/bin/buf-gen-python" \
+    --output "${TEST_OUTPUT}" \
+    --buf-config "{{package_root}}/tests/test_protos"
+
+  echo ""
+  echo "=== Verify: expected files exist ==="
+  FAIL=0
+
+  for f in test/v1/test_pb2.py test/v1/test_pb2_grpc.py; do
+    if [[ -f "${TEST_OUTPUT}/${f}" ]]; then
+      echo "  OK  ${f}"
+    else
+      echo "  FAIL  ${f} not found"
+      FAIL=1
+    fi
+  done
+
+  echo ""
+  echo "=== Verify: __init__.py files exist ==="
+  for d in test test/v1; do
+    init="${TEST_OUTPUT}/${d}/__init__.py"
+    if [[ -f "${init}" ]]; then
+      echo "  OK  ${d}/__init__.py"
+    else
+      echo "  FAIL  ${d}/__init__.py not found"
+      FAIL=1
+    fi
+  done
+
+  echo ""
+  echo "=== Verify: Python imports work ==="
+  PYTHONPATH="${TEST_OUTPUT}" "{{package_root}}/.venv/bin/python" -c "
+  from test.v1 import test_pb2, test_pb2_grpc
+  # Verify message class exists
+  req = test_pb2.EchoRequest(message='hello', count=1)
+  assert req.message == 'hello', 'EchoRequest.message mismatch'
+  assert req.count == 1, 'EchoRequest.count mismatch'
+  # Verify service stub class exists
+  assert hasattr(test_pb2_grpc, 'TestServiceStub'), 'TestServiceStub not found'
+  assert hasattr(test_pb2_grpc, 'TestServiceServicer'), 'TestServiceServicer not found'
+  print('  OK  imports and classes verified')
+  "
+
+  echo ""
+  echo "=== Verify: generated code contains expected names ==="
+  if grep -q "class EchoRequest" "${TEST_OUTPUT}/test/v1/test_pb2.py" 2>/dev/null || \
+     grep -q "EchoRequest" "${TEST_OUTPUT}/test/v1/test_pb2.py"; then
+    echo "  OK  EchoRequest found in test_pb2.py"
+  else
+    echo "  FAIL  EchoRequest not found in test_pb2.py"
+    FAIL=1
+  fi
+  if grep -q "TestServiceStub" "${TEST_OUTPUT}/test/v1/test_pb2_grpc.py"; then
+    echo "  OK  TestServiceStub found in test_pb2_grpc.py"
+  else
+    echo "  FAIL  TestServiceStub not found in test_pb2_grpc.py"
+    FAIL=1
+  fi
+
+  echo ""
+  echo "=== Verify: idempotency (run twice, diff output) ==="
+  SECOND_OUTPUT="{{package_root}}/tests/output_second"
+  rm -rf "${SECOND_OUTPUT}"
+  "{{package_root}}/bin/buf-gen-python" \
+    --output "${SECOND_OUTPUT}" \
+    --buf-config "{{package_root}}/tests/test_protos" 2>/dev/null
+
+  if diff -rq --exclude='__pycache__' "${TEST_OUTPUT}" "${SECOND_OUTPUT}" >/dev/null 2>&1; then
+    echo "  OK  idempotent output"
+  else
+    echo "  FAIL  output differs between runs"
+    FAIL=1
+  fi
+  rm -rf "${SECOND_OUTPUT}"
+
+  echo ""
+  if [[ ${FAIL} -eq 0 ]]; then
+    echo "All tests passed."
+  else
+    echo "Some tests FAILED."
+    exit 1
+  fi
+
+# Demo: generate Python stubs from plugin SDK
+demo: setup
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEMO_OUTPUT="{{package_root}}/demo/output"
+  SDK_PROTO_DIR="{{repo_root}}/server/sdk/v1/pb"
+  rm -rf "${DEMO_OUTPUT}"
+
+  echo "=== Demo: generate stubs from plugin SDK proto ==="
+  "{{package_root}}/bin/buf-gen-python" \
+    --output "${DEMO_OUTPUT}" \
+    --buf-config "${SDK_PROTO_DIR}"
+
+  echo ""
+  echo "=== Verify: SDK imports work ==="
+  PYTHONPATH="${DEMO_OUTPUT}" "{{package_root}}/.venv/bin/python" -c "
+  import driver_pb2, driver_pb2_grpc
+  metrics = driver_pb2.DeviceMetrics(device_id='test-001')
+  assert metrics.device_id == 'test-001', 'DeviceMetrics.device_id mismatch'
+  assert hasattr(driver_pb2_grpc, 'DriverStub'), 'DriverStub not found'
+  assert hasattr(driver_pb2_grpc, 'DriverServicer'), 'DriverServicer not found'
+  print('  OK  SDK imports and classes verified')
+  "
+
+  echo ""
+  echo "Demo complete. Output: ${DEMO_OUTPUT}"
+
+# Build distributable tarball for Hermit
+package: setup test
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  TARBALL="{{package_root}}/{{package_name}}-{{version}}.tar.gz"
+  STAGING="$(mktemp -d)"
+  trap 'rm -rf "${STAGING}"' EXIT
+
+  echo "Building package: {{package_name}}-{{version}} ..."
+
+  # Copy package contents
+  mkdir -p "${STAGING}/bin"
+  cp "{{package_root}}/bin/buf-gen-python" "${STAGING}/bin/"
+  cp "{{package_root}}/setup.sh" "${STAGING}/"
+  cp "{{package_root}}/requirements.txt" "${STAGING}/"
+  chmod +x "${STAGING}/bin/buf-gen-python" "${STAGING}/setup.sh"
+
+  # Create tarball
+  tar -czf "${TARBALL}" -C "${STAGING}" .
+
+  echo "Package built: ${TARBALL}"
+  echo "Size: $(du -h "${TARBALL}" | cut -f1)"
+
+# Clean generated output, test artifacts, and venv
+clean:
+  rm -rf "{{package_root}}/.venv"
+  rm -rf "{{package_root}}/tests/output"
+  rm -rf "{{package_root}}/tests/output_second"
+  rm -rf "{{package_root}}/demo/output"
+  rm -rf "{{package_root}}/{{package_name}}-{{version}}.tar.gz"
+  @echo "Cleaned."

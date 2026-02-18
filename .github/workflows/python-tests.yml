@@ -1,0 +1,56 @@
+name: Python tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "**/*.py"
+      - "**/requirements.txt"
+      - "packages/proto-python-gen/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "**/*.py"
+      - "**/requirements.txt"
+      - "packages/proto-python-gen/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proto-python-gen:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/proto-python-gen
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Setup venv
+        run: just setup
+
+      - name: Run tests
+        run: just test
+
+  # To add more Python test targets, add a new job here:
+  # sdk-python:
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       working-directory: server/sdk
+  #   steps:
+  #     - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+  #     - uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318
+  #     - run: just setup
+  #     - run: just test
