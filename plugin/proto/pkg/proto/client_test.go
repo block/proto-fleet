@@ -5,6 +5,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +18,11 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	decimalBase = 10
+	int32Bits   = 32
 )
 
 // TestClientCreation tests the NewClient function with different configurations
@@ -564,19 +572,125 @@ func TestClientCreationWithoutInsecureTLS(t *testing.T) {
 	_ = client.Close()
 }
 
-// TestChangePassword verifies the ChangePassword method exists and has correct signature
-// TestChangePassword verifies the ChangePassword method exists with the correct signature.
-// This is a compile-time check and does not require a running proto-rig-api server.
-func TestChangePassword(t *testing.T) {
-	// Verify the method exists by creating a client and checking compilation
-	// If the method signature changes, this will fail to compile
-	client, err := NewClient("localhost", 2121, "http")
+// newTestClient creates a Client pointed at the given httptest.Server.
+// The singleton HTTP/2 transport is replaced with a plain HTTP/1.1 client so
+// that the client works with httptest.Server (which only speaks HTTP/1.1).
+func newTestClient(t *testing.T, server *httptest.Server) *Client {
+	t.Helper()
+	u, err := url.Parse(server.URL)
 	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
+	port, err := strconv.ParseInt(u.Port(), decimalBase, int32Bits)
+	require.NoError(t, err)
+	client, err := NewClient(u.Hostname(), int32(port), "http")
+	require.NoError(t, err)
+	client.httpClient = &http.Client{}
+	return client
+}
 
-	// Compile-time verification that the method exists with signature:
-	//     func(ctx context.Context, currentPassword, newPassword string) error
-	var _ func(context.Context, string, string) error = client.ChangePassword
+// TestVerifyCurrentPassword tests the password verification step that guards ChangePassword.
+func TestVerifyCurrentPassword(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		expectErr   bool
+		errContains string
+	}{
+		{
+			name:      "correct password returns 200",
+			status:    http.StatusOK,
+			expectErr: false,
+		},
+		{
+			name:        "wrong password returns 401",
+			status:      http.StatusUnauthorized,
+			expectErr:   true,
+			errContains: "incorrect current password",
+		},
+		{
+			name:        "server error returns 500",
+			status:      http.StatusInternalServerError,
+			expectErr:   true,
+			errContains: "password verification failed with status 500",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/auth/login", r.URL.Path)
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.WriteHeader(tt.status)
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			err := client.verifyCurrentPassword(context.Background(), "testpassword")
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestChangePasswordVerifiesFirst tests that ChangePassword verifies the current password
+// before calling the change-password endpoint, and aborts if verification fails.
+func TestChangePasswordVerifiesFirst(t *testing.T) {
+	t.Run("wrong password: verify fails, change-password not called", func(t *testing.T) {
+		loginCalled := false
+		changeCalled := false
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginCalled = true
+				w.WriteHeader(http.StatusUnauthorized)
+			case "/api/v1/auth/change-password":
+				changeCalled = true
+				w.WriteHeader(http.StatusOK)
+			}
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server)
+		defer func() { _ = client.Close() }()
+
+		err := client.ChangePassword(context.Background(), "wrongpassword", "newpassword")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "incorrect current password")
+		assert.True(t, loginCalled, "login endpoint should be called to verify")
+		assert.False(t, changeCalled, "change-password endpoint should not be called after verify fails")
+	})
+
+	t.Run("correct password: verify passes, change-password called", func(t *testing.T) {
+		loginCalled := false
+		changeCalled := false
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginCalled = true
+				w.WriteHeader(http.StatusOK)
+			case "/api/v1/auth/change-password":
+				changeCalled = true
+				w.WriteHeader(http.StatusOK)
+			}
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server)
+		defer func() { _ = client.Close() }()
+
+		err := client.ChangePassword(context.Background(), "correctpassword", "newpassword")
+		require.NoError(t, err)
+		assert.True(t, loginCalled, "login endpoint should be called to verify")
+		assert.True(t, changeCalled, "change-password endpoint should be called after verify passes")
+	})
 }
 
 // Helper function to reset client singletons for testing
