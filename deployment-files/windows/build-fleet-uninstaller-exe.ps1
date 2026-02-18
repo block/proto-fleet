@@ -5,6 +5,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not [System.IO.Path]::IsPathRooted($InputScript)) {
+    $InputScript = Join-Path $scriptRoot $InputScript
+}
+if (-not [System.IO.Path]::IsPathRooted($OutputExe)) {
+    $OutputExe = Join-Path $scriptRoot $OutputExe
+}
+
+$outputDir = Split-Path -Parent $OutputExe
+if (-not [string]::IsNullOrWhiteSpace($outputDir) -and -not (Test-Path $outputDir)) {
+    New-Item -ItemType Directory -Path $outputDir | Out-Null
+}
+
 Import-Module ps2exe -ErrorAction Stop
 
 if (-not (Test-Path $InputScript)) {
@@ -22,7 +35,7 @@ if (Test-Path $OutputExe) {
     }
 }
 
-Invoke-ps2exe -InputFile $InputScript -OutputFile $OutputExe -RequireAdmin -STA
+Invoke-ps2exe -InputFile $InputScript -OutputFile $OutputExe -STA
 
 if (Test-Path $OutputExe) {
     Write-Host "Built $OutputExe"

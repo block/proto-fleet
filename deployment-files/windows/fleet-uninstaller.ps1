@@ -98,14 +98,9 @@ function Write-Block {
 
 function Write-Log {
     param([string]$Message)
-    try {
-        if ([string]::IsNullOrWhiteSpace($script:LogPath)) { return }
-        $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-        Add-Content -LiteralPath $script:LogPath -Value ("[$ts] " + $Message)
-    }
-    catch {
-        # ignore
-    }
+    if ([string]::IsNullOrWhiteSpace($script:LogPath)) { return }
+    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    Add-Content -LiteralPath $script:LogPath -Value ("[$ts] " + $Message) -ErrorAction SilentlyContinue
 }
 
 $script:LogPath = Join-Path $env:TEMP "protofleet-uninstall.log"
@@ -361,38 +356,34 @@ function Escape-BashSingleQuotes {
     return ($Text -replace $sq, $replacement)
 }
 
-function Invoke-WslRootCapture {
+function Invoke-WslUserCapture {
     param([string]$Command)
-    $args = @()
+    $wslArgs = @()
     if (-not [string]::IsNullOrWhiteSpace($script:WslDistro)) {
-        $args += "-d"
-        $args += $script:WslDistro
+        $wslArgs += "-d"
+        $wslArgs += $script:WslDistro
     }
-    $args += "-u"
-    $args += "root"
-    $args += "bash"
-    $args += "-lc"
-    $args += $Command
-    $out = & wsl.exe @args 2>&1
+    $wslArgs += "bash"
+    $wslArgs += "-lc"
+    $wslArgs += $Command
+    $out = & wsl.exe @wslArgs 2>&1
     return ($out | Out-String).Trim()
 }
 
-function Invoke-WslRootNoThrow {
+function Invoke-WslUserNoThrow {
     param([string]$Command)
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $args = @()
+        $wslArgs = @()
         if (-not [string]::IsNullOrWhiteSpace($script:WslDistro)) {
-            $args += "-d"
-            $args += $script:WslDistro
+            $wslArgs += "-d"
+            $wslArgs += $script:WslDistro
         }
-        $args += "-u"
-        $args += "root"
-        $args += "bash"
-        $args += "-lc"
-        $args += $Command
-        $out = & wsl.exe @args 2>&1
+        $wslArgs += "bash"
+        $wslArgs += "-lc"
+        $wslArgs += $Command
+        $out = & wsl.exe @wslArgs 2>&1
         return ($out | Out-String).Trim()
     }
     finally {
@@ -400,55 +391,197 @@ function Invoke-WslRootNoThrow {
     }
 }
 
-function Invoke-WslRoot {
+function Invoke-WslUser {
     param([string]$Command)
-    $args = @()
+    $wslArgs = @()
     if (-not [string]::IsNullOrWhiteSpace($script:WslDistro)) {
-        $args += "-d"
-        $args += $script:WslDistro
+        $wslArgs += "-d"
+        $wslArgs += $script:WslDistro
     }
-    $args += "-u"
-    $args += "root"
-    $args += "bash"
-    $args += "-lc"
-    $args += $Command
-    & wsl.exe @args | Out-Null
+    $wslArgs += "bash"
+    $wslArgs += "-lc"
+    $wslArgs += $Command
+    & wsl.exe @wslArgs | Out-Null
+}
+
+function Normalize-WslSpacing {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Value
+    }
+
+    $cleaned = $Value.Replace([char]0, ' ').Trim()
+    if ([string]::IsNullOrWhiteSpace($cleaned)) {
+        return $cleaned
+    }
+
+    $cleaned = [regex]::Replace(
+        $cleaned,
+        '\b(?:[A-Za-z0-9]\s+){3,}[A-Za-z0-9]\b',
+        { param($m) ($m.Value -replace '\s+', '') })
+    $cleaned = [regex]::Replace($cleaned, '\b(?:\d\s+){1,}\d\b', { param($m) ($m.Value -replace '\s+', '') })
+    $cleaned = [regex]::Replace($cleaned, '\s*-\s*', '-')
+    $cleaned = [regex]::Replace($cleaned, '(?<=\d)\s*\.\s*(?=\d)', '.')
+    $cleaned = [regex]::Replace($cleaned, '\s{2,}', ' ').Trim()
+    return $cleaned
+}
+
+function Get-InstalledWslDistros {
+    $list = & wsl.exe -l -q 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    $distros = @()
+    foreach ($line in ($list -split "`n")) {
+        $trimmedRaw = $line.Replace([char]0, ' ').Trim()
+        $trimmed = Normalize-WslSpacing -Value $trimmedRaw
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            continue
+        }
+
+        $isDefault = $trimmedRaw.StartsWith("*")
+        $name = Normalize-WslSpacing -Value ($trimmedRaw.TrimStart('*').Trim())
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        $distros += [PSCustomObject]@{
+            Name = $name
+            IsDefault = $isDefault
+        }
+    }
+
+    return $distros
+}
+
+function Get-DefaultWslDistroName {
+    $list = & wsl.exe -l -v 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    foreach ($line in ($list -split "`n")) {
+        $trimmed = $line.TrimStart()
+        if (-not $trimmed.StartsWith("*")) {
+            continue
+        }
+
+        $raw = $trimmed.Substring(1).Replace([char]0, ' ').Trim()
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            continue
+        }
+
+        $normalizedRaw = Normalize-WslSpacing -Value $raw
+        $normalizedRaw = [regex]::Replace($normalizedRaw, '\s+(Running|Stopped|Installing)\s+\d+$', '')
+        if (-not [string]::IsNullOrWhiteSpace($normalizedRaw)) {
+            return $normalizedRaw
+        }
+
+        $parts = $raw -split "\s{2,}"
+        if ($parts.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($parts[0])) {
+            return (Normalize-WslSpacing -Value $parts[0].Trim())
+        }
+
+        return (Normalize-WslSpacing -Value (($raw -split "\s+")[0]))
+    }
+
+    return $null
 }
 
 function Ensure-WslDistro {
-    if ([string]::IsNullOrWhiteSpace($script:WslDistro)) {
-        if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
-            $script:WslDistro = $WslDistro
-        }
-        else {
-            $script:WslDistro = "Ubuntu"
-        }
+    $explicitDistro = $null
+    if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
+        $explicitDistro = Normalize-WslSpacing -Value $WslDistro.Trim()
     }
 
-    $list = & wsl.exe -l -q 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $distros = Get-InstalledWslDistros
+    if ($null -eq $distros) {
         Write-ErrorMsg "WSL is not available. Ensure WSL is installed and try again."
         Invoke-Exit 1
     }
 
-    $found = $false
-    foreach ($line in ($list -split "`n")) {
-        $name = $line.Trim()
-        if ($name -eq $script:WslDistro) { $found = $true; break }
-    }
-    if (-not $found) {
-        Write-ErrorMsg "WSL distribution '$script:WslDistro' not found. Re-run with -WslDistro."
+    if ($distros.Count -eq 0) {
+        Write-ErrorMsg "No WSL distributions are installed. Install Ubuntu (or another distro) and retry."
         Invoke-Exit 1
     }
+
+    if (-not [string]::IsNullOrWhiteSpace($explicitDistro)) {
+        $explicitMatch = $distros | Where-Object {
+            [string]::Equals($_.Name, $explicitDistro, [System.StringComparison]::OrdinalIgnoreCase)
+        } | Select-Object -First 1
+        if ($null -eq $explicitMatch) {
+            Write-ErrorMsg "WSL distribution '$explicitDistro' not found. Re-run with -WslDistro."
+            Invoke-Exit 1
+        }
+
+        $script:WslDistro = $explicitMatch.Name
+        return
+    }
+
+    $selected = $distros | Where-Object { $_.IsDefault } | Select-Object -First 1
+    if ($null -eq $selected) {
+        $defaultName = Get-DefaultWslDistroName
+        if (-not [string]::IsNullOrWhiteSpace($defaultName)) {
+            $selected = $distros | Where-Object {
+                [string]::Equals($_.Name, $defaultName, [System.StringComparison]::OrdinalIgnoreCase)
+            } | Select-Object -First 1
+        }
+    }
+
+    if ($null -eq $selected) {
+        $selected = $distros | Where-Object {
+            $_.Name.StartsWith("Ubuntu", [System.StringComparison]::OrdinalIgnoreCase)
+        } | Select-Object -First 1
+    }
+
+    if ($null -eq $selected) {
+        $selected = $distros | Select-Object -First 1
+    }
+
+    $script:WslDistro = $selected.Name
+    Write-Host ("Using WSL distro: " + $script:WslDistro)
+    Write-Log ("Auto-selected WSL distro: " + $script:WslDistro)
+}
+
+function Get-FirstAbsoluteWslPathLine {
+    param([string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) {
+        return $null
+    }
+
+    foreach ($line in ($Output -split "`n")) {
+        $candidate = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if ($candidate.StartsWith("/")) {
+            return $candidate
+        }
+    }
+
+    return $null
 }
 
 function Get-WslHomeDir {
-    $cmd = "getent passwd 1000 | cut -d: -f6"
-    $wslHome = Invoke-WslRootCapture $cmd
-    if ([string]::IsNullOrWhiteSpace($wslHome)) {
-        return "/home"
+    $homeFromEnv = Invoke-WslUserCapture 'printf "%s" "$HOME"'
+    if ($LASTEXITCODE -eq 0) {
+        $resolved = Get-FirstAbsoluteWslPathLine -Output $homeFromEnv
+        if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+            return $resolved.TrimEnd("/")
+        }
     }
-    return $wslHome.Trim()
+
+    $homeFromId = Invoke-WslUserCapture 'getent passwd "$(id -u)" | cut -d: -f6'
+    if ($LASTEXITCODE -eq 0) {
+        $resolved = Get-FirstAbsoluteWslPathLine -Output $homeFromId
+        if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+            return $resolved.TrimEnd("/")
+        }
+    }
+
+    Write-Log "Could not resolve WSL user home directory reliably; falling back to /home."
+    return "/home"
 }
 
 function Resolve-WslPath {
@@ -465,57 +598,221 @@ function Resolve-WslPath {
 function ConvertTo-WSLPath {
     param([string]$WindowsPath)
     if ([string]::IsNullOrWhiteSpace($WindowsPath)) { return $WindowsPath }
-    $args = @()
+    $wslArgs = @()
     if (-not [string]::IsNullOrWhiteSpace($script:WslDistro)) {
-        $args += "-d"
-        $args += $script:WslDistro
+        $wslArgs += "-d"
+        $wslArgs += $script:WslDistro
     }
-    $args += "wslpath"
-    $args += "-u"
-    $args += $WindowsPath
-    $out = & wsl.exe @args 2>$null
+    $wslArgs += "wslpath"
+    $wslArgs += "-u"
+    $wslArgs += $WindowsPath
+    $out = & wsl.exe @wslArgs 2>$null
     if ($LASTEXITCODE -ne 0) { return $null }
     return ($out | Out-String).Trim()
+}
+
+function Test-AllowedProtoFleetPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    $normalized = $Path.Trim().TrimEnd("/")
+    if ([string]::IsNullOrWhiteSpace($normalized)) { $normalized = "/" }
+    if ($normalized -eq "/" -or $normalized -eq "/home" -or $normalized -match '^/home/[^/]+$') {
+        return $false
+    }
+    return ($normalized -match '^/home/[^/]+/proto-fleet(?:/deployment)?$')
+}
+
+function Assert-SafeRemovalPath {
+    param([string]$Path)
+
+    if (-not (Test-AllowedProtoFleetPath -Path $Path)) {
+        throw ("Unsafe deployment path resolved: '" + $Path + "'. Expected /home/<user>/proto-fleet or /home/<user>/proto-fleet/deployment.")
+    }
 }
 
 function Test-DeploymentRoot {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    if (-not (Test-AllowedProtoFleetPath -Path $Path)) { return $false }
     $p = Escape-BashSingleQuotes $Path
     $cmd = "[ -f '$p/docker-compose.yaml' ] && [ -d '$p/server' ] && [ -d '$p/client' ]"
-    Invoke-WslRootCapture $cmd | Out-Null
+    Invoke-WslUserNoThrow $cmd | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
-function Test-DeploymentRootOrSubdir {
-    param([string]$Path)
-    if (Test-DeploymentRoot -Path $Path) { return $Path }
-    $sub = "$Path/deployment"
-    if (Test-DeploymentRoot -Path $sub) { return $sub }
-    return $null
+function Add-UniquePath {
+    param(
+        [System.Collections.Generic.List[string]]$Items,
+        [string]$Value
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return
+    }
+
+    $candidate = $Value.Trim().TrimEnd("/")
+    foreach ($existing in $Items) {
+        if ([string]::Equals($existing, $candidate, [System.StringComparison]::Ordinal)) {
+            return
+        }
+    }
+    $Items.Add($candidate) | Out-Null
 }
 
-function Find-DeploymentRoot {
+function Normalize-WslCandidatePath {
     param(
-        [string]$StartPath,
-        [int]$MaxDepth = 12
+        [string]$PathValue,
+        [string]$SourceLabel
     )
 
-    if ([string]::IsNullOrWhiteSpace($StartPath)) { return $null }
-    $current = $StartPath
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
 
-    for ($i = 0; $i -lt $MaxDepth; $i++) {
-        if (Test-DeploymentRoot -Path $current) { return $current }
+    $normalizedInput = $PathValue.Trim()
+    if ([string]::IsNullOrWhiteSpace($normalizedInput)) {
+        return $null
+    }
 
-        $p = Escape-BashSingleQuotes $current
-        $parent = Invoke-WslRootCapture "dirname '$p' 2>/dev/null || echo ''"
-        if ([string]::IsNullOrWhiteSpace($parent)) { break }
-        $parent = $parent.Trim()
-        if ($parent -eq $current) { break }
-        $current = $parent
+    $wslPath = $null
+    if ($normalizedInput.StartsWith("~") -or $normalizedInput.StartsWith("/")) {
+        $wslPath = Resolve-WslPath -Path $normalizedInput
+    }
+    elseif (Test-Path -LiteralPath $normalizedInput) {
+        $converted = ConvertTo-WSLPath -WindowsPath $normalizedInput
+        if ([string]::IsNullOrWhiteSpace($converted)) {
+            Write-Log ("Could not convert Windows path to WSL path for source [" + $SourceLabel + "].")
+            return $null
+        }
+        $wslPath = Resolve-WslPath -Path $converted
+    }
+    else {
+        Write-Log ("Source [" + $SourceLabel + "] is neither a WSL-style path nor an existing Windows path.")
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($wslPath)) {
+        Write-Log ("Source [" + $SourceLabel + "] resolved to an empty WSL path.")
+        return $null
+    }
+
+    $wslPath = $wslPath.Trim()
+    if (-not $wslPath.StartsWith("/")) {
+        Write-Log ("Source [" + $SourceLabel + "] resolved to non-absolute WSL path: " + $wslPath)
+        return $null
+    }
+
+    $wslPath = $wslPath.TrimEnd("/")
+    if ([string]::IsNullOrWhiteSpace($wslPath)) {
+        $wslPath = "/"
+    }
+
+    return $wslPath
+}
+
+function Resolve-DeploymentCandidateNoTraversal {
+    param(
+        [string]$WslPath,
+        [string]$SourceLabel
+    )
+
+    if ([string]::IsNullOrWhiteSpace($WslPath)) {
+        return $null
+    }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($WslPath.EndsWith("/deployment")) {
+        Add-UniquePath -Items $candidates -Value $WslPath
+    }
+    else {
+        Add-UniquePath -Items $candidates -Value ($WslPath + "/deployment")
+        Add-UniquePath -Items $candidates -Value $WslPath
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-AllowedProtoFleetPath -Path $candidate)) {
+            Write-Log ("Rejected candidate from [" + $SourceLabel + "] (outside allowed path): " + $candidate)
+            continue
+        }
+
+        if (Test-DeploymentRoot -Path $candidate) {
+            Write-Log ("Accepted deployment candidate from [" + $SourceLabel + "]: " + $candidate)
+            return $candidate
+        }
+
+        Write-Log ("Rejected candidate from [" + $SourceLabel + "] (missing deployment markers): " + $candidate)
     }
 
     return $null
+}
+
+function Resolve-DeploymentFromPathInput {
+    param(
+        [string]$PathValue,
+        [string]$SourceLabel
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
+
+    Write-Log ("Trying deployment source [" + $SourceLabel + "]: " + $PathValue)
+
+    $wslPath = Normalize-WslCandidatePath -PathValue $PathValue -SourceLabel $SourceLabel
+    if ([string]::IsNullOrWhiteSpace($wslPath)) {
+        Write-Log ("Deployment source [" + $SourceLabel + "] did not resolve to a usable WSL path.")
+        return $null
+    }
+
+    Write-Log ("Normalized source [" + $SourceLabel + "] to WSL path: " + $wslPath)
+    $resolved = Resolve-DeploymentCandidateNoTraversal -WslPath $wslPath -SourceLabel $SourceLabel
+
+    if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+        Write-Log ("Resolved deployment source [" + $SourceLabel + "] to: " + $resolved)
+    }
+    else {
+        Write-Log ("Deployment source [" + $SourceLabel + "] did not resolve to a valid root.")
+    }
+
+    return $resolved
+}
+
+function Resolve-DefaultDeploymentPath {
+    $wslHomeDir = Get-WslHomeDir
+    if ([string]::IsNullOrWhiteSpace($wslHomeDir) -or $wslHomeDir -eq "/home") {
+        Write-Log "Could not determine user-specific WSL home; default deployment lookup skipped."
+        return $null
+    }
+
+    $defaultRoot = $wslHomeDir.TrimEnd("/") + "/proto-fleet"
+    Write-Log ("Trying default Proto Fleet root: " + $defaultRoot)
+    return (Resolve-DeploymentCandidateNoTraversal -WslPath $defaultRoot -SourceLabel "DefaultInstallDir")
+}
+
+function Resolve-DeploymentPath {
+    if (-not [string]::IsNullOrWhiteSpace($DeploymentPath)) {
+        $resolvedFromDeploymentPath = Resolve-DeploymentFromPathInput -PathValue $DeploymentPath -SourceLabel "DeploymentPath"
+        if (-not [string]::IsNullOrWhiteSpace($resolvedFromDeploymentPath)) {
+            return $resolvedFromDeploymentPath
+        }
+
+        Write-ErrorMsg ("Provided -DeploymentPath is invalid or outside allowed location: " + $DeploymentPath)
+        Invoke-Exit 1
+    }
+
+    $hasCustomInstallDir = (-not [string]::IsNullOrWhiteSpace($InstallDir)) -and `
+        (-not [string]::Equals($InstallDir.Trim(), "~/proto-fleet", [System.StringComparison]::Ordinal))
+
+    if ($hasCustomInstallDir) {
+        $resolvedFromInstallDir = Resolve-DeploymentFromPathInput -PathValue $InstallDir -SourceLabel "InstallDir"
+        if (-not [string]::IsNullOrWhiteSpace($resolvedFromInstallDir)) {
+            return $resolvedFromInstallDir
+        }
+
+        Write-ErrorMsg ("Provided -InstallDir is invalid or outside allowed location: " + $InstallDir)
+        Invoke-Exit 1
+    }
+
+    return (Resolve-DefaultDeploymentPath)
 }
 
 function Is-WindowsMount {
@@ -523,19 +820,47 @@ function Is-WindowsMount {
     if ([string]::IsNullOrWhiteSpace($WslPath)) { return $false }
     if ($WslPath -match "^/mnt/[a-zA-Z]/") { return $true }
     $p = Escape-BashSingleQuotes $WslPath
-    $out = Invoke-WslRootCapture "wslpath -m '$p' 2>/dev/null || true"
+    $out = Invoke-WslUserNoThrow "wslpath -m '$p' 2>/dev/null || true"
     if ($out -match "^[A-Za-z]:\\") { return $true }
     return $false
 }
 
 function Ensure-DockerRunning {
-    $out = Invoke-WslRootCapture "docker info >/dev/null 2>&1"
+    $out = Invoke-WslUserNoThrow "docker info >/dev/null 2>&1"
     Write-Log ("Docker info exit code: " + $LASTEXITCODE)
-    if ($LASTEXITCODE -eq 0) { return $true }
-    Invoke-WslRootCapture "systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true" | Out-Null
-    $out2 = Invoke-WslRootCapture "docker info >/dev/null 2>&1"
-    Write-Log ("Docker info exit code after start: " + $LASTEXITCODE)
     return ($LASTEXITCODE -eq 0)
+}
+
+function Get-InstallRootPath {
+    param([string]$ResolvedDeploymentPath)
+
+    if ([string]::IsNullOrWhiteSpace($ResolvedDeploymentPath)) {
+        return $null
+    }
+
+    $normalized = $ResolvedDeploymentPath.Trim().TrimEnd("/")
+    if ($normalized.EndsWith("/deployment")) {
+        return $normalized.Substring(0, $normalized.Length - "/deployment".Length)
+    }
+    return $normalized
+}
+
+function Remove-ProtoFleetSystemdArtifacts {
+    $cleanupCmd = @'
+if command -v systemctl >/dev/null 2>&1; then
+  units="$(systemctl --user list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -E '^(protofleet|proto-fleet|fleet).*\.service$' || true)"
+  if [ -n "$units" ]; then
+    printf "%s\n" "$units" | while IFS= read -r unit; do
+      [ -z "$unit" ] && continue
+      systemctl --user disable --now "$unit" >/dev/null 2>&1 || true
+    done
+  fi
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user reset-failed >/dev/null 2>&1 || true
+fi
+rm -f ~/.config/systemd/user/protofleet*.service ~/.config/systemd/user/proto-fleet*.service ~/.config/systemd/user/fleet*.service 2>/dev/null || true
+'@
+    Invoke-WslUserNoThrow $cleanupCmd | Out-Null
 }
 
 function Invoke-Action {
@@ -575,11 +900,12 @@ if ($script:IsExe) {
         $logDir = (Get-Location).Path
     }
     $logPath = Join-Path $logDir "uninstall-exe.log"
-    $script:LogPath = $logPath
+    $script:LogPath = Join-Path $env:TEMP ("protofleet-uninstall-debug-" + $PID + ".log")
     Write-Log "Uninstaller starting"
     try {
         Start-Transcript -Path $logPath -Append | Out-Null
         Write-Host "Logging to: $logPath"
+        Write-Host "Debug log: $($script:LogPath)"
         $script:TranscriptStarted = $true
     }
     catch {
@@ -614,67 +940,23 @@ else {
 Ensure-WslDistro
 
 # Resolve deployment path
-$resolvedDeployment = $null
-
-if (-not [string]::IsNullOrWhiteSpace($DeploymentPath)) {
-    if (Test-Path -LiteralPath $DeploymentPath) {
-        $wslPath = ConvertTo-WSLPath -WindowsPath $DeploymentPath
-        if (-not [string]::IsNullOrWhiteSpace($wslPath)) {
-            $wslPath = Resolve-WslPath -Path $wslPath
-            $resolvedDeployment = Find-DeploymentRoot -StartPath $wslPath
-        }
-    }
-    else {
-        $wslPath = Resolve-WslPath -Path $DeploymentPath
-        $resolvedDeployment = Find-DeploymentRoot -StartPath $wslPath
-    }
-}
-
-if (-not $resolvedDeployment) {
-    if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
-        $candidate = Resolve-WslPath -Path $InstallDir
-        $candidateDeployment = "$candidate/deployment"
-        if (Test-DeploymentRoot -Path $candidateDeployment) {
-            $resolvedDeployment = $candidateDeployment
-        }
-        elseif (Test-DeploymentRoot -Path $candidate) {
-            $resolvedDeployment = $candidate
-        }
-    }
-}
-
-if (-not $resolvedDeployment) {
-    $defaultRoot = Resolve-WslPath -Path "~/proto-fleet"
-    $defaultDeployment = "$defaultRoot/deployment"
-    if (Test-DeploymentRoot -Path $defaultDeployment) {
-        $resolvedDeployment = $defaultDeployment
-    }
-    elseif (Test-DeploymentRoot -Path $defaultRoot) {
-        $resolvedDeployment = $defaultRoot
-    }
-}
+$resolvedDeployment = Resolve-DeploymentPath
 
 if (-not $resolvedDeployment) {
     if ($Silent) {
         Write-ErrorMsg "Deployment path not found. Provide -DeploymentPath or -InstallDir."
         Invoke-Exit 1
     }
-    $prompt = "Enter deployment path (WSL or Windows path):"
+    $prompt = "Enter deployment path (/home/<user>/proto-fleet or /home/<user>/proto-fleet/deployment):"
     $inputPath = Show-InputDialog -Prompt $prompt -Default ""
     if ([string]::IsNullOrWhiteSpace($inputPath)) {
         Write-ErrorMsg "Deployment path not provided."
         Invoke-Exit 1
     }
-    if (Test-Path -LiteralPath $inputPath) {
-        $wslPath = ConvertTo-WSLPath -WindowsPath $inputPath
-        if (-not [string]::IsNullOrWhiteSpace($wslPath)) {
-            $wslPath = Resolve-WslPath -Path $wslPath
-            $resolvedDeployment = Find-DeploymentRoot -StartPath $wslPath
-        }
-    }
-    else {
-        $wslPath = Resolve-WslPath -Path $inputPath
-        $resolvedDeployment = Find-DeploymentRoot -StartPath $wslPath
+    $resolvedDeployment = Resolve-DeploymentFromPathInput -PathValue $inputPath -SourceLabel "UserPrompt"
+    if (-not $resolvedDeployment) {
+        Write-ErrorMsg "Invalid deployment path. Expected /home/<user>/proto-fleet or /home/<user>/proto-fleet/deployment."
+        Invoke-Exit 1
     }
 }
 
@@ -684,56 +966,65 @@ if (-not $resolvedDeployment) {
 }
 
 $deploymentPath = $resolvedDeployment
+$installRootPath = Get-InstallRootPath -ResolvedDeploymentPath $deploymentPath
+Write-Log ("Final resolved deployment path: " + $deploymentPath)
+Write-Log ("Final resolved install root: " + $installRootPath)
+Assert-SafeRemovalPath -Path $deploymentPath
+Assert-SafeRemovalPath -Path $installRootPath
 
 Write-Step "Preparing to uninstall Proto Fleet..."
 Write-Host "WSL distro: $script:WslDistro"
 Write-Host "Deployment path: $deploymentPath"
+Write-Host "Install root: $installRootPath"
 
 if (-not (Ensure-DockerRunning)) {
-    Write-ErrorMsg "Docker is not running in WSL. Start Docker and retry."
+    Write-ErrorMsg "Docker is not accessible for the current WSL user. Start Docker in WSL and retry."
     Invoke-Exit 1
 }
 
-$composeCmd = if ($Clean) {
-    "cd '$(Escape-BashSingleQuotes $deploymentPath)' && docker compose -f docker-compose.yaml down --volumes --rmi all"
-}
-else {
-    "cd '$(Escape-BashSingleQuotes $deploymentPath)' && docker compose -f docker-compose.yaml down --rmi all"
+Invoke-Action "Tear down Proto Fleet containers" {
+    $cmd = "cd '$(Escape-BashSingleQuotes $deploymentPath)' && docker compose -f docker-compose.yaml down --remove-orphans >/dev/null 2>&1 || true"
+    Invoke-WslUserNoThrow $cmd | Out-Null
 }
 
-Invoke-Action "Stop and remove Fleet containers/images" {
-    Invoke-WslRootNoThrow $composeCmd | Out-Null
+Invoke-Action "Delete Proto Fleet images" {
+    $cmd = "cd '$(Escape-BashSingleQuotes $deploymentPath)' && docker compose -f docker-compose.yaml down --rmi all >/dev/null 2>&1 || true"
+    Invoke-WslUserNoThrow $cmd | Out-Null
 }
 
-if ($Clean) {
-    $projectName = Invoke-WslRootCapture "basename '$(Escape-BashSingleQuotes $deploymentPath)'"
-    if (-not [string]::IsNullOrWhiteSpace($projectName)) {
-        $projectName = $projectName.Trim()
-        $volListCmd = "docker volume ls -q | grep -E '^${projectName}[-_]timescaledb-data$|^${projectName}[-_](mysql|influxdb)$' || true"
-        $vols = Invoke-WslRootCapture $volListCmd
-        foreach ($vol in ($vols -split "`n")) {
-            $v = $vol.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($v)) {
-                Invoke-Action ("Remove volume " + $v) {
-                    Invoke-WslRoot "docker volume rm '$v' >/dev/null 2>&1 || true"
-                }
-            }
-        }
-    }
+Invoke-Action "Remove Proto Fleet systemd user artifacts" {
+    Remove-ProtoFleetSystemdArtifacts
 }
 
 $isWindowsMount = Is-WindowsMount -WslPath $deploymentPath
 if (-not $isWindowsMount) {
-    Invoke-Action "Remove WSL deployment directory" {
-        Invoke-WslRoot "rm -rf '$(Escape-BashSingleQuotes $deploymentPath)' >/dev/null 2>&1 || true"
+    Invoke-Action "Delete Proto Fleet deploy directory from WSL user home" {
+        Invoke-WslUserNoThrow "rm -rf '$(Escape-BashSingleQuotes $installRootPath)' >/dev/null 2>&1 || true" | Out-Null
     }
 }
 else {
-    Write-WarningMsg "Deployment path is on a Windows mount; not deleting files."
+    Write-WarningMsg "Deployment path resolved to a Windows mount; skipping delete for safety."
 }
 
 Invoke-Action "Remove WSL temp artifacts" {
-    Invoke-WslRoot "rm -f /tmp/proto-fleet-*.tar.gz /tmp/proto-fleet-deployment.tar.gz /tmp/pf-docker-install.log 2>/dev/null || true"
+    Invoke-WslUserNoThrow "rm -f /tmp/proto-fleet-*.tar.gz /tmp/proto-fleet-deployment.tar.gz /tmp/pf-docker-install.log 2>/dev/null || true" | Out-Null
+}
+
+if ($Clean) {
+    $projectName = Invoke-WslUserNoThrow "basename '$(Escape-BashSingleQuotes $deploymentPath)'"
+    if (-not [string]::IsNullOrWhiteSpace($projectName)) {
+        $projectName = $projectName.Trim()
+        $volListCmd = "docker volume ls -q | grep -E '^${projectName}[-_]timescaledb-data$|^${projectName}[-_](mysql|influxdb)$' || true"
+        $vols = Invoke-WslUserNoThrow $volListCmd
+        foreach ($vol in ($vols -split "`n")) {
+            $v = $vol.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($v)) {
+                Invoke-Action ("Remove volume " + $v) {
+                    Invoke-WslUserNoThrow "docker volume rm '$v' >/dev/null 2>&1 || true" | Out-Null
+                }
+            }
+        }
+    }
 }
 
 Invoke-Action "Remove scheduled task ProtoFleet-StartWSL" {
@@ -743,7 +1034,32 @@ Invoke-Action "Remove scheduled task ProtoFleet-StartWSL" {
             Unregister-ScheduledTask -TaskName "ProtoFleet-StartWSL" -Confirm:$false | Out-Null
         }
         else {
-            schtasks /Delete /TN "ProtoFleet-StartWSL" /F | Out-Null
+            Start-Process -FilePath "schtasks.exe" -ArgumentList @("/Delete", "/TN", "ProtoFleet-StartWSL", "/F") -Wait -WindowStyle Hidden
+        }
+    }
+    catch {
+        # ignore
+    }
+}
+
+Invoke-Action "Remove installer RunOnce resume entry" {
+    try {
+        Remove-ItemProperty `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" `
+            -Name "ProtoFleetInstallerResume" `
+            -ErrorAction SilentlyContinue
+    }
+    catch {
+        # ignore
+    }
+}
+
+Invoke-Action "Remove installer resume state file" {
+    try {
+        $programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+        $resumeStatePath = Join-Path $programData "ProtoFleet\resume-state.json"
+        if (Test-Path -LiteralPath $resumeStatePath) {
+            Remove-Item -LiteralPath $resumeStatePath -Force -ErrorAction SilentlyContinue
         }
     }
     catch {

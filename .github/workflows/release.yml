@@ -25,6 +25,12 @@ jobs:
         shell: powershell
         run: dotnet --info
 
+      - name: Install ps2exe
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+
       - name: Build Windows installer EXE
         shell: powershell
         working-directory: ./deployment-files/windows
@@ -37,17 +43,33 @@ jobs:
           }
           Write-Host "Windows installer prepared at $installerPath"
 
-      - name: Upload Windows installer artifact
+      - name: Build Windows uninstaller EXE
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          $outputDir = Join-Path $PWD "artifacts/release-installer"
+          $uninstallerPath = Join-Path $outputDir "uninstall.exe"
+          ./build-fleet-uninstaller-exe.ps1 -OutputExe $uninstallerPath
+          if (-not (Test-Path $uninstallerPath)) {
+            throw "Uninstaller build completed but uninstall.exe was not found at $uninstallerPath."
+          }
+          Write-Host "Windows uninstaller prepared at $uninstallerPath"
+
+      - name: Upload Windows installer artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: proto-fleet-windows-installer
-          path: ./deployment-files/windows/artifacts/release-installer/installer.exe
+          path: |
+            ./deployment-files/windows/artifacts/release-installer/installer.exe
+            ./deployment-files/windows/artifacts/release-installer/uninstall.exe
           retention-days: 1
 
-      - name: Upload Windows installer release asset
+      - name: Upload Windows release assets
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          files: ./deployment-files/windows/artifacts/release-installer/installer.exe
+          files: |
+            ./deployment-files/windows/artifacts/release-installer/installer.exe
+            ./deployment-files/windows/artifacts/release-installer/uninstall.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-proto-fleet-server:
@@ -263,7 +285,20 @@ jobs:
           mkdir -p deployment/client/protoFleet
           cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
           mkdir -p deployment/install
-          cp /tmp/windows-installer/installer.exe deployment/install/
+          installer_path="$(find /tmp/windows-installer -type f -name installer.exe | head -n 1)"
+          uninstaller_path="$(find /tmp/windows-installer -type f -name uninstall.exe | head -n 1)"
+          if [ -z "$installer_path" ]; then
+            echo "installer.exe not found in downloaded windows artifact"
+            find /tmp/windows-installer -maxdepth 8 -type f | sort
+            exit 1
+          fi
+          if [ -z "$uninstaller_path" ]; then
+            echo "uninstall.exe not found in downloaded windows artifact"
+            find /tmp/windows-installer -maxdepth 8 -type f | sort
+            exit 1
+          fi
+          cp "$installer_path" deployment/install/installer.exe
+          cp "$uninstaller_path" deployment/install/uninstall.exe
 
       - name: Copy deployment configuration files
         run: |

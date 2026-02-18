@@ -31,6 +31,70 @@ The local `global.json` pins the .NET SDK line to .NET 8 for reproducible builds
 
 The generated executable is `installer.exe`.
 
+## Uninstaller
+
+Build from this directory:
+
+```powershell
+Install-Module -Name ps2exe -Scope CurrentUser -Force
+Get-Command Invoke-ps2exe
+```
+
+Then build:
+
+```powershell
+./build-fleet-uninstaller-exe.ps1
+```
+
+The generated executable is `uninstall.exe`.
+
+Uninstaller distro behavior:
+- If `-WslDistro` is provided, that distro is used.
+- If `-WslDistro` is omitted, the uninstaller auto-selects an installed distro:
+  - default distro first
+  - then first `Ubuntu*` distro
+  - then first available distro
+
+Uninstaller deployment path detection order:
+1. `-DeploymentPath` (if provided)
+2. `-InstallDir` (if provided)
+3. default `~/proto-fleet/deployment`
+4. default `~/proto-fleet`
+5. prompt for one explicit path (or fail in `-Silent` mode)
+
+If you are prompted unexpectedly, verify what the uninstaller resolves in your selected distro:
+
+```powershell
+wsl -d <YourDistro> -- bash -lc 'printf "HOME=%s\n" "$HOME"; ls -la ~/proto-fleet/deployment'
+```
+
+Common failure signatures:
+- `The term 'id' is not recognized...`
+  - Cause: host-side PowerShell interpolation of a WSL command (old/unpatched uninstaller build).
+  - Fix: rebuild and rerun `uninstall.exe` from current sources.
+- `Using WSL distro: U b u n t u`
+  - Cause: stale uninstaller output parsing from older build.
+  - Fix: rebuild and rerun `uninstall.exe` from current sources.
+
+Uninstaller execution model:
+- Runs in user context (no `-RequireAdmin` in the uninstaller EXE build).
+- Executes WSL commands as the distro default user (no `-u root`).
+- Uses `~/proto-fleet` as the primary install root and `~/proto-fleet/deployment` as deployment root.
+- Prompts for path only if deployment is not found at the default location.
+- Rejects paths outside `/home/<user>/proto-fleet` or `/home/<user>/proto-fleet/deployment` for safety.
+
+Uninstall order:
+1. Tear down containers.
+2. Delete images.
+3. Remove Proto Fleet systemd user artifacts.
+4. Delete `~/proto-fleet` from the WSL user home.
+
+## Release Bundle Contents
+
+Release tarball `proto-fleet-<tag>.tar.gz` includes both Windows executables at:
+- `deployment/install/installer.exe`
+- `deployment/install/uninstall.exe`
+
 ## Prerequisites (Windows 11)
 
 Run all setup commands in an elevated PowerShell session.
@@ -162,10 +226,13 @@ Trigger any path that returns reboot required, then verify:
 ### 6) Scenario E: Packaging verification
 ```powershell
 .\build-fleet-installer.ps1 -Configuration Release -OutputDir .\artifacts\release-installer
+.\build-fleet-uninstaller-exe.ps1 -OutputExe .\artifacts\release-installer\uninstall.exe
 Get-ChildItem .\artifacts\release-installer\installer.exe
+Get-ChildItem .\artifacts\release-installer\uninstall.exe
 ```
 Expected:
 - `installer.exe` exists at the specified output directory.
+- `uninstall.exe` exists at the specified output directory.
 
 ### 7) Restore machine defaults after testing
 ```powershell

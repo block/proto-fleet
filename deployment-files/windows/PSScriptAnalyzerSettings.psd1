@@ -1,0 +1,5 @@
+@{
+    IncludeRules = @(
+        'PSAvoidAssignmentToAutomaticVariable'
+    )
+}
