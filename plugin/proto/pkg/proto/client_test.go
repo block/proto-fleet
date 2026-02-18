@@ -575,6 +575,7 @@ func TestClientCreationWithoutInsecureTLS(t *testing.T) {
 // newTestClient creates a Client pointed at the given httptest.Server.
 // The singleton HTTP/2 transport is replaced with a plain HTTP/1.1 client so
 // that the client works with httptest.Server (which only speaks HTTP/1.1).
+// webUIBaseURL is also pointed at the test server since tests use a random port.
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
 	u, err := url.Parse(server.URL)
@@ -584,64 +585,76 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	client, err := NewClient(u.Hostname(), int32(port), "http")
 	require.NoError(t, err)
 	client.httpClient = &http.Client{}
+	// In production webUIBaseURL uses the standard port (80/443); override here so
+	// loginWithPassword and ChangePassword hit the same test server handler.
+	client.webUIBaseURL = server.URL
 	return client
 }
 
-// TestVerifyCurrentPassword tests the password verification step that guards ChangePassword.
-func TestVerifyCurrentPassword(t *testing.T) {
+// TestLoginWithPassword tests the miner login step used by ChangePassword.
+func TestLoginWithPassword(t *testing.T) {
 	tests := []struct {
 		name        string
-		status      int
+		handler     func(w http.ResponseWriter, r *http.Request)
 		expectErr   bool
 		errContains string
 	}{
 		{
-			name:      "correct password returns 200",
-			status:    http.StatusOK,
+			name: "correct password returns 200 with token",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/auth/login", r.URL.Path)
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"test-refresh"}`))
+			},
 			expectErr: false,
 		},
 		{
-			name:        "wrong password returns 401",
-			status:      http.StatusUnauthorized,
+			name: "wrong password returns 401",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+			},
 			expectErr:   true,
 			errContains: "incorrect current password",
 		},
 		{
-			name:        "server error returns 500",
-			status:      http.StatusInternalServerError,
+			name: "server error returns 500",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
 			expectErr:   true,
-			errContains: "password verification failed with status 500",
+			errContains: "login failed with status 500",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "/api/v1/auth/login", r.URL.Path)
-				assert.Equal(t, http.MethodPost, r.Method)
-				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-				w.WriteHeader(tt.status)
-			}))
+			server := httptest.NewServer(http.HandlerFunc(tt.handler))
 			defer server.Close()
 
 			client := newTestClient(t, server)
 			defer func() { _ = client.Close() }()
 
-			err := client.verifyCurrentPassword(context.Background(), "testpassword")
+			token, err := client.loginWithPassword(context.Background(), "testpassword")
 			if tt.expectErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Empty(t, token)
 			} else {
 				require.NoError(t, err)
+				assert.Equal(t, "test-token", token)
 			}
 		})
 	}
 }
 
-// TestChangePasswordVerifiesFirst tests that ChangePassword verifies the current password
-// before calling the change-password endpoint, and aborts if verification fails.
-func TestChangePasswordVerifiesFirst(t *testing.T) {
-	t.Run("wrong password: verify fails, change-password not called", func(t *testing.T) {
+// TestChangePassword tests that ChangePassword uses the web UI flow:
+// login first (verifying current password and obtaining a JWT), then
+// call change-password with that JWT — no fleet Bearer token used.
+func TestChangePassword(t *testing.T) {
+	t.Run("wrong password: login fails, change-password not called", func(t *testing.T) {
 		loginCalled := false
 		changeCalled := false
 
@@ -663,21 +676,26 @@ func TestChangePasswordVerifiesFirst(t *testing.T) {
 		err := client.ChangePassword(context.Background(), "wrongpassword", "newpassword")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "incorrect current password")
-		assert.True(t, loginCalled, "login endpoint should be called to verify")
-		assert.False(t, changeCalled, "change-password endpoint should not be called after verify fails")
+		assert.True(t, loginCalled, "login endpoint should be called")
+		assert.False(t, changeCalled, "change-password should not be called after login fails")
 	})
 
-	t.Run("correct password: verify passes, change-password called", func(t *testing.T) {
+	t.Run("correct password: login succeeds, change-password called with web UI JWT", func(t *testing.T) {
+		const webUIToken = "web-ui-access-token"
 		loginCalled := false
 		changeCalled := false
+		var changeAuthHeader string
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/api/v1/auth/login":
 				loginCalled = true
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"access_token":"` + webUIToken + `","refresh_token":"refresh"}`))
 			case "/api/v1/auth/change-password":
 				changeCalled = true
+				changeAuthHeader = r.Header.Get("Authorization")
 				w.WriteHeader(http.StatusOK)
 			}
 		}))
@@ -688,8 +706,9 @@ func TestChangePasswordVerifiesFirst(t *testing.T) {
 
 		err := client.ChangePassword(context.Background(), "correctpassword", "newpassword")
 		require.NoError(t, err)
-		assert.True(t, loginCalled, "login endpoint should be called to verify")
-		assert.True(t, changeCalled, "change-password endpoint should be called after verify passes")
+		assert.True(t, loginCalled, "login endpoint should be called")
+		assert.True(t, changeCalled, "change-password endpoint should be called")
+		assert.Equal(t, "Bearer "+webUIToken, changeAuthHeader, "change-password should use the web UI JWT, not the fleet Bearer token")
 	})
 }
 
