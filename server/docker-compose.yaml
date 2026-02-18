@@ -38,6 +38,8 @@ services:
       file: ./docker-compose.base.yaml
       service: timescaledb
     # Development performance optimizations
+    # NOTE: This command completely overrides the base config. Keep work_mem in sync
+    # with docker-compose.base.yaml (Docker Compose replaces arrays, doesn't merge them).
     command:
       - "postgres"
       - "-c"
@@ -56,6 +58,8 @@ services:
       - "log_statement=none"
       - "-c"
       - "timescaledb.max_background_workers=4"
+      - "-c"
+      - "work_mem=32MB"
     volumes:
       # TimescaleDB HA image uses /home/postgres/pgdata/data, not /var/lib/postgresql/data
       - timescaledb-data:/home/postgres/pgdata/data
