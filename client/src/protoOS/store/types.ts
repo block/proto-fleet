@@ -21,6 +21,7 @@ export type PercentageUnit = "%";
 export type RpmUnit = "RPM";
 export type VoltageUnit = "V" | "mV";
 export type CurrentUnit = "A" | "mA";
+export type FrequencyUnit = "MHz" | "GHz";
 
 type Value = number | null;
 
@@ -32,7 +33,8 @@ export type MetricUnit =
   | PercentageUnit
   | RpmUnit
   | VoltageUnit
-  | CurrentUnit;
+  | CurrentUnit
+  | FrequencyUnit;
 
 // Time Series Data Types
 export interface MetricTimeSeries {
@@ -83,6 +85,8 @@ export interface AsicTelemetryData {
   id: string;
   hashrate?: MetricTelemetry;
   temperature?: MetricTelemetry;
+  voltage?: MetricTelemetry;
+  frequency?: MetricTelemetry;
 }
 
 // Chart data transformation types

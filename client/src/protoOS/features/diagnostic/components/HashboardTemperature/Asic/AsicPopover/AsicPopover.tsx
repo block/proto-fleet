@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import AsicChart from "./AsicChart";
 import AsicPopoverRow from "./AsicPopoverRow";
 import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
-import { AsicData, convertAndFormatMeasurement } from "@/protoOS/store";
+import { AsicData, convertAndFormatMeasurement, formatValue } from "@/protoOS/store";
 import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
@@ -95,6 +95,16 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
         <AsicPopoverRow
           label="Current hashrate"
           value={hashrateData.length ? `${getDisplayValue(hashRate)} ${hashUnit}` : undefined}
+          className="text-text-primary"
+        />
+        <AsicPopoverRow
+          label="Voltage"
+          value={asic.voltage?.latest ? formatValue(asic.voltage.latest, true) : undefined}
+          className="text-text-primary"
+        />
+        <AsicPopoverRow
+          label="Frequency"
+          value={asic.frequency?.latest ? formatValue(asic.frequency.latest, true) : undefined}
           className="text-text-primary"
         />
       </div>

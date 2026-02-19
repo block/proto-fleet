@@ -146,15 +146,14 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
               key: "hashrate",
               title: "Hashrate (GH/s)",
             },
-            // TODO: confirm whether frequency and voltage will be returned from the API
-            // {
-            //   key: "frequency",
-            //   title: "Frequency (MHz)",
-            // },
-            // {
-            //   key: "voltage",
-            //   title: "Voltage (V)",
-            // },
+            {
+              key: "voltage",
+              title: "Voltage (mV)",
+            },
+            {
+              key: "frequency",
+              title: "Frequency (MHz)",
+            },
           ]}
           onSelect={(metric) => setSelectedMetric(metric as SelectedMetric)}
         />

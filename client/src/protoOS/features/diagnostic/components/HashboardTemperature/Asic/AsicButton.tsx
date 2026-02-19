@@ -48,15 +48,14 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
         return asic.temperature?.latest;
       case "hashrate":
         return asic.hashrate?.latest;
-      case "frequency":
       case "voltage":
-        // These metrics are not yet available in AsicData
-        // TODO: confirm whether frequency and voltage will be returned from the API
-        return undefined;
+        return asic.voltage?.latest;
+      case "frequency":
+        return asic.frequency?.latest;
       default:
         return undefined;
     }
-  }, [selectedMetric, asic.temperature, asic.hashrate]);
+  }, [selectedMetric, asic.temperature, asic.hashrate, asic.voltage, asic.frequency]);
 
   return (
     <div
@@ -115,8 +114,18 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       return formatMetricDisplay(formatted || "--");
     }
 
-    // TODO: confirm whether frequency and voltage will be returned from the API
-    // Frequency and voltage are not yet available
+    // For voltage, display in mV (no units displayed, already in mV from API)
+    if (selectedMetric === "voltage") {
+      const formatted = convertAndFormatMeasurement(metricMeasurement, "mV", false);
+      return formatMetricDisplay(formatted || "--");
+    }
+
+    // For frequency, display in MHz (no units displayed, already in MHz from API)
+    if (selectedMetric === "frequency") {
+      const formatted = convertAndFormatMeasurement(metricMeasurement, "MHz", false);
+      return formatMetricDisplay(formatted || "--");
+    }
+
     return formatMetricDisplay("--");
   }
 };

@@ -105,6 +105,38 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
             asicsToAdd.push(asicInfo);
             useMinerStore.getState().hardware.linkAsicToHashboard(asicId, hashboardSerialNumber);
           }
+
+          // Update telemetry store with voltage and frequency data using Immer-safe setState
+          useMinerStore.setState((state) => {
+            let asicTelemetry = state.telemetry.asics.get(asicId);
+
+            if (!asicTelemetry) {
+              asicTelemetry = { id: asicId };
+              state.telemetry.asics.set(asicId, asicTelemetry);
+            }
+
+            // Update voltage (voltage_mv from API)
+            if (asic.voltage_mv !== undefined && asic.voltage_mv !== null) {
+              if (!asicTelemetry.voltage) {
+                asicTelemetry.voltage = {};
+              }
+              asicTelemetry.voltage.latest = {
+                value: asic.voltage_mv,
+                units: "mV",
+              };
+            }
+
+            // Update frequency (freq_mhz from API)
+            if (asic.freq_mhz !== undefined && asic.freq_mhz !== null) {
+              if (!asicTelemetry.frequency) {
+                asicTelemetry.frequency = {};
+              }
+              asicTelemetry.frequency.latest = {
+                value: asic.freq_mhz,
+                units: "MHz",
+              };
+            }
+          });
         }
       }
     });
