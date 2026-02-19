@@ -101,6 +101,10 @@ message UpdateMiningPoolsRequest {
   optional PoolSlotConfig backup_1_pool = 3;
   // Backup pool 2 (priority 2) - optional
   optional PoolSlotConfig backup_2_pool = 4;
+  // Fleet user's username for authorization
+  string user_username = 5;
+  // Fleet user's password for authorization
+  string user_password = 6;
 }
 
 message UpdateMiningPoolsResponse {

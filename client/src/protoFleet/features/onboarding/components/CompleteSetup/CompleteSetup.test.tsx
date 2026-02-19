@@ -25,6 +25,13 @@ vi.mock("@/protoFleet/store", () => ({
   },
 }));
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
+vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
+  default: ({ onAuthenticated }: { onAuthenticated: (username: string, password: string) => void }) => (
+    <div data-testid="auth-fleet-modal">
+      <button onClick={() => onAuthenticated("testuser", "testpass")}>Submit Auth</button>
+    </div>
+  ),
+}));
 vi.mock("@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage", () => ({
   default: () => <div data-testid="pool-selection-modal">Pool Selection Modal</div>,
 }));
@@ -328,6 +335,12 @@ describe("CompleteSetup", () => {
 
       const configureButton = screen.getByText("Configure");
       fireEvent.click(configureButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("auth-fleet-modal")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Submit Auth"));
 
       await waitFor(() => {
         expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();
@@ -748,6 +761,12 @@ describe("CompleteSetup", () => {
 
       const configureButton = screen.getByText("Configure");
       fireEvent.click(configureButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("auth-fleet-modal")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Submit Auth"));
 
       await waitFor(() => {
         expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();

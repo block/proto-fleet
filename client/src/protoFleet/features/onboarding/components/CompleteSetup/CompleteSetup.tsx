@@ -6,6 +6,7 @@ import { StreamCommandBatchUpdatesRequestSchema } from "@/protoFleet/api/generat
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import usePoolNeededCount from "@/protoFleet/api/usePoolNeededCount";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { useFleetStore, useLastPairingCompletedAt } from "@/protoFleet/store";
@@ -140,6 +141,12 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
 
   // Get streaming command batch updates
   const { streamCommandBatchUpdates } = useMinerCommand();
+
+  // State for fleet authentication before pool assignment
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [poolFleetCredentials, setPoolFleetCredentials] = useState<{ username: string; password: string } | undefined>(
+    undefined,
+  );
 
   // State for showing pool selection modal
   const [showPoolSelectionModal, setShowPoolSelectionModal] = useState(false);
@@ -325,6 +332,22 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
       longRunning: true,
     });
     setShowPoolSelectionModal(false);
+    setPoolFleetCredentials(undefined);
+  }, []);
+
+  const handlePoolDismiss = useCallback(() => {
+    setShowPoolSelectionModal(false);
+    setPoolFleetCredentials(undefined);
+  }, []);
+
+  const handleAuthSuccess = useCallback((username: string, password: string) => {
+    setPoolFleetCredentials({ username, password });
+    setShowAuthModal(false);
+    setShowPoolSelectionModal(true);
+  }, []);
+
+  const handleAuthDismiss = useCallback(() => {
+    setShowAuthModal(false);
   }, []);
 
   // Watch for pairing operations completing and start polling
@@ -380,7 +403,7 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
                           return;
                         }
 
-                        setShowPoolSelectionModal(true);
+                        setShowAuthModal(true);
                       }}
                       isLoading={isLoadingPoolNeeded || isPollingAfterPoolAssignment}
                     />
@@ -403,7 +426,15 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
           </div>
         </div>
       )}
-      {showPoolSelectionModal && (
+      {showAuthModal && (
+        <AuthenticateFleetModal
+          show={showAuthModal}
+          purpose="pool"
+          onAuthenticated={handleAuthSuccess}
+          onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showPoolSelectionModal && poolFleetCredentials && (
         <PoolSelectionPageWrapper
           selectionMode="all"
           poolNeededCount={poolNeededCount}
@@ -411,9 +442,11 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
             deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
             pairingStatus: PairingStatus.PAIRED,
           }}
+          userUsername={poolFleetCredentials.username}
+          userPassword={poolFleetCredentials.password}
           onSuccess={handlePoolAssignmentSuccess}
           onError={handlePoolAssignmentError}
-          onDismiss={() => setShowPoolSelectionModal(false)}
+          onDismiss={handlePoolDismiss}
         />
       )}
     </>

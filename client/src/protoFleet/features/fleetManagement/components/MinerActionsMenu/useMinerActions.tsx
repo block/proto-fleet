@@ -152,6 +152,15 @@ export const useMinerActions = ({
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
+  const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
+  const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
+  const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
+  const [poolFilteredSelector, setPoolFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
+  const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
+  const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string } | undefined>(
+    undefined,
+  );
+
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
   // Display count for confirmation dialogs - use totalCount when in "all" mode
@@ -624,6 +633,31 @@ export const useMinerActions = ({
 
   const handleCancel = useCallback(() => {
     setCurrentAction(null);
+    setShowPoolSelectionPage(false);
+    setFleetCredentials(undefined);
+    setAuthenticationPurpose(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const handleFleetAuthenticated = useCallback(
+    (username: string, password: string) => {
+      setFleetCredentials({ username, password });
+      setShowAuthenticateFleetModal(false);
+
+      if (authenticationPurpose === "pool") {
+        setShowPoolSelectionPage(true);
+      }
+    },
+    [authenticationPurpose],
+  );
+
+  const handleAuthDismiss = useCallback(() => {
+    setShowAuthenticateFleetModal(false);
+    setAuthenticationPurpose(null);
+    setPoolFilteredSelector(undefined);
+    setPoolFilteredDeviceIds(undefined);
+    setFleetCredentials(undefined);
+    setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
 
@@ -751,9 +785,28 @@ export const useMinerActions = ({
     // };
 
     // Settings actions handlers
-    const handleMiningPool = () => {
-      setCurrentAction(settingsActions.miningPool);
+    const handleMiningPool = async () => {
       onActionStart?.();
+
+      const modalShown = await checkAndShowUnsupportedMinersModal(
+        settingsActions.miningPool,
+        (filteredSelector, filteredDeviceIds) => {
+          // Store filtered values for use after authentication
+          setPoolFilteredSelector(filteredSelector);
+          setPoolFilteredDeviceIds(filteredDeviceIds);
+          setCurrentAction(settingsActions.miningPool);
+          setAuthenticationPurpose("pool");
+          setShowAuthenticateFleetModal(true);
+        },
+      );
+      if (!modalShown) {
+        // No filtering needed - clear any stale filtered values
+        setPoolFilteredSelector(undefined);
+        setPoolFilteredDeviceIds(undefined);
+        setCurrentAction(settingsActions.miningPool);
+        setAuthenticationPurpose("pool");
+        setShowAuthenticateFleetModal(true);
+      }
     };
 
     const handleCoolingMode = async () => {
@@ -983,6 +1036,10 @@ export const useMinerActions = ({
     displayCount,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    poolFilteredSelector,
+    poolFilteredDeviceIds,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -991,6 +1048,10 @@ export const useMinerActions = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    authenticationPurpose,
+    handleFleetAuthenticated,
+    handleAuthDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,

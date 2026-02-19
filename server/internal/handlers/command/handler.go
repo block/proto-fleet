@@ -89,7 +89,15 @@ func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],
 ) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
-	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceSelector, req.Msg.DefaultPool, req.Msg.Backup_1Pool, req.Msg.Backup_2Pool)
+	resp, err := h.commandSvc.UpdateMiningPools(
+		ctx,
+		req.Msg.DeviceSelector,
+		req.Msg.DefaultPool,
+		req.Msg.Backup_1Pool,
+		req.Msg.Backup_2Pool,
+		req.Msg.UserUsername,
+		req.Msg.UserPassword,
+	)
 	if err != nil {
 		return nil, err
 	}

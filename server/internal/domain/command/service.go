@@ -474,7 +474,17 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-func (s *Service) UpdateMiningPools(ctx context.Context, deviceSelector *pb.DeviceSelector, defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig) (*pb.UpdateMiningPoolsResponse, error) {
+func (s *Service) UpdateMiningPools(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
+	userUsername string,
+	userPassword string,
+) (*pb.UpdateMiningPoolsResponse, error) {
+	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
+		return nil, err
+	}
+
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import { performanceActions, settingsActions, SupportedAction } from "./constant
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { useMinerActions } from "./useMinerActions";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { type SelectionMode } from "@/shared/components/List";
@@ -38,6 +39,9 @@ const MinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    poolFilteredDeviceIds,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -46,6 +50,10 @@ const MinerActionsMenu = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    authenticationPurpose,
+    handleFleetAuthenticated,
+    handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -56,6 +64,14 @@ const MinerActionsMenu = ({
     onActionStart,
     onActionComplete,
   });
+
+  // Use filtered device IDs for pool selection if available
+  const poolMiners = useMemo(() => {
+    if (poolFilteredDeviceIds) {
+      return poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }));
+    }
+    return selectedMinersWithStatus;
+  }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
   return (
     <PopoverProvider>
@@ -78,11 +94,13 @@ const MinerActionsMenu = ({
         onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
         onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
       />
-      {currentAction === settingsActions.miningPool && (
+      {showPoolSelectionPage && fleetCredentials && (
         <PoolSelectionPageWrapper
-          selectedMiners={selectedMinersWithStatus}
+          selectedMiners={poolMiners}
           selectionMode={selectionMode}
-          poolNeededCount={totalCount}
+          poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
+          userUsername={fleetCredentials.username}
+          userPassword={fleetCredentials.password}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
@@ -102,6 +120,14 @@ const MinerActionsMenu = ({
           initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
+        />
+      )}
+      {showAuthenticateFleetModal && (
+        <AuthenticateFleetModal
+          show={showAuthenticateFleetModal}
+          purpose={authenticationPurpose ?? undefined}
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={handleAuthDismiss}
         />
       )}
     </PopoverProvider>

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
@@ -20,6 +21,9 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
   const [isMinerFrameOpen, setIsMinerFrameOpen] = useState(false);
   const [isStatusModalOpen, setStatusModalOpen] = useState(false);
+  const [showFleetAuth, setShowFleetAuth] = useState(false);
+  const [showPoolSelection, setShowPoolSelection] = useState(false);
+  const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string }>();
 
   // Get errors from normalized store
   const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
@@ -29,6 +33,7 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
+  const showPoolFlow = isStatusModalOpen && !needsAuthentication && needsMiningPool;
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (url) {
@@ -46,6 +51,22 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
 
   const handleAlertClick = () => {
     setStatusModalOpen(true);
+    if (needsMiningPool) {
+      setShowFleetAuth(true);
+    }
+  };
+
+  const handleFleetAuthenticated = (username: string, password: string) => {
+    setFleetCredentials({ username, password });
+    setShowFleetAuth(false);
+    setShowPoolSelection(true);
+  };
+
+  const handleModalClose = () => {
+    setStatusModalOpen(false);
+    setShowFleetAuth(false);
+    setShowPoolSelection(false);
+    setFleetCredentials(undefined);
   };
 
   return (
@@ -76,21 +97,27 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
         )}
         <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
       </div>
-      {isStatusModalOpen && !needsAuthentication && needsMiningPool && (
+      {showPoolFlow && showFleetAuth && (
+        <AuthenticateFleetModal
+          show={showFleetAuth}
+          purpose="pool"
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={handleModalClose}
+        />
+      )}
+      {showPoolFlow && showPoolSelection && fleetCredentials && (
         <PoolSelectionPageWrapper
           selectedMiners={[{ deviceIdentifier, deviceStatus: deviceStatusFromStore }]}
           selectionMode="subset"
-          onSuccess={() => setStatusModalOpen(false)}
-          onError={() => setStatusModalOpen(false)}
-          onDismiss={() => setStatusModalOpen(false)}
+          userUsername={fleetCredentials.username}
+          userPassword={fleetCredentials.password}
+          onSuccess={handleModalClose}
+          onError={handleModalClose}
+          onDismiss={handleModalClose}
         />
       )}
       {isStatusModalOpen && !needsAuthentication && !needsMiningPool && (
-        <ProtoFleetStatusModal
-          show={isStatusModalOpen}
-          onClose={() => setStatusModalOpen(false)}
-          deviceId={deviceIdentifier}
-        />
+        <ProtoFleetStatusModal show={isStatusModalOpen} onClose={handleModalClose} deviceId={deviceIdentifier} />
       )}
     </div>
   );

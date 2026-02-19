@@ -82,6 +82,8 @@ export interface PoolConfig {
 interface UpdateMiningPoolsProps {
   deviceSelector: DeviceSelector;
   poolConfig: PoolConfig;
+  userUsername: string;
+  userPassword: string;
   onSuccess: (value: UpdateMiningPoolsResponse) => void;
   onError?: (error: string) => void;
 }
@@ -226,7 +228,7 @@ const useMinerCommand = () => {
   );
 
   const updateMiningPools = useCallback(
-    async ({ deviceSelector, poolConfig, onSuccess, onError }: UpdateMiningPoolsProps) => {
+    async ({ deviceSelector, poolConfig, userUsername, userPassword, onSuccess, onError }: UpdateMiningPoolsProps) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
         if (source.type === "poolId") {
           return create(PoolSlotConfigSchema, {
@@ -249,6 +251,8 @@ const useMinerCommand = () => {
         defaultPool: createPoolSlotConfig(poolConfig.defaultPool),
         backup1Pool: poolConfig.backup1Pool ? createPoolSlotConfig(poolConfig.backup1Pool) : undefined,
         backup2Pool: poolConfig.backup2Pool ? createPoolSlotConfig(poolConfig.backup2Pool) : undefined,
+        userUsername,
+        userPassword,
       });
 
       await minerCommandClient

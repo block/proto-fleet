@@ -9,6 +9,7 @@ import ManagePowerModal from "./ManagePowerModal";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -43,6 +44,8 @@ const SingleMinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showPoolSelectionPage,
+    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -51,6 +54,10 @@ const SingleMinerActionsMenu = ({
     currentCoolingMode,
     handleCoolingModeConfirm,
     handleCoolingModeDismiss,
+    showAuthenticateFleetModal,
+    authenticationPurpose,
+    handleFleetAuthenticated,
+    handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -106,6 +113,8 @@ const SingleMinerActionsMenu = ({
         handleConfirmationClick={handleConfirmationClick}
         handleCancelClick={handleCancelClick}
         selectedMiners={selectedMiners}
+        showPoolSelectionPage={showPoolSelectionPage}
+        fleetCredentials={fleetCredentials}
         handleMiningPoolSuccess={handleMiningPoolSuccess}
         handleMiningPoolError={handleMiningPoolError}
         handleCancel={handleCancel}
@@ -117,6 +126,10 @@ const SingleMinerActionsMenu = ({
         currentCoolingMode={currentCoolingMode}
         handleCoolingModeConfirm={handleCoolingModeConfirm}
         handleCoolingModeDismiss={handleCoolingModeDismiss}
+        showAuthenticateFleetModal={showAuthenticateFleetModal}
+        authenticationPurpose={authenticationPurpose}
+        handleFleetAuthenticated={handleFleetAuthenticated}
+        handleAuthDismiss={handleAuthDismiss}
         disabled={disabled}
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
@@ -137,6 +150,8 @@ interface SingleMinerActionsMenuInnerProps {
   handleConfirmationClick: () => void;
   handleCancelClick: () => void;
   selectedMiners: MinerSelection[];
+  showPoolSelectionPage: boolean;
+  fleetCredentials: { username: string; password: string } | undefined;
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
   handleCancel: () => void;
@@ -148,6 +163,10 @@ interface SingleMinerActionsMenuInnerProps {
   currentCoolingMode: CoolingMode | undefined;
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
+  showAuthenticateFleetModal: boolean;
+  authenticationPurpose: "security" | "pool" | null;
+  handleFleetAuthenticated: (username: string, password: string) => void;
+  handleAuthDismiss: () => void;
   disabled?: boolean;
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
@@ -165,6 +184,8 @@ const SingleMinerActionsMenuInner = ({
   handleConfirmationClick,
   handleCancelClick,
   selectedMiners,
+  showPoolSelectionPage,
+  fleetCredentials,
   handleMiningPoolSuccess,
   handleMiningPoolError,
   handleCancel,
@@ -176,6 +197,10 @@ const SingleMinerActionsMenuInner = ({
   currentCoolingMode,
   handleCoolingModeConfirm,
   handleCoolingModeDismiss,
+  showAuthenticateFleetModal,
+  authenticationPurpose,
+  handleFleetAuthenticated,
+  handleAuthDismiss,
   disabled = false,
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
@@ -254,10 +279,12 @@ const SingleMinerActionsMenuInner = ({
             />
           );
         })}
-      {currentAction === settingsActions.miningPool && (
+      {showPoolSelectionPage && fleetCredentials && (
         <PoolSelectionPageWrapper
           selectedMiners={selectedMiners}
           selectionMode="subset"
+          userUsername={fleetCredentials.username}
+          userPassword={fleetCredentials.password}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
@@ -277,6 +304,14 @@ const SingleMinerActionsMenuInner = ({
           initialCoolingMode={currentCoolingMode}
           onConfirm={handleCoolingModeConfirm}
           onDismiss={handleCoolingModeDismiss}
+        />
+      )}
+      {showAuthenticateFleetModal && (
+        <AuthenticateFleetModal
+          show={showAuthenticateFleetModal}
+          purpose={authenticationPurpose ?? undefined}
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={handleAuthDismiss}
         />
       )}
     </div>

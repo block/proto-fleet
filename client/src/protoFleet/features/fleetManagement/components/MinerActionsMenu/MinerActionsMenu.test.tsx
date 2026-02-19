@@ -11,6 +11,8 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       selectedMiners: Array<{ deviceIdentifier: string }>;
       selectionMode: string;
       poolNeededCount?: number;
+      userUsername?: string;
+      userPassword?: string;
       onSuccess: (batchIdentifier: string) => void;
       onError?: (error: string) => void;
       onDismiss: () => void;
@@ -24,6 +26,9 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCancel: ReturnType<typeof vi.fn>;
       handleMiningPoolSuccess: ReturnType<typeof vi.fn>;
       handleMiningPoolError: ReturnType<typeof vi.fn>;
+      showPoolSelectionPage: boolean;
+      poolFilteredDeviceIds?: string[];
+      fleetCredentials?: { username: string; password: string };
       showManagePowerModal: boolean;
       handleManagePowerConfirm: ReturnType<typeof vi.fn>;
       handleManagePowerDismiss: ReturnType<typeof vi.fn>;
@@ -32,6 +37,13 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       currentCoolingMode: unknown;
       handleCoolingModeConfirm: ReturnType<typeof vi.fn>;
       handleCoolingModeDismiss: ReturnType<typeof vi.fn>;
+      showAuthenticateFleetModal: boolean;
+      showUpdatePasswordModal: boolean;
+      hasThirdPartyMiners: boolean;
+      handleFleetAuthenticated: ReturnType<typeof vi.fn>;
+      handlePasswordConfirm: ReturnType<typeof vi.fn>;
+      handlePasswordDismiss: ReturnType<typeof vi.fn>;
+      handleAuthDismiss: ReturnType<typeof vi.fn>;
       unsupportedMinersInfo: unknown;
       handleUnsupportedMinersContinue: ReturnType<typeof vi.fn>;
       handleUnsupportedMinersDismiss: ReturnType<typeof vi.fn>;
@@ -42,6 +54,9 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCancel: vi.fn(),
       handleMiningPoolSuccess: vi.fn(),
       handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      poolFilteredDeviceIds: undefined,
+      fleetCredentials: undefined,
       showManagePowerModal: false,
       handleManagePowerConfirm: vi.fn(),
       handleManagePowerDismiss: vi.fn(),
@@ -50,6 +65,13 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       currentCoolingMode: undefined,
       handleCoolingModeConfirm: vi.fn(),
       handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
       unsupportedMinersInfo: undefined,
       handleUnsupportedMinersContinue: vi.fn(),
       handleUnsupportedMinersDismiss: vi.fn(),
@@ -87,13 +109,20 @@ vi.mock("@/shared/components/Popover", () => ({
 }));
 
 // Helper function to create mock useMinerActions return value
-const createMockMinerActionsReturn = (currentAction: string | null) => ({
+const createMockMinerActionsReturn = (
+  currentAction: string | null,
+  showPoolSelectionPage = false,
+  fleetCredentials?: { username: string; password: string },
+) => ({
   currentAction,
   popoverActions: [],
   handleConfirmation: vi.fn(),
   handleCancel: vi.fn(),
   handleMiningPoolSuccess: vi.fn(),
   handleMiningPoolError: vi.fn(),
+  showPoolSelectionPage,
+  poolFilteredDeviceIds: undefined,
+  fleetCredentials,
   showManagePowerModal: false,
   handleManagePowerConfirm: vi.fn(),
   handleManagePowerDismiss: vi.fn(),
@@ -102,6 +131,13 @@ const createMockMinerActionsReturn = (currentAction: string | null) => ({
   currentCoolingMode: undefined,
   handleCoolingModeConfirm: vi.fn(),
   handleCoolingModeDismiss: vi.fn(),
+  showAuthenticateFleetModal: false,
+  showUpdatePasswordModal: false,
+  hasThirdPartyMiners: false,
+  handleFleetAuthenticated: vi.fn(),
+  handlePasswordConfirm: vi.fn(),
+  handlePasswordDismiss: vi.fn(),
+  handleAuthDismiss: vi.fn(),
   unsupportedMinersInfo: undefined,
   handleUnsupportedMinersContinue: vi.fn(),
   handleUnsupportedMinersDismiss: vi.fn(),
@@ -112,8 +148,10 @@ describe("MinerActionsMenu", () => {
     const selectedMiners = ["miner-1", "miner-2"];
     const totalCount = 297;
 
-    // Mock the current action to be mining pool settings
-    mockUseMinerActions.mockReturnValueOnce(createMockMinerActionsReturn(settingsActions.miningPool));
+    // Mock the current action to be mining pool settings with authentication complete
+    mockUseMinerActions.mockReturnValueOnce(
+      createMockMinerActionsReturn(settingsActions.miningPool, true, { username: "testuser", password: "testpass" }),
+    );
 
     render(
       <MinerActionsMenu
@@ -139,6 +177,8 @@ describe("MinerActionsMenu", () => {
     expect(props.poolNeededCount).toBe(totalCount);
     expect(props.selectionMode).toBe("all");
     expect(props.selectedMiners).toEqual([{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-2" }]);
+    expect(props.userUsername).toBe("testuser");
+    expect(props.userPassword).toBe("testpass");
   });
 
   test("does not render PoolSelectionPageWrapper when currentAction is not miningPool", () => {

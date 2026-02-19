@@ -13,6 +13,8 @@ interface PoolSelectionPageWrapperProps {
   poolNeededCount?: number; // For "all" mode with filter
   filterCriteria?: DeviceFilterCriteria; // For "all" mode with filter
   selectedMiners?: MinerSelection[]; // For "subset" mode
+  userUsername?: string;
+  userPassword?: string;
   onSuccess: (batchIdentifier: string) => void;
   onError?: (error: string) => void;
   onDismiss: () => void;
@@ -23,6 +25,8 @@ const PoolSelectionPageWrapper = ({
   poolNeededCount,
   filterCriteria,
   selectedMiners,
+  userUsername,
+  userPassword,
   onSuccess,
   onError,
   onDismiss: onDismiss,
@@ -45,6 +49,8 @@ const PoolSelectionPageWrapper = ({
     await updateMiningPools({
       deviceSelector,
       poolConfig,
+      userUsername: userUsername || "",
+      userPassword: userPassword || "",
       onSuccess: (response) => {
         onSuccess(response.batchIdentifier);
         onDismiss();
