@@ -87,7 +87,7 @@ const telemetryFreshnessWindow = "10 minutes"
 // SAFETY: All expressions come from this fixed map; user input only selects the map key.
 var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldName:        "TRIM(COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))",
-	stores.SortFieldIPAddress:   "discovered_device.ip_address",
+	stores.SortFieldIPAddress:   "INET(COALESCE(NULLIF(discovered_device.ip_address, ''), '0.0.0.0'))",
 	stores.SortFieldMACAddress:  "COALESCE(device.mac_address, '')",
 	stores.SortFieldModel:       "discovered_device.model",
 	stores.SortFieldHashrate:    "latest_metrics.sort_value",

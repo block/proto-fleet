@@ -1418,3 +1418,120 @@ func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 		require.NoError(t, err)
 	}
 }
+
+// =============================================================================
+// IP Address Sorting Integration Tests
+// =============================================================================
+
+func TestListMinerStateSnapshots_SortByIPAddress_NumericOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	setupIPAddressSortingTestData(t, conn)
+	sortConfig := &interfaces.SortConfig{
+		Field:     interfaces.SortFieldIPAddress,
+		Direction: interfaces.SortDirectionAsc,
+	}
+
+	// Act
+	miners, _, _, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, nil, sortConfig)
+
+	// Assert - numeric order: 2.x < 10.x < 192.x (lexicographic would be: 10.x < 192.x < 2.x)
+	require.NoError(t, err)
+	require.Len(t, miners, 3)
+	require.Equal(t, "2.0.0.1", miners[0].IpAddress)
+	require.Equal(t, "10.0.0.1", miners[1].IpAddress)
+	require.Equal(t, "192.168.1.1", miners[2].IpAddress)
+}
+
+func TestListMinerStateSnapshots_SortByIPAddress_Descending(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	setupIPAddressSortingTestData(t, conn)
+	sortConfig := &interfaces.SortConfig{
+		Field:     interfaces.SortFieldIPAddress,
+		Direction: interfaces.SortDirectionDesc,
+	}
+
+	// Act
+	miners, _, _, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, nil, sortConfig)
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, miners, 3)
+	require.Equal(t, "192.168.1.1", miners[0].IpAddress)
+	require.Equal(t, "10.0.0.1", miners[1].IpAddress)
+	require.Equal(t, "2.0.0.1", miners[2].IpAddress)
+}
+
+func TestListMinerStateSnapshots_SortByIPAddress_KeysetPagination(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	setupIPAddressSortingTestData(t, conn)
+	sortConfig := &interfaces.SortConfig{
+		Field:     interfaces.SortFieldIPAddress,
+		Direction: interfaces.SortDirectionAsc,
+	}
+
+	// Act - fetch first page (limit 2)
+	page1, cursor1, _, err := store.ListMinerStateSnapshots(ctx, 1, "", 2, nil, sortConfig)
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	require.NotEmpty(t, cursor1, "cursor should be returned for pagination")
+
+	// Act - fetch second page using cursor
+	page2, _, _, err := store.ListMinerStateSnapshots(ctx, 1, cursor1, 2, nil, sortConfig)
+	require.NoError(t, err)
+
+	// Assert - page1 has first two IPs, page2 has the third
+	require.Equal(t, "2.0.0.1", page1[0].IpAddress)
+	require.Equal(t, "10.0.0.1", page1[1].IpAddress)
+	require.Len(t, page2, 1)
+	require.Equal(t, "192.168.1.1", page2[0].IpAddress)
+}
+
+func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	devices := []struct {
+		id         int64
+		identifier string
+		ipAddress  string
+	}{
+		{301, "device-ip-1", "192.168.1.1"},
+		{302, "device-ip-2", "2.0.0.1"},
+		{303, "device-ip-3", "10.0.0.1"},
+	}
+
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
+		`, d.id, d.identifier, d.ipAddress)
+		require.NoError(t, err)
+	}
+}

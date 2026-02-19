@@ -69,6 +69,11 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 		return fmt.Sprintf("AND ((%s, discovered_device.id) %s ($%d, $%d) OR %s IS NULL)", sortExpr, operator, argNum, argNum+1, sortExpr), []any{cursor.SortValue, cursor.CursorID}
 	}
 
+	// IP address sort: tuple comparison with INET cast for numeric ordering
+	if sortConfig != nil && sortConfig.Field == stores.SortFieldIPAddress {
+		return fmt.Sprintf("AND ((%s), discovered_device.id) %s (INET(COALESCE(NULLIF($%d, ''), '0.0.0.0')), $%d)", sortExpr, operator, argNum, argNum+1), []any{cursor.SortValue, cursor.CursorID}
+	}
+
 	// Non-nullable sorts: tuple comparison with text cast for consistent comparison
 	return fmt.Sprintf("AND ((%s)::text, discovered_device.id) %s ($%d, $%d)", sortExpr, operator, argNum, argNum+1), []any{cursor.SortValue, cursor.CursorID}
 }

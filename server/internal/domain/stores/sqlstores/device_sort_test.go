@@ -15,7 +15,7 @@ func TestGetSortExpression(t *testing.T) {
 		expected string
 	}{
 		{"name field", stores.SortFieldName, "TRIM(COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))"},
-		{"ip address field", stores.SortFieldIPAddress, "discovered_device.ip_address"},
+		{"ip address field", stores.SortFieldIPAddress, "INET(COALESCE(NULLIF(discovered_device.ip_address, ''), '0.0.0.0'))"},
 		{"mac address field", stores.SortFieldMACAddress, "COALESCE(device.mac_address, '')"},
 		{"model field", stores.SortFieldModel, "discovered_device.model"},
 		{"hashrate field", stores.SortFieldHashrate, "latest_metrics.sort_value"},
@@ -119,18 +119,18 @@ func TestBuildKeysetSQL(t *testing.T) {
 
 	t.Run("descending non-telemetry sort", func(t *testing.T) {
 		cursor := &sortedCursor{
-			SortValue: "192.168.1.1",
+			SortValue: "AA:BB:CC:DD:EE:FF",
 			CursorID:  75,
 		}
 		config := &stores.SortConfig{
-			Field:     stores.SortFieldIPAddress,
+			Field:     stores.SortFieldMACAddress,
 			Direction: stores.SortDirectionDesc,
 		}
 
 		sql, args := buildKeysetSQL(cursor, config, 2)
 
 		assert.Contains(t, sql, "< ($2, $3)")
-		assert.Equal(t, []any{"192.168.1.1", int64(75)}, args)
+		assert.Equal(t, []any{"AA:BB:CC:DD:EE:FF", int64(75)}, args)
 	})
 
 	t.Run("telemetry sort with NULL value", func(t *testing.T) {
