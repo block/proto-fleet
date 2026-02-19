@@ -309,10 +309,11 @@ jobs:
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/uninstall.sh deployment/
           cp deployment-files/migrate-data.sh deployment/
           cp deployment-files/rollback-migration.sh deployment/
           cp -r deployment-files/scripts deployment/
-          chmod +x deployment/run-fleet.sh deployment/migrate-data.sh deployment/rollback-migration.sh deployment/scripts/*.sh
+          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/migrate-data.sh deployment/rollback-migration.sh deployment/scripts/*.sh
 
       - name: Create version file
         run: |
