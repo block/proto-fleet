@@ -47,10 +47,89 @@ export class HomePage extends BasePage {
     await expect(tooltip.getByText("Hashboards")).toBeVisible();
   }
 
-  async validateChartTooltipSummaryOnly(expectedValuePattern: RegExp) {
+  async getFilterButtonBackgroundColors() {
+    const buttons = this.page.locator('[data-testid^="chart-filter-hashboard-"]');
+    await expect(buttons).toHaveCount(4);
+
+    const colors: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const btn = buttons.nth(i);
+      const colorEl = btn.locator('[style*="background"]');
+      const style = await colorEl.getAttribute("style");
+      const match = style?.match(/rgba?\(.+\)/);
+      if (match) {
+        colors.push(match[0]);
+      } else {
+        throw new Error(`No background color found for button ${i + 1}`);
+      }
+    }
+    console.warn("Colors: ", colors);
+    return colors;
+  }
+
+  async validateFilterButtonBorder(testId: string, shouldBeActive: boolean) {
+    const btn = this.page.getByTestId(testId);
+    const classList = await btn.getAttribute("class");
+    if (shouldBeActive) {
+      expect(classList).toContain("border-core-primary-fill");
+    } else {
+      expect(classList).toContain("border-transparent");
+    }
+  }
+
+  async validateAllFilterButtonBorder(expectedHashboards: string[]) {
+    await this.validateFilterButtonBorder("chart-filter-summary", expectedHashboards.includes("S"));
+    const allHashboards = ["1", "2", "3", "4"];
+    const allActive = allHashboards.every((h) => expectedHashboards.includes(h));
+    await this.validateFilterButtonBorder("chart-filter-all-hashboards", allActive);
+    for (const h of allHashboards) {
+      await this.validateFilterButtonBorder(`chart-filter-hashboard-${h}`, expectedHashboards.includes(h));
+    }
+  }
+
+  async validateValueInTooltip(expectedHashboards: string[], backgroundColors: string[]) {
+    const expectedValuePattern = /(\d+,)?\d+\.\d\sTH\/(S|s)/;
     const tooltip = this.page.locator(".recharts-tooltip-wrapper");
     await expect(tooltip).toBeVisible();
-    await expect(tooltip.getByText("Summary")).toBeVisible();
-    await expect(tooltip.locator("[class*='text-primary']").filter({ hasText: expectedValuePattern })).toBeVisible();
+
+    // Summary
+    if (expectedHashboards.includes("S")) {
+      const summary = tooltip.getByText("Summary");
+      await expect(summary).toBeVisible();
+      const summaryValue = summary.locator("xpath=following-sibling::*[1]");
+      await expect(summaryValue).toHaveText(expectedValuePattern);
+    } else {
+      await expect(tooltip.getByText("Summary")).toBeHidden();
+    }
+
+    // Hashboards
+    const hashboardNumbers = expectedHashboards.filter((h) => ["1", "2", "3", "4"].includes(h));
+    if (hashboardNumbers.length > 0) {
+      const hashboardsLabel = tooltip.getByText("Hashboards");
+      await expect(hashboardsLabel).toBeVisible();
+      const hashboardElements = tooltip.locator("//div[text()='Hashboards']/following-sibling::*");
+      for (const [i, h] of hashboardNumbers.entries()) {
+        const hashboard = hashboardElements.nth(i);
+        await expect(hashboard.locator(`//*[text()='${h}']`)).toBeVisible();
+        await expect(hashboard).toHaveText(expectedValuePattern);
+        const colorIndex = parseInt(h) - 1;
+        const expectedColor = backgroundColors[colorIndex];
+        console.warn(`Checking hashboard ${h} with expected color ${expectedColor}`);
+        await expect(hashboard.locator(`//*[contains(@style, '${expectedColor}')]`)).toBeVisible();
+      }
+    } else {
+      await expect(tooltip.getByText("Hashboards")).toBeHidden();
+    }
+  }
+
+  async validateFilteredChart(expectedHashboards: string[]) {
+    const backgroundColors = await this.getFilterButtonBackgroundColors();
+    await this.validateAllFilterButtonBorder(expectedHashboards);
+    await this.hoverOverChart();
+    if (!expectedHashboards.length) {
+      await this.validateValueInTooltip(["S", "1", "2", "3", "4"], backgroundColors);
+    } else {
+      await this.validateValueInTooltip(expectedHashboards, backgroundColors);
+    }
   }
 }

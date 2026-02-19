@@ -37,6 +37,7 @@ const HashboardSelectorItem = ({ slot, onClick, selected }: HashboardSelectorIte
           prefixIcon={<Circle className={clsx("mr-1")} width={"w-2"} style={{ background: color }} />}
           text={slot ? slot.toString() : ""}
           onClick={onClick}
+          testId={`chart-filter-hashboard-${slot}`}
         />
       ) : null}
     </>
@@ -139,6 +140,7 @@ const HashboardSelector = ({
         className={getButtonClassName(summarySelected)}
         text={"Summary"}
         onClick={handleSummaryClick}
+        testId="chart-filter-summary"
       />
       {hashboardLines.length > 0 && (
         <Button
@@ -147,6 +149,7 @@ const HashboardSelector = ({
           className={getButtonClassName(allHashboardsSelected)}
           text={"All Hashboards"}
           onClick={handleAllHashboardsClick}
+          testId="chart-filter-all-hashboards"
         />
       )}
 

@@ -63,4 +63,65 @@ test.describe("Home dashboard", () => {
       await homePage.validateChartTooltipWithHashboards(expectedValuePattern);
     });
   });
+
+  test("Chart hashboard filtering", async ({ homePage, page }) => {
+    await test.step("Initial state: all filters inactive", async () => {
+      await homePage.validateFilteredChart([]);
+    });
+
+    await test.step("Click all hashboards (should enable all hashboards)", async () => {
+      await page.getByTestId("chart-filter-all-hashboards").click();
+      await homePage.validateFilteredChart(["1", "2", "3", "4"]);
+    });
+
+    await test.step("Click summary (should enable all)", async () => {
+      await page.getByTestId("chart-filter-summary").click();
+      await homePage.validateFilteredChart(["S", "1", "2", "3", "4"]);
+    });
+
+    await test.step("Click hashboard 3 (should leave S,1,2,4)", async () => {
+      await page.getByTestId("chart-filter-hashboard-3").click();
+      await homePage.validateFilteredChart(["S", "1", "2", "4"]);
+    });
+
+    await test.step("Click all hashboards (should re-enable all)", async () => {
+      await page.getByTestId("chart-filter-all-hashboards").click();
+      await homePage.validateFilteredChart(["S", "1", "2", "3", "4"]);
+    });
+
+    await test.step("Click all hashboards again (should leave only summary)", async () => {
+      await page.getByTestId("chart-filter-all-hashboards").click();
+      await homePage.validateFilteredChart(["S"]);
+    });
+
+    await test.step("Click summary (should re-enable all)", async () => {
+      await page.getByTestId("chart-filter-summary").click();
+      await homePage.validateFilteredChart([]);
+    });
+
+    await test.step("Click hashboard 4 (should leave only 4)", async () => {
+      await page.getByTestId("chart-filter-hashboard-4").click();
+      await homePage.validateFilteredChart(["4"]);
+    });
+
+    await test.step("Click hashboard 2 (should select 2 and 4)", async () => {
+      await page.getByTestId("chart-filter-hashboard-2").click();
+      await homePage.validateFilteredChart(["2", "4"]);
+    });
+
+    await test.step("Click summary (should add summary to 2 and 4)", async () => {
+      await page.getByTestId("chart-filter-summary").click();
+      await homePage.validateFilteredChart(["S", "2", "4"]);
+    });
+
+    await test.step("Click hashboard 3 (should add 3)", async () => {
+      await page.getByTestId("chart-filter-hashboard-3").click();
+      await homePage.validateFilteredChart(["S", "2", "3", "4"]);
+    });
+
+    await test.step("Click hashboard 1 (should add 1, all active)", async () => {
+      await page.getByTestId("chart-filter-hashboard-1").click();
+      await homePage.validateFilteredChart(["S", "1", "2", "3", "4"]);
+    });
+  });
 });
