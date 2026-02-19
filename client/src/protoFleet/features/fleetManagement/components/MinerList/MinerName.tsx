@@ -5,8 +5,7 @@ import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
-import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
-import { useFleetStore, useMiner, useMinerDeviceStatus, useMinerName, useMinerUrl } from "@/protoFleet/store";
+import { useFleetStore, useMiner, useMinerDeviceStatus, useMinerName } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 
@@ -16,36 +15,34 @@ type MinerNameProps = {
 
 const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const name = useMinerName(deviceIdentifier) || deviceIdentifier;
-  const url = useMinerUrl(deviceIdentifier);
   const miner = useMiner(deviceIdentifier);
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
-  const [isMinerFrameOpen, setIsMinerFrameOpen] = useState(false);
   const [isStatusModalOpen, setStatusModalOpen] = useState(false);
   const [showFleetAuth, setShowFleetAuth] = useState(false);
   const [showPoolSelection, setShowPoolSelection] = useState(false);
   const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string }>();
 
-  // Get errors from normalized store
   const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
   const errors = selectErrorsByDevice(deviceIdentifier);
 
-  // Compute if miner needs attention
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
   const showPoolFlow = isStatusModalOpen && !needsAuthentication && needsMiningPool;
 
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (url) {
-      try {
-        const parsedUrl = new URL(url);
-        if (parsedUrl.protocol === "https:") {
-          e.preventDefault();
-          setIsMinerFrameOpen(true);
-        }
-      } catch (error) {
-        console.error("Invalid URL:", error);
-      }
+  const handleNameClick = (e: React.MouseEvent) => {
+    const row = (e.currentTarget as HTMLElement).closest("tr");
+    const checkbox = row?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (checkbox && !checkbox.disabled) {
+      checkbox.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+        }),
+      );
     }
   };
 
@@ -72,18 +69,9 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   return (
     <div className="flex w-full items-center justify-between gap-3">
       <div>
-        {url ? (
-          <>
-            <a href={url} target="_blank" rel="noopener noreferrer" onClick={handleClick}>
-              {name}
-            </a>
-            {isMinerFrameOpen ? (
-              <MinerFrame title={name} src={url} onDismiss={() => setIsMinerFrameOpen(false)} />
-            ) : null}
-          </>
-        ) : (
-          <span>{name}</span>
-        )}
+        <button type="button" className="cursor-pointer" onClick={handleNameClick}>
+          {name}
+        </button>
       </div>
       <div className="flex items-center gap-2">
         {needsAttention && !needsAuthentication && (
