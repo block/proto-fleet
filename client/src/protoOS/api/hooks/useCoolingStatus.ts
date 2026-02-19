@@ -4,7 +4,7 @@ import { TOTAL_FAN_SLOTS } from "../constants";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { CoolingConfig, CoolingStatusCoolingstatus, FanStatus, HttpResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader, useMinerStore } from "@/protoOS/store";
+import { useAuthRetry, useMinerStore } from "@/protoOS/store";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 // Extended type to account for null fan statuses when slots are missing
@@ -27,64 +27,50 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const [data, setData] = useState<CoolingStatusWithNullableFans>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
 
   const fetchData = useCallback(() => {
     if (!api) return;
 
-    const performFetch = () => {
-      setPending(true);
-      api
-        .getCooling()
-        .then((res) => {
-          const coolingData = res?.data["cooling-status"];
+    setPending(true);
+    api
+      .getCooling()
+      .then((res) => {
+        const coolingData = res?.data["cooling-status"];
 
-          // Fill out fans array with all slots
-          if (coolingData) {
-            const fans = coolingData.fans;
-            const fansBySlot = new Map<number, FanStatus>();
-            fans?.forEach((fan) => {
-              if (fan.slot !== undefined) {
-                fansBySlot.set(fan.slot, fan);
-              }
-            });
-            const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
-              const slot = i + 1;
-              return fansBySlot.get(slot) || null;
-            });
-
-            setData({
-              ...coolingData,
-              fans: allFans,
-            });
-
-            // Update cooling mode in store
-            if (coolingData.fan_mode) {
-              useMinerStore.getState().telemetry.updateCoolingMode(coolingData.fan_mode);
+        // Fill out fans array with all slots
+        if (coolingData) {
+          const fans = coolingData.fans;
+          const fansBySlot = new Map<number, FanStatus>();
+          fans?.forEach((fan) => {
+            if (fan.slot !== undefined) {
+              fansBySlot.set(fan.slot, fan);
             }
-          } else {
-            setData(coolingData);
-          }
-          setPending(false);
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: (error) => {
-              setError(error?.error?.message ?? "An error occurred");
-              setPending(false);
-            },
-            onSuccess: () => {
-              // Retry fetch after successful token refresh
-              performFetch();
-            },
           });
-        });
-    };
+          const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
+            const slot = i + 1;
+            return fansBySlot.get(slot) || null;
+          });
 
-    performFetch();
-  }, [api, handleAuthErrors]);
+          setData({
+            ...coolingData,
+            fans: allFans,
+          });
+
+          // Update cooling mode in store
+          if (coolingData.fan_mode) {
+            useMinerStore.getState().telemetry.updateCoolingMode(coolingData.fan_mode);
+          }
+        } else {
+          setData(coolingData);
+        }
+        setPending(false);
+      })
+      .catch((err) => {
+        setError(err?.error?.message ?? "An error occurred");
+        setPending(false);
+      });
+  }, [api]);
 
   usePoll({
     fetchData,
@@ -126,47 +112,34 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     async ({ mode, onSuccess, onError }: SetCoolingProps) => {
       if (!api) return;
 
-      const performSetCooling = async () => {
-        setPending(true);
+      setPending(true);
+      await authRetry({
+        request: (header) => api.setCoolingMode({ mode }, header),
+        onSuccess: async (res) => {
+          const responseData = await res.json();
+          setPending(false);
 
-        await api
-          .setCoolingMode({ mode }, authHeader)
-          .then(async (res) => {
-            const responseData = await res.json();
-            setPending(false);
-
-            // Update local state immediately with new fan_mode
-            if (mode !== undefined && mode !== null) {
-              setData((prevData) => {
-                if (!prevData) return prevData;
-                return {
-                  ...prevData,
-                  fan_mode: mode,
-                } as CoolingStatusWithNullableFans;
-              });
-
-              // Update store immediately so other components reflect the change
-              useMinerStore.getState().telemetry.updateCoolingMode(mode);
-            }
-
-            onSuccess?.(responseData);
-          })
-          .catch((error) => {
-            handleAuthErrors({
-              error,
-              onError: (error) => {
-                (onError?.(error), setPending(false));
-              },
-              onSuccess: () => {
-                performSetCooling();
-              },
+          if (mode !== undefined && mode !== null) {
+            setData((prevData) => {
+              if (!prevData) return prevData;
+              return {
+                ...prevData,
+                fan_mode: mode,
+              } as CoolingStatusWithNullableFans;
             });
-          });
-      };
 
-      await performSetCooling();
+            useMinerStore.getState().telemetry.updateCoolingMode(mode);
+          }
+
+          onSuccess?.(responseData);
+        },
+        onError: (error) => {
+          onError?.(error);
+          setPending(false);
+        },
+      });
     },
-    [api, authHeader, handleAuthErrors],
+    [api, authRetry],
   );
 
   return useMemo(() => ({ pending, error, data, setCooling }), [pending, error, data, setCooling]);

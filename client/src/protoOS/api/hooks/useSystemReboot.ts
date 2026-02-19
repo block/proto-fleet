@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
+import { useAuthRetry } from "@/protoOS/store";
 
 interface RebootSystemProps {
   onError?: (err: ErrorProps) => void;
@@ -13,35 +13,23 @@ interface RebootSystemProps {
 const useSystemReboot = () => {
   const { api } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
 
   const rebootSystem = useCallback(
     ({ onError, onSuccess }: RebootSystemProps = {}) => {
       if (!api) return;
 
-      const performReboot = () => {
-        setPending(true);
-        api
-          .rebootSystem(authHeader)
-          .then(() => {
-            onSuccess?.();
-          })
-          .catch((error) => {
-            setPending(false);
-            handleAuthErrors({
-              error,
-              onError,
-              onSuccess: () => {
-                performReboot();
-              },
-            });
-          });
-      };
-
-      performReboot();
+      setPending(true);
+      authRetry({
+        request: (header) => api.rebootSystem(header),
+        onSuccess,
+        onError: (error) => {
+          setPending(false);
+          onError?.(error);
+        },
+      });
     },
-    [authHeader, handleAuthErrors, api],
+    [api, authRetry],
   );
 
   return useMemo(() => ({ pending, rebootSystem }), [pending, rebootSystem]);

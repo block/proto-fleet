@@ -50,7 +50,7 @@ export const useAuthHeader = () => {
 interface HandleAuthErrorsProps {
   error: ErrorProps;
   onError?: (err: ErrorProps) => void;
-  onSuccess?: (accessToken: string) => void;
+  onSuccess?: (accessToken: string) => void | Promise<void>;
 }
 
 export const useAuthErrors = () => {
@@ -62,20 +62,19 @@ export const useAuthErrors = () => {
   const handleAuthErrors = useCallback(
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {
       if (error?.status === 401) {
-        refresh({
+        return refresh({
           refreshToken: authTokens.refreshToken?.value || "",
           onSuccess,
           onError: (refreshError) => {
             if (refreshError?.status === 401) {
               logout();
               setShowLoginModal(true);
-              onError?.(error);
             }
+            onError?.(error);
           },
         });
-      } else {
-        onError?.(error);
       }
+      onError?.(error);
     },
     [authTokens.refreshToken?.value, refresh, logout, setShowLoginModal],
   );

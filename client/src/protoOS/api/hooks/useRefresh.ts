@@ -10,7 +10,7 @@ import { accessTokenExpiryTime } from "@/shared/utils/utility";
 
 interface RefreshProps {
   onError?: (err: ErrorProps) => void;
-  onSuccess?: (accessToken: string) => void;
+  onSuccess?: (accessToken: string) => void | Promise<void>;
   refreshToken: RefreshRequest["refresh_token"];
 }
 
@@ -33,7 +33,10 @@ const useRefresh = () => {
               expiry: accessTokenExpiryTime(),
             },
           });
-          onSuccess?.(accessTokenValue);
+          // Catch to prevent retry errors from triggering refresh's onError (which logs out).
+          return Promise.resolve(onSuccess?.(accessTokenValue)).catch((err) => {
+            console.warn("Retry after token refresh failed:", err);
+          });
         })
         .catch((err: any) => {
           onError?.(err);

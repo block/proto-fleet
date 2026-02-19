@@ -5,7 +5,7 @@ import { PoolConfigInner } from "@/protoOS/api/generatedApi";
 
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
+import { useAuthRetry } from "@/protoOS/store";
 
 interface EditPoolProps {
   onError?: (err: ErrorProps) => void;
@@ -19,36 +19,19 @@ const useEditPool = () => {
   const { api } = useMinerHosting();
 
   const { fetchData } = usePoolsInfo();
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
 
   const editPool = useCallback(
     async ({ poolId, poolInfo, onSuccess, onError, retryOnMinerDown }: EditPoolProps) => {
       if (!api) return;
 
-      const performEdit = async () => {
-        await api
-          .editPool({ id: poolId }, poolInfo, authHeader)
-          .then(() => {
-            onSuccess?.();
-          })
-          .catch((error) => {
-            handleAuthErrors({
-              error,
-              onError,
-              onSuccess: () => {
-                performEdit();
-              },
-            });
-          })
-          .finally(() => {
-            fetchData({ retryOnMinerDown });
-          });
-      };
-
-      await performEdit();
+      await authRetry({
+        request: (header) => api.editPool({ id: poolId }, poolInfo, header),
+        onSuccess,
+        onError,
+      }).finally(() => fetchData({ retryOnMinerDown }));
     },
-    [authHeader, handleAuthErrors, fetchData, api],
+    [api, authRetry, fetchData],
   );
 
   return {

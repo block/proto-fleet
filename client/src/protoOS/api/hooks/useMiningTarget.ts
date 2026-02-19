@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import type { MiningTarget } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
-  useAuthErrors,
-  useAuthHeader,
+  useAuthRetry,
   useMiningTargetBounds,
   useMiningTargetDefault,
   useMiningTargetError,
@@ -17,8 +16,7 @@ import {
 
 const useMiningTarget = () => {
   const { api } = useMinerHosting();
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
 
   // State selectors
   const miningTarget = useMiningTargetValue();
@@ -37,29 +35,16 @@ const useMiningTarget = () => {
   const fetchData = useCallback(() => {
     if (!api) return;
 
-    const performFetch = () => {
-      setPending(true);
-      api
-        .getMiningTarget()
-        .then((res) => {
-          setFromResponse(res);
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: (error) => {
-              setError(error?.error?.message ?? "An error occurred");
-            },
-            onSuccess: () => {
-              // Retry fetch after successful token refresh
-              performFetch();
-            },
-          });
-        });
-    };
-
-    performFetch();
-  }, [api, setPending, setFromResponse, setError, handleAuthErrors]);
+    setPending(true);
+    api
+      .getMiningTarget()
+      .then((res) => {
+        setFromResponse(res);
+      })
+      .catch((err) => {
+        setError(err?.error?.message ?? "An error occurred");
+      });
+  }, [api, setPending, setFromResponse, setError]);
 
   // Load initial data
   useEffect(() => {
@@ -73,32 +58,15 @@ const useMiningTarget = () => {
     (newTarget: MiningTarget) => {
       if (!api) return;
 
-      const performUpdate = () => {
-        setPending(true);
-        setError(null);
-
-        api
-          .editMiningTarget(newTarget, authHeader)
-          .then((res) => {
-            setFromResponse(res);
-          })
-          .catch((err) => {
-            handleAuthErrors({
-              error: err,
-              onError: (error) => {
-                setError(error?.error?.message ?? "An error occurred");
-              },
-              onSuccess: () => {
-                // Refresh worked! Retry now
-                performUpdate();
-              },
-            });
-          });
-      };
-
-      performUpdate();
+      setPending(true);
+      setError(null);
+      authRetry({
+        request: (header) => api.editMiningTarget(newTarget, header),
+        onSuccess: (res) => setFromResponse(res),
+        onError: (error) => setError(error?.error?.message ?? "An error occurred"),
+      });
     },
-    [api, authHeader, handleAuthErrors, setPending, setError, setFromResponse],
+    [api, authRetry, setPending, setError, setFromResponse],
   );
 
   return useMemo(

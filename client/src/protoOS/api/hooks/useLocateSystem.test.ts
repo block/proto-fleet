@@ -8,14 +8,13 @@ vi.mock("@/protoOS/contexts/MinerHostingContext/useMinerHosting", () => ({
 }));
 
 vi.mock("@/protoOS/store", () => ({
-  useAuthErrors: vi.fn(),
-  useAuthHeader: vi.fn(),
+  useAuthRetry: vi.fn(),
 }));
 
 describe("useLocateSystem", () => {
   const mockLocateSystem = vi.fn();
-  const mockHandleAuthErrors = vi.fn();
-  const mockAuthHeader = { Authorization: "Bearer test-token" };
+  const mockAuthRetry = vi.fn();
+  const mockAuthHeader = { headers: { Authorization: "Bearer test-token" } };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -26,11 +25,17 @@ describe("useLocateSystem", () => {
       },
     });
 
-    const mockStore = await import("@/protoOS/store");
-    (mockStore.useAuthErrors as Mock).mockReturnValue({
-      handleAuthErrors: mockHandleAuthErrors,
+    mockAuthRetry.mockImplementation(async ({ request, onSuccess, onError }) => {
+      try {
+        const result = await request(mockAuthHeader);
+        await onSuccess?.(result);
+      } catch (error) {
+        onError?.(error);
+      }
     });
-    (mockStore.useAuthHeader as Mock).mockReturnValue(mockAuthHeader);
+
+    const mockStore = await import("@/protoOS/store");
+    (mockStore.useAuthRetry as Mock).mockReturnValue(mockAuthRetry);
   });
 
   test("initializes with pending false", () => {
@@ -64,11 +69,11 @@ describe("useLocateSystem", () => {
   });
 
   test("sets pending to true during API call", async () => {
-    mockLocateSystem.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(resolve, 100);
-        }),
+    let resolveRetry!: () => void;
+    mockAuthRetry.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRetry = resolve;
+      }),
     );
 
     const { result } = renderHook(() => useLocateSystem());
@@ -78,6 +83,8 @@ describe("useLocateSystem", () => {
     await waitFor(() => {
       expect(result.current.pending).toBe(true);
     });
+
+    resolveRetry();
   });
 
   test("sets pending to false after successful API call", async () => {
@@ -105,7 +112,7 @@ describe("useLocateSystem", () => {
     });
   });
 
-  test("calls handleAuthErrors on API error", async () => {
+  test("passes onError through authRetry on API error", async () => {
     const error = new Error("API Error");
     mockLocateSystem.mockRejectedValue(error);
 
@@ -114,15 +121,15 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({});
 
     await waitFor(() => {
-      expect(mockHandleAuthErrors).toHaveBeenCalledWith({
-        error,
+      expect(mockAuthRetry).toHaveBeenCalledWith({
+        request: expect.any(Function),
+        onSuccess: undefined,
         onError: undefined,
-        onSuccess: expect.any(Function),
       });
     });
   });
 
-  test("calls onError callback through handleAuthErrors", async () => {
+  test("passes onError callback through authRetry", async () => {
     const error = new Error("API Error");
     const onError = vi.fn();
 
@@ -133,10 +140,10 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({ onError });
 
     await waitFor(() => {
-      expect(mockHandleAuthErrors).toHaveBeenCalledWith({
-        error,
+      expect(mockAuthRetry).toHaveBeenCalledWith({
+        request: expect.any(Function),
+        onSuccess: undefined,
         onError,
-        onSuccess: expect.any(Function),
       });
     });
   });
@@ -159,6 +166,30 @@ describe("useLocateSystem", () => {
     const { result } = renderHook(() => useLocateSystem());
 
     result.current.locateSystem({});
+
+    await waitFor(() => {
+      expect(result.current.pending).toBe(false);
+    });
+  });
+
+  test("finally waits for authRetry promise before setting pending to false", async () => {
+    let resolveRetry!: () => void;
+    mockAuthRetry.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useLocateSystem());
+
+    result.current.locateSystem({});
+
+    await waitFor(() => {
+      expect(mockAuthRetry).toHaveBeenCalled();
+      expect(result.current.pending).toBe(true);
+    });
+
+    resolveRetry();
 
     await waitFor(() => {
       expect(result.current.pending).toBe(false);

@@ -8,15 +8,14 @@ vi.mock("@/protoOS/contexts/MinerHostingContext/useMinerHosting", () => ({
 }));
 
 vi.mock("@/protoOS/store", () => ({
-  useAuthErrors: vi.fn(),
-  useAuthHeader: vi.fn(),
+  useAuthRetry: vi.fn(),
   useSetPasswordSet: vi.fn(),
 }));
 
 describe("usePassword", () => {
   const mockChangePassword = vi.fn();
   const mockSetPassword = vi.fn();
-  const mockHandleAuthErrors = vi.fn();
+  const mockAuthRetry = vi.fn();
   const mockSetPasswordSet = vi.fn();
   const mockAuthHeader = { headers: { Authorization: "Bearer test-token" } };
 
@@ -30,11 +29,21 @@ describe("usePassword", () => {
       },
     });
 
-    const mockStore = await import("@/protoOS/store");
-    (mockStore.useAuthErrors as Mock).mockReturnValue({
-      handleAuthErrors: mockHandleAuthErrors,
+    mockAuthRetry.mockImplementation(async ({ request, onSuccess, onError, shouldRetry }) => {
+      try {
+        const result = await request(mockAuthHeader);
+        await onSuccess?.(result);
+      } catch (error) {
+        if (shouldRetry && !shouldRetry(error)) {
+          onError?.(error);
+          return;
+        }
+        onError?.(error);
+      }
     });
-    (mockStore.useAuthHeader as Mock).mockReturnValue(mockAuthHeader);
+
+    const mockStore = await import("@/protoOS/store");
+    (mockStore.useAuthRetry as Mock).mockReturnValue(mockAuthRetry);
     (mockStore.useSetPasswordSet as Mock).mockReturnValue(mockSetPasswordSet);
   });
 
@@ -54,11 +63,9 @@ describe("usePassword", () => {
 
       await result.current.changePassword({ changePasswordRequest, onSuccess, onFinally });
 
-      await waitFor(() => {
-        expect(mockChangePassword).toHaveBeenCalledWith(changePasswordRequest, mockAuthHeader);
-        expect(onSuccess).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
+      expect(mockChangePassword).toHaveBeenCalledWith(changePasswordRequest, mockAuthHeader);
+      expect(onSuccess).toHaveBeenCalledTimes(1);
+      expect(onFinally).toHaveBeenCalledTimes(1);
     });
 
     test("immediately shows error when firmware reports wrong password", async () => {
@@ -75,110 +82,47 @@ describe("usePassword", () => {
 
       await result.current.changePassword({ changePasswordRequest, onError, onSuccess, onFinally });
 
-      await waitFor(() => {
-        expect(onError).toHaveBeenCalledWith("Password verification error: VerifyingPasswordFailed");
-        expect(onSuccess).not.toHaveBeenCalled();
-        expect(mockHandleAuthErrors).not.toHaveBeenCalled();
-        expect(mockChangePassword).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
+      expect(onError).toHaveBeenCalledWith("Password verification error: VerifyingPasswordFailed");
+      expect(onSuccess).not.toHaveBeenCalled();
+      expect(onFinally).toHaveBeenCalledTimes(1);
     });
 
-    test("attempts token refresh for non-password 401 errors", async () => {
-      const error = { status: 401, error: { message: "Error validating JWT token: ExpiredSignature" } };
-      mockChangePassword.mockRejectedValue(error);
+    test("passes shouldRetry that permits non-password 401 errors", async () => {
+      const tokenError = { status: 401, error: { message: "Error validating JWT token: ExpiredSignature" } };
+      mockChangePassword.mockRejectedValue(tokenError);
 
       const { result } = renderHook(() => usePassword());
 
       await result.current.changePassword({ changePasswordRequest });
 
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-        expect(mockHandleAuthErrors).toHaveBeenCalledWith({
-          error,
-          onError: expect.any(Function),
-          onSuccess: expect.any(Function),
-        });
-      });
+      const authRetryCall = mockAuthRetry.mock.calls[0][0];
+      expect(authRetryCall.shouldRetry(tokenError)).toBe(true);
     });
 
-    test("retries with fresh access token after token refresh", async () => {
-      const tokenError = { status: 401, error: { message: "Error validating JWT token: ExpiredSignature" } };
-      mockChangePassword.mockRejectedValueOnce(tokenError).mockResolvedValueOnce(undefined);
-      const onSuccess = vi.fn();
-      const onError = vi.fn();
-      const onFinally = vi.fn();
-      const freshToken = "fresh-access-token";
+    test("passes shouldRetry that blocks password verification errors", async () => {
+      const pwError = {
+        status: 401,
+        error: { message: "Password verification error: VerifyingPasswordFailed" },
+      };
+      mockChangePassword.mockRejectedValue(pwError);
 
       const { result } = renderHook(() => usePassword());
 
-      await result.current.changePassword({ changePasswordRequest, onSuccess, onError, onFinally });
+      await result.current.changePassword({ changePasswordRequest });
 
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-      });
-
-      // Simulate successful token refresh passing the new access token
-      const authErrorCall = mockHandleAuthErrors.mock.calls[0][0];
-      await authErrorCall.onSuccess(freshToken);
-
-      await waitFor(() => {
-        expect(mockChangePassword).toHaveBeenCalledTimes(2);
-        expect(mockChangePassword).toHaveBeenNthCalledWith(1, changePasswordRequest, mockAuthHeader);
-        expect(mockChangePassword).toHaveBeenNthCalledWith(2, changePasswordRequest, {
-          headers: { Authorization: `Bearer ${freshToken}` },
-        });
-        expect(onSuccess).toHaveBeenCalledTimes(1);
-        expect(onError).not.toHaveBeenCalled();
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
+      const authRetryCall = mockAuthRetry.mock.calls[0][0];
+      expect(authRetryCall.shouldRetry(pwError)).toBe(false);
     });
 
-    test("stops retrying after one failed retry (prevents infinite loop)", async () => {
-      const tokenError = { status: 401, error: { message: "Error validating JWT token: ExpiredSignature" } };
-      mockChangePassword.mockRejectedValue(tokenError);
-      const onSuccess = vi.fn();
-      const onError = vi.fn();
-      const onFinally = vi.fn();
-
-      const { result } = renderHook(() => usePassword());
-
-      await result.current.changePassword({ changePasswordRequest, onSuccess, onError, onFinally });
-
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-      });
-
-      // Simulate successful token refresh triggering retry
-      const authErrorCall = mockHandleAuthErrors.mock.calls[0][0];
-      await authErrorCall.onSuccess("fresh-token");
-
-      await waitFor(() => {
-        expect(mockChangePassword).toHaveBeenCalledTimes(2);
-        expect(onError).toHaveBeenCalledWith("Error validating JWT token: ExpiredSignature");
-        expect(onSuccess).not.toHaveBeenCalled();
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    test("calls onError and onFinally through handleAuthErrors for non-401 errors", async () => {
-      const error500 = { status: 500, error: { message: "Server error" } };
-      mockChangePassword.mockRejectedValue(error500);
+    test("calls onError with extracted message and onFinally on API error", async () => {
+      const error = { status: 500, error: { message: "Server error" } };
+      mockChangePassword.mockRejectedValue(error);
       const onError = vi.fn();
       const onFinally = vi.fn();
 
       const { result } = renderHook(() => usePassword());
 
       await result.current.changePassword({ changePasswordRequest, onError, onFinally });
-
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-      });
-
-      // Simulate handleAuthErrors routing to onError for non-401
-      const authErrorCall = mockHandleAuthErrors.mock.calls[0][0];
-      authErrorCall.onError();
 
       expect(onError).toHaveBeenCalledWith("Server error");
       expect(onFinally).toHaveBeenCalledTimes(1);
@@ -211,65 +155,24 @@ describe("usePassword", () => {
 
       await result.current.setPassword({ password, onSuccess, onFinally });
 
-      await waitFor(() => {
-        expect(mockSetPassword).toHaveBeenCalledWith({ password });
-        expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
-        expect(onSuccess).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
+      expect(mockSetPassword).toHaveBeenCalledWith({ password });
+      expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
+      expect(onSuccess).toHaveBeenCalledTimes(1);
+      expect(onFinally).toHaveBeenCalledTimes(1);
     });
 
-    test("calls onFinally exactly once after successful retry", async () => {
-      const error401 = { status: 401, error: { message: "Unauthorized" } };
-      mockSetPassword.mockRejectedValueOnce(error401).mockResolvedValueOnce(undefined);
-      const onSuccess = vi.fn();
-      const onFinally = vi.fn();
-
-      const { result } = renderHook(() => usePassword());
-
-      await result.current.setPassword({ password, onSuccess, onFinally });
-
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-      });
-
-      // Simulate successful token refresh triggering retry
-      const authErrorCall = mockHandleAuthErrors.mock.calls[0][0];
-      await authErrorCall.onSuccess();
-
-      await waitFor(() => {
-        expect(mockSetPassword).toHaveBeenCalledTimes(2);
-        expect(onSuccess).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    test("stops retrying after one failed retry (prevents infinite loop)", async () => {
-      const error401 = { status: 401, error: { message: "Unauthorized" } };
-      mockSetPassword.mockRejectedValue(error401);
-      const onSuccess = vi.fn();
+    test("calls onError with extracted message and onFinally on error", async () => {
+      const error = { status: 500, error: { message: "Server error" } };
+      mockSetPassword.mockRejectedValue(error);
       const onError = vi.fn();
       const onFinally = vi.fn();
 
       const { result } = renderHook(() => usePassword());
 
-      await result.current.setPassword({ password, onSuccess, onError, onFinally });
+      await result.current.setPassword({ password, onError, onFinally });
 
-      await waitFor(() => {
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-      });
-
-      // Simulate successful token refresh triggering retry
-      const authErrorCall = mockHandleAuthErrors.mock.calls[0][0];
-      await authErrorCall.onSuccess();
-
-      await waitFor(() => {
-        expect(mockSetPassword).toHaveBeenCalledTimes(2);
-        expect(onError).toHaveBeenCalledWith("Unauthorized");
-        expect(onSuccess).not.toHaveBeenCalled();
-        expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-        expect(onFinally).toHaveBeenCalledTimes(1);
-      });
+      expect(onError).toHaveBeenCalledWith("Server error");
+      expect(onFinally).toHaveBeenCalledTimes(1);
     });
 
     test("does not call API if api is not available", () => {
@@ -280,6 +183,33 @@ describe("usePassword", () => {
       result.current.setPassword({ password });
 
       expect(mockSetPassword).not.toHaveBeenCalled();
+    });
+
+    test("awaits authRetry promise before resolving", async () => {
+      let resolveRetry!: () => void;
+      mockAuthRetry.mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveRetry = resolve;
+        }),
+      );
+
+      const { result } = renderHook(() => usePassword());
+
+      let resolved = false;
+      const promise = result.current.setPassword({ password }).then(() => {
+        resolved = true;
+      });
+
+      await waitFor(() => {
+        expect(mockAuthRetry).toHaveBeenCalled();
+      });
+
+      expect(resolved).toBe(false);
+
+      resolveRetry();
+      await promise;
+
+      expect(resolved).toBe(true);
     });
   });
 });

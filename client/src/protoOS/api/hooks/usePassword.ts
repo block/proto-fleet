@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import { ChangePasswordRequest, PasswordRequest } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader, useSetPasswordSet } from "@/protoOS/store";
+import { useAuthRetry, useSetPasswordSet } from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -28,78 +28,37 @@ const getErrorMessage = (err: unknown, fallback = "An error occurred"): string =
 
 const usePassword = () => {
   const { api } = useMinerHosting();
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
   const setPasswordSet = useSetPasswordSet();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
       if (!api) return;
 
-      const onSetSuccess = () => {
-        setPasswordSet(true);
-        onSuccess?.();
-      };
-
-      await api
-        .setPassword({ password })
-        .then(() => {
-          onSetSuccess();
-          onFinally?.();
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(getErrorMessage(err));
-              onFinally?.();
-            },
-            onSuccess: () =>
-              api
-                .setPassword({ password })
-                .then(onSetSuccess)
-                .catch((retryErr) => onError?.(getErrorMessage(retryErr)))
-                .finally(() => onFinally?.()),
-          });
-        });
+      await authRetry({
+        request: () => api.setPassword({ password }),
+        onSuccess: () => {
+          setPasswordSet(true);
+          onSuccess?.();
+        },
+        onError: (err) => onError?.(getErrorMessage(err)),
+      }).finally(() => onFinally?.());
     },
-    [api, handleAuthErrors, setPasswordSet],
+    [api, authRetry, setPasswordSet],
   );
 
   const changePassword = useCallback(
     async ({ changePasswordRequest, onSuccess, onError, onFinally }: ChangePasswordProps) => {
       if (!api) return;
 
-      await api
-        .changePassword(changePasswordRequest, authHeader)
-        .then(() => {
-          onSuccess?.();
-          onFinally?.();
-        })
-        .catch((err) => {
-          if (isPasswordVerificationError(err)) {
-            onError?.(getErrorMessage(err));
-            onFinally?.();
-            return;
-          }
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(getErrorMessage(err));
-              onFinally?.();
-            },
-            onSuccess: (accessToken) =>
-              api
-                .changePassword(changePasswordRequest, {
-                  headers: { Authorization: `Bearer ${accessToken}` },
-                })
-                .then(() => onSuccess?.())
-                .catch((retryErr) => onError?.(getErrorMessage(retryErr)))
-                .finally(() => onFinally?.()),
-          });
-        });
+      await authRetry({
+        request: (header) => api.changePassword(changePasswordRequest, header),
+        onSuccess,
+        onError: (err) => onError?.(getErrorMessage(err)),
+        shouldRetry: (err) => !isPasswordVerificationError(err),
+      }).finally(() => onFinally?.());
     },
-    [authHeader, api, handleAuthErrors],
+    [api, authRetry],
   );
 
   return useMemo(() => ({ setPassword, changePassword }), [setPassword, changePassword]);

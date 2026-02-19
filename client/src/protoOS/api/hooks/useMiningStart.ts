@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
+import { useAuthRetry } from "@/protoOS/store";
 
 interface StartMiningProps {
   onError?: (err: ErrorProps) => void;
@@ -13,37 +13,20 @@ interface StartMiningProps {
 const useMiningStart = () => {
   const { api } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
-  const authHeader = useAuthHeader();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
 
   const startMining = useCallback(
     ({ onError, onSuccess }: StartMiningProps = {}) => {
       if (!api) return;
 
-      const performStart = () => {
-        setPending(true);
-        api
-          .startMining(authHeader)
-          .then(() => {
-            onSuccess?.();
-          })
-          .catch((error) => {
-            handleAuthErrors({
-              error,
-              onError,
-              onSuccess: () => {
-                performStart();
-              },
-            });
-          })
-          .finally(() => {
-            setPending(false);
-          });
-      };
-
-      performStart();
+      setPending(true);
+      authRetry({
+        request: (header) => api.startMining(header),
+        onSuccess,
+        onError,
+      }).finally(() => setPending(false));
     },
-    [authHeader, handleAuthErrors, api],
+    [api, authRetry],
   );
 
   return useMemo(() => ({ pending, startMining }), [pending, startMining]);

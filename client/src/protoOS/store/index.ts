@@ -195,6 +195,8 @@ export {
   useAccessToken,
 } from "./hooks/useAuth";
 
+export { useAuthRetry } from "./hooks/useAuthRetry";
+
 export type { AuthTokens } from "./slices/authSlice";
 export { AUTH_ACTIONS } from "./types";
 export type { AuthAction } from "./types";
