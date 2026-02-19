@@ -34,7 +34,7 @@ export const useIsWarmingUp = () => {
     const miningUptimeS = state.minerStatus.miningUptime?.value || 0;
     const rebootUptimeS = state.minerStatus.rebootUptime?.value || 0;
 
-    return /Uninitialized|PoweringOn|NoPools/i.test(status) && (miningUptimeS < 60 || rebootUptimeS < 60);
+    return /Uninitialized|PoweringOn/i.test(status) && (miningUptimeS < 60 || rebootUptimeS < 60);
   });
 };
 

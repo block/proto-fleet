@@ -20,9 +20,10 @@ import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
+import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
-import { useOnboarded, usePasswordSet } from "@/protoOS/store";
+import { useOnboarded, usePasswordSet, usePoolsInfo as usePoolsInfoStore } from "@/protoOS/store";
 import {
   useAccessToken,
   useDeviceTheme,
@@ -250,6 +251,12 @@ const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultC
   const isSleeping = useIsSleeping();
   const errors = useMinerErrors();
   const wakeDialog = useWakeDialog();
+  const poolsInfo = usePoolsInfoStore();
+
+  const noPoolsLive = useMemo(
+    () => poolsInfo !== undefined && !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status ?? "")),
+    [poolsInfo],
+  );
 
   // Initialize access token
   useAccessToken();
@@ -375,6 +382,7 @@ const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultC
         // Normal mode: Render with AppLayout + callouts
         <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
           {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
+          {noPoolsLive && !isWarmingUp && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
           {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
           {children}
         </AppLayout>
