@@ -21,7 +21,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
-	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -218,7 +217,6 @@ func (s *Service) GetBatchMinerTelemetry(ctx context.Context, req *pb.GetBatchMi
 		ctx,
 		req.DeviceIdentifiers,
 		req.DataMode,
-		req.TimeSeriesConfig,
 		req.MeasurementConfigs,
 	)
 	if err != nil {
@@ -732,7 +730,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					default:
 					}
 
-					snapshot := s.buildMinerSnapshotWithTelemetry(streamCtx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+					snapshot := s.buildMinerSnapshotWithTelemetry(streamCtx, device, req.DataMode, req.MeasurementConfigs)
 
 					position := len(sortedDeviceIDs)
 					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
@@ -878,10 +876,9 @@ func (s *Service) buildMinerSnapshotWithTelemetry(
 	ctx context.Context,
 	device *pairingpb.Device,
 	dataMode pb.DataMode,
-	timeSeriesConfig *commonpb.TimeSeriesConfig,
 	measurementConfigs []*pb.MeasurementConfig,
 ) *pb.MinerStateSnapshot {
-	telemetry, err := s.telemetry.GetMinerTelemetry(ctx, device.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
+	telemetry, err := s.telemetry.GetMinerTelemetry(ctx, device.DeviceIdentifier, dataMode, measurementConfigs)
 	if err != nil {
 		telemetry = nil
 	}

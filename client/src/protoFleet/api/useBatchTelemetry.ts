@@ -6,8 +6,6 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
 
-const HASHRATE_LOOKBACK_SECONDS = 600;
-const HASHRATE_RESOLUTION_SECONDS = 100;
 const MAX_BATCH_SIZE = 100;
 
 type UseBatchTelemetryOptions = {
@@ -81,17 +79,7 @@ const useBatchTelemetry = (options: UseBatchTelemetryOptions = {}) => {
                 measurementConfigs: [
                   {
                     measurementType: MeasurementConfig_MeasurementType.HASHRATE,
-                    dataMode: DataMode.TIME_SERIES,
-                    timeSeriesConfig: {
-                      timeSelection: {
-                        case: "lookbackPeriod",
-                        value: {
-                          seconds: BigInt(HASHRATE_LOOKBACK_SECONDS),
-                          nanos: 0,
-                        },
-                      },
-                      resolution: HASHRATE_RESOLUTION_SECONDS,
-                    },
+                    dataMode: DataMode.SNAPSHOT,
                   },
                   {
                     measurementType: MeasurementConfig_MeasurementType.POWER_USAGE,

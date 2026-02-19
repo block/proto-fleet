@@ -170,10 +170,6 @@ message MeasurementConfig {
   
   // Data mode for this specific measurement type
   DataMode data_mode = 2;
-  
-  // Time series configuration for this specific measurement type
-  // Required when data_mode is TIME_SERIES
-  common.v1.TimeSeriesConfig time_series_config = 3;
 }
 
 // Request to list miners with their metadata (no telemetry data)
@@ -213,9 +209,6 @@ enum DataMode {
 
   // Return only the most recent measurement for each metric
   DATA_MODE_SNAPSHOT = 2;
-
-  // Return a time series of measurements for each metric
-  DATA_MODE_TIME_SERIES = 3;
 }
 
 // Type of miner
@@ -429,9 +422,6 @@ message StreamMinerListUpdatesRequest {
   // Global data mode for measurements (for initial snapshot and additions)
   DataMode data_mode = 2;
 
-  // Global time series config (if using TIME_SERIES mode)
-  common.v1.TimeSeriesConfig time_series_config = 3;
-
   // Per-measurement configurations
   repeated MeasurementConfig measurement_configs = 4;
 
@@ -501,10 +491,6 @@ message GetBatchMinerTelemetryRequest {
   // Global data mode that applies to all measurements unless overridden
   // by a specific measurement configuration
   DataMode data_mode = 2;
-
-  // Global time series config that applies to all measurements unless overridden
-  // Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
-  common.v1.TimeSeriesConfig time_series_config = 3;
 
   // Per-measurement configurations that override the global settings
   // If provided for a measurement type, these settings take precedence over global settings

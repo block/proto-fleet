@@ -379,6 +379,13 @@ EOF
 
 **Note**: Never manually construct Linear URLs. Always use the Linear MCP `get_issue` tool to get the correct URL format.
 
+**GIF in PR Descriptions**: Include a relevant GIF from Giphy to make PRs more engaging:
+
+- Search Giphy for a GIF that relates to the PR theme (cleanup, feature, fix, etc.)
+- Use the direct `.gif` URL from `media*.giphy.com`
+- Add it after the Summary section: `![Description](https://media*.giphy.com/media/.../giphy.gif)`
+- Examples: Marie Kondo for cleanup/removal PRs, celebration GIFs for new features
+
 ## Code Quality Standards
 
 ### Architectural Principles

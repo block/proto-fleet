@@ -4,8 +4,8 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -14,8 +14,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_common_v1_measurement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Chtjb21tb24vdjEvbWVhc3VyZW1lbnQucHJvdG8SCWNvbW1vbi52MSJ1CgtNZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXZhbHVlGAIgASgBEigKBHVuaXQYAyABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0IpsBChBUaW1lU2VyaWVzQ29uZmlnEjQKD2xvb2tiYWNrX3BlcmlvZBgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkgAEisKCGludGVydmFsGAIgASgLMhcuY29tbW9uLnYxLlRpbWVJbnRlcnZhbEgAEhIKCnJlc29sdXRpb24YAyABKAVCEAoOdGltZV9zZWxlY3Rpb24ibAoMVGltZUludGVydmFsEi4KCnN0YXJ0X3RpbWUYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCGVuZF90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCqiAgoPTWVhc3VyZW1lbnRVbml0EiAKHE1FQVNVUkVNRU5UX1VOSVRfVU5TUEVDSUZJRUQQABIoCiRNRUFTVVJFTUVOVF9VTklUX1RFUkFIQVNIX1BFUl9TRUNPTkQQARIoCiRNRUFTVVJFTUVOVF9VTklUX0pPVUxFU19QRVJfVEVSQUhBU0gQAhIdChlNRUFTVVJFTUVOVF9VTklUX0tJTE9XQVRUEAMSHAoYTUVBU1VSRU1FTlRfVU5JVF9DRUxTSVVTEAQSHwobTUVBU1VSRU1FTlRfVU5JVF9GQUhSRU5IRUlUEAUSHwobTUVBU1VSRU1FTlRfVU5JVF9QRVJDRU5UQUdFEAYSGgoWTUVBU1VSRU1FTlRfVU5JVF9IT1VSUxAHQrIBCg1jb20uY29tbW9uLnYxQhBNZWFzdXJlbWVudFByb3RvUAFaSmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29tbW9uL3YxO2NvbW1vbnYxogIDQ1hYqgIJQ29tbW9uLlYxygIJQ29tbW9uXFYx4gIVQ29tbW9uXFYxXEdQQk1ldGFkYXRh6gIKQ29tbW9uOjpWMWIGcHJvdG8z",
-    [file_google_protobuf_duration, file_google_protobuf_timestamp],
+    "Chtjb21tb24vdjEvbWVhc3VyZW1lbnQucHJvdG8SCWNvbW1vbi52MSJ1CgtNZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXZhbHVlGAIgASgBEigKBHVuaXQYAyABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0KqICCg9NZWFzdXJlbWVudFVuaXQSIAocTUVBU1VSRU1FTlRfVU5JVF9VTlNQRUNJRklFRBAAEigKJE1FQVNVUkVNRU5UX1VOSVRfVEVSQUhBU0hfUEVSX1NFQ09ORBABEigKJE1FQVNVUkVNRU5UX1VOSVRfSk9VTEVTX1BFUl9URVJBSEFTSBACEh0KGU1FQVNVUkVNRU5UX1VOSVRfS0lMT1dBVFQQAxIcChhNRUFTVVJFTUVOVF9VTklUX0NFTFNJVVMQBBIfChtNRUFTVVJFTUVOVF9VTklUX0ZBSFJFTkhFSVQQBRIfChtNRUFTVVJFTUVOVF9VTklUX1BFUkNFTlRBR0UQBhIaChZNRUFTVVJFTUVOVF9VTklUX0hPVVJTEAdCsgEKDWNvbS5jb21tb24udjFCEE1lYXN1cmVtZW50UHJvdG9QAVpKZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
+    [file_google_protobuf_timestamp],
   );
 
 /**
@@ -51,81 +51,6 @@ export type Measurement = Message<"common.v1.Measurement"> & {
  * Use `create(MeasurementSchema)` to create a new message.
  */
 export const MeasurementSchema: GenMessage<Measurement> = /*@__PURE__*/ messageDesc(file_common_v1_measurement, 0);
-
-/**
- * Configuration for time series data retrieval
- *
- * @generated from message common.v1.TimeSeriesConfig
- */
-export type TimeSeriesConfig = Message<"common.v1.TimeSeriesConfig"> & {
-  /**
-   * @generated from oneof common.v1.TimeSeriesConfig.time_selection
-   */
-  timeSelection:
-    | {
-        /**
-         * @generated from field: google.protobuf.Duration lookback_period = 1;
-         */
-        value: Duration;
-        case: "lookbackPeriod";
-      }
-    | {
-        /**
-         * @generated from field: common.v1.TimeInterval interval = 2;
-         */
-        value: TimeInterval;
-        case: "interval";
-      }
-    | { case: undefined; value?: undefined };
-
-  /**
-   * Time resolution for time series data in seconds
-   * Controls the granularity of returned time series data points
-   * If not specified when data_mode is TIME_SERIES, defaults to a server determined value
-   * Server may adjust this to a supported value
-   *
-   * @generated from field: int32 resolution = 3;
-   */
-  resolution: number;
-};
-
-/**
- * Describes the message common.v1.TimeSeriesConfig.
- * Use `create(TimeSeriesConfigSchema)` to create a new message.
- */
-export const TimeSeriesConfigSchema: GenMessage<TimeSeriesConfig> =
-  /*@__PURE__*/
-  messageDesc(file_common_v1_measurement, 1);
-
-/**
- * Represents a time interval with start and end timestamps
- * Similar to google.type.Interval but defined within the project
- *
- * @generated from message common.v1.TimeInterval
- */
-export type TimeInterval = Message<"common.v1.TimeInterval"> & {
-  /**
-   * Optional. Inclusive start of the interval.
-   * If specified, only data at or after this timestamp will be included
-   *
-   * @generated from field: google.protobuf.Timestamp start_time = 1;
-   */
-  startTime?: Timestamp;
-
-  /**
-   * Optional. Exclusive end of the interval.
-   * If specified, only data before this timestamp will be included
-   *
-   * @generated from field: google.protobuf.Timestamp end_time = 2;
-   */
-  endTime?: Timestamp;
-};
-
-/**
- * Describes the message common.v1.TimeInterval.
- * Use `create(TimeIntervalSchema)` to create a new message.
- */
-export const TimeIntervalSchema: GenMessage<TimeInterval> = /*@__PURE__*/ messageDesc(file_common_v1_measurement, 2);
 
 /**
  * Standard units used throughout the API

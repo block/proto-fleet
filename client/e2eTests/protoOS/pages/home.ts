@@ -37,6 +37,10 @@ export class HomePage extends BasePage {
     } else {
       await chart.hover();
     }
+    // Wait for tooltip to appear and have content
+    const tooltip = this.page.locator(".recharts-tooltip-wrapper");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip.getByText("Summary")).toBeVisible();
   }
 
   async validateChartTooltipWithHashboards(expectedValuePattern: RegExp) {

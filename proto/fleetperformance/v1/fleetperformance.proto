@@ -22,9 +22,7 @@ service FleetPerformanceService {
 
 // Request to retrieve fleet performance metrics
 message GetFleetPerformanceRequest {
-    // Time series configuration for performance data
-    // Required field that specifies the time range and resolution for the metrics
-    common.v1.TimeSeriesConfig time_series_config = 1;
+    // Reserved for future use - currently returns default time range
 }
 
 // Response containing comprehensive fleet performance metrics

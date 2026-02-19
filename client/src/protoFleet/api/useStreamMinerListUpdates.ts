@@ -94,17 +94,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         measurementConfigs: [
           {
             measurementType: MeasurementConfig_MeasurementType.HASHRATE,
-            dataMode: DataMode.TIME_SERIES,
-            timeSeriesConfig: {
-              timeSelection: {
-                case: "lookbackPeriod",
-                value: {
-                  seconds: BigInt(600),
-                  nanos: 0,
-                },
-              },
-              resolution: 100,
-            },
+            dataMode: DataMode.SNAPSHOT,
           },
         ],
       });

@@ -1,7 +1,7 @@
 import { minerCols, type MinerColumn } from "./constants";
-import Hashrate from "./Hashrate";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerFirmware from "./MinerFirmware";
+import MinerHashrate from "./MinerHashrate";
 import MinerIpAddress from "./MinerIpAddress";
 import MinerIssuesCell from "./MinerIssuesCell";
 import MinerMacAddress from "./MinerMacAddress";
@@ -41,8 +41,8 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
     width: "min-w-48",
   },
   [minerCols.hashrate]: {
-    component: (device: DeviceListItem) => <Hashrate deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-38",
+    component: (device: DeviceListItem) => <MinerHashrate deviceIdentifier={device.deviceIdentifier} />,
+    width: "min-w-20",
   },
   [minerCols.efficiency]: {
     component: (device: DeviceListItem) => <MinerEfficiency deviceIdentifier={device.deviceIdentifier} />,

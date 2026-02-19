@@ -15,12 +15,12 @@ import (
 // TelemetryCollector defines the interface for collecting miner telemetry data
 type TelemetryCollector interface {
 	// GetMinerTelemetry returns the latest telemetry data for a miner
-	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error)
+	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error)
 
 	// GetBatchMinerTelemetry returns telemetry data for multiple miners in a single batch query
 	// This is optimized to reduce N+1 query patterns by fetching telemetry for all requested devices
 	// in a single database query instead of per-device queries.
-	GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error)
+	GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error)
 
 	// GetMinerComponentStatus removed - component status tracking now done via errors API
 	// GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
@@ -44,7 +44,7 @@ func NewMockTelemetryCollector() TelemetryCollector {
 	return &MockTelemetryCollector{}
 }
 
-func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error) {
+func (m *MockTelemetryCollector) GetMinerTelemetry(_ context.Context, _ string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error) {
 	now := timestamppb.Now()
 
 	configMap := make(map[pb.MeasurementConfig_MeasurementType]*pb.MeasurementConfig)
@@ -57,17 +57,11 @@ func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string
 			if config.DataMode == pb.DataMode_DATA_MODE_METADATA {
 				return []*commonpb.Measurement{}
 			}
-			if config.DataMode == pb.DataMode_DATA_MODE_TIME_SERIES && config.TimeSeriesConfig != nil {
-				return generateTimeSeriesMeasurements(mType, config.TimeSeriesConfig)
-			}
 			return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 		}
 
 		if dataMode == pb.DataMode_DATA_MODE_METADATA {
 			return []*commonpb.Measurement{}
-		}
-		if dataMode == pb.DataMode_DATA_MODE_TIME_SERIES && timeSeriesConfig != nil {
-			return generateTimeSeriesMeasurements(mType, timeSeriesConfig)
 		}
 		return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 	}
@@ -89,51 +83,8 @@ func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, tim
 }
 
 const (
-	// Time series defaults
-	defaultLookbackPeriod    = 1 * time.Hour
-	defaultResolutionSeconds = 60
 	mockTelemetryChannelSize = 100
-	defaultHeartbeatSeconds  = 30
 )
-
-func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, config *commonpb.TimeSeriesConfig) []*commonpb.Measurement {
-	var startTime, endTime time.Time
-
-	switch ts := config.TimeSelection.(type) {
-	case *commonpb.TimeSeriesConfig_LookbackPeriod:
-		endTime = time.Now()
-		startTime = endTime.Add(-ts.LookbackPeriod.AsDuration())
-	case *commonpb.TimeSeriesConfig_Interval:
-		if ts.Interval.StartTime != nil {
-			startTime = ts.Interval.StartTime.AsTime()
-		} else {
-			startTime = time.Now().Add(-defaultLookbackPeriod)
-		}
-		if ts.Interval.EndTime != nil {
-			endTime = ts.Interval.EndTime.AsTime()
-		} else {
-			endTime = time.Now()
-		}
-	default:
-		endTime = time.Now()
-		startTime = endTime.Add(-defaultLookbackPeriod)
-	}
-
-	resolution := config.Resolution
-	if resolution <= 0 {
-		resolution = defaultResolutionSeconds
-	}
-
-	var measurements []*commonpb.Measurement
-	for t := startTime; t.Before(endTime); t = t.Add(time.Duration(resolution) * time.Second) {
-		measurements = append(measurements, &commonpb.Measurement{
-			Value:     generateMockValue(mType),
-			Timestamp: timestamppb.New(t),
-		})
-	}
-
-	return measurements
-}
 
 const (
 	// Stream channel buffer sizes
@@ -235,10 +186,10 @@ func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context
 	return ch, unsubscribe, nil
 }
 
-func (m *MockTelemetryCollector) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error) {
+func (m *MockTelemetryCollector) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error) {
 	result := make(map[string]*models.MinerTelemetry, len(deviceIDs))
 	for _, deviceID := range deviceIDs {
-		telemetry, err := m.GetMinerTelemetry(ctx, deviceID, dataMode, timeSeriesConfig, measurementConfigs)
+		telemetry, err := m.GetMinerTelemetry(ctx, deviceID, dataMode, measurementConfigs)
 		if err != nil {
 			continue
 		}
