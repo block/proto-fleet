@@ -8,72 +8,72 @@ test.describe("Onboarding", () => {
     await page.goto("/");
   });
 
-  test("Complete onboarding flow @setup", async ({ authPage, homePage, poolPage }) => {
+  test("Complete onboarding flow @setup", async ({ welcomePage, homePage, poolsPage: poolsPage }) => {
     const poolName = generateRandomText("PoolName");
     const poolUsername = generateRandomText("PoolUsername");
     const poolPassword = generateRandomText("PoolPassword");
 
     await test.step("Welcome screen - validate and start setup", async () => {
-      await authPage.validateWelcomeUrl();
-      await authPage.validateTextIsVisible("Miner setup");
-      await authPage.clickGetStartedButton();
+      await welcomePage.validateWelcomeUrl();
+      await welcomePage.validateTextIsVisible("Miner setup");
+      await welcomePage.clickGetStartedButton();
     });
 
     await test.step("Verify miner - validate information and continue", async () => {
-      await authPage.validateVerifyUrl();
-      await authPage.validateTitle("Is this the miner you want to set up?");
-      await authPage.validateTextIsVisible("Controller Serial");
-      await authPage.validateTextIsVisible("Mac Address");
-      await authPage.clickContinueSetup();
+      await welcomePage.validateVerifyUrl();
+      await welcomePage.validateTitle("Is this the miner you want to set up?");
+      await welcomePage.validateTextIsVisible("Controller Serial");
+      await welcomePage.validateTextIsVisible("Mac Address");
+      await welcomePage.clickContinueSetup();
     });
 
     await test.step("Create authentication - validate and set password", async () => {
-      await authPage.validateAuthenticationUrl();
-      await authPage.validateTitle("Create an admin login for your miner");
-      await authPage.validateUsernameFieldDisabledWithValue("admin");
-      await authPage.inputPassword(testConfig.admin.password);
-      await authPage.inputConfirmPassword(testConfig.admin.password);
-      await authPage.clickContinue();
+      await welcomePage.validateAuthenticationUrl();
+      await welcomePage.validateTitle("Create an admin login for your miner");
+      await welcomePage.validateUsernameFieldDisabledWithValue("admin");
+      await welcomePage.inputPassword(testConfig.admin.password);
+      await welcomePage.inputConfirmPassword(testConfig.admin.password);
+      await welcomePage.clickContinue();
     });
 
     await test.step("Mining pool setup - validate page and warning", async () => {
-      await authPage.validateMiningPoolUrl();
-      await authPage.validateTitle("Pools");
-      await authPage.validateTextIsVisible("Add up to 3 pools for your miner.");
-      await authPage.click("Continue");
-      await authPage.validateDefaultPoolWarningVisible();
-      await authPage.validateDefaultPoolWarningText();
-      await authPage.closeDefaultPoolWarning();
+      await welcomePage.validateMiningPoolUrl();
+      await welcomePage.validateTitle("Pools");
+      await welcomePage.validateTextIsVisible("Add up to 3 pools for your miner.");
+      await welcomePage.click("Continue");
+      await welcomePage.validateDefaultPoolWarningVisible();
+      await welcomePage.validateDefaultPoolWarningText();
+      await welcomePage.closeDefaultPoolWarning();
     });
 
     await test.step("Add default mining pool", async () => {
-      await poolPage.clickAddPool();
-      await poolPage.validatePoolModalOpened();
-      await poolPage.inputPoolName(poolName, 0);
-      await poolPage.inputPoolUrl(testConfig.pool.url, 0);
-      await poolPage.inputPoolUsername(poolUsername, 0);
-      await poolPage.inputPoolPassword(poolPassword, 0);
-      await poolPage.clickTestConnection();
-      await poolPage.validateConnectionSuccessful();
-      await poolPage.clickSave();
-      await poolPage.validateModalIsClosed();
+      await poolsPage.clickAddPool();
+      await poolsPage.validatePoolModalOpened();
+      await poolsPage.inputPoolName(poolName, 0);
+      await poolsPage.inputPoolUrl(testConfig.pool.url, 0);
+      await poolsPage.inputPoolUsername(poolUsername, 0);
+      await poolsPage.inputPoolPassword(poolPassword, 0);
+      await poolsPage.clickTestConnection();
+      await poolsPage.validateConnectionSuccessful();
+      await poolsPage.clickSave();
+      await poolsPage.validateModalIsClosed();
     });
 
     await test.step("Submit one pool", async () => {
-      await authPage.click("Continue");
+      await welcomePage.click("Continue");
     });
 
     await test.step("Confirm continue without backup pool", async () => {
-      await authPage.validateTitle("Continue without a backup pool?");
-      await authPage.validateButtonIsVisible("Add a backup pool");
-      await authPage.click("Continue without backup");
+      await welcomePage.validateTitle("Continue without a backup pool?");
+      await welcomePage.validateButtonIsVisible("Add a backup pool");
+      await welcomePage.click("Continue without backup");
     });
 
     await test.step("Your miner is ready", async () => {
-      await authPage.validateTitle("Configuring your miner");
-      await authPage.validateTitle("Your miner is ready");
-      await authPage.validateTextIsVisible("Testing your mining pool connections");
-      await authPage.click("Continue");
+      await welcomePage.validateTitle("Configuring your miner");
+      await welcomePage.validateTitle("Your miner is ready");
+      await welcomePage.validateTextIsVisible("Testing your mining pool connections");
+      await welcomePage.click("Continue");
     });
 
     await test.step("Validate user is logged in to dashboard", async () => {

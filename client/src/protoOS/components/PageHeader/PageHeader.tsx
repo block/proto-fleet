@@ -83,7 +83,10 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
 
   return (
-    <div className="fixed top-0 right-0 left-0 z-20 flex h-[60px] bg-surface-base phone:h-fit tablet:h-fit">
+    <div
+      className="fixed top-0 right-0 left-0 z-20 flex h-[60px] bg-surface-base phone:h-fit tablet:h-fit"
+      data-testid="page-header"
+    >
       {isPhone || isTablet ? (
         <MobileHeader openMenu={openMenu} title={title} customButtons={customButtons} />
       ) : (

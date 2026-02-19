@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
-export class poolsPage extends BasePage {
+export class PoolsPage extends BasePage {
   async validatePoolModalOpened() {
     await expect(this.page.getByTestId("modal")).toBeVisible();
   }

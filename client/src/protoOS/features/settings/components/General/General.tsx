@@ -86,6 +86,7 @@ const General = () => {
               setShowTemperatureUnitsSwitcher(true);
             }}
             className="text-300 text-intent-warning-fill hover:underline"
+            data-testid="temperature-button"
           >
             {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
           </a>

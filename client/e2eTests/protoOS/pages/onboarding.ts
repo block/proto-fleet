@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
-export class AuthPage extends BasePage {
+export class WelcomePage extends BasePage {
   async validateWelcomeUrl() {
     await expect(this.page).toHaveURL(/.*\/onboarding\/welcome/);
   }
@@ -54,13 +54,5 @@ export class AuthPage extends BasePage {
 
   async closeDefaultPoolWarning() {
     await this.page.getByTestId("warn-default-pool-callout").getByRole("button").click();
-  }
-
-  async inputLoginPassword(password: string) {
-    await this.page.getByTestId("password").fill(password);
-  }
-
-  async clickLoginButton() {
-    await this.page.getByTestId("login-button").click();
   }
 }

@@ -43,7 +43,9 @@ export class HomePage extends BasePage {
     const tooltip = this.page.locator(".recharts-tooltip-wrapper");
     await expect(tooltip).toBeVisible();
     await expect(tooltip.getByText("Summary")).toBeVisible();
-    await expect(tooltip.locator("[class*='text-primary']").filter({ hasText: expectedValuePattern })).toHaveCount(5);
+    await expect(tooltip.locator("div[class*='text-primary']").filter({ hasText: expectedValuePattern })).toHaveCount(
+      5,
+    );
     await expect(tooltip.getByText("Hashboards")).toBeVisible();
   }
 
@@ -131,5 +133,21 @@ export class HomePage extends BasePage {
     } else {
       await this.validateValueInTooltip(expectedHashboards, backgroundColors);
     }
+  }
+
+  async validateTemperatureInFormat(temperaturePattern: RegExp) {
+    await this.validateTabValue("temperature", temperaturePattern);
+  }
+
+  async validateWarnSleepDialog() {
+    const dialog = this.page.getByTestId("warn-sleep-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Enter sleep mode?");
+  }
+
+  async validateWarnWakeUpDialog() {
+    const dialog = this.page.getByTestId("warn-wake-up-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Wake up miner?");
   }
 }
