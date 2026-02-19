@@ -60,6 +60,6 @@ export class EditPoolPage extends BasePage {
   async reorderPoolByDragging(fromIndex: number, toIndex: number) {
     const sourceHandle = this.page.getByTestId(`pool-row-${fromIndex}`).getByTestId("reorder-handle");
     const targetHandle = this.page.getByTestId(`pool-row-${toIndex}`).getByTestId("reorder-handle");
-    await sourceHandle.dragTo(targetHandle);
+    await sourceHandle.dragTo(targetHandle, { steps: 20 });
   }
 }
