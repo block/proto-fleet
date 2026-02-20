@@ -162,6 +162,21 @@ func (mr *MockDeviceStoreMockRecorder) GetMinerCredentials(ctx, device, orgID in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerCredentials", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerCredentials), ctx, device, orgID)
 }
 
+// GetMinerModelGroups mocks base method.
+func (m *MockDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]interfaces.MinerModelGroupResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerModelGroups", ctx, orgID, filter)
+	ret0, _ := ret[0].([]interfaces.MinerModelGroupResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerModelGroups indicates an expected call of GetMinerModelGroups.
+func (mr *MockDeviceStoreMockRecorder) GetMinerModelGroups(ctx, orgID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerModelGroups", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerModelGroups), ctx, orgID, filter)
+}
+
 // GetMinerStateCounts mocks base method.
 func (m *MockDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (*telemetryv1.MinerStateCounts, error) {
 	m.ctrl.T.Helper()

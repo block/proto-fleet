@@ -32,6 +32,7 @@ const mockReboot = vi.fn();
 const mockSetPowerTarget = vi.fn();
 const mockSetCoolingMode = vi.fn();
 const mockUpdateMinerPassword = vi.fn();
+const mockGetMinerModelGroups = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -81,6 +82,12 @@ const { mockUseFleetStore } = vi.hoisted(() => {
   return { mockUseFleetStore: fn };
 });
 
+vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
+  default: () => ({
+    getMinerModelGroups: mockGetMinerModelGroups,
+  }),
+}));
+
 vi.mock("@/protoFleet/store", () => ({
   useFleetStore: mockUseFleetStore,
   useStartBatchOperation: () => mockStartBatchOperation,
@@ -107,6 +114,7 @@ describe("useMinerActions", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockGetMinerModelGroups.mockResolvedValue([]);
 
     // Create a fresh store for each test
     store = create<TestStore>()(
@@ -2026,9 +2034,9 @@ describe("useMinerActions", () => {
       // onActionComplete not called yet — ManageSecurityModal is still open
       expect(onActionComplete).not.toHaveBeenCalled();
 
-      // Called only when the modal is dismissed
+      // Called only when the modal is closed
       act(() => {
-        result.current.handleSecurityModalDone();
+        result.current.handleSecurityModalClose();
       });
       expect(onActionComplete).toHaveBeenCalledTimes(1);
     });
@@ -2152,10 +2160,10 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.showUpdatePasswordModal).toBe(true);
-      expect(result.current.hasProtoMiners).toBe(false);
+      expect(result.current.hasThirdPartyMiners).toBe(true);
     });
 
-    it("handleSecurityModalDone resets all security state and calls onActionComplete", async () => {
+    it("handleSecurityModalClose resets all security state and calls onActionComplete", async () => {
       const onActionComplete = vi.fn();
       addMinersToStore(store, [
         { deviceIdentifier: "device-1", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
@@ -2180,42 +2188,7 @@ describe("useMinerActions", () => {
       expect(result.current.showManageSecurityModal).toBe(true);
 
       act(() => {
-        result.current.handleSecurityModalDone();
-      });
-
-      expect(result.current.showManageSecurityModal).toBe(false);
-      expect(result.current.minerGroups).toHaveLength(0);
-      expect(result.current.fleetCredentials).toBeUndefined();
-      expect(result.current.currentAction).toBeNull();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-
-    it("handleSecurityModalDismiss resets all security state and calls onActionComplete", async () => {
-      const onActionComplete = vi.fn();
-      addMinersToStore(store, [
-        { deviceIdentifier: "device-1", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
-      ]);
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
-      await act(async () => {
-        await securityAction?.actionHandler();
-      });
-      await act(async () => {
-        await result.current.handleFleetAuthenticated("testuser", "testpass");
-      });
-
-      expect(result.current.showManageSecurityModal).toBe(true);
-
-      act(() => {
-        result.current.handleSecurityModalDismiss();
+        result.current.handleSecurityModalClose();
       });
 
       expect(result.current.showManageSecurityModal).toBe(false);
@@ -2270,6 +2243,117 @@ describe("useMinerActions", () => {
       expect(result.current.unsupportedMinersInfo.noneSupported).toBe(false);
       expect(result.current.showManageSecurityModal).toBe(false);
       expect(result.current.showUpdatePasswordModal).toBe(false);
+    });
+  });
+
+  describe("Manage security action flow - select all mode", () => {
+    const triggerSecurityAndAuthenticate = async (result: any) => {
+      const securityAction = result.current.popoverActions.find((a: any) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+    };
+
+    it("calls getMinerModelGroups to fetch backend groups instead of reading local store", async () => {
+      mockGetMinerModelGroups.mockResolvedValue([]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      expect(mockGetMinerModelGroups).toHaveBeenCalledOnce();
+      expect(result.current.showManageSecurityModal).toBe(true);
+    });
+
+    it("names Proto Rig groups as manufacturer + model and normalizes manufacturer to lowercase", async () => {
+      mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      const group = result.current.minerGroups[0];
+      expect(group.name).toBe("Proto Rig");
+      expect(group.manufacturer).toBe("proto");
+      expect(group.count).toBe(6);
+    });
+
+    it("names third-party groups by model only, without manufacturer prefix", async () => {
+      mockGetMinerModelGroups.mockResolvedValue([{ model: "Antminer S19", manufacturer: "Bitmain", count: 10 }]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      const group = result.current.minerGroups[0];
+      expect(group.name).toBe("Antminer S19");
+      expect(group.manufacturer).toBe("bitmain");
+    });
+
+    it("falls back to capability check path when getMinerModelGroups throws", async () => {
+      mockGetMinerModelGroups.mockRejectedValue(new Error("Network error"));
+
+      store
+        .getState()
+        .fleet.setMiners([{ deviceIdentifier: "device-1", manufacturer: "proto", model: "Rig", name: "Proto Rig" }]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+      expect(result.current.minerGroups.length).toBeGreaterThan(0);
+    });
+
+    it("uses allDevices selector with model filter in handlePasswordConfirm", async () => {
+      mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
+      mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-security-all" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      const group = result.current.minerGroups[0];
+      await act(async () => {
+        result.current.handleUpdateGroup(group);
+      });
+      await act(async () => {
+        result.current.handlePasswordConfirm("oldpass", "newpass");
+      });
+
+      const callArgs = mockUpdateMinerPassword.mock.calls[0][0];
+      expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
+      expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
     });
   });
 });

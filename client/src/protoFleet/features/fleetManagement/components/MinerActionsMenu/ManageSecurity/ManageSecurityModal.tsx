@@ -15,8 +15,6 @@ export interface MinerGroup {
   count: number;
   deviceIdentifiers: string[];
   status: "pending" | "loading" | "updated" | "failed";
-  successCount?: number;
-  failureCount?: number;
 }
 
 const getGroupStatusFlags = (status: MinerGroup["status"]) => ({

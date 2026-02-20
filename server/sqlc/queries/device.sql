@@ -273,6 +273,25 @@ JOIN device d ON ds.device_id = d.id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL;
 
+-- name: GetMinerModelGroups :many
+SELECT
+    dd.model,
+    dd.manufacturer,
+    COUNT(*)::int AS count
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = @org_id
+  AND dd.model IS NOT NULL
+  AND dd.model != ''
+  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+  AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
+GROUP BY dd.model, dd.manufacturer
+ORDER BY dd.manufacturer, dd.model;
+
 -- name: GetAvailableModels :many
 SELECT DISTINCT dd.model
 FROM device d
@@ -409,11 +428,13 @@ SELECT
     d.id as device_id
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = sqlc.arg('org_id')
     AND dp.pairing_status::text = COALESCE(sqlc.narg('pairing_status')::text, 'PAIRED')
     AND d.deleted_at IS NULL
     AND (sqlc.narg('device_status')::text IS NULL OR ds.status::text = sqlc.narg('device_status')::text)
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
 ORDER BY d.id;
 
 -- name: GetDeviceInfoForCapabilityCheck :many

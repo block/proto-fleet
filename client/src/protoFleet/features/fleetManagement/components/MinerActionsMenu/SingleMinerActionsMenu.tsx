@@ -7,8 +7,8 @@ import { performanceActions, settingsActions, SupportedAction } from "./constant
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
+import { type SecurityActionsProps } from "./useManageSecurityFlow";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
-import { type SecurityActionsProps } from "./useSecurityActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -60,7 +60,7 @@ const SingleMinerActionsMenu = ({
     showAuthenticateFleetModal,
     authenticationPurpose,
     showUpdatePasswordModal,
-    hasProtoMiners,
+    hasThirdPartyMiners,
     handleFleetAuthenticated,
     handlePasswordConfirm,
     handlePasswordDismiss,
@@ -71,8 +71,7 @@ const SingleMinerActionsMenu = ({
     showManageSecurityModal,
     minerGroups,
     handleUpdateGroup,
-    handleSecurityModalDone,
-    handleSecurityModalDismiss,
+    handleSecurityModalClose,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
@@ -141,7 +140,7 @@ const SingleMinerActionsMenu = ({
         showAuthenticateFleetModal={showAuthenticateFleetModal}
         authenticationPurpose={authenticationPurpose}
         showUpdatePasswordModal={showUpdatePasswordModal}
-        hasProtoMiners={hasProtoMiners}
+        hasThirdPartyMiners={hasThirdPartyMiners}
         handleFleetAuthenticated={handleFleetAuthenticated}
         handlePasswordConfirm={handlePasswordConfirm}
         handlePasswordDismiss={handlePasswordDismiss}
@@ -153,8 +152,7 @@ const SingleMinerActionsMenu = ({
         showManageSecurityModal={showManageSecurityModal}
         minerGroups={minerGroups}
         handleUpdateGroup={handleUpdateGroup}
-        handleSecurityModalDone={handleSecurityModalDone}
-        handleSecurityModalDismiss={handleSecurityModalDismiss}
+        handleSecurityModalClose={handleSecurityModalClose}
       />
     </PopoverProvider>
   );
@@ -217,7 +215,7 @@ const SingleMinerActionsMenuInner = ({
   showAuthenticateFleetModal,
   authenticationPurpose,
   showUpdatePasswordModal,
-  hasProtoMiners,
+  hasThirdPartyMiners,
   handleFleetAuthenticated,
   handlePasswordConfirm,
   handlePasswordDismiss,
@@ -229,8 +227,7 @@ const SingleMinerActionsMenuInner = ({
   showManageSecurityModal,
   minerGroups,
   handleUpdateGroup,
-  handleSecurityModalDone,
-  handleSecurityModalDismiss,
+  handleSecurityModalClose,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -281,7 +278,7 @@ const SingleMinerActionsMenuInner = ({
                   {action.title}
                 </Row>
               </div>
-              {action.showGroupDivider && <Divider />}
+              {action.showGroupDivider && <Divider dividerStyle="thick" />}
             </Fragment>
           ))}
         </Popover>
@@ -349,14 +346,14 @@ const SingleMinerActionsMenuInner = ({
           show={showManageSecurityModal}
           minerGroups={minerGroups}
           onUpdateGroup={handleUpdateGroup}
-          onDismiss={handleSecurityModalDismiss}
-          onDone={handleSecurityModalDone}
+          onDismiss={handleSecurityModalClose}
+          onDone={handleSecurityModalClose}
         />
       )}
       {showUpdatePasswordModal && (
         <UpdateMinerPasswordModal
           show={showUpdatePasswordModal}
-          hasProtoMiners={hasProtoMiners}
+          hasThirdPartyMiners={hasThirdPartyMiners}
           onConfirm={handlePasswordConfirm}
           onDismiss={handlePasswordDismiss}
         />

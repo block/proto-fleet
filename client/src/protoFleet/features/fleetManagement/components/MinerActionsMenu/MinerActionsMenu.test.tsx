@@ -39,7 +39,7 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCoolingModeDismiss: ReturnType<typeof vi.fn>;
       showAuthenticateFleetModal: boolean;
       showUpdatePasswordModal: boolean;
-      hasProtoMiners: boolean;
+      hasThirdPartyMiners: boolean;
       handleFleetAuthenticated: ReturnType<typeof vi.fn>;
       handlePasswordConfirm: ReturnType<typeof vi.fn>;
       handlePasswordDismiss: ReturnType<typeof vi.fn>;
@@ -67,7 +67,7 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCoolingModeDismiss: vi.fn(),
       showAuthenticateFleetModal: false,
       showUpdatePasswordModal: false,
-      hasProtoMiners: true,
+      hasThirdPartyMiners: false,
       handleFleetAuthenticated: vi.fn(),
       handlePasswordConfirm: vi.fn(),
       handlePasswordDismiss: vi.fn(),
@@ -133,7 +133,7 @@ const createMockMinerActionsReturn = (
   handleCoolingModeDismiss: vi.fn(),
   showAuthenticateFleetModal: false,
   showUpdatePasswordModal: false,
-  hasProtoMiners: true,
+  hasThirdPartyMiners: false,
   handleFleetAuthenticated: vi.fn(),
   handlePasswordConfirm: vi.fn(),
   handlePasswordDismiss: vi.fn(),

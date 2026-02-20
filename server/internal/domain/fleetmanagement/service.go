@@ -228,6 +228,35 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCo
 	}, nil
 }
 
+// GetMinerModelGroups returns model groups with counts, optionally filtered by the provided fleet filter.
+func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModelGroupsRequest) (*pb.GetMinerModelGroupsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := parseFilter(req.Filter)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to parse filter: %v", err)
+	}
+
+	groups, err := s.deviceStore.GetMinerModelGroups(ctx, info.OrganizationID, filter)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
+	}
+
+	pbGroups := make([]*pb.MinerModelGroup, 0, len(groups))
+	for _, g := range groups {
+		pbGroups = append(pbGroups, &pb.MinerModelGroup{
+			Model:        g.Model,
+			Manufacturer: g.Manufacturer,
+			Count:        g.Count,
+		})
+	}
+
+	return &pb.GetMinerModelGroupsResponse{Groups: pbGroups}, nil
+}
+
 // GetBatchMinerTelemetry returns telemetry data for multiple miners by their device identifiers.
 // This is optimized for fetching telemetry after an initial metadata-only list load.
 // Returns an authorization error if any device identifier does not belong to the user's organization.

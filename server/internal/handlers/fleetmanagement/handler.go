@@ -140,3 +140,12 @@ func (h *Handler) DeleteMiners(ctx context.Context, r *connect.Request[pb.Delete
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) GetMinerModelGroups(ctx context.Context, r *connect.Request[pb.GetMinerModelGroupsRequest]) (*connect.Response[pb.GetMinerModelGroupsResponse], error) {
+	result, err := h.fleetMgmtSvc.GetMinerModelGroups(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

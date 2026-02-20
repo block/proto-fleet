@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   deviceActions,
@@ -9,7 +9,8 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
-import { useSecurityActions } from "./useSecurityActions";
+import { useFleetAuthentication } from "./useFleetAuthentication";
+import { useManageSecurityFlow } from "./useManageSecurityFlow";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   DeleteMinersRequestSchema,
@@ -40,6 +41,7 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useMinerCoolingMode from "@/protoFleet/api/useMinerCoolingMode";
+import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
 import {
   BulkAction,
   type UnsupportedMinersInfo,
@@ -236,6 +238,7 @@ export const useMinerActions = ({
     setPowerTarget,
     setCoolingMode,
     checkCommandCapabilities,
+    updateMinerPassword,
   } = useMinerCommand();
 
   const startBatchOperation = useStartBatchOperation();
@@ -243,6 +246,7 @@ export const useMinerActions = ({
   const removeDevicesFromBatch = useRemoveDevicesFromBatch();
   const { resetFetchedIds } = useBatchTelemetry();
   const { fetchCoolingMode } = useMinerCoolingMode();
+  const { getMinerModelGroups } = useMinerModelGroups();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
@@ -251,18 +255,13 @@ export const useMinerActions = ({
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
-  // Read miners from store reactively so delete confirmation subtitle updates
-  const fleetMiners = useFleetStore((s) => s.fleet.miners);
-
-  const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
-  const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
-  const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string } | undefined>(
-    undefined,
-  );
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
+
+  // Read miners from store reactively so delete confirmation subtitle updates
+  const fleetMiners = useFleetStore((s) => s.fleet.miners);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -296,8 +295,6 @@ export const useMinerActions = ({
 
     return allHaveSameStatus ? firstStatus : undefined;
   }, [selectedMiners]);
-
-  const clearFleetCredentials = useCallback(() => setFleetCredentials(undefined), []);
 
   // Check for unsupported miners using server-side capability checking.
   // Returns a promise that resolves to true if the modal was shown.
@@ -338,6 +335,23 @@ export const useMinerActions = ({
       });
     },
     [deviceSelector, checkCommandCapabilities],
+  );
+
+  // Wraps checkAndShowUnsupportedMinersModal with the common proceed pattern:
+  // onProceed is called with filtered values when the unsupported miners modal
+  // was shown and the user clicked Continue, or with undefined values when all
+  // miners support the action (so callers can use `filteredDeviceIds ?? deviceIdentifiers`).
+  const withCapabilityCheck = useCallback(
+    async (
+      action: SupportedAction,
+      onProceed: (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void,
+    ): Promise<void> => {
+      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed);
+      if (!modalShown) {
+        onProceed(undefined, undefined);
+      }
+    },
+    [checkAndShowUnsupportedMinersModal],
   );
 
   // Handle continuing from unsupported miners modal
@@ -501,21 +515,6 @@ export const useMinerActions = ({
     });
   }, []);
 
-  const {
-    initSecurityFlow,
-    resetState: resetSecurityState,
-    ...publicSecurityActions
-  } = useSecurityActions({
-    deviceIdentifiers,
-    fleetCredentials,
-    clearFleetCredentials,
-    onActionComplete,
-    handleSuccess,
-    handleError,
-    checkAndShowUnsupportedMinersModal,
-    setCurrentAction,
-  });
-
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
       startBatchOperation({
@@ -591,11 +590,6 @@ export const useMinerActions = ({
 
   const handleCoolingModeConfirm = useCallback(
     (coolingMode: CoolingMode) => {
-      // Use filtered selector/identifiers if available (from unsupported miners flow),
-      // otherwise use the default selector/identifiers for all selected miners.
-      // Note: When selectorToUse is "all", deviceIdsToUse only contains visible/paginated device IDs.
-      // The server applies the action to all devices, but client-side batch tracking only covers
-      // visible devices (see note at line 325 for rationale).
       const selectorToUse = coolingModeFilteredSelector ?? deviceSelector;
       const deviceIdsToUse = coolingModeFilteredDeviceIds ?? deviceIdentifiers;
 
@@ -649,31 +643,61 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
-  // Fleet authentication handler (shared for security and pool)
-  const handleFleetAuthenticated = useCallback(
-    async (username: string, password: string) => {
-      setFleetCredentials({ username, password });
-      setShowAuthenticateFleetModal(false);
+  // Ref used to wire handleSecurityAuthenticated into the auth hook's onAuthenticated callback
+  // without creating a circular dependency between the two hooks.
+  const handleSecurityAuthRef = useRef<((username: string, password: string) => Promise<void>) | null>(null);
 
-      if (authenticationPurpose === "security") {
-        await initSecurityFlow();
-      } else if (authenticationPurpose === "pool") {
+  const {
+    showAuthenticateFleetModal,
+    authenticationPurpose,
+    fleetCredentials,
+    startAuthentication,
+    handleFleetAuthenticated,
+    handleAuthDismiss,
+    resetAuthState,
+  } = useFleetAuthentication({
+    onAuthenticated: useCallback((purpose: "security" | "pool", username: string, password: string) => {
+      if (purpose === "security") {
+        void handleSecurityAuthRef.current?.(username, password);
+      } else {
         setShowPoolSelectionPage(true);
       }
-    },
-    [authenticationPurpose, initSecurityFlow],
-  );
+    }, []),
+    onDismiss: useCallback(() => {
+      setPoolFilteredDeviceIds(undefined);
+      setShowPoolSelectionPage(false);
+      setCurrentAction(null);
+      onActionComplete?.();
+    }, [onActionComplete]),
+  });
 
-  const handleAuthDismiss = useCallback(() => {
-    setShowAuthenticateFleetModal(false);
-    setAuthenticationPurpose(null);
-    setPoolFilteredDeviceIds(undefined);
-    setShowPoolSelectionPage(false);
-    setFleetCredentials(undefined);
-    resetSecurityState();
-    setCurrentAction(null);
-    onActionComplete?.();
-  }, [onActionComplete, resetSecurityState]);
+  const {
+    showManageSecurityModal,
+    showUpdatePasswordModal,
+    hasThirdPartyMiners,
+    minerGroups,
+    startManageSecurity,
+    handleSecurityAuthenticated,
+    handleUpdateGroup,
+    handleSecurityModalClose,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
+  } = useManageSecurityFlow({
+    deviceIdentifiers,
+    selectionMode,
+    getMinerModelGroups,
+    withCapabilityCheck,
+    updateMinerPassword,
+    startBatchOperation,
+    handleSuccess,
+    handleError,
+    onActionComplete,
+    setCurrentAction,
+    fleetCredentials,
+    resetAuthState,
+  });
+
+  handleSecurityAuthRef.current = handleSecurityAuthenticated;
 
   const handleConfirmation = useCallback(
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
@@ -807,10 +831,9 @@ export const useMinerActions = ({
   const handleCancel = useCallback(() => {
     setCurrentAction(null);
     setShowPoolSelectionPage(false);
-    setFleetCredentials(undefined);
-    setAuthenticationPurpose(null);
+    resetAuthState();
     onActionComplete?.();
-  }, [onActionComplete]);
+  }, [resetAuthState, onActionComplete]);
 
   const popoverActions = useMemo(() => {
     // Device actions handlers
@@ -914,19 +937,11 @@ export const useMinerActions = ({
     // Performance actions handlers
     const handleManagePower = async () => {
       onActionStart?.();
-      const modalShown = await checkAndShowUnsupportedMinersModal(
-        performanceActions.managePower,
-        (filteredSelector) => {
-          setFilteredSelectorForPowerModal(filteredSelector);
-          setCurrentAction(performanceActions.managePower);
-          setShowManagePowerModal(true);
-        },
-      );
-      if (!modalShown) {
-        setFilteredSelectorForPowerModal(undefined);
+      await withCapabilityCheck(performanceActions.managePower, (filteredSelector) => {
+        setFilteredSelectorForPowerModal(filteredSelector);
         setCurrentAction(performanceActions.managePower);
         setShowManagePowerModal(true);
-      }
+      });
     };
 
     // TODO: Implement Curtail action
@@ -938,23 +953,11 @@ export const useMinerActions = ({
     // Settings actions handlers
     const handleMiningPool = async () => {
       onActionStart?.();
-
-      const modalShown = await checkAndShowUnsupportedMinersModal(
-        settingsActions.miningPool,
-        (_filteredSelector, filteredDeviceIds) => {
-          setPoolFilteredDeviceIds(filteredDeviceIds);
-          setCurrentAction(settingsActions.miningPool);
-          setAuthenticationPurpose("pool");
-          setShowAuthenticateFleetModal(true);
-        },
-      );
-      if (!modalShown) {
-        // No filtering needed - clear any stale filtered values
-        setPoolFilteredDeviceIds(undefined);
+      await withCapabilityCheck(settingsActions.miningPool, (_filteredSelector, filteredDeviceIds) => {
+        setPoolFilteredDeviceIds(filteredDeviceIds);
         setCurrentAction(settingsActions.miningPool);
-        setAuthenticationPurpose("pool");
-        setShowAuthenticateFleetModal(true);
-      }
+        startAuthentication("pool");
+      });
     };
 
     const handleCoolingMode = async () => {
@@ -968,30 +971,18 @@ export const useMinerActions = ({
         setCurrentCoolingMode(undefined);
       }
 
-      const modalShown = await checkAndShowUnsupportedMinersModal(
-        settingsActions.coolingMode,
-        (filteredSelector, filteredDeviceIds) => {
-          // Store filtered values for use in handleCoolingModeConfirm
-          setCoolingModeFilteredSelector(filteredSelector);
-          setCoolingModeFilteredDeviceIds(filteredDeviceIds);
-          setCurrentAction(settingsActions.coolingMode);
-          setShowCoolingModeModal(true);
-        },
-      );
-      if (!modalShown) {
-        // No filtering needed - clear any stale filtered values
-        setCoolingModeFilteredSelector(undefined);
-        setCoolingModeFilteredDeviceIds(undefined);
+      await withCapabilityCheck(settingsActions.coolingMode, (filteredSelector, filteredDeviceIds) => {
+        setCoolingModeFilteredSelector(filteredSelector);
+        setCoolingModeFilteredDeviceIds(filteredDeviceIds);
         setCurrentAction(settingsActions.coolingMode);
         setShowCoolingModeModal(true);
-      }
+      });
     };
 
     const handleManageSecurity = () => {
       onActionStart?.();
-      setCurrentAction(settingsActions.security);
-      setAuthenticationPurpose("security");
-      setShowAuthenticateFleetModal(true);
+      startManageSecurity();
+      startAuthentication("security");
     };
 
     // TODO: Implement firmware update action (requires Fleet auth — follow handleMiningPool/handleManageSecurity pattern)
@@ -1152,6 +1143,7 @@ export const useMinerActions = ({
     onActionStart,
     deviceSelector,
     deviceStatus,
+    withCapabilityCheck,
     checkAndShowUnsupportedMinersModal,
     handleConfirmation,
     startBatchOperation,
@@ -1159,6 +1151,8 @@ export const useMinerActions = ({
     selectedMiners,
     fetchCoolingMode,
     deleteConfirmationSubtitle,
+    startManageSecurity,
+    startAuthentication,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
@@ -1190,11 +1184,18 @@ export const useMinerActions = ({
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
     authenticationPurpose,
-    ...publicSecurityActions,
+    showUpdatePasswordModal,
+    hasThirdPartyMiners,
     handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
     handleAuthDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalClose,
   };
 };

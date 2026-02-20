@@ -354,6 +354,29 @@ func (s *SQLDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([
 	return models, nil
 }
 
+func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
+	statusFilter, modelFilter := buildFilterParams(filter)
+
+	rows, err := s.getQueries(ctx).GetMinerModelGroups(ctx, sqlc.GetMinerModelGroupsParams{
+		OrgID:        orgID,
+		ModelFilter:  modelFilter,
+		StatusFilter: statusFilter,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
+	}
+
+	results := make([]stores.MinerModelGroupResult, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, stores.MinerModelGroupResult{
+			Model:        row.Model.String,
+			Manufacturer: row.Manufacturer.String,
+			Count:        row.Count,
+		})
+	}
+	return results, nil
+}
+
 func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter sql.NullString) {
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))

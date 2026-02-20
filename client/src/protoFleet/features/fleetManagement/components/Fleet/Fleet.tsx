@@ -29,6 +29,7 @@ import { useVisibleMiners } from "@/protoFleet/hooks";
 import {
   useBatchOperationCount,
   useCleanupStaleBatches,
+  useFleetStore,
   useLastPairingCompletedAt,
   useNotifyPairingCompleted,
 } from "@/protoFleet/store";
@@ -126,6 +127,10 @@ const Fleet = () => {
   useEffect(() => {
     resetFetchedIds();
   }, [currentFilter, resetFetchedIds]);
+
+  useEffect(() => {
+    useFleetStore.getState().fleet.setCurrentFilter(currentFilter ?? null);
+  }, [currentFilter]);
 
   // Reset telemetry cache and refetch when pairing status changes (e.g., after authentication)
   const lastPairingCompletedAt = useLastPairingCompletedAt();

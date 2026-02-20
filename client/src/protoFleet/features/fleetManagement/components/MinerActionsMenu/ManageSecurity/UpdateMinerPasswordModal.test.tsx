@@ -73,7 +73,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -89,7 +89,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={false}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -102,7 +102,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -118,7 +118,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={false}
+          hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -131,7 +131,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -147,7 +147,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -168,7 +168,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -189,7 +189,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -210,7 +210,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -234,7 +234,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -258,7 +258,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -287,7 +287,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -319,7 +319,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -354,7 +354,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={false}
+          hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -377,7 +377,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={false}
+          hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -403,7 +403,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -433,7 +433,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -460,7 +460,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -479,7 +479,7 @@ describe("UpdateMinerPasswordModal", () => {
       const { rerender } = render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -498,7 +498,7 @@ describe("UpdateMinerPasswordModal", () => {
       rerender(
         <UpdateMinerPasswordModal
           show={false}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -508,7 +508,7 @@ describe("UpdateMinerPasswordModal", () => {
       rerender(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -529,7 +529,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -547,7 +547,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -561,7 +561,7 @@ describe("UpdateMinerPasswordModal", () => {
       render(
         <UpdateMinerPasswordModal
           show={true}
-          hasProtoMiners={true}
+          hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,

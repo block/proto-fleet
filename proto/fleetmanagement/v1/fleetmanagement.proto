@@ -48,6 +48,10 @@ service FleetManagementService {
   // Immediately removes devices from the fleet and telemetry collection.
   // Attempts best-effort ClearAuthKey on Proto rigs in the background.
   rpc DeleteMiners(DeleteMinersRequest) returns (DeleteMinersResponse);
+
+  // Get miner model groups with counts, optionally filtered by the current fleet filter
+  // Used for bulk password update to show accurate model groups across the full fleet
+  rpc GetMinerModelGroups(GetMinerModelGroupsRequest) returns (GetMinerModelGroupsResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -560,6 +564,23 @@ message GetMinerPoolAssignmentsResponse {
   // Pool assignments in priority order (max 3: default, backup1, backup2)
   // Empty if no pools are configured on the miner
   repeated PoolAssignment pools = 1;
+}
+
+// A single model group result with count
+message MinerModelGroup {
+  string model = 1;
+  string manufacturer = 2;
+  int32 count = 3;
+}
+
+// Request to get miner model groups with counts
+message GetMinerModelGroupsRequest {
+  MinerListFilter filter = 1;
+}
+
+// Response containing miner model groups with counts
+message GetMinerModelGroupsResponse {
+  repeated MinerModelGroup groups = 1;
 }
 
 // Request to get the current cooling mode for a specific miner

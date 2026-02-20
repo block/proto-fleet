@@ -7,6 +7,7 @@ import {
   type DeviceStatusUpdate,
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
+  type MinerListFilter,
   type MinerTelemetry,
   type MinerStateSnapshot as ProtoMinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -173,6 +174,9 @@ export interface FleetSlice {
   isStreaming: boolean;
   cursor: string;
 
+  // Current filter applied to the fleet list (synced from URL params)
+  currentFilter: MinerListFilter | null;
+
   // Pairing coordination
   lastPairingCompletedAt: number; // timestamp when pairing operations last completed
 
@@ -187,6 +191,7 @@ export interface FleetSlice {
   setTotalMiners: (count: number) => void;
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
   setRefetchCallback: (callback?: () => void) => void;
+  setCurrentFilter: (filter: MinerListFilter | null) => void;
   updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
   updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
   updateBatchTelemetry: (telemetryData: MinerTelemetry[]) => void;
@@ -243,6 +248,7 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   isLoading: false,
   isStreaming: false,
   cursor: "",
+  currentFilter: null,
   lastPairingCompletedAt: 0,
   refetchMiners: undefined,
 
@@ -328,6 +334,11 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   setRefetchCallback: (callback) =>
     set((state) => {
       state.fleet.refetchMiners = callback;
+    }),
+
+  setCurrentFilter: (filter) =>
+    set((state) => {
+      state.fleet.currentFilter = filter ?? null;
     }),
 
   updateMinerMeasurement: (deviceId, measurementUpdate) =>

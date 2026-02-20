@@ -575,11 +575,13 @@ SELECT
     d.id as device_id
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = $1
     AND dp.pairing_status::text = COALESCE($2::text, 'PAIRED')
     AND d.deleted_at IS NULL
     AND ($3::text IS NULL OR ds.status::text = $3::text)
+    AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
 ORDER BY d.id
 `
 
@@ -587,12 +589,18 @@ type GetFilteredDeviceIdsParams struct {
 	OrgID         int64
 	PairingStatus sql.NullString
 	DeviceStatus  sql.NullString
+	ModelFilter   sql.NullString
 }
 
 // Returns device IDs filtered by pairing status and optional device status.
 // Used for bulk command operations.
 func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds, arg.OrgID, arg.PairingStatus, arg.DeviceStatus)
+	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
+		arg.OrgID,
+		arg.PairingStatus,
+		arg.DeviceStatus,
+		arg.ModelFilter,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -604,6 +612,61 @@ func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDevic
 			return nil, err
 		}
 		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerModelGroups = `-- name: GetMinerModelGroups :many
+SELECT
+    dd.model,
+    dd.manufacturer,
+    COUNT(*)::int AS count
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = $1
+  AND dd.model IS NOT NULL
+  AND dd.model != ''
+  AND ($2::text IS NULL OR dd.model = ANY(string_to_array($2, ',')))
+  AND ($3::text IS NULL OR ds.status::text = ANY(string_to_array($3, ',')))
+GROUP BY dd.model, dd.manufacturer
+ORDER BY dd.manufacturer, dd.model
+`
+
+type GetMinerModelGroupsParams struct {
+	OrgID        int64
+	ModelFilter  sql.NullString
+	StatusFilter sql.NullString
+}
+
+type GetMinerModelGroupsRow struct {
+	Model        sql.NullString
+	Manufacturer sql.NullString
+	Count        int32
+}
+
+func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error) {
+	rows, err := q.query(ctx, q.getMinerModelGroupsStmt, getMinerModelGroups, arg.OrgID, arg.ModelFilter, arg.StatusFilter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerModelGroupsRow
+	for rows.Next() {
+		var i GetMinerModelGroupsRow
+		if err := rows.Scan(&i.Model, &i.Manufacturer, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

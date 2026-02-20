@@ -7,12 +7,17 @@ import { isPasswordTooShort, isWeakPassword, passwordErrors } from "@/shared/com
 
 interface UpdateMinerPasswordModalProps {
   show: boolean;
-  hasProtoMiners: boolean;
+  hasThirdPartyMiners: boolean;
   onConfirm: (currentPassword: string, newPassword: string) => void;
   onDismiss: () => void;
 }
 
-const UpdateMinerPasswordModal = ({ show, hasProtoMiners, onConfirm, onDismiss }: UpdateMinerPasswordModalProps) => {
+const UpdateMinerPasswordModal = ({
+  show,
+  hasThirdPartyMiners,
+  onConfirm,
+  onDismiss,
+}: UpdateMinerPasswordModalProps) => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -35,10 +40,8 @@ const UpdateMinerPasswordModal = ({ show, hasProtoMiners, onConfirm, onDismiss }
 
   const handleConfirm = useCallback(
     (forceWeakPassword: boolean) => {
-      // Clear previous validation error
       setValidationError("");
 
-      // Basic validation for all miners
       if (!currentPassword) {
         setValidationError("Current password is required");
         return;
@@ -54,32 +57,28 @@ const UpdateMinerPasswordModal = ({ show, hasProtoMiners, onConfirm, onDismiss }
         return;
       }
 
-      // Validate passwords match
       if (newPassword !== confirmPassword) {
         setValidationError(passwordErrors.mismatch);
         return;
       }
 
       // Additional validation for Proto rigs only (centralized validation from authentication.constants.ts)
-      if (hasProtoMiners) {
-        // Validate new password length
+      if (!hasThirdPartyMiners) {
         if (isPasswordTooShort(newPassword)) {
           setValidationError(passwordErrors.tooShort);
           return;
         }
 
-        // Check for weak password
         if (!forceWeakPassword && isWeakPassword(score)) {
           setShowWeakPasswordWarning(true);
           return;
         }
       }
 
-      // All validations passed
       setShowWeakPasswordWarning(false);
       onConfirm(currentPassword, newPassword);
     },
-    [currentPassword, newPassword, confirmPassword, score, hasProtoMiners, onConfirm],
+    [currentPassword, newPassword, confirmPassword, score, hasThirdPartyMiners, onConfirm],
   );
 
   const handleDismiss = () => {
@@ -152,7 +151,7 @@ const UpdateMinerPasswordModal = ({ show, hasProtoMiners, onConfirm, onDismiss }
             type="password"
             onChange={(value) => setNewPassword(value)}
           />
-          {hasProtoMiners && (
+          {!hasThirdPartyMiners && (
             <div className="flex items-center justify-between gap-5">
               <div className="text-200 text-text-primary-50">Password strength</div>
               <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />

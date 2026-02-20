@@ -58,7 +58,7 @@ const MinerActionsMenu = ({
     showAuthenticateFleetModal,
     authenticationPurpose,
     showUpdatePasswordModal,
-    hasProtoMiners,
+    hasThirdPartyMiners,
     handleFleetAuthenticated,
     handlePasswordConfirm,
     handlePasswordDismiss,
@@ -69,8 +69,7 @@ const MinerActionsMenu = ({
     showManageSecurityModal,
     minerGroups,
     handleUpdateGroup,
-    handleSecurityModalDone,
-    handleSecurityModalDismiss,
+    handleSecurityModalClose,
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
@@ -149,14 +148,14 @@ const MinerActionsMenu = ({
           show={showManageSecurityModal}
           minerGroups={minerGroups}
           onUpdateGroup={handleUpdateGroup}
-          onDismiss={handleSecurityModalDismiss}
-          onDone={handleSecurityModalDone}
+          onDismiss={handleSecurityModalClose}
+          onDone={handleSecurityModalClose}
         />
       )}
       {showUpdatePasswordModal && (
         <UpdateMinerPasswordModal
           show={showUpdatePasswordModal}
-          hasProtoMiners={hasProtoMiners}
+          hasThirdPartyMiners={hasThirdPartyMiners}
           onConfirm={handlePasswordConfirm}
           onDismiss={handlePasswordDismiss}
         />

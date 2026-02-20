@@ -198,6 +198,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerCredentialsByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerCredentialsByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerCredentialsByDeviceID: %w", err)
 	}
+	if q.getMinerModelGroupsStmt, err = db.PrepareContext(ctx, getMinerModelGroups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerModelGroups: %w", err)
+	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
 	}
@@ -712,6 +715,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerCredentialsByDeviceIDStmt: %w", cerr)
 		}
 	}
+	if q.getMinerModelGroupsStmt != nil {
+		if cerr := q.getMinerModelGroupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerModelGroupsStmt: %w", cerr)
+		}
+	}
 	if q.getOfflineDevicesStmt != nil {
 		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
@@ -1174,6 +1182,7 @@ type Queries struct {
 	getLatestDeviceMetricsStmt                          *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
+	getMinerModelGroupsStmt                             *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
@@ -1311,6 +1320,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
+		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,

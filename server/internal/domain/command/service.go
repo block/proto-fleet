@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/sqlc-dev/pqtype"
@@ -233,6 +234,7 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
 			var deviceStatus sql.NullString
 			var pairingStatus sql.NullString
+			var modelFilter sql.NullString
 
 			if len(filter.DeviceStatus) > 0 {
 				deviceStatus = sql.NullString{
@@ -248,10 +250,18 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 				}
 			}
 
+			if len(filter.Models) > 0 {
+				modelFilter = sql.NullString{
+					String: strings.Join(filter.Models, ","),
+					Valid:  true,
+				}
+			}
+
 			return q.GetFilteredDeviceIds(ctx, sqlc.GetFilteredDeviceIdsParams{
 				OrgID:         info.OrganizationID,
 				DeviceStatus:  deviceStatus,
 				PairingStatus: pairingStatus,
+				ModelFilter:   modelFilter,
 			})
 		})
 	case *pb.DeviceSelector_IncludeDevices:

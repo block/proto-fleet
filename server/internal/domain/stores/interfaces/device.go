@@ -25,6 +25,13 @@ type MinerFilter struct {
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 }
 
+// MinerModelGroupResult holds model group data with count.
+type MinerModelGroupResult struct {
+	Model        string
+	Manufacturer string
+	Count        int32
+}
+
 // DeviceStatusUpdate represents a status update for batch operations.
 type DeviceStatusUpdate struct {
 	DeviceIdentifier models.DeviceIdentifier
@@ -59,6 +66,7 @@ type DeviceStore interface {
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
+	GetMinerModelGroups(ctx context.Context, orgID int64, filter *MinerFilter) ([]MinerModelGroupResult, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
