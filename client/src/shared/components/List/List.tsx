@@ -40,6 +40,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
     totalSelectable?: number,
   ) => ReactNode;
   containerClassName?: string;
+  tableClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
   stickyBgColor?: string;
@@ -54,6 +55,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
     plural: string;
   };
   initialActiveFilters?: ActiveFilters;
+  /**
+   * When true, suppresses the built-in item count display below the filter bar.
+   * Use when the parent component renders its own count (e.g., MinerList subtitle).
+   */
+  hideTotal?: boolean;
   /**
    * Optional callback to attach refs to list row elements.
    * Useful for viewport visibility tracking (Intersection Observer).
@@ -157,8 +163,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   actions = [],
   noDataElement,
   initialActiveFilters,
+  hideTotal = false,
   renderActionBar,
   containerClassName = "",
+  tableClassName,
   paddingLeft,
   overflowContainer = true,
   stickyBgColor = "bg-surface-base",
@@ -452,9 +460,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   return (
     <div style={paddingCssVariables}>
-      <div className={clsx("relative z-3 flex")}>
+      <div className={clsx("relative z-3 flex w-full")}>
         <Filters<ListItem>
-          className={clsx("gap-4 py-10", paddingClasses)}
+          className={clsx("gap-4 py-6", paddingClasses)}
           filterItems={filters ?? []}
           filterSize={filterSize}
           items={items}
@@ -465,7 +473,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         />
       </div>
 
-      {total !== undefined && (
+      {!hideTotal && total !== undefined && (
         <div className="flex">
           <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
             {total} {total === 1 ? itemName.singular : itemName.plural}
@@ -481,7 +489,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                 <div ref={refs.horizontal.start} />
                 <div ref={refs.horizontal.end} />
               </div>
-              <table className="mb-6 min-w-full table-fixed border-collapse">
+              <table className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
                 <thead data-testid="list-header">
                   <tr
                     className={clsx(

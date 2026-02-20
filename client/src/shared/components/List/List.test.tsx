@@ -53,6 +53,39 @@ describe("List", () => {
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
   });
 
+  it("shows item count by default", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        total={testItems.length}
+        itemName={{ singular: "miner", plural: "miners" }}
+      />,
+    );
+
+    expect(screen.getByText(`${testItems.length} miners`)).toBeInTheDocument();
+  });
+
+  it("hides item count when hideTotal is true", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        total={testItems.length}
+        itemName={{ singular: "miner", plural: "miners" }}
+        hideTotal
+      />,
+    );
+
+    expect(screen.queryByText(`${testItems.length} miners`)).not.toBeInTheDocument();
+  });
+
   it("does not render checkboxes when items are not selectable", () => {
     const { getByTestId } = render(
       <List<TestItem, TestItemKey>

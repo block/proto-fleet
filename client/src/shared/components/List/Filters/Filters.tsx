@@ -138,9 +138,9 @@ const Filters = <ItemType,>({
   );
 
   return (
-    <div className={clsx("sticky left-0 flex flex-col gap-2", className)}>
+    <div className={clsx("sticky left-0 flex w-full flex-col gap-2", className)}>
       {/* Filter buttons row */}
-      <div className="inline-flex flex-row flex-wrap items-center gap-2">
+      <div className="flex flex-row flex-wrap items-center gap-2">
         {filterItems.map((filter) => {
           if (filter.type === "button") {
             return (
@@ -181,7 +181,11 @@ const Filters = <ItemType,>({
           }
           return null;
         })}
-        {headerControls && <div className="mr-6 ml-auto">{headerControls}</div>}
+        {headerControls ? (
+          <div className="ml-auto phone:mr-(--list-padding-phone) tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop)">
+            {headerControls}
+          </div>
+        ) : null}
       </div>
 
       {/* Active dropdown filters row */}

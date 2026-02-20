@@ -65,6 +65,7 @@ const Button = ({
       className={clsx(
         "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-0",
         {
+          "cursor-pointer": !disabledState,
           "cursor-not-allowed": disabledState,
         },
         // font size

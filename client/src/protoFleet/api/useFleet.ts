@@ -56,7 +56,7 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
  *
  * @param options - Configuration options for the hook
  * @param options.filter - Optional filter to apply
- * @param options.pageSize - Number of miners to fetch per page (default: 100)
+ * @param options.pageSize - Number of miners to fetch per page (default: 20)
  *
  * @example
  * ```tsx
@@ -87,7 +87,7 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
  * // Filter to show only broken miners
  * setFilter({ status: [ComponentStatus.ERROR] });
  *
- * // Load more miners (appends to current list)
+ * // Load the next page (replaces current data)
  * if (hasMore) {
  *   loadMore();
  * }
@@ -122,6 +122,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   const telemetryStreamAbortController = useRef<AbortController | null>(null);
   const previousVisibleIdsRef = useRef<Set<string>>(new Set());
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(0);
+  // cursorHistory[i] = cursor to pass when fetching page i
+  // cursorHistory[0] = undefined (first page needs no cursor)
+  const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
 
   // Internal state for the hook
   const [hasMore, setHasMore] = useState(false);
@@ -238,10 +244,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Fetch initial list using one-time query
   const fetchMinerList = useCallback(
-    async (filter: MinerListFilter | undefined, sort: MinerSortConfig | undefined, pageCursor?: string) => {
+    async (
+      filter: MinerListFilter | undefined,
+      sort: MinerSortConfig | undefined,
+      pageCursor?: string,
+      fetchedPage?: number,
+    ) => {
       setIsLoading(true);
 
-      // Reset initial load flag for non-pagination fetches (filter change or refetch)
+      // Reset initial load flag when fetching page 0
       if (!pageCursor) {
         setHasInitialLoadCompleted(false);
       }
@@ -259,19 +270,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts, models } = response;
 
-        // Update state based on scope
+        // Update state based on scope — always replace (never append) for page-based pagination
         if (scope === "global") {
           const store = useFleetStore.getState();
-
-          // Use setMiners for initial load, appendMiners for pagination
-          if (pageCursor) {
-            // Pagination: append new miners to existing list
-            store.fleet.appendMiners(miners);
-          } else {
-            // Initial load or filter change: replace list
-            store.fleet.setMiners(miners);
-          }
-
+          store.fleet.setMiners(miners);
           store.fleet.setCursor(newCursor);
           store.fleet.setTotalMiners(responseTotalMiners);
           if (totalStateCounts) {
@@ -286,30 +288,25 @@ const useFleet = (options: UseFleetOptions = {}) => {
           // Note: Telemetry streaming is handled by the separate useEffect
           // that watches visibleMinerIds changes (see below)
         } else {
-          // Update local component state
-          if (pageCursor) {
-            // Pagination: append to existing local state
-            const newIds = miners.map((miner) => miner.deviceIdentifier);
-            setLocalMinerIds((prev) => [...prev, ...newIds]);
-            setLocalMiners((prev) => {
-              const newMinersMap = { ...prev };
-              miners.forEach((miner) => {
-                newMinersMap[miner.deviceIdentifier] = miner;
-              });
-              return newMinersMap;
-            });
-          } else {
-            // Initial load: replace local state
-            const ids = miners.map((miner) => miner.deviceIdentifier);
-            const minersMap: Record<string, MinerStateSnapshot> = {};
-            miners.forEach((miner) => {
-              minersMap[miner.deviceIdentifier] = miner;
-            });
-            setLocalMinerIds(ids);
-            setLocalMiners(minersMap);
-          }
+          // Local scope: always replace
+          const ids = miners.map((miner) => miner.deviceIdentifier);
+          const minersMap: Record<string, MinerStateSnapshot> = {};
+          miners.forEach((miner) => {
+            minersMap[miner.deviceIdentifier] = miner;
+          });
+          setLocalMinerIds(ids);
+          setLocalMiners(minersMap);
           setLocalTotalMiners(responseTotalMiners);
           // Note: Local scope doesn't stream telemetry or update device status counts
+        }
+
+        // Store the response cursor for the next page
+        if (fetchedPage !== undefined) {
+          setCursorHistory((prev) => {
+            const next = [...prev];
+            next[fetchedPage + 1] = newCursor || undefined;
+            return next;
+          });
         }
 
         // Update internal state (both scopes)
@@ -321,7 +318,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           onError: (err) => {
             console.error("Error fetching miner list:", err);
 
-            // Show toast for initial fetch errors (not pagination)
+            // Show toast for page 0 fetch errors (not subsequent pages)
             if (!pageCursor) {
               pushToast({
                 status: TOAST_STATUSES.error,
@@ -333,7 +330,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
       } finally {
         setIsLoading(false);
 
-        // Mark initial load as completed for non-pagination fetches (success or error)
+        // Mark initial load as completed when fetching page 0 (success or error)
         // This ensures UI doesn't get stuck in permanent loading state on error
         if (!pageCursor) {
           setHasInitialLoadCompleted(true);
@@ -380,6 +377,18 @@ const useFleet = (options: UseFleetOptions = {}) => {
     hasMoreRef.current = hasMore;
   }, [hasMore]);
 
+  // Store currentPage in a ref for stable pagination callbacks
+  const currentPageRef = useRef(currentPage);
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
+  // Store cursorHistory in a ref for stable pagination callbacks
+  const cursorHistoryRef = useRef(cursorHistory);
+  useEffect(() => {
+    cursorHistoryRef.current = cursorHistory;
+  }, [cursorHistory]);
+
   // Stable loadMore callback - uses refs to avoid recreating on state changes
   const loadMore = useCallback(() => {
     if (hasMoreRef.current && !isLoadingRef.current) {
@@ -388,11 +397,30 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
   }, []);
 
+  const goToPage = useCallback((targetPage: number) => {
+    if (isLoadingRef.current) return;
+    const cursor = cursorHistoryRef.current[targetPage];
+    setCurrentPage(targetPage);
+    fetchMinerListRef.current(filterRef.current, sortRef.current, cursor, targetPage);
+  }, []);
+
+  const goToNextPage = useCallback(() => {
+    if (!hasMoreRef.current) return;
+    goToPage(currentPageRef.current + 1);
+  }, [goToPage]);
+
+  const goToPrevPage = useCallback(() => {
+    if (currentPageRef.current === 0) return;
+    goToPage(currentPageRef.current - 1);
+  }, [goToPage]);
+
   // Stable refetch callback - uses refs to avoid recreating on state changes
   const refetch = useCallback(() => {
     if (!isLoadingRef.current) {
-      // Reset cursor to start fresh - use ref for current filter and sort
-      fetchMinerListRef.current(filterRef.current, sortRef.current, undefined);
+      // Reset pagination and start fresh
+      setCurrentPage(0);
+      setCursorHistory([undefined]);
+      fetchMinerListRef.current(filterRef.current, sortRef.current, undefined, 0);
     }
   }, []);
 
@@ -442,13 +470,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
     previousSortRef.current = sort;
     hasLoadedRef.current = true;
 
-    // Reset cursor for new filter or sort
+    // Reset cursor and pagination for new filter or sort
     if (filterChanged || sortChanged) {
       setCursor(undefined);
+      setCurrentPage(0);
+      setCursorHistory([undefined]);
     }
 
     // Fetch with filter and sort
-    void fetchMinerListRef.current(filter, sort, undefined);
+    void fetchMinerListRef.current(filter, sort, undefined, 0);
   }, [filter, sort]);
 
   // Cleanup streaming on unmount
@@ -516,6 +546,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
     isLoading,
     hasInitialLoadCompleted,
     loadMore,
+    currentPage,
+    hasPreviousPage: currentPage > 0,
+    goToNextPage,
+    goToPrevPage,
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),
     refetch,

@@ -19,6 +19,10 @@ describe("useAuthNeededMiners", () => {
     isLoading: false,
     hasInitialLoadCompleted: true,
     loadMore: vi.fn(),
+    currentPage: 0,
+    hasPreviousPage: false,
+    goToNextPage: vi.fn(),
+    goToPrevPage: vi.fn(),
     refetch: vi.fn(),
     availableModels: [],
   };

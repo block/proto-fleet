@@ -1,5 +1,7 @@
 import { ColTitles } from "@/shared/components/List/types";
 
+export const MINERS_PAGE_SIZE = 50;
+
 export const minerCols = {
   name: "name",
   model: "model",

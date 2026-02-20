@@ -16,6 +16,7 @@ import { useStreamDeviceErrors } from "@/protoFleet/api/useStreamDeviceErrors";
 import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import { MINERS_PAGE_SIZE } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import {
   getColumnForSortField,
   getSortField,
@@ -69,17 +70,34 @@ const Fleet = () => {
   // Get count of miners requiring authentication (disabled rows)
   const { totalMiners: totalAuthNeededMiners } = useAuthNeededMiners({ pageSize: 1, filter: currentFilter });
 
+  // Fetch unfiltered total count for the "X of Y miners" header display
+  const { totalMiners: totalUnfilteredMiners } = useFleet({
+    scope: "local",
+    pageSize: 1,
+    pairingStatuses: FLEET_PAIRING_STATUSES,
+  });
+
   // Fetch all devices (both paired and unpaired) with a single API call
   // Metadata only - telemetry is fetched separately via useBatchTelemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, hasInitialLoadCompleted, loadMore, refetch, availableModels } =
-    useFleet({
-      scope: "global",
-      pageSize: 50,
-      visibleMinerIds,
-      filter: currentFilter,
-      sort: currentSortConfig,
-      pairingStatuses: FLEET_PAIRING_STATUSES,
-    });
+  const {
+    minerIds,
+    totalMiners,
+    hasMore,
+    hasInitialLoadCompleted,
+    refetch,
+    availableModels,
+    currentPage,
+    hasPreviousPage,
+    goToNextPage,
+    goToPrevPage,
+  } = useFleet({
+    scope: "global",
+    pageSize: MINERS_PAGE_SIZE,
+    visibleMinerIds,
+    filter: currentFilter,
+    sort: currentSortConfig,
+    pairingStatuses: FLEET_PAIRING_STATUSES,
+  });
 
   const { fetchBatchTelemetry, resetFetchedIds } = useBatchTelemetry();
 
@@ -185,14 +203,13 @@ const Fleet = () => {
 
   return (
     <>
-      <div className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
-        <CompleteSetup />
-      </div>
+      <CompleteSetup className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6" />
       <ErrorBoundary>
         <MinerList
           title="Miners"
           minerIds={minerIds}
           totalMiners={totalMiners}
+          totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalAuthNeededMiners}
           paddingLeft={{
             phone: "24px",
@@ -203,9 +220,12 @@ const Fleet = () => {
           onAddMiners={() => setShowAddMinersModal(true)}
           itemRef={registerMiner}
           loading={!hasInitialLoadCompleted}
-          onLoadMore={loadMore}
-          hasMore={hasMore}
-          isLoadingMore={isLoading}
+          pageSize={MINERS_PAGE_SIZE}
+          currentPage={currentPage}
+          hasPreviousPage={hasPreviousPage}
+          hasNextPage={hasMore}
+          onNextPage={goToNextPage}
+          onPrevPage={goToPrevPage}
           currentSort={currentSort}
           onSort={handleSort}
           availableModels={availableModels}

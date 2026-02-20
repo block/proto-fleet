@@ -1,9 +1,16 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
-import { componentIssues, deviceStatusFilterStates, minerCols, minerColTitles, type MinerColumn } from "./constants";
+import {
+  componentIssues,
+  deviceStatusFilterStates,
+  minerCols,
+  minerColTitles,
+  type MinerColumn,
+  MINERS_PAGE_SIZE,
+} from "./constants";
 import minerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
@@ -22,7 +29,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { useFleetStore } from "@/protoFleet/store";
 
-import { LogoAlt } from "@/shared/assets/icons";
+import { ChevronDown, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
@@ -42,6 +49,10 @@ type MinerListProps = {
   onAddMiners: () => void;
   totalMiners?: number;
   /**
+   * Total unfiltered miner count for the "X of Y miners" subtitle display.
+   */
+  totalUnfilteredMiners?: number;
+  /**
    * Total number of disabled miners (requiring authentication).
    * Used to calculate selectable count: totalMiners - totalDisabledMiners
    */
@@ -56,18 +67,30 @@ type MinerListProps = {
    */
   loading?: boolean;
   /**
-   * Optional callback for infinite scroll. Called when the user scrolls
-   * near the bottom of the list.
+   * Number of items per page. Used to compute the displayed item range (e.g., "Showing 1–100").
+   * Must match the pageSize passed to useFleet.
    */
-  onLoadMore?: () => void;
+  pageSize?: number;
   /**
-   * Whether more items are available to load.
+   * Current page index (0-based) for pagination display.
    */
-  hasMore?: boolean;
+  currentPage?: number;
   /**
-   * Whether the list is currently loading more items.
+   * Whether there is a previous page to navigate to.
    */
-  isLoadingMore?: boolean;
+  hasPreviousPage?: boolean;
+  /**
+   * Whether there is a next page to navigate to.
+   */
+  hasNextPage?: boolean;
+  /**
+   * Callback to navigate to the next page.
+   */
+  onNextPage?: () => void;
+  /**
+   * Callback to navigate to the previous page.
+   */
+  onPrevPage?: () => void;
   /**
    * Current sort configuration from URL/store.
    * Passed down from parent to enable controlled sorting.
@@ -110,12 +133,16 @@ const MinerList = ({
   paddingLeft,
   onAddMiners,
   totalMiners,
+  totalUnfilteredMiners,
   totalDisabledMiners = 0,
   itemRef,
   loading = false,
-  onLoadMore,
-  hasMore = false,
-  isLoadingMore = false,
+  pageSize = MINERS_PAGE_SIZE,
+  currentPage = 0,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  onNextPage,
+  onPrevPage,
   currentSort,
   onSort,
   availableModels = [],
@@ -127,6 +154,22 @@ const MinerList = ({
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
   const showPhoneWidgets = isPhone && dismissedSetup;
+
+  const topRef = useRef<HTMLDivElement>(null);
+
+  const scrollToTop = useCallback(() => {
+    topRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    scrollToTop();
+    onNextPage?.();
+  }, [scrollToTop, onNextPage]);
+
+  const handlePrevPage = useCallback(() => {
+    scrollToTop();
+    onPrevPage?.();
+  }, [scrollToTop, onPrevPage]);
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
@@ -283,11 +326,23 @@ const MinerList = ({
     );
   }
 
+  const firstItemIndex = currentPage * pageSize + 1;
+  const lastItemIndex = currentPage * pageSize + minerIds.length;
+  const shouldRenderPagination = !loading && totalMiners !== undefined && totalMiners > 0;
+
   return (
     <>
-      <div className="sticky left-0 flex items-center justify-between text-heading-300 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
+      <div
+        ref={topRef}
+        className="sticky left-0 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6 laptop:px-10 desktop:px-10"
+      >
         <h2 className="text-heading-300">{title}</h2>
-        <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+      </div>
+
+      <div className="sticky left-0 text-300 text-text-primary-70 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
+        {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
+          ? `${totalMiners} of ${totalUnfilteredMiners} miners`
+          : `${totalMiners ?? 0} miners`}
       </div>
 
       {loading ? (
@@ -305,6 +360,9 @@ const MinerList = ({
           itemKey={"deviceIdentifier"}
           itemSelectable
           hasActiveFilters={hasActiveFilters}
+          headerControls={
+            <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+          }
           renderActionBar={(selectedItems, clearSelection, selectionMode, totalSelectable) => (
             <div className="flex w-full justify-center">
               <MinerListActionBar
@@ -317,16 +375,15 @@ const MinerList = ({
             </div>
           )}
           containerClassName={listClassName}
+          tableClassName="mb-4"
           paddingLeft={paddingLeft}
           overflowContainer={false}
           total={totalMiners}
           totalDisabled={totalDisabledMiners}
+          hideTotal
           itemName={{ singular: "miner", plural: "miners" }}
           itemRef={itemRef}
           initialActiveFilters={initialActiveFilters}
-          onLoadMore={onLoadMore}
-          hasMore={hasMore}
-          isLoadingMore={isLoadingMore}
           isRowDisabled={isRowDisabled}
           columnsExemptFromDisabledStyling={new Set([minerCols.status, minerCols.issues])}
           sortableColumns={sortableColumnsSet}
@@ -334,6 +391,32 @@ const MinerList = ({
           onSort={onSort}
           getDefaultSortDirection={getDefaultSortDirection}
         />
+      )}
+
+      {shouldRenderPagination && (
+        <div className="flex flex-col items-center gap-4 py-6">
+          <span className="text-300 text-text-primary">
+            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} miners
+          </span>
+          <div className="flex gap-3">
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              ariaLabel="Previous page"
+              prefixIcon={<ChevronDown className="rotate-90" />}
+              onClick={handlePrevPage}
+              disabled={!hasPreviousPage}
+            />
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              ariaLabel="Next page"
+              prefixIcon={<ChevronDown className="rotate-270" />}
+              onClick={handleNextPage}
+              disabled={!hasNextPage}
+            />
+          </div>
+        </div>
       )}
     </>
   );
