@@ -9,6 +9,8 @@ on:
       - "**/*.py"
       - "**/requirements.txt"
       - "packages/proto-python-gen/**"
+      - "server/sdk/v1/pb/**"
+      - "server/sdk/v1/python/**"
   push:
     branches:
       - main
@@ -19,6 +21,8 @@ on:
       - "**/*.py"
       - "**/requirements.txt"
       - "packages/proto-python-gen/**"
+      - "server/sdk/v1/pb/**"
+      - "server/sdk/v1/python/**"
   workflow_dispatch:
 
 permissions:
@@ -43,14 +47,89 @@ jobs:
       - name: Run tests
         run: just test
 
-  # To add more Python test targets, add a new job here:
-  # sdk-python:
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       working-directory: server/sdk
-  #   steps:
-  #     - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
-  #     - uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318
-  #     - run: just setup
-  #     - run: just test
+  sdk-python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/sdk/v1/python
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Setup venv
+        run: just setup
+
+      - name: Run tests
+        run: just test
+
+  python-gen-staleness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Setup protoc-gen-python-grpc venv
+        run: just setup
+        working-directory: packages/proto-python-gen
+
+      - name: Regenerate Python SDK stubs
+        run: just gen-miner-protos
+        working-directory: server
+
+      - name: Check for staleness
+        run: |
+          if ! git diff --exit-code server/sdk/v1/python/proto_fleet_sdk/generated/; then
+            echo "ERROR: Generated Python SDK stubs are out of date."
+            echo "Run 'cd server && just gen-miner-protos' and commit the changes."
+            exit 1
+          fi
+          echo "Generated stubs are up to date."
+
+  proto-python-gen-tarball:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/proto-python-gen
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Validate tarball contents match source
+        run: |
+          TARBALL="proto-python-gen-0.2.0.tar.gz"
+          if [[ ! -f "${TARBALL}" ]]; then
+            echo "ERROR: Committed tarball ${TARBALL} not found."
+            echo "Run 'cd packages/proto-python-gen && just package' and commit the tarball."
+            exit 1
+          fi
+
+          COMMITTED="$(mktemp -d)"
+          EXPECTED="$(mktemp -d)"
+          trap 'rm -rf "${COMMITTED}" "${EXPECTED}"' EXIT
+
+          tar -xzf "${TARBALL}" -C "${COMMITTED}"
+
+          mkdir -p "${EXPECTED}/bin"
+          cp bin/protoc-gen-python-grpc "${EXPECTED}/bin/"
+          cp protoc_gen_python_grpc.py "${EXPECTED}/"
+          cp setup.sh "${EXPECTED}/"
+          cp requirements.txt "${EXPECTED}/"
+
+          if diff -r "${COMMITTED}" "${EXPECTED}" > /dev/null 2>&1; then
+            echo "Tarball contents match source files."
+          else
+            echo "ERROR: Committed tarball does not match source files."
+            diff -r "${COMMITTED}" "${EXPECTED}" || true
+            echo ""
+            echo "Run 'cd packages/proto-python-gen && just package' and commit the updated tarball."
+            exit 1
+          fi
