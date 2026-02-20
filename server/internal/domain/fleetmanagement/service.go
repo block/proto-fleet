@@ -360,8 +360,9 @@ const (
 	hashToTeraHashConversion = 1e12
 	// wattsToKilowattsConversion converts W to kW
 	wattsToKilowattsConversion = 1000.0
-	// joulesPerHashToJoulesPerTeraHashConversion converts J/H to J/TH
-	joulesPerHashToJoulesPerTeraHashConversion = 1e12
+	// joulesPerHashToJoulesPerTeraHashDivisor is used to convert J/H to J/TH.
+	// Since convertToMeasurement divides by this value: J/H / 1e-12 = J/H * 1e12 = J/TH
+	joulesPerHashToJoulesPerTeraHashDivisor = 1e-12
 )
 
 // populateTelemetryData fetches telemetry data for paired devices and populates the snapshot fields.
@@ -414,7 +415,7 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 
 		if metrics.EfficiencyJH != nil {
 			snapshot.Efficiency = []*commonpb.Measurement{
-				convertToMeasurement(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashConversion),
+				convertToMeasurement(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashDivisor),
 			}
 		}
 	}
