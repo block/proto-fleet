@@ -274,12 +274,21 @@ const useFleet = (options: UseFleetOptions = {}) => {
   }, [goToPage]);
 
   // Stable refetch callback - uses refs to avoid recreating on state changes
+  // This resets to page 0 - use for filter/sort changes
   const refetch = useCallback(() => {
     if (!isLoadingRef.current) {
       // Reset pagination and start fresh
       setCurrentPage(0);
       setCursorHistory([undefined]);
       fetchMinerListRef.current(filterRef.current, sortRef.current, undefined, 0);
+    }
+  }, []);
+
+  // Refresh current page without resetting pagination - use for polling
+  const refreshCurrentPage = useCallback(() => {
+    if (!isLoadingRef.current) {
+      const currentCursor = cursorHistoryRef.current[currentPageRef.current];
+      fetchMinerListRef.current(filterRef.current, sortRef.current, currentCursor, currentPageRef.current);
     }
   }, []);
 
@@ -354,6 +363,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),
     refetch,
+    refreshCurrentPage,
     availableModels,
   };
 };

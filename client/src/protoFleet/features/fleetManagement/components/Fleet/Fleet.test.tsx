@@ -13,6 +13,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
     isFetching: false,
     loadMore: vi.fn(),
     refetch: vi.fn(),
+    refreshCurrentPage: vi.fn(),
   })),
 }));
 
@@ -168,14 +169,14 @@ describe("Fleet - Stale Batch Cleanup", () => {
 });
 
 describe("Fleet - Polling", () => {
-  let mockRefetch: ReturnType<typeof vi.fn>;
+  let mockRefreshCurrentPage: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.useFakeTimers();
 
-    mockRefetch = vi.fn();
+    mockRefreshCurrentPage = vi.fn();
   });
 
   afterEach(() => {
@@ -191,7 +192,8 @@ describe("Fleet - Polling", () => {
       hasMore: false,
       hasInitialLoadCompleted: true,
       isLoading: false,
-      refetch: mockRefetch as () => void,
+      refetch: vi.fn() as () => void,
+      refreshCurrentPage: mockRefreshCurrentPage as () => void,
       loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
@@ -205,7 +207,7 @@ describe("Fleet - Polling", () => {
     // Advance time by default poll interval (60 seconds)
     vi.advanceTimersByTime(60000);
 
-    expect(mockRefetch).toHaveBeenCalled();
+    expect(mockRefreshCurrentPage).toHaveBeenCalled();
   });
 
   it("should not poll before initial load completes", async () => {
@@ -217,7 +219,8 @@ describe("Fleet - Polling", () => {
       hasMore: false,
       hasInitialLoadCompleted: false,
       isLoading: false,
-      refetch: mockRefetch as () => void,
+      refetch: vi.fn() as () => void,
+      refreshCurrentPage: mockRefreshCurrentPage as () => void,
       loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
@@ -231,7 +234,7 @@ describe("Fleet - Polling", () => {
     // Advance time by poll interval
     vi.advanceTimersByTime(60000);
 
-    expect(mockRefetch).not.toHaveBeenCalled();
+    expect(mockRefreshCurrentPage).not.toHaveBeenCalled();
   });
 
   it("should poll repeatedly at the configured interval", async () => {
@@ -243,7 +246,8 @@ describe("Fleet - Polling", () => {
       hasMore: false,
       hasInitialLoadCompleted: true,
       isLoading: false,
-      refetch: mockRefetch as () => void,
+      refetch: vi.fn() as () => void,
+      refreshCurrentPage: mockRefreshCurrentPage as () => void,
       loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
@@ -256,12 +260,12 @@ describe("Fleet - Polling", () => {
 
     // First poll
     vi.advanceTimersByTime(60000);
-    const callsAfterFirst = mockRefetch.mock.calls.length;
+    const callsAfterFirst = mockRefreshCurrentPage.mock.calls.length;
     expect(callsAfterFirst).toBeGreaterThan(0);
 
     // Second poll
     vi.advanceTimersByTime(60000);
-    expect(mockRefetch.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    expect(mockRefreshCurrentPage.mock.calls.length).toBeGreaterThan(callsAfterFirst);
   });
 
   it("should cleanup polling interval on unmount", async () => {
@@ -273,7 +277,8 @@ describe("Fleet - Polling", () => {
       hasMore: false,
       hasInitialLoadCompleted: true,
       isLoading: false,
-      refetch: mockRefetch as () => void,
+      refetch: vi.fn() as () => void,
+      refreshCurrentPage: mockRefreshCurrentPage as () => void,
       loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
@@ -285,14 +290,14 @@ describe("Fleet - Polling", () => {
     const { unmount } = renderFleet();
 
     vi.advanceTimersByTime(60000);
-    const callsBeforeUnmount = mockRefetch.mock.calls.length;
+    const callsBeforeUnmount = mockRefreshCurrentPage.mock.calls.length;
     expect(callsBeforeUnmount).toBeGreaterThan(0);
 
     unmount();
 
     // Advance time again - should not poll after unmount
     vi.advanceTimersByTime(60000);
-    expect(mockRefetch.mock.calls.length).toBe(callsBeforeUnmount);
+    expect(mockRefreshCurrentPage.mock.calls.length).toBe(callsBeforeUnmount);
   });
 });
 
