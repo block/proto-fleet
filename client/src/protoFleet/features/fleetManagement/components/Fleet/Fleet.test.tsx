@@ -1,7 +1,8 @@
 import { MemoryRouter } from "react-router-dom";
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Fleet, { POLL_INTERVAL_MS } from "./Fleet";
+import { POLL_INTERVAL_MS } from "./constants";
+import Fleet from "./Fleet";
 
 // Mock all dependencies
 vi.mock("@/protoFleet/api/useFleet", () => ({

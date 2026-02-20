@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
+import { POLL_INTERVAL_MS } from "./constants";
 import {
   type MinerSortConfig,
   MinerSortConfigSchema,
@@ -26,8 +27,6 @@ import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useCleanupStaleBatches, useNotifyPairingCompleted } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
-
-export const POLL_INTERVAL_MS = Number(import.meta.env.VITE_MINER_LIST_POLL_INTERVAL_MS) || 60000;
 
 // Stable reference to prevent re-renders
 const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
