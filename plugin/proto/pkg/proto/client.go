@@ -17,6 +17,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -68,9 +69,11 @@ var (
 //
 // It manages HTTP connections, authentication, and API calls.
 type Client struct {
-	baseURL     string
-	httpClient  *http.Client
-	bearerToken sdk.BearerToken
+	baseURL      string
+	webUIBaseURL string // Standard HTTP(S) port — used for web UI endpoints that enforce password auth
+	httpClient   *http.Client
+	webUIClient  *http.Client // HTTP/1.1 client for web UI port (80/443)
+	bearerToken  sdk.BearerToken
 
 	// Connect-RPC clients for different API services
 	dataClient    miner_data_apiconnect.MinerDataApiClient
@@ -213,6 +216,9 @@ func withAuthToken(ctx context.Context, token string) context.Context {
 //   - TLS configuration and security settings
 func NewClient(host string, port int32, scheme string) (*Client, error) {
 	baseURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	// Web UI is served on the standard port (80 for http, 443 for https), not the gRPC port.
+	// The gRPC port authenticates via Bearer token and does not enforce password validation.
+	webUIBaseURL := fmt.Sprintf("%s://%s", scheme, host)
 
 	// Create HTTP client based on scheme
 	var httpClient *http.Client
@@ -220,6 +226,14 @@ func NewClient(host string, port int32, scheme string) (*Client, error) {
 		httpClient = createHTTPSClient()
 	} else {
 		httpClient = createHTTPClient()
+	}
+
+	// Web UI client uses HTTP/1.1 (not h2c) since the web UI port speaks HTTP/1.1
+	var webUIClient *http.Client
+	if scheme == "https" {
+		webUIClient = createHTTPSClient()
+	} else {
+		webUIClient = &http.Client{Timeout: httpClientTimeout}
 	}
 
 	// Create Connect-RPC clients with auth interceptor
@@ -230,7 +244,9 @@ func NewClient(host string, port int32, scheme string) (*Client, error) {
 
 	client := &Client{
 		baseURL:       baseURL,
+		webUIBaseURL:  webUIBaseURL,
 		httpClient:    httpClient,
+		webUIClient:   webUIClient,
 		dataClient:    miner_data_apiconnect.NewMinerDataApiClient(httpClient, baseURL, clientOptions...),
 		commandClient: miner_command_apiconnect.NewMinerCommandApiClient(httpClient, baseURL, clientOptions...),
 		systemClient:  miner_system_apiconnect.NewMinerSystemApiClient(httpClient, baseURL, clientOptions...),
@@ -589,34 +605,90 @@ type updatePasswordRequest struct {
 	NewPassword     string `json:"new_password"`
 }
 
-// ChangePassword updates the web UI password using the REST API endpoint.
-// Requires the current password for verification.
-func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
-	url := fmt.Sprintf("%s/api/v1/auth/change-password", c.baseURL)
+// loginRequest represents the JSON request body for the miner login endpoint.
+type loginRequest struct {
+	Password string `json:"password"`
+}
 
-	// Use proper JSON marshaling to handle special characters safely
-	requestBody := updatePasswordRequest{
+// authTokensResponse represents the JSON response from the miner login endpoint.
+type authTokensResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// loginWithPassword authenticates via the miner's web UI port (80/443) and returns an
+// access token. The gRPC port (2121) accepts any Bearer token without password validation,
+// so all password-sensitive operations must go through the web UI port.
+func (c *Client) loginWithPassword(ctx context.Context, password string) (string, error) {
+	loginURL := fmt.Sprintf("%s/api/v1/auth/login", c.webUIBaseURL)
+
+	bodyBytes, err := json.Marshal(loginRequest{Password: password})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal login request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.webUIClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("incorrect current password")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("login failed with status %d", resp.StatusCode)
+	}
+
+	var tokens authTokensResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+		return "", fmt.Errorf("failed to decode login response: %w", err)
+	}
+
+	return tokens.AccessToken, nil
+}
+
+// ChangePassword updates the miner web UI password via the web UI port (80/443),
+// mirroring the flow of the miner's own web UI. The fleet Bearer token is deliberately
+// not used: the gRPC port (2121) returns 200 without actually applying the change when
+// called with the fleet token, treating it as a privileged no-op.
+func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	accessToken, err := c.loginWithPassword(ctx, currentPassword)
+	if err != nil {
+		return err
+	}
+
+	changeURL := fmt.Sprintf("%s/api/v1/auth/change-password", c.webUIBaseURL)
+
+	bodyBytes, err := json.Marshal(updatePasswordRequest{
 		CurrentPassword: currentPassword,
 		NewPassword:     newPassword,
-	}
-	bodyBytes, err := json.Marshal(requestBody)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, changeURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.bearerToken.Token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.webUIClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("change password failed with status %d", resp.StatusCode)

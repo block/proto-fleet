@@ -9,6 +9,7 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
+import { useSecurityActions } from "./useSecurityActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   DeleteMinersRequestSchema,
@@ -56,7 +57,7 @@ import {
   // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
   LEDIndicator,
-  // Lock, // TODO: Uncomment when Security is implemented
+  Lock,
   MiningPools,
   Play,
   Power,
@@ -67,7 +68,7 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 export interface MinerSelection {
   deviceIdentifier: string;
@@ -99,6 +100,7 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.downloadLogs]: { description: "Log downloads", commandType: CommandType.DOWNLOAD_LOGS },
   [settingsActions.miningPool]: { description: "Pool switching", commandType: CommandType.UPDATE_MINING_POOLS },
   [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
+  [settingsActions.security]: { description: "Password updates", commandType: CommandType.UPDATE_MINER_PASSWORD },
   [performanceActions.managePower]: { description: "Power mode changes", commandType: CommandType.SET_POWER_TARGET },
 };
 
@@ -118,7 +120,6 @@ interface UnsupportedMinersState extends UnsupportedMinersInfo {
 
 const initialUnsupportedMinersState: UnsupportedMinersState = {
   show: false,
-  actionDescription: "",
   unsupportedGroups: [],
   totalUnsupportedCount: 0,
   noneSupported: false,
@@ -250,20 +251,18 @@ export const useMinerActions = ({
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
-  const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
-    useState<UnsupportedMinersState>(initialUnsupportedMinersState);
-
   // Read miners from store reactively so delete confirmation subtitle updates
   const fleetMiners = useFleetStore((s) => s.fleet.miners);
 
   const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
   const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
-  const [poolFilteredSelector, setPoolFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [fleetCredentials, setFleetCredentials] = useState<{ username: string; password: string } | undefined>(
     undefined,
   );
+  const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
+    useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -298,6 +297,8 @@ export const useMinerActions = ({
     return allHaveSameStatus ? firstStatus : undefined;
   }, [selectedMiners]);
 
+  const clearFleetCredentials = useCallback(() => setFleetCredentials(undefined), []);
+
   // Check for unsupported miners using server-side capability checking.
   // Returns a promise that resolves to true if the modal was shown.
   const checkAndShowUnsupportedMinersModal = useCallback(
@@ -320,7 +321,6 @@ export const useMinerActions = ({
 
             setUnsupportedMinersInfo({
               show: true,
-              actionDescription: metadata.description,
               unsupportedGroups: result.unsupportedGroups,
               totalUnsupportedCount: result.unsupportedCount,
               noneSupported: result.noneSupported,
@@ -358,7 +358,12 @@ export const useMinerActions = ({
   }, [onActionComplete]);
 
   const handleSuccess = useCallback(
-    (action: SupportedAction, originalToastId: number, batchIdentifier: string) => {
+    (
+      action: SupportedAction,
+      originalToastId: number,
+      batchIdentifier: string,
+      onBatchComplete?: (successDeviceIds: string[], failureDeviceIds: string[]) => void,
+    ) => {
       const streamAbortController = new AbortController();
 
       let errorToastId: number | null = null;
@@ -379,10 +384,12 @@ export const useMinerActions = ({
           successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
           failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
 
-          updateToast(originalToastId, {
-            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-            status: TOAST_STATUSES.success,
-          });
+          if (successCount > 0) {
+            updateToast(originalToastId, {
+              message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+              status: TOAST_STATUSES.success,
+            });
+          }
 
           if (failureCount > 0) {
             if (!errorToastId) {
@@ -407,13 +414,19 @@ export const useMinerActions = ({
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
-        updateToast(originalToastId, {
-          message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-          status: TOAST_STATUSES.success,
-        });
+        if (successCount > 0) {
+          updateToast(originalToastId, {
+            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+            status: TOAST_STATUSES.success,
+          });
+        } else {
+          removeToast(originalToastId);
+        }
 
         // Reset telemetry cache and immediately fetch fresh status for status polling
         resetFetchedIds();
+
+        onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
         // Immediately remove failed devices from batch (revert to their original status)
         if (failureDeviceIds.length > 0) {
@@ -487,6 +500,21 @@ export const useMinerActions = ({
       status: TOAST_STATUSES.error,
     });
   }, []);
+
+  const {
+    initSecurityFlow,
+    resetState: resetSecurityState,
+    ...publicSecurityActions
+  } = useSecurityActions({
+    deviceIdentifiers,
+    fleetCredentials,
+    clearFleetCredentials,
+    onActionComplete,
+    handleSuccess,
+    handleError,
+    checkAndShowUnsupportedMinersModal,
+    setCurrentAction,
+  });
 
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
@@ -620,6 +648,32 @@ export const useMinerActions = ({
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
+
+  // Fleet authentication handler (shared for security and pool)
+  const handleFleetAuthenticated = useCallback(
+    async (username: string, password: string) => {
+      setFleetCredentials({ username, password });
+      setShowAuthenticateFleetModal(false);
+
+      if (authenticationPurpose === "security") {
+        await initSecurityFlow();
+      } else if (authenticationPurpose === "pool") {
+        setShowPoolSelectionPage(true);
+      }
+    },
+    [authenticationPurpose, initSecurityFlow],
+  );
+
+  const handleAuthDismiss = useCallback(() => {
+    setShowAuthenticateFleetModal(false);
+    setAuthenticationPurpose(null);
+    setPoolFilteredDeviceIds(undefined);
+    setShowPoolSelectionPage(false);
+    setFleetCredentials(undefined);
+    resetSecurityState();
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete, resetSecurityState]);
 
   const handleConfirmation = useCallback(
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
@@ -758,28 +812,6 @@ export const useMinerActions = ({
     onActionComplete?.();
   }, [onActionComplete]);
 
-  const handleFleetAuthenticated = useCallback(
-    (username: string, password: string) => {
-      setFleetCredentials({ username, password });
-      setShowAuthenticateFleetModal(false);
-
-      if (authenticationPurpose === "pool") {
-        setShowPoolSelectionPage(true);
-      }
-    },
-    [authenticationPurpose],
-  );
-
-  const handleAuthDismiss = useCallback(() => {
-    setShowAuthenticateFleetModal(false);
-    setAuthenticationPurpose(null);
-    setPoolFilteredSelector(undefined);
-    setPoolFilteredDeviceIds(undefined);
-    setFleetCredentials(undefined);
-    setCurrentAction(null);
-    onActionComplete?.();
-  }, [onActionComplete]);
-
   const popoverActions = useMemo(() => {
     // Device actions handlers
     const handleBlinkLEDs = () => {
@@ -909,9 +941,7 @@ export const useMinerActions = ({
 
       const modalShown = await checkAndShowUnsupportedMinersModal(
         settingsActions.miningPool,
-        (filteredSelector, filteredDeviceIds) => {
-          // Store filtered values for use after authentication
-          setPoolFilteredSelector(filteredSelector);
+        (_filteredSelector, filteredDeviceIds) => {
           setPoolFilteredDeviceIds(filteredDeviceIds);
           setCurrentAction(settingsActions.miningPool);
           setAuthenticationPurpose("pool");
@@ -920,7 +950,6 @@ export const useMinerActions = ({
       );
       if (!modalShown) {
         // No filtering needed - clear any stale filtered values
-        setPoolFilteredSelector(undefined);
         setPoolFilteredDeviceIds(undefined);
         setCurrentAction(settingsActions.miningPool);
         setAuthenticationPurpose("pool");
@@ -958,11 +987,14 @@ export const useMinerActions = ({
       }
     };
 
-    // TODO: Implement Security action
-    // const handleSecurity = () => {
-    //   setCurrentAction(settingsActions.security);
-    //   // TODO show modal
-    // };
+    const handleManageSecurity = () => {
+      onActionStart?.();
+      setCurrentAction(settingsActions.security);
+      setAuthenticationPurpose("security");
+      setShowAuthenticateFleetModal(true);
+    };
+
+    // TODO: Implement firmware update action (requires Fleet auth — follow handleMiningPool/handleManageSecurity pattern)
 
     const sleepAction: BulkAction<SupportedAction> = {
       action: deviceActions.shutdown,
@@ -1007,39 +1039,8 @@ export const useMinerActions = ({
           : [sleepAction]; // Single miner active: show sleep only
 
     return [
-      // Device actions
-      {
-        action: deviceActions.blinkLEDs,
-        title: "Blink LEDs",
-        icon: <LEDIndicator />,
-        actionHandler: handleBlinkLEDs,
-        requiresConfirmation: false,
-      },
-      // TODO: Implement Download Logs action
-      // {
-      //   action: deviceActions.downloadLogs,
-      //   title: "Download logs",
-      //   icon: <Terminal />,
-      //   actionHandler: handleDownloadLogs,
-      //   requiresConfirmation: false,
-      // },
-      // TODO: Implement Factory Reset action
-      // {
-      //   action: deviceActions.factoryReset,
-      //   title: "Factory reset",
-      //   icon: <ArrowLeftCompact />,
-      //   actionHandler: handleFactoryReset,
-      //   requiresConfirmation: true,
-      //   confirmation: {
-      //     title: `Reset ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"} to factory default?`,
-      //     subtitle: `Resetting ${numberOfMiners === 1 ? "this miner" : "these miners"} will remove all settings and mining pool information. You will not lose any mining rewards.`,
-      //     confirmAction: {
-      //       title: "Reset",
-      //       variant: variants.secondaryDanger,
-      //     },
-      //     testId: "factory-reset-confirm-button",
-      //   },
-      // },
+      // Device actions - ordered per design specifications
+      ...powerStateActions, // Sleep/Wake up at top
       {
         action: deviceActions.reboot,
         title: "Reboot",
@@ -1056,8 +1057,24 @@ export const useMinerActions = ({
           testId: "reboot-confirm-button",
         },
       },
-      ...powerStateActions,
-      // Performance actions
+      {
+        action: deviceActions.blinkLEDs,
+        title: "Blink LEDs",
+        icon: <LEDIndicator />,
+        actionHandler: handleBlinkLEDs,
+        requiresConfirmation: false,
+        showGroupDivider: true, // End of device actions group
+      },
+      // TODO: Implement Download Logs action
+      // {
+      //   action: deviceActions.downloadLogs,
+      //   title: "Download logs",
+      //   icon: <Terminal />,
+      //   actionHandler: handleDownloadLogs,
+      //   requiresConfirmation: false,
+      //   showGroupDivider: true, // End of device actions group (when implemented, move divider here)
+      // },
+      // Performance and settings actions
       {
         action: performanceActions.managePower,
         title: "Manage power",
@@ -1065,6 +1082,7 @@ export const useMinerActions = ({
         actionHandler: handleManagePower,
         requiresConfirmation: false,
       },
+      // TODO: Implement firmware update action
       // TODO: Implement Curtail action
       // {
       //   action: performanceActions.curtail,
@@ -1083,29 +1101,32 @@ export const useMinerActions = ({
       //     testId: "curtail-confirm-button",
       //   },
       // },
-      // Settings actions
       {
         action: settingsActions.miningPool,
-        title: "Edit mining pool",
+        title: "Edit pool",
         icon: <MiningPools />,
         actionHandler: handleMiningPool,
         requiresConfirmation: false,
       },
       {
         action: settingsActions.coolingMode,
-        title: "Cooling mode",
+        title: "Change cooling mode",
         icon: <Fan />,
         actionHandler: handleCoolingMode,
         requiresConfirmation: false,
+        showGroupDivider: true, // End of performance/settings group
       },
-      // TODO: Implement Security action
-      // {
-      //   action: settingsActions.security,
-      //   title: "Security",
-      //   icon: <Lock />,
-      //   actionHandler: handleSecurity,
-      //   requiresConfirmation: false,
-      // },
+      // TODO: Implement Rename action
+      // TODO: Implement Add to group action
+      // TODO: Implement Add to rack action - when implemented, add showGroupDivider: true to end organization group
+      // Security and dangerous actions (same group)
+      {
+        action: settingsActions.security,
+        title: "Manage security",
+        icon: <Lock />,
+        actionHandler: handleManageSecurity,
+        requiresConfirmation: false,
+      },
       {
         action: deviceActions.delete,
         title: "Delete",
@@ -1157,7 +1178,6 @@ export const useMinerActions = ({
     handleMiningPoolSuccess,
     handleMiningPoolError,
     showPoolSelectionPage,
-    poolFilteredSelector,
     poolFilteredDeviceIds,
     fleetCredentials,
     showManagePowerModal,
@@ -1170,6 +1190,7 @@ export const useMinerActions = ({
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
     authenticationPurpose,
+    ...publicSecurityActions,
     handleFleetAuthenticated,
     handleAuthDismiss,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,

@@ -72,6 +72,9 @@ message CommandCapabilities {
 
   // Power mode control
   bool power_mode_efficiency_supported = 12;
+
+  // Security management
+  bool update_miner_password_supported = 13;
 }
 
 // Telemetry data capabilities

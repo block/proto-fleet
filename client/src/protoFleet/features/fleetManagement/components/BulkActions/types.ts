@@ -9,6 +9,8 @@ export type BulkAction<ActionType> = {
   actionHandler: () => void;
   requiresConfirmation: boolean;
   confirmation?: ActionWarnDialogOptions;
+  /** Shows a thicker divider after this action to separate groups */
+  showGroupDivider?: boolean;
 };
 
 export type ActionWarnDialogOptions = {
@@ -23,7 +25,6 @@ export type ActionWarnDialogOptions = {
 
 export type UnsupportedMinersInfo = {
   show: boolean;
-  actionDescription: string;
   unsupportedGroups: UnsupportedMinerGroup[];
   totalUnsupportedCount: number;
   noneSupported: boolean;

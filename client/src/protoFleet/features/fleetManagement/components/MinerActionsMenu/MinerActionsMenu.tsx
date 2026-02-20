@@ -4,6 +4,7 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
+import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
 import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -56,11 +57,20 @@ const MinerActionsMenu = ({
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
     authenticationPurpose,
+    showUpdatePasswordModal,
+    hasProtoMiners,
     handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
     handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalDone,
+    handleSecurityModalDismiss,
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
@@ -70,7 +80,6 @@ const MinerActionsMenu = ({
     onActionComplete,
   });
 
-  // Use filtered device IDs for pool selection if available
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
       return poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }));
@@ -133,6 +142,23 @@ const MinerActionsMenu = ({
           purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showManageSecurityModal && (
+        <ManageSecurityModal
+          show={showManageSecurityModal}
+          minerGroups={minerGroups}
+          onUpdateGroup={handleUpdateGroup}
+          onDismiss={handleSecurityModalDismiss}
+          onDone={handleSecurityModalDone}
+        />
+      )}
+      {showUpdatePasswordModal && (
+        <UpdateMinerPasswordModal
+          show={showUpdatePasswordModal}
+          hasProtoMiners={hasProtoMiners}
+          onConfirm={handlePasswordConfirm}
+          onDismiss={handlePasswordDismiss}
         />
       )}
     </PopoverProvider>

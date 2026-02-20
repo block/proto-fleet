@@ -22,6 +22,7 @@ interface ModalProps {
   className?: string;
   bodyClassName?: string;
   contentHeader?: string;
+  contentHeaderClassName?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
   buttonSize?: keyof typeof buttonSizes;
   buttons?: ModalButtonProps[];
@@ -41,6 +42,7 @@ const Modal = ({
   className,
   bodyClassName,
   contentHeader,
+  contentHeaderClassName,
   icon = <Dismiss />,
   onIconClick,
   onDismiss,
@@ -141,7 +143,9 @@ const Modal = ({
             {divider ? <Divider className="mt-6" /> : <div className="mt-6" />}
           </div>
         )}
-        {contentHeader && <div className="mb-1 text-heading-200 text-text-primary">{contentHeader}</div>}
+        {contentHeader && (
+          <div className={clsx("mb-1 text-heading-200 text-text-primary", contentHeaderClassName)}>{contentHeader}</div>
+        )}
         <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
       </div>
     </PageOverlay>

@@ -14,29 +14,39 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   })),
 }));
 
-vi.mock("@/protoFleet/store", () => ({
-  useFleetStore: vi.fn(() => ({
-    fleet: {
-      isLoading: false,
-      isStreaming: false,
-      minerIds: [],
-      totalMiners: 0,
-      deviceStatusCounts: {},
-      setRefetchCallback: vi.fn(),
+vi.mock("@/protoFleet/store", () => {
+  const useFleetStore = Object.assign(
+    vi.fn(() => ({
+      fleet: {
+        isLoading: false,
+        isStreaming: false,
+        minerIds: [],
+        totalMiners: 0,
+        deviceStatusCounts: {},
+        setRefetchCallback: vi.fn(),
+      },
+    })),
+    {
+      getState: vi.fn(() => ({
+        fleet: { setCurrentFilter: vi.fn() },
+      })),
     },
-  })),
-  useFleetMiners: vi.fn(() => []),
-  useIsLoading: vi.fn(() => false),
-  useIsStreaming: vi.fn(() => false),
-  useMinerIds: vi.fn(() => []),
-  useTotalMiners: vi.fn(() => 0),
-  useDeviceStatusCounts: vi.fn(() => ({})),
-  useSetRefetchCallback: vi.fn(() => vi.fn()),
-  useCleanupStaleBatches: vi.fn(() => vi.fn()),
-  useLastPairingCompletedAt: vi.fn(() => 0),
-  useNotifyPairingCompleted: vi.fn(() => vi.fn()),
-  useBatchOperationCount: vi.fn(() => 0),
-}));
+  );
+  return {
+    useFleetStore,
+    useFleetMiners: vi.fn(() => []),
+    useIsLoading: vi.fn(() => false),
+    useIsStreaming: vi.fn(() => false),
+    useMinerIds: vi.fn(() => []),
+    useTotalMiners: vi.fn(() => 0),
+    useDeviceStatusCounts: vi.fn(() => ({})),
+    useSetRefetchCallback: vi.fn(() => vi.fn()),
+    useCleanupStaleBatches: vi.fn(() => vi.fn()),
+    useLastPairingCompletedAt: vi.fn(() => 0),
+    useNotifyPairingCompleted: vi.fn(() => vi.fn()),
+    useBatchOperationCount: vi.fn(() => 0),
+  };
+});
 
 vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
   default: vi.fn(() => ({ totalMiners: 0 })),

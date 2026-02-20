@@ -31,6 +31,7 @@ const mockDeleteMiners = vi.fn();
 const mockReboot = vi.fn();
 const mockSetPowerTarget = vi.fn();
 const mockSetCoolingMode = vi.fn();
+const mockUpdateMinerPassword = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -56,6 +57,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     setPowerTarget: mockSetPowerTarget,
     setCoolingMode: mockSetCoolingMode,
     checkCommandCapabilities: mockCheckCommandCapabilities,
+    updateMinerPassword: mockUpdateMinerPassword,
   }),
 }));
 
@@ -92,6 +94,7 @@ vi.mock("@/protoFleet/store", () => ({
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(() => 1),
   updateToast: vi.fn(),
+  removeToast: vi.fn(),
   STATUSES: {
     success: "success",
     error: "error",
@@ -1727,8 +1730,8 @@ describe("useMinerActions", () => {
       expect(result.current.showAuthenticateFleetModal).toBe(true);
 
       // Authenticate with credentials
-      act(() => {
-        result.current.handleFleetAuthenticated("testuser", "testpass");
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
       });
 
       expect(result.current.showAuthenticateFleetModal).toBe(false);
@@ -1797,8 +1800,8 @@ describe("useMinerActions", () => {
         await poolAction?.actionHandler();
       });
 
-      act(() => {
-        result.current.handleFleetAuthenticated("testuser", "testpass");
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
       });
 
       expect(result.current.showPoolSelectionPage).toBe(true);
@@ -1847,6 +1850,426 @@ describe("useMinerActions", () => {
       expect(result.current.unsupportedMinersInfo.show).toBe(false);
       expect(result.current.showAuthenticateFleetModal).toBe(true);
       expect(result.current.poolFilteredDeviceIds).toBeUndefined();
+    });
+  });
+
+  describe("handlePasswordConfirm - action bar restoration", () => {
+    const addMinersToStore = (
+      storeInstance: any,
+      miners: Array<{ deviceIdentifier: string; manufacturer: string; model: string; name?: string }>,
+    ) => {
+      storeInstance.getState().fleet.setMiners(miners);
+    };
+
+    it("sets group status to failed and keeps ManageSecurityModal open when API call fails", async () => {
+      const onActionComplete = vi.fn();
+
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+      ]);
+
+      mockUpdateMinerPassword.mockImplementation(({ onError }: any) => {
+        onError("Connection failed");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+
+      const group = result.current.minerGroups[0];
+      act(() => {
+        result.current.handleUpdateGroup(group);
+      });
+      expect(result.current.showUpdatePasswordModal).toBe(true);
+
+      act(() => {
+        result.current.handlePasswordConfirm("oldpass", "newpass");
+      });
+
+      // Modal stays open for retry — onActionComplete not called until modal is closed
+      expect(onActionComplete).not.toHaveBeenCalled();
+      expect(result.current.showManageSecurityModal).toBe(true);
+      expect(result.current.minerGroups[0].status).toBe("failed");
+    });
+
+    it("does NOT call onActionComplete during batch failure in ManageSecurityModal flow — proto-only selection", async () => {
+      const onActionComplete = vi.fn();
+
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+      ]);
+
+      mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-security" });
+      });
+
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(1),
+              success: BigInt(0),
+              failure: BigInt(1),
+              successDeviceIdentifiers: [],
+              failureDeviceIdentifiers: ["device-1"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+
+      const group = result.current.minerGroups[0];
+      act(() => {
+        result.current.handleUpdateGroup(group);
+      });
+      expect(result.current.showUpdatePasswordModal).toBe(true);
+
+      await act(async () => {
+        result.current.handlePasswordConfirm("oldpass", "newpass");
+      });
+
+      // Modal stays open after batch failure — onActionComplete only called on modal close
+      expect(onActionComplete).not.toHaveBeenCalled();
+      expect(result.current.showManageSecurityModal).toBe(true);
+    });
+
+    it("does NOT call onActionComplete during batch completion in ManageSecurityModal flow — modal handles it", async () => {
+      const onActionComplete = vi.fn();
+
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+        { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-security" });
+      });
+
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(1),
+              success: BigInt(0),
+              failure: BigInt(1),
+              successDeviceIdentifiers: [],
+              failureDeviceIdentifiers: ["device-1"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+
+      const protoGroup = result.current.minerGroups.find((g) => g.manufacturer === "proto");
+      act(() => {
+        result.current.handleUpdateGroup(protoGroup!);
+      });
+      expect(result.current.showUpdatePasswordModal).toBe(true);
+
+      await act(async () => {
+        result.current.handlePasswordConfirm("oldpass", "newpass");
+      });
+
+      // onActionComplete not called yet — ManageSecurityModal is still open
+      expect(onActionComplete).not.toHaveBeenCalled();
+
+      // Called only when the modal is dismissed
+      act(() => {
+        result.current.handleSecurityModalDone();
+      });
+      expect(onActionComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Manage security action flow", () => {
+    const addMinersToStore = (
+      storeInstance: any,
+      miners: Array<{ deviceIdentifier: string; manufacturer: string; model: string; name?: string }>,
+    ) => {
+      storeInstance.getState().fleet.setMiners(miners);
+    };
+
+    it("shows auth modal when security action is triggered", async () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.authenticationPurpose).toBe("security");
+    });
+
+    it("shows ManageSecurityModal after auth when all miners are proto rigs", async () => {
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+        { deviceIdentifier: "device-2", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig 2" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+      expect(result.current.showUpdatePasswordModal).toBe(false);
+      expect(result.current.minerGroups).toHaveLength(1);
+    });
+
+    it("shows ManageSecurityModal after auth when miners include non-proto devices", async () => {
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+        { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+      expect(result.current.showUpdatePasswordModal).toBe(false);
+      expect(result.current.minerGroups.length).toBeGreaterThan(0);
+    });
+
+    it("handleUpdateGroup opens UpdatePasswordModal for the selected group", async () => {
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+        { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      const antminerGroup = result.current.minerGroups.find((g) => g.manufacturer === "bitmain");
+      expect(antminerGroup).toBeDefined();
+
+      act(() => {
+        result.current.handleUpdateGroup(antminerGroup!);
+      });
+
+      expect(result.current.showUpdatePasswordModal).toBe(true);
+      expect(result.current.hasProtoMiners).toBe(false);
+    });
+
+    it("handleSecurityModalDone resets all security state and calls onActionComplete", async () => {
+      const onActionComplete = vi.fn();
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+
+      act(() => {
+        result.current.handleSecurityModalDone();
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(false);
+      expect(result.current.minerGroups).toHaveLength(0);
+      expect(result.current.fleetCredentials).toBeUndefined();
+      expect(result.current.currentAction).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("handleSecurityModalDismiss resets all security state and calls onActionComplete", async () => {
+      const onActionComplete = vi.fn();
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(true);
+
+      act(() => {
+        result.current.handleSecurityModalDismiss();
+      });
+
+      expect(result.current.showManageSecurityModal).toBe(false);
+      expect(result.current.minerGroups).toHaveLength(0);
+      expect(result.current.fleetCredentials).toBeUndefined();
+      expect(result.current.currentAction).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("shows UnsupportedMinersModal after auth when some miners do not support password update", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "Antminer S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+
+      addMinersToStore(store, [
+        { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
+        { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const securityAction = result.current.popoverActions.find((a) => a.action === settingsActions.security);
+      await act(async () => {
+        await securityAction?.actionHandler();
+      });
+
+      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+
+      await act(async () => {
+        await result.current.handleFleetAuthenticated("testuser", "testpass");
+      });
+
+      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.totalUnsupportedCount).toBe(1);
+      expect(result.current.unsupportedMinersInfo.noneSupported).toBe(false);
+      expect(result.current.showManageSecurityModal).toBe(false);
+      expect(result.current.showUpdatePasswordModal).toBe(false);
     });
   });
 });

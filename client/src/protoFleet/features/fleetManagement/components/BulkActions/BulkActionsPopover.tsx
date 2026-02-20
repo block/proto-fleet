@@ -1,4 +1,5 @@
 import { BulkAction } from "./types";
+import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
@@ -16,17 +17,21 @@ interface ActionItemProps<ActionType> {
 
 const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionType>) => {
   return (
-    <Row
-      key={action.title}
-      className="text-emphasis-300"
-      prefixIcon={action.icon}
-      testId={action.action + "-popover-button"}
-      onClick={() => onAction(action)}
-      compact
-      divider
-    >
-      {action.title}
-    </Row>
+    <>
+      <div className="px-4">
+        <Row
+          className="text-emphasis-300"
+          prefixIcon={action.icon}
+          testId={action.action + "-popover-button"}
+          onClick={() => onAction(action)}
+          compact
+          divider={false}
+        >
+          {action.title}
+        </Row>
+      </div>
+      {action.showGroupDivider && <Divider />}
+    </>
   );
 };
 
@@ -37,9 +42,9 @@ const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkAc
   };
   return (
     <Popover
-      className="-mr-3 !space-y-0 px-4 pt-2 pb-1 phone:w-[calc(100vw-theme(spacing.4))]"
+      className="-mr-3 !space-y-0 !rounded-2xl px-0 pt-2 pb-1 phone:w-[calc(100vw-theme(spacing.4))]"
       position={positions["top left"]}
-      size={popoverSizes.medium}
+      size={popoverSizes.small}
       offset={20}
       testId={testId}
     >

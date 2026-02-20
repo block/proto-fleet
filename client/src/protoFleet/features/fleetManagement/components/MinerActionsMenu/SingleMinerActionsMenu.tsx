@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
@@ -6,7 +6,9 @@ import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
+import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
+import { type SecurityActionsProps } from "./useSecurityActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -14,6 +16,7 @@ import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
@@ -56,11 +59,20 @@ const SingleMinerActionsMenu = ({
     handleCoolingModeDismiss,
     showAuthenticateFleetModal,
     authenticationPurpose,
+    showUpdatePasswordModal,
+    hasProtoMiners,
     handleFleetAuthenticated,
+    handlePasswordConfirm,
+    handlePasswordDismiss,
     handleAuthDismiss,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
+    showManageSecurityModal,
+    minerGroups,
+    handleUpdateGroup,
+    handleSecurityModalDone,
+    handleSecurityModalDismiss,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
@@ -128,18 +140,27 @@ const SingleMinerActionsMenu = ({
         handleCoolingModeDismiss={handleCoolingModeDismiss}
         showAuthenticateFleetModal={showAuthenticateFleetModal}
         authenticationPurpose={authenticationPurpose}
+        showUpdatePasswordModal={showUpdatePasswordModal}
+        hasProtoMiners={hasProtoMiners}
         handleFleetAuthenticated={handleFleetAuthenticated}
+        handlePasswordConfirm={handlePasswordConfirm}
+        handlePasswordDismiss={handlePasswordDismiss}
         handleAuthDismiss={handleAuthDismiss}
         disabled={disabled}
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
         handleUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
+        showManageSecurityModal={showManageSecurityModal}
+        minerGroups={minerGroups}
+        handleUpdateGroup={handleUpdateGroup}
+        handleSecurityModalDone={handleSecurityModalDone}
+        handleSecurityModalDismiss={handleSecurityModalDismiss}
       />
     </PopoverProvider>
   );
 };
 
-interface SingleMinerActionsMenuInnerProps {
+type SingleMinerActionsMenuInnerProps = {
   isOpen: boolean;
   setIsOpen: (value: boolean | ((prev: boolean) => boolean)) => void;
   showWarnDialog: boolean;
@@ -163,15 +184,11 @@ interface SingleMinerActionsMenuInnerProps {
   currentCoolingMode: CoolingMode | undefined;
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
-  showAuthenticateFleetModal: boolean;
-  authenticationPurpose: "security" | "pool" | null;
-  handleFleetAuthenticated: (username: string, password: string) => void;
-  handleAuthDismiss: () => void;
   disabled?: boolean;
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
   handleUnsupportedMinersDismiss: () => void;
-}
+} & SecurityActionsProps;
 
 const SingleMinerActionsMenuInner = ({
   isOpen,
@@ -199,12 +216,21 @@ const SingleMinerActionsMenuInner = ({
   handleCoolingModeDismiss,
   showAuthenticateFleetModal,
   authenticationPurpose,
+  showUpdatePasswordModal,
+  hasProtoMiners,
   handleFleetAuthenticated,
+  handlePasswordConfirm,
+  handlePasswordDismiss,
   handleAuthDismiss,
   disabled = false,
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
   handleUnsupportedMinersDismiss,
+  showManageSecurityModal,
+  minerGroups,
+  handleUpdateGroup,
+  handleSecurityModalDone,
+  handleSecurityModalDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -235,24 +261,28 @@ const SingleMinerActionsMenuInner = ({
       />
       {isOpen && (
         <Popover
-          className="!space-y-0 px-4 pt-2 pb-1"
+          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           position={positions["bottom right"]}
-          size={popoverSizes.medium}
+          size={popoverSizes.small}
           offset={8}
           testId="single-miner-actions-popover"
         >
           {popoverActions.map((action) => (
-            <Row
-              key={action.title}
-              className="text-emphasis-300"
-              prefixIcon={action.icon}
-              testId={action.action + "-popover-button"}
-              onClick={() => handleAction(action)}
-              compact
-              divider
-            >
-              {action.title}
-            </Row>
+            <Fragment key={action.title}>
+              <div className="px-4">
+                <Row
+                  className="text-emphasis-300"
+                  prefixIcon={action.icon}
+                  testId={action.action + "-popover-button"}
+                  onClick={() => handleAction(action)}
+                  compact
+                  divider={false}
+                >
+                  {action.title}
+                </Row>
+              </div>
+              {action.showGroupDivider && <Divider />}
+            </Fragment>
           ))}
         </Popover>
       )}
@@ -312,6 +342,23 @@ const SingleMinerActionsMenuInner = ({
           purpose={authenticationPurpose ?? undefined}
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={handleAuthDismiss}
+        />
+      )}
+      {showManageSecurityModal && (
+        <ManageSecurityModal
+          show={showManageSecurityModal}
+          minerGroups={minerGroups}
+          onUpdateGroup={handleUpdateGroup}
+          onDismiss={handleSecurityModalDismiss}
+          onDone={handleSecurityModalDone}
+        />
+      )}
+      {showUpdatePasswordModal && (
+        <UpdateMinerPasswordModal
+          show={showUpdatePasswordModal}
+          hasProtoMiners={hasProtoMiners}
+          onConfirm={handlePasswordConfirm}
+          onDismiss={handlePasswordDismiss}
         />
       )}
     </div>

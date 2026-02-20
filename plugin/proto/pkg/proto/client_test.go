@@ -5,6 +5,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +18,11 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	decimalBase = 10
+	int32Bits   = 32
 )
 
 // TestClientCreation tests the NewClient function with different configurations
@@ -564,19 +572,144 @@ func TestClientCreationWithoutInsecureTLS(t *testing.T) {
 	_ = client.Close()
 }
 
-// TestChangePassword verifies the ChangePassword method exists and has correct signature
-// TestChangePassword verifies the ChangePassword method exists with the correct signature.
-// This is a compile-time check and does not require a running proto-rig-api server.
-func TestChangePassword(t *testing.T) {
-	// Verify the method exists by creating a client and checking compilation
-	// If the method signature changes, this will fail to compile
-	client, err := NewClient("localhost", 2121, "http")
+// newTestClient creates a Client pointed at the given httptest.Server.
+// The singleton HTTP/2 transport is replaced with a plain HTTP/1.1 client so
+// that the client works with httptest.Server (which only speaks HTTP/1.1).
+// webUIBaseURL is also pointed at the test server since tests use a random port.
+func newTestClient(t *testing.T, server *httptest.Server) *Client {
+	t.Helper()
+	u, err := url.Parse(server.URL)
 	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
+	port, err := strconv.ParseInt(u.Port(), decimalBase, int32Bits)
+	require.NoError(t, err)
+	client, err := NewClient(u.Hostname(), int32(port), "http")
+	require.NoError(t, err)
+	client.httpClient = &http.Client{}
+	// In production webUIBaseURL uses the standard port (80/443); override here so
+	// loginWithPassword and ChangePassword hit the same test server handler.
+	client.webUIBaseURL = server.URL
+	return client
+}
 
-	// Compile-time verification that the method exists with signature:
-	//     func(ctx context.Context, currentPassword, newPassword string) error
-	var _ func(context.Context, string, string) error = client.ChangePassword
+// TestLoginWithPassword tests the miner login step used by ChangePassword.
+func TestLoginWithPassword(t *testing.T) {
+	tests := []struct {
+		name        string
+		handler     func(w http.ResponseWriter, r *http.Request)
+		expectErr   bool
+		errContains string
+	}{
+		{
+			name: "correct password returns 200 with token",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/auth/login", r.URL.Path)
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"test-refresh"}`))
+			},
+			expectErr: false,
+		},
+		{
+			name: "wrong password returns 401",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+			},
+			expectErr:   true,
+			errContains: "incorrect current password",
+		},
+		{
+			name: "server error returns 500",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			expectErr:   true,
+			errContains: "login failed with status 500",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(tt.handler))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			token, err := client.loginWithPassword(context.Background(), "testpassword")
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Empty(t, token)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, "test-token", token)
+			}
+		})
+	}
+}
+
+// TestChangePassword tests that ChangePassword uses the web UI flow:
+// login first (verifying current password and obtaining a JWT), then
+// call change-password with that JWT — no fleet Bearer token used.
+func TestChangePassword(t *testing.T) {
+	t.Run("wrong password: login fails, change-password not called", func(t *testing.T) {
+		loginCalled := false
+		changeCalled := false
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginCalled = true
+				w.WriteHeader(http.StatusUnauthorized)
+			case "/api/v1/auth/change-password":
+				changeCalled = true
+				w.WriteHeader(http.StatusOK)
+			}
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server)
+		defer func() { _ = client.Close() }()
+
+		err := client.ChangePassword(context.Background(), "wrongpassword", "newpassword")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "incorrect current password")
+		assert.True(t, loginCalled, "login endpoint should be called")
+		assert.False(t, changeCalled, "change-password should not be called after login fails")
+	})
+
+	t.Run("correct password: login succeeds, change-password called with web UI JWT", func(t *testing.T) {
+		const webUIToken = "web-ui-access-token"
+		loginCalled := false
+		changeCalled := false
+		var changeAuthHeader string
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginCalled = true
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"access_token":"` + webUIToken + `","refresh_token":"refresh"}`))
+			case "/api/v1/auth/change-password":
+				changeCalled = true
+				changeAuthHeader = r.Header.Get("Authorization")
+				w.WriteHeader(http.StatusOK)
+			}
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server)
+		defer func() { _ = client.Close() }()
+
+		err := client.ChangePassword(context.Background(), "correctpassword", "newpassword")
+		require.NoError(t, err)
+		assert.True(t, loginCalled, "login endpoint should be called")
+		assert.True(t, changeCalled, "change-password endpoint should be called")
+		assert.Equal(t, "Bearer "+webUIToken, changeAuthHeader, "change-password should use the web UI JWT, not the fleet Bearer token")
+	})
 }
 
 // Helper function to reset client singletons for testing

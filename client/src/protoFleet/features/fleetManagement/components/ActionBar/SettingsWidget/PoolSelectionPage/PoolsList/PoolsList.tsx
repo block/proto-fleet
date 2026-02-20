@@ -120,12 +120,12 @@ const PoolsList = ({
             <h3 className="text-heading-300 text-text-primary">{title}</h3>
             <div className="mt-1 h-10">
               {selectedPool ? (
-                <p className="text-body-300 text-text-secondary">
+                <p className="text-text-secondary text-300">
                   <span className="text-text-primary">Configured pool:</span>{" "}
                   {selectedPool.name || selectedPool.poolUrl}
                 </p>
               ) : subtitle ? (
-                <p className="text-body-300 text-text-secondary">{subtitle}</p>
+                <p className="text-text-secondary text-300">{subtitle}</p>
               ) : null}
               {displayError ? <p className="text-300 text-intent-critical-fill">{displayError}</p> : null}
             </div>

@@ -260,6 +260,10 @@ func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, requiredCaps
 			if commands.PowerModeEfficiencySupported {
 				return true
 			}
+		case sdk.CapabilityUpdateMinerPassword:
+			if commands.UpdateMinerPasswordSupported {
+				return true
+			}
 		}
 	}
 	return false

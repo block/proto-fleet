@@ -13,6 +13,7 @@ interface HeaderProps {
   compact?: boolean;
   icon?: ReactNode;
   iconOnClick?: () => void;
+  iconSize?: keyof typeof sizes;
   iconTextColor?: string;
   iconVariant?: ButtonVariant;
   inline?: boolean;
@@ -36,6 +37,7 @@ const Header = ({
   compact,
   icon,
   iconOnClick,
+  iconSize = sizes.base,
   iconTextColor,
   iconVariant = variants.secondary,
   inline = false,
@@ -58,7 +60,7 @@ const Header = ({
           <Button
             textColor={iconTextColor}
             variant={iconVariant}
-            size={sizes.base}
+            size={iconSize}
             prefixIcon={icon}
             onClick={iconOnClick}
             testId="header-icon-button"

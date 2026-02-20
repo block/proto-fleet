@@ -1,7 +1,8 @@
 import { Fragment } from "react";
 import { UnsupportedMinerGroup } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { Fleet } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
@@ -10,7 +11,6 @@ import Row from "@/shared/components/Row";
 
 interface UnsupportedMinersModalProps {
   show: boolean;
-  actionDescription: string;
   unsupportedGroups: UnsupportedMinerGroup[];
   totalUnsupportedCount: number;
   /** When true, indicates no miners support this action (show "Action not supported" UI) */
@@ -21,7 +21,6 @@ interface UnsupportedMinersModalProps {
 
 const UnsupportedMinersModal = ({
   show,
-  actionDescription,
   unsupportedGroups,
   totalUnsupportedCount,
   noneSupported,
@@ -57,8 +56,6 @@ const UnsupportedMinersModal = ({
   return (
     <Modal
       show={show}
-      title="Some miners don't support this action."
-      description={`${actionDescription} will be skipped for ${totalUnsupportedCount} miners.`}
       onDismiss={onDismiss}
       buttons={[
         {
@@ -69,28 +66,31 @@ const UnsupportedMinersModal = ({
           testId: "continue-button",
         },
       ]}
-      size="small"
+      buttonSize={buttonSizes.base}
+      size="large"
       divider={false}
     >
-      <div className="mt-4 rounded-2xl border border-core-primary-5 p-4">
-        {unsupportedGroups.map((group, index) => (
-          <Fragment key={`${group.firmwareVersion}-${group.model}`}>
-            <Row divider={false} className="flex items-center justify-between">
-              <div className="flex gap-4">
-                <Fleet width="w-[20px]" />
-                <div>
-                  <div className="text-emphasis-300">Firmware {group.firmwareVersion}</div>
-                  <div className="text-200 text-text-primary-70">{group.model}</div>
-                </div>
-              </div>
-              <div className="text-emphasis-300">
-                {group.count} {group.count === 1 ? "miner" : "miners"}
-              </div>
-            </Row>
-            {index < unsupportedGroups.length - 1 && <Divider />}
-          </Fragment>
-        ))}
+      <div className="mb-6">
+        <h1 className="text-heading-300 text-text-primary">Some miners don't support this action.</h1>
+        <p className="text-300 text-text-primary-70">This action will be skipped for {totalUnsupportedCount} miners.</p>
       </div>
+      {unsupportedGroups.map((group, index) => (
+        <Fragment key={`${group.firmwareVersion}-${group.model}`}>
+          <Row divider={false} className="flex items-center justify-between">
+            <div className="flex gap-4">
+              <Fleet width={iconSizes.medium} />
+              <div>
+                <div className="text-emphasis-300">Firmware {group.firmwareVersion}</div>
+                <div className="text-200 text-text-primary-70">{group.model}</div>
+              </div>
+            </div>
+            <div className="text-emphasis-300">
+              {group.count} {group.count === 1 ? "miner" : "miners"}
+            </div>
+          </Row>
+          {index < unsupportedGroups.length - 1 && <Divider />}
+        </Fragment>
+      ))}
     </Modal>
   );
 };

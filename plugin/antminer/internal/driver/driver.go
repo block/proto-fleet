@@ -124,6 +124,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		// Power mode capabilities (model-specific overrides may apply via GetCapabilitiesForModel)
 		sdk.CapabilityPowerModeEfficiency: true,
 
+		// Security capabilities
+		sdk.CapabilityUpdateMinerPassword: true,
+
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true,
 		sdk.CapabilityHistoricalData:    false,
