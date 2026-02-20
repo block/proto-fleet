@@ -156,6 +156,7 @@ func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string
 		OrgID:              orgID,
 		EncryptService:     s.encryptService,
 		TokenService:       s.tokenService,
+		FilesService:       s.filesService,
 		GetOrgPrivateKey:   s.getProtoMinerAuthPrivateKey,
 		DriverGetter:       s.pluginManager,
 	})

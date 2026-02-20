@@ -65,7 +65,7 @@ func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceId
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	filename := fmt.Sprintf("%s_%s.log", deviceIdentifier, timestamp)
+	filename := fmt.Sprintf("%s_%s.csv", deviceIdentifier, timestamp)
 	filePath := filepath.Join(batchDir, filename)
 
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)

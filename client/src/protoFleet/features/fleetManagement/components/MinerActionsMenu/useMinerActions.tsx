@@ -26,6 +26,8 @@ import {
   BlinkLEDResponse,
   CommandType,
   DeviceSelector,
+  DownloadLogsRequestSchema,
+  GetCommandBatchLogBundleRequestSchema,
   PerformanceMode,
   RebootRequestSchema,
   RebootResponse,
@@ -65,7 +67,7 @@ import {
   Power,
   Reboot,
   Speedometer,
-  // Terminal, // TODO: Uncomment when Download Logs is implemented
+  Terminal,
   Trash,
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -239,6 +241,8 @@ export const useMinerActions = ({
     setCoolingMode,
     checkCommandCapabilities,
     updateMinerPassword,
+    downloadLogs,
+    getCommandBatchLogBundle,
   } = useMinerCommand();
 
   const startBatchOperation = useStartBatchOperation();
@@ -864,21 +868,60 @@ export const useMinerActions = ({
       });
     };
 
-    // TODO: Implement Download Logs action
-    // const handleDownloadLogs = () => {
-    //   setCurrentAction(deviceActions.downloadLogs);
-    //   const id = pushToast({
-    //     message: "Downloading logs",
-    //     status: TOAST_STATUSES.loading,
-    //     longRunning: true,
-    //   });
-    //   simulateAPICall(() => {
-    //     updateToast(id, {
-    //       message: "Downloaded logs",
-    //       status: TOAST_STATUSES.success,
-    //     });
-    //   });
-    // };
+    const handleDownloadLogs = () => {
+      if (!deviceSelector) return;
+      onActionStart?.();
+
+      const id = pushToast({
+        message: loadingMessages[deviceActions.downloadLogs],
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+      });
+
+      const request = create(DownloadLogsRequestSchema, { deviceSelector });
+      downloadLogs({
+        downloadLogsRequest: request,
+        onSuccess: ({ batchIdentifier }) => {
+          const streamAbortController = new AbortController();
+          streamCommandBatchUpdates({
+            streamRequest: create(StreamCommandBatchUpdatesRequestSchema, { batchIdentifier }),
+            streamAbortController,
+            onStreamData: (response) => {
+              const total = Number(response.status?.commandBatchDeviceCount?.total || 0);
+              const success = Number(response.status?.commandBatchDeviceCount?.success || 0);
+              const failure = Number(response.status?.commandBatchDeviceCount?.failure || 0);
+              if (total > 0 && success + failure === total) {
+                streamAbortController.abort();
+              }
+            },
+          }).finally(() => {
+            getCommandBatchLogBundle({
+              request: create(GetCommandBatchLogBundleRequestSchema, { batchIdentifier }),
+              onSuccess: ({ chunkData, filename }) => {
+                const blob = new Blob([chunkData as Uint8Array<ArrayBuffer>], { type: "application/zip" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 0);
+                updateToast(id, {
+                  message: successMessages[deviceActions.downloadLogs],
+                  status: TOAST_STATUSES.success,
+                });
+              },
+              onError: (err) => {
+                updateToast(id, {
+                  message: err || "Failed to download logs",
+                  status: TOAST_STATUSES.error,
+                });
+              },
+            });
+          });
+        },
+        onError: handleError.bind(null, id),
+      });
+    };
 
     // TODO: Implement Factory Reset action
     // const handleFactoryReset = () => {
@@ -1054,17 +1097,15 @@ export const useMinerActions = ({
         icon: <LEDIndicator />,
         actionHandler: handleBlinkLEDs,
         requiresConfirmation: false,
-        showGroupDivider: true, // End of device actions group
       },
-      // TODO: Implement Download Logs action
-      // {
-      //   action: deviceActions.downloadLogs,
-      //   title: "Download logs",
-      //   icon: <Terminal />,
-      //   actionHandler: handleDownloadLogs,
-      //   requiresConfirmation: false,
-      //   showGroupDivider: true, // End of device actions group (when implemented, move divider here)
-      // },
+      {
+        action: deviceActions.downloadLogs,
+        title: "Download logs",
+        icon: <Terminal />,
+        actionHandler: handleDownloadLogs,
+        requiresConfirmation: false,
+        showGroupDivider: true,
+      },
       // Performance and settings actions
       {
         action: performanceActions.managePower,
@@ -1137,6 +1178,9 @@ export const useMinerActions = ({
     ] as BulkAction<SupportedAction>[];
   }, [
     blinkLED,
+    downloadLogs,
+    getCommandBatchLogBundle,
+    streamCommandBatchUpdates,
     handleSuccess,
     handleError,
     displayCount,

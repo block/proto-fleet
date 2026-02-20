@@ -11,6 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -38,6 +39,7 @@ type PluginMinerConfig struct {
 	// Services and dependencies
 	EncryptService   *encrypt.Service
 	TokenService     *token.Service // Required for Proto miners to generate JWT tokens
+	FilesService     *files.Service
 	GetOrgPrivateKey func(ctx context.Context, orgID int64) ([]byte, error)
 	DriverGetter     PluginDriverGetter
 }
@@ -162,5 +164,6 @@ func NewPluginMinerWithCredentials(
 		*connectionInfo,
 		result.Device,
 		sdkDeviceInfo,
+		config.FilesService,
 	), nil
 }
