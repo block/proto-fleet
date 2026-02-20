@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -45,6 +47,7 @@ type PluginMiner struct {
 	connectionInfo networking.ConnectionInfo
 	sdkDevice      sdk.Device
 	deviceInfo     sdk.DeviceInfo
+	filesService   *files.Service
 }
 
 // NewPluginMiner creates a new PluginMiner wrapper around an SDK Device
@@ -56,6 +59,7 @@ func NewPluginMiner(
 	connectionInfo networking.ConnectionInfo,
 	sdkDevice sdk.Device,
 	deviceInfo sdk.DeviceInfo,
+	filesService *files.Service,
 ) *PluginMiner {
 	return &PluginMiner{
 		orgID:          orgID,
@@ -65,6 +69,7 @@ func NewPluginMiner(
 		connectionInfo: connectionInfo,
 		sdkDevice:      sdkDevice,
 		deviceInfo:     deviceInfo,
+		filesService:   filesService,
 	}
 }
 
@@ -281,11 +286,95 @@ func (p *PluginMiner) BlinkLED(ctx context.Context) error {
 
 // DownloadLogs implements interfaces.Miner
 func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	_, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
+	logData, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
 	}
+	logLines := strings.Split(logData, "\n")
+	csvRows := formatLogsToCSV(logLines)
+	if _, err := p.filesService.SaveLogs(batchLogUUID, &p.deviceID, csvRows); err != nil {
+		return fleeterror.NewInternalErrorf("failed to save logs: %v", err)
+	}
 	return nil
+}
+
+const csvLogHeader = "Time,Type,Message"
+
+// logLevelSeparators maps the separator strings used in Proto miner log lines to their display label.
+// Format: "{prefix}: {timestamp} | LEVEL | {message}"
+var logLevelSeparators = []struct {
+	separator string
+	label     string
+}{
+	{" | ERROR | ", "ERROR"},
+	{" | WARN  | ", "WARN"},
+	{" | INFO  | ", "INFO"},
+	{" | DEBUG | ", "DEBUG"},
+}
+
+// formatLogsToCSV converts raw log lines into CSV rows matching the ProtoOS log viewer format.
+// Header row: Time,Type,Message
+// Data rows: {timestamp},{level},"{message}"
+func formatLogsToCSV(logLines []string) []string {
+	rows := make([]string, 0, len(logLines)+1)
+	rows = append(rows, csvLogHeader)
+	for _, line := range logLines {
+		rows = append(rows, formatLogLineToCSVRow(line))
+	}
+	return rows
+}
+
+// formatLogLineToCSVRow parses a single log line into a CSV row.
+// Handles two formats:
+//   - Proto miner syslog: "{prefix}: {timestamp} | LEVEL | {message}"
+//   - Antminer kernel log: "[timestamp] message"
+//
+// Matches the parsing logic in the ProtoOS frontend utility.ts formatLog function.
+func formatLogLineToCSVRow(line string) string {
+	for _, level := range logLevelSeparators {
+		idx := strings.Index(line, level.separator)
+		if idx < 0 {
+			continue
+		}
+		prefix := line[:idx]
+		message := line[idx+len(level.separator):]
+
+		// Extract timestamp from the part after the first ": " in the prefix.
+		// This matches TypeScript: info[0].split(": ")?.[1]
+		timestamp := ""
+		if parts := strings.SplitN(prefix, ": ", 2); len(parts) == 2 {
+			ts := parts[1]
+			// Strip milliseconds (everything from first "." onwards).
+			// Matches TypeScript: timestamp?.split(".")?.[0]
+			if dotIdx := strings.Index(ts, "."); dotIdx >= 0 {
+				ts = ts[:dotIdx]
+			}
+			timestamp = ts
+		}
+
+		escapedMessage := strings.ReplaceAll(message, `"`, `""`)
+		return fmt.Sprintf("%s,%s,\"%s\"", timestamp, level.label, escapedMessage)
+	}
+
+	// Try [timestamp] message format used by Antminer kernel logs,
+	// e.g. "[2026-01-01T00:00:00Z] message" or "[    0.000000] message".
+	// Only treat bracketed content as a timestamp when it contains at least one digit,
+	// which distinguishes real timestamps from keyword tokens like "[INFO]".
+	if strings.HasPrefix(line, "[") {
+		if closeBracket := strings.Index(line, "]"); closeBracket > 0 {
+			potentialTS := line[1:closeBracket]
+			if strings.ContainsAny(potentialTS, "0123456789") {
+				timestamp := strings.TrimSpace(potentialTS)
+				message := strings.TrimPrefix(line[closeBracket+1:], " ")
+				escapedMessage := strings.ReplaceAll(message, `"`, `""`)
+				return fmt.Sprintf("%s,,\"%s\"", timestamp, escapedMessage)
+			}
+		}
+	}
+
+	// No recognised log format: write the full line as the message with empty timestamp and type.
+	escapedLine := strings.ReplaceAll(line, `"`, `""`)
+	return fmt.Sprintf(",,\"%s\"", escapedLine)
 }
 
 // FirmwareUpdate implements interfaces.Miner
