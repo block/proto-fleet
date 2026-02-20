@@ -18,13 +18,16 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	poolspb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	telemetrypb "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -222,9 +225,8 @@ func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModel
 	return &pb.GetMinerModelGroupsResponse{Groups: pbGroups}, nil
 }
 
-
-// buildSnapshot builds a ListMinerStateSnapshotsResponse with metadata only (no telemetry)
-// This is the shared implementation used by ListMinerStateSnapshots and StreamMinerListUpdates
+// buildSnapshot builds a ListMinerStateSnapshotsResponse with metadata and telemetry data.
+// This is the shared implementation used by ListMinerStateSnapshots.
 func (s *Service) buildSnapshot(
 	ctx context.Context,
 	orgID int64,
@@ -244,6 +246,9 @@ func (s *Service) buildSnapshot(
 	if err != nil {
 		return nil, err
 	}
+
+	// Fetch telemetry data for paired devices
+	s.populateTelemetryData(ctx, snapshots)
 
 	var stateCounts *telemetrypb.MinerStateCounts
 	if shouldIncludeStateCounts(filter.PairingStatuses) {
@@ -347,6 +352,81 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	}
 
 	return snapshots, nextCursor, total, nil
+}
+
+// Unit conversion constants for telemetry data
+const (
+	// hashToTeraHashConversion converts H/s to TH/s (1 TH = 10^12 H)
+	hashToTeraHashConversion = 1e12
+	// wattsToKilowattsConversion converts W to kW
+	wattsToKilowattsConversion = 1000.0
+	// joulesPerHashToJoulesPerTeraHashConversion converts J/H to J/TH
+	joulesPerHashToJoulesPerTeraHashConversion = 1e12
+)
+
+// populateTelemetryData fetches telemetry data for paired devices and populates the snapshot fields.
+func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.MinerStateSnapshot) {
+	// Collect device IDs for paired devices only
+	var pairedDeviceIDs []mm.DeviceIdentifier
+	for _, snapshot := range snapshots {
+		if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
+			pairedDeviceIDs = append(pairedDeviceIDs, mm.DeviceIdentifier(snapshot.DeviceIdentifier))
+		}
+	}
+
+	if len(pairedDeviceIDs) == 0 {
+		return
+	}
+
+	// Fetch telemetry data
+	telemetryData, err := s.telemetry.GetLatestDeviceMetrics(ctx, pairedDeviceIDs)
+	if err != nil {
+		slog.Warn("failed to fetch telemetry data for snapshots", "error", err)
+		return
+	}
+
+	// Populate telemetry fields on snapshots
+	for _, snapshot := range snapshots {
+		metrics, ok := telemetryData[mm.DeviceIdentifier(snapshot.DeviceIdentifier)]
+		if !ok {
+			continue
+		}
+
+		snapshot.Timestamp = timestamppb.New(metrics.Timestamp)
+
+		if metrics.HashrateHS != nil {
+			snapshot.Hashrate = []*commonpb.Measurement{
+				convertToMeasurement(metrics.HashrateHS, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_TERAHASH_PER_SECOND, hashToTeraHashConversion),
+			}
+		}
+
+		if metrics.TempC != nil {
+			snapshot.Temperature = []*commonpb.Measurement{
+				convertToMeasurement(metrics.TempC, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_CELSIUS, 1.0),
+			}
+		}
+
+		if metrics.PowerW != nil {
+			snapshot.PowerUsage = []*commonpb.Measurement{
+				convertToMeasurement(metrics.PowerW, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_KILOWATT, wattsToKilowattsConversion),
+			}
+		}
+
+		if metrics.EfficiencyJH != nil {
+			snapshot.Efficiency = []*commonpb.Measurement{
+				convertToMeasurement(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashConversion),
+			}
+		}
+	}
+}
+
+// convertToMeasurement converts a MetricValue to a proto Measurement with unit conversion.
+func convertToMeasurement(metric *modelsV2.MetricValue, timestamp time.Time, unit commonpb.MeasurementUnit, divisor float64) *commonpb.Measurement {
+	return &commonpb.Measurement{
+		Timestamp: timestamppb.New(timestamp),
+		Value:     metric.Value / divisor,
+		Unit:      unit,
+	}
 }
 
 // shouldIncludeStateCounts determines if state counts should be fetched based on pairing status filter.

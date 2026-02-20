@@ -935,3 +935,9 @@ func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgI
 
 	return updateChan, unsubscribe, nil
 }
+
+// GetLatestDeviceMetrics retrieves the latest telemetry metrics for a batch of devices.
+// This is used by the fleet management service to populate telemetry data in list responses.
+func (s *TelemetryService) GetLatestDeviceMetrics(ctx context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
+	return s.telemetryDataStore.GetLatestDeviceMetricsBatch(ctx, deviceIDs)
+}
