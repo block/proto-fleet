@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	statusCacheTTL   = 5 * time.Second  // Cache status for 5 seconds
-	rpcPort          = 4028             // Default RPC port for Antminers
-	webPort          = 80               // Default web API port for Antminers
-	newDeviceTimeout = 10 * time.Second // Timeout for new device creation
-	blinkLEDDuration = 30 * time.Second // Duration to blink LED for identification
+	statusCacheTTL          = 5 * time.Second  // Cache status for 5 seconds
+	rpcPort                 = 4028             // Default RPC port for Antminers
+	webPort                 = 80               // Default web API port for Antminers
+	newDeviceTimeout        = 10 * time.Second // Timeout for new device creation
+	blinkLEDDuration        = 30 * time.Second // Duration to blink LED for identification
+	firmwareRefreshInterval = 5 * time.Minute
 
 	// Sensor metric constants
 	sensorTypeUptime = "uptime"
@@ -75,8 +76,10 @@ type Device struct {
 	// Status caching to reduce RPC calls
 	lastStatus   *sdk.DeviceMetrics
 	lastStatusAt time.Time
-	statusMutex  sync.RWMutex
+	statusMutex  sync.Mutex
 	statusTTL    time.Duration
+
+	lastFirmwareCheckAt time.Time
 }
 
 // New creates a new Antminer device instance.
@@ -86,6 +89,12 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 		deviceInfo:  deviceInfo,
 		credentials: credentials,
 		statusTTL:   statusCacheTTL,
+	}
+
+	// If firmware version is already known from pairing, start the refresh
+	// throttle from now so we don't immediately re-fetch what we already have.
+	if deviceInfo.FirmwareVersion != "" {
+		device.lastFirmwareCheckAt = time.Now()
 	}
 
 	client, err := clientFactory(deviceInfo.Host, rpcPort, webPort, deviceInfo.URLScheme)
@@ -123,6 +132,9 @@ func (d *Device) ID() string {
 
 // DescribeDevice implements the SDK Device interface.
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+
 	capabilities := sdk.Capabilities{
 		// Core capabilities
 		sdk.CapabilityPollingHost: true, // This device supports RPC status polling
@@ -170,13 +182,13 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 
 // Status implements the SDK Device interface.
 func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
-	d.statusMutex.RLock()
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+
 	if d.lastStatus != nil && time.Since(d.lastStatusAt) < d.statusTTL {
-		defer d.statusMutex.RUnlock()
 		slog.Debug("Returning cached status", "deviceID", d.id)
 		return *d.lastStatus, nil
 	}
-	d.statusMutex.RUnlock()
 
 	slog.Debug("Fetching fresh status from Antminer", "deviceID", d.id)
 
@@ -192,12 +204,34 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	status := d.convertStatus(minerStatus, telemetry)
 
-	d.statusMutex.Lock()
-	defer d.statusMutex.Unlock()
+	d.refreshFirmwareVersion(ctx, &status)
+
 	d.lastStatus = &status
 	d.lastStatusAt = time.Now()
 
 	return status, nil
+}
+
+// refreshFirmwareVersion periodically re-fetches firmware version from the device
+// to detect firmware updates. Throttled to avoid excessive API calls.
+func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) {
+	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+		return
+	}
+	d.lastFirmwareCheckAt = time.Now()
+	versionResp, err := d.client.GetVersion(ctx)
+	if err != nil {
+		slog.Debug("failed to get version during Status", "error", err)
+		return
+	}
+	if len(versionResp.Version) > 0 {
+		fw := versionResp.Version[0].BMMiner
+		if fw == "" {
+			fw = versionResp.Version[0].Miner
+		}
+		d.deviceInfo.FirmwareVersion = fw
+		metrics.FirmwareVersion = fw
+	}
 }
 
 // GetErrors returns all active and historical errors for the device.
@@ -289,10 +323,11 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 	}
 
 	metrics := sdk.DeviceMetrics{
-		DeviceID:     d.id,
-		Timestamp:    now,
-		Health:       health,
-		HealthReason: healthReason,
+		DeviceID:        d.id,
+		Timestamp:       now,
+		FirmwareVersion: d.deviceInfo.FirmwareVersion,
+		Health:          health,
+		HealthReason:    healthReason,
 	}
 
 	// Add telemetry data if available

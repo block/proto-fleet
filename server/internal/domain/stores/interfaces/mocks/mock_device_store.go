@@ -266,6 +266,20 @@ func (mr *MockDeviceStoreMockRecorder) UpdateDevicePairingStatusByIdentifier(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDevicePairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).UpdateDevicePairingStatusByIdentifier), ctx, deviceIdentifier, pairingStatus)
 }
 
+// UpdateFirmwareVersion mocks base method.
+func (m *MockDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, firmwareVersion string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateFirmwareVersion", ctx, deviceIdentifier, firmwareVersion)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateFirmwareVersion indicates an expected call of UpdateFirmwareVersion.
+func (mr *MockDeviceStoreMockRecorder) UpdateFirmwareVersion(ctx, deviceIdentifier, firmwareVersion interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFirmwareVersion", reflect.TypeOf((*MockDeviceStore)(nil).UpdateFirmwareVersion), ctx, deviceIdentifier, firmwareVersion)
+}
+
 // UpsertDevicePairing mocks base method.
 func (m *MockDeviceStore) UpsertDevicePairing(ctx context.Context, device *pairingv1.Device, orgID int64, pairingStatus string) error {
 	m.ctrl.T.Helper()

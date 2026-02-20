@@ -354,6 +354,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDevicePairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, updateDevicePairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDevicePairingStatusByIdentifier: %w", err)
 	}
+	if q.updateDiscoveredDeviceFirmwareVersionStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceFirmwareVersion); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceFirmwareVersion: %w", err)
+	}
 	if q.updateLastLoginStmt, err = db.PrepareContext(ctx, updateLastLogin); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateLastLogin: %w", err)
 	}
@@ -966,6 +969,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDevicePairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.updateDiscoveredDeviceFirmwareVersionStmt != nil {
+		if cerr := q.updateDiscoveredDeviceFirmwareVersionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDiscoveredDeviceFirmwareVersionStmt: %w", cerr)
+		}
+	}
 	if q.updateLastLoginStmt != nil {
 		if cerr := q.updateLastLoginStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateLastLoginStmt: %w", cerr)
@@ -1210,6 +1218,7 @@ type Queries struct {
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
 	updateDeviceInfoStmt                                *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
+	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
@@ -1345,6 +1354,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
 		updateDeviceInfoStmt:                                q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,
+		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,

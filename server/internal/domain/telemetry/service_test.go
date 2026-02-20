@@ -1718,3 +1718,77 @@ func TestService_GetCombinedMetrics_ReturnsRawValues(t *testing.T) {
 		})
 	}
 }
+
+func TestPersistFirmwareVersionIfChanged(t *testing.T) {
+	const deviceID = models.DeviceIdentifier("device-1")
+	const firmwareV1 = "1.2.3"
+	const firmwareV2 = "1.2.4"
+
+	t.Run("skips empty firmware version", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, "")
+	})
+
+	t.Run("persists new firmware version", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+	})
+
+	t.Run("skips when firmware version unchanged", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+
+		// First call persists
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		// Second call with same version should not call UpdateFirmwareVersion again
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+	})
+
+	t.Run("persists when firmware version changes", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(nil)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV2).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV2)
+	})
+
+	t.Run("does not cache on store error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(fmt.Errorf("db error"))
+		// Retry should call UpdateFirmwareVersion again since previous failed
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+	})
+}

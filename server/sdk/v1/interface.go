@@ -166,8 +166,9 @@ type SensorMetrics struct {
 // DeviceMetrics represents the complete telemetry snapshot for a mining device
 type DeviceMetrics struct {
 	// Identity
-	DeviceID  string
-	Timestamp time.Time
+	DeviceID        string
+	Timestamp       time.Time
+	FirmwareVersion string
 
 	// Device-level health
 	Health       HealthStatus

@@ -231,6 +231,9 @@ message DeviceMetrics {
   repeated ControlBoardMetrics control_board_metrics = 12;
   repeated FanMetrics fan_metrics = 13;
   repeated SensorMetrics sensor_metrics = 14;
+
+  // Firmware version reported by device during telemetry polling
+  string firmware_version = 15;
 }
 
 

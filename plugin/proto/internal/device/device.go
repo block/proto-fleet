@@ -37,6 +37,7 @@ const (
 	defaultStatusTTL          = 30 * time.Second
 	maxLogLines               = 10000
 	deviceVerificationTimeout = 10 * time.Second
+	firmwareRefreshInterval   = 5 * time.Minute
 
 	teraHashToHashConversion                   = 1e12
 	joulesPerTeraHashToJoulesPerHashConversion = 1e-12
@@ -55,6 +56,8 @@ type Device struct {
 	lastStatus   *sdk.DeviceMetrics
 	lastStatusAt time.Time
 	statusTTL    time.Duration
+
+	lastFirmwareCheckAt time.Time
 
 	mutex sync.Mutex
 }
@@ -89,6 +92,12 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 		client:     client,
 		statusTTL:  defaultStatusTTL,
 		mutex:      sync.Mutex{},
+	}
+
+	// If firmware version is already known from pairing, start the refresh
+	// throttle from now so we don't immediately re-fetch what we already have.
+	if deviceInfo.FirmwareVersion != "" {
+		device.lastFirmwareCheckAt = time.Now()
 	}
 
 	for _, opt := range opts {
@@ -147,6 +156,9 @@ func (d *Device) ID() string {
 // This method returns device information and capabilities.
 // It demonstrates how to report device-specific capabilities.
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
 	// Device capabilities may differ from driver capabilities
 	// For example, some devices might not support certain features
 	capabilities := sdk.Capabilities{
@@ -200,10 +212,30 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
+	d.refreshFirmwareVersion(ctx, &metrics)
+
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
 
 	return metrics, nil
+}
+
+// refreshFirmwareVersion periodically re-fetches firmware version from the device
+// to detect firmware updates. Throttled to avoid excessive API calls.
+func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) {
+	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+		return
+	}
+	d.lastFirmwareCheckAt = time.Now()
+	swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+	if err != nil {
+		slog.Debug("failed to get software info during Status", "error", err)
+		return
+	}
+	if swInfoResp.Msg.SwInfo != nil {
+		d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+		metrics.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+	}
 }
 
 // GetErrors returns all active and historical errors for the device.
@@ -232,10 +264,11 @@ func (d *Device) convertStatus(minerStatus *proto.Status, telemetryResp *proto.T
 	}
 
 	metrics := sdk.DeviceMetrics{
-		DeviceID:     d.id,
-		Timestamp:    now,
-		Health:       health,
-		HealthReason: healthReason,
+		DeviceID:        d.id,
+		Timestamp:       now,
+		FirmwareVersion: d.deviceInfo.FirmwareVersion,
+		Health:          health,
+		HealthReason:    healthReason,
 	}
 
 	if telemetryResp != nil {

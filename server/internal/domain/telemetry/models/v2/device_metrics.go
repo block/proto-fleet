@@ -15,6 +15,7 @@ type DeviceMetrics struct {
 	// not the database primary key (device.id BIGINT).
 	DeviceIdentifier string    `json:"device_identifier"`
 	Timestamp        time.Time `json:"timestamp"`
+	FirmwareVersion  string    `json:"firmware_version,omitempty"`
 
 	// Device-level health
 	Health       HealthStatus `json:"health"`

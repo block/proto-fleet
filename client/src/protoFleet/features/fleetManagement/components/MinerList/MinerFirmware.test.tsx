@@ -38,12 +38,12 @@ describe("MinerFirmware", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders placeholder when firmware version is empty string", () => {
+  it("renders empty cell when firmware version is empty string", () => {
     mockUseMinerFirmwareVersion.mockReturnValue("");
 
-    render(<MinerFirmware deviceIdentifier="test-device-4" />);
+    const { container } = render(<MinerFirmware deviceIdentifier="test-device-4" />);
 
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(container.querySelector("span")?.textContent).toBe("");
   });
 
   it("renders date-based version format", () => {

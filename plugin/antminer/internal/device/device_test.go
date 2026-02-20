@@ -29,12 +29,13 @@ const (
 // testDeviceInfo returns a standard DeviceInfo for testing
 func testDeviceInfo() sdk.DeviceInfo {
 	return sdk.DeviceInfo{
-		Host:         testHost,
-		Port:         80,
-		URLScheme:    "http",
-		Model:        testModel,
-		Manufacturer: testManufacturer,
-		Type:         sdk.DeviceTypeASIC,
+		Host:            testHost,
+		Port:            80,
+		URLScheme:       "http",
+		Model:           testModel,
+		Manufacturer:    testManufacturer,
+		Type:            sdk.DeviceTypeASIC,
+		FirmwareVersion: testFirmware,
 	}
 }
 

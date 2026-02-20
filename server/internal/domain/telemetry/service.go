@@ -124,10 +124,13 @@ const (
 	resultsChannelBuffer = 5000
 
 	// Batch limits
-	maxStatusBatchSize = 500 // Flush early if batch reaches this size
+	maxStatusBatchSize = 500
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second
+
+	// Context timeouts
+	shutdownFlushTimeout = 5 * time.Second
 )
 
 // measurementTypeMapping maps protobuf measurement types to internal types.
@@ -206,6 +209,7 @@ type TelemetryService struct {
 	// Used for change detection when broadcasting status updates. Using in-memory state
 	// avoids a race condition between reading old statuses and writing new ones.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
+	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
@@ -615,7 +619,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		case <-ctx.Done():
 			// Use a fresh context with timeout for final flush to ensure pending
 			// updates are written even after the parent context is cancelled.
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
 			flush(shutdownCtx)
 			cancel()
 			return
@@ -666,6 +670,23 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 	}
 }
 
+// persistFirmwareVersionIfChanged updates the discovered_device table when the
+// firmware version reported by the device differs from the last known value.
+func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, deviceID models.DeviceIdentifier, firmwareVersion string) {
+	if firmwareVersion == "" {
+		return
+	}
+	oldFW, _ := s.lastKnownFirmware.Load(deviceID)
+	if oldFW == firmwareVersion {
+		return
+	}
+	if err := s.deviceStore.UpdateFirmwareVersion(ctx, deviceID, firmwareVersion); err != nil {
+		slog.Error("failed to update firmware version", "device_id", deviceID, "error", err)
+		return
+	}
+	s.lastKnownFirmware.Store(deviceID, firmwareVersion)
+}
+
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
@@ -714,6 +735,8 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 				"device_id", device.ID,
 				"error", err)
 		}
+
+		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
 	}
 
 	if err := s.updateScheduler.AddDevices(ctx, models.Device{

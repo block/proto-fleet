@@ -213,6 +213,31 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 	return i, err
 }
 
+const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
+UPDATE discovered_device dd
+SET firmware_version = $2
+WHERE dd.device_identifier = $1
+  AND dd.deleted_at IS NULL
+  AND dd.firmware_version IS DISTINCT FROM $2
+  AND dd.org_id = (
+    SELECT d.org_id
+    FROM device d
+    WHERE d.device_identifier = $1
+      AND d.deleted_at IS NULL
+    LIMIT 1
+  )
+`
+
+type UpdateDiscoveredDeviceFirmwareVersionParams struct {
+	DeviceIdentifier string
+	FirmwareVersion  sql.NullString
+}
+
+func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error {
+	_, err := q.exec(ctx, q.updateDiscoveredDeviceFirmwareVersionStmt, updateDiscoveredDeviceFirmwareVersion, arg.DeviceIdentifier, arg.FirmwareVersion)
+	return err
+}
+
 const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :one
 INSERT INTO discovered_device (
     org_id,

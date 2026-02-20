@@ -11,6 +11,7 @@ func SDKDeviceMetricsToV2(sdkMetrics sdk.DeviceMetrics) modelsV2.DeviceMetrics {
 	return modelsV2.DeviceMetrics{
 		DeviceIdentifier: sdkMetrics.DeviceID,
 		Timestamp:        sdkMetrics.Timestamp,
+		FirmwareVersion:  sdkMetrics.FirmwareVersion,
 
 		Health:       mapHealthStatus(sdkMetrics.Health),
 		HealthReason: sdkMetrics.HealthReason,

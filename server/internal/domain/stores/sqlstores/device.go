@@ -819,3 +819,14 @@ func (s *SQLDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdenti
 		OrgID:             orgID,
 	})
 }
+
+func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
+	err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
+		DeviceIdentifier: string(deviceIdentifier),
+		FirmwareVersion:  sql.NullString{String: firmwareVersion, Valid: firmwareVersion != ""},
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
+	}
+	return nil
+}

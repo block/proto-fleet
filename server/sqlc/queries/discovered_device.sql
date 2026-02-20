@@ -83,3 +83,17 @@ WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL;
+
+-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
+UPDATE discovered_device dd
+SET firmware_version = $2
+WHERE dd.device_identifier = $1
+  AND dd.deleted_at IS NULL
+  AND dd.firmware_version IS DISTINCT FROM $2
+  AND dd.org_id = (
+    SELECT d.org_id
+    FROM device d
+    WHERE d.device_identifier = $1
+      AND d.deleted_at IS NULL
+    LIMIT 1
+  );
