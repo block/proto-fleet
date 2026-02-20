@@ -112,11 +112,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
       sort: MinerSortConfig | undefined,
       pageCursor?: string,
       fetchedPage?: number,
+      isRefresh: boolean = false,
     ) => {
       setIsLoading(true);
 
-      // Reset initial load flag when fetching page 0
-      if (!pageCursor) {
+      // Reset initial load flag when fetching page 0 (but not for polling refreshes)
+      if (!pageCursor && !isRefresh) {
         setHasInitialLoadCompleted(false);
       }
 
@@ -189,9 +190,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
       } finally {
         setIsLoading(false);
 
-        // Mark initial load as completed when fetching page 0 (success or error)
+        // Mark initial load as completed when fetching page 0 (but not for refreshes)
         // This ensures UI doesn't get stuck in permanent loading state on error
-        if (!pageCursor) {
+        if (!pageCursor && !isRefresh) {
           setHasInitialLoadCompleted(true);
         }
       }
@@ -288,7 +289,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const refreshCurrentPage = useCallback(() => {
     if (!isLoadingRef.current) {
       const currentCursor = cursorHistoryRef.current[currentPageRef.current];
-      fetchMinerListRef.current(filterRef.current, sortRef.current, currentCursor, currentPageRef.current);
+      fetchMinerListRef.current(filterRef.current, sortRef.current, currentCursor, currentPageRef.current, true);
     }
   }, []);
 
