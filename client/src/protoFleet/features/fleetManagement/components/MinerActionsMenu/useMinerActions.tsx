@@ -11,6 +11,15 @@ import {
 } from "./constants";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
+  DeleteMinersRequestSchema,
+  type DeleteMinersResponse,
+  DeviceIdentifierListSchema,
+  DeviceSelectorSchema,
+  type MinerListFilter,
+  MinerListFilterSchema,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
   CommandType,
@@ -25,8 +34,6 @@ import {
   StopMiningRequestSchema,
   StopMiningResponse,
   StreamCommandBatchUpdatesRequestSchema,
-  UnpairRequestSchema,
-  UnpairResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
@@ -56,7 +63,7 @@ import {
   Reboot,
   Speedometer,
   // Terminal, // TODO: Uncomment when Download Logs is implemented
-  Unpair,
+  Trash,
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -72,6 +79,8 @@ interface UseMinerActionsParams {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
+  /** Active UI filter — forwarded as device_filter when deleting in "all" mode */
+  currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
@@ -79,7 +88,7 @@ interface UseMinerActionsParams {
 /**
  * Metadata for actions that require capability checking.
  * Contains both the description for the unsupported miners modal and the proto CommandType.
- * Actions not in this map don't require capability checking (e.g., unpair).
+ * Actions not in this map don't require capability checking (e.g., delete).
  */
 const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: string; commandType: CommandType }>> = {
   [deviceActions.shutdown]: { description: "Sleep mode changes", commandType: CommandType.STOP_MINING },
@@ -117,10 +126,102 @@ const initialUnsupportedMinersState: UnsupportedMinersState = {
   supportedDeviceIdentifiers: [],
 };
 
+const protoMinerType = "proto";
+
+/**
+ * Determines if a Proto rig is reachable for ClearAuthKey.
+ * A device is reachable if it's not offline and has completed authentication (PAIRED).
+ */
+const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStatus): boolean =>
+  deviceStatus !== DeviceStatus.OFFLINE && pairingStatus === PairingStatus.PAIRED;
+
+/**
+ * Builds a contextual confirmation subtitle for the delete action based on the
+ * miner types and statuses in the selection (per RFC Option C).
+ *
+ * @param miners - the fleet miners record, passed explicitly for testability
+ */
+const hasActiveFilter = (filter?: MinerListFilter): boolean =>
+  filter !== undefined &&
+  (filter.deviceStatus.length > 0 || filter.errorComponentTypes.length > 0 || filter.models.length > 0);
+
+const buildDeleteConfirmationSubtitle = (
+  selectedMiners: MinerSelection[],
+  selectionMode: SelectionMode,
+  displayCount: number,
+  miners: Record<string, { type: string; deviceStatus: number; pairingStatus: number }>,
+  currentFilter?: MinerListFilter,
+): string => {
+  // In "all" mode we may not have full miner data loaded — use a generic message
+  if (selectionMode === "all") {
+    if (hasActiveFilter(currentFilter)) {
+      return `${displayCount} matching ${displayCount === 1 ? "miner" : "miners"} will be removed from your fleet. You can re-discover and pair them again later.`;
+    }
+    return `All ${displayCount} miners will be removed from your fleet. You can re-discover and pair them again later.`;
+  }
+
+  let protoReachableCount = 0;
+  let protoUnreachableCount = 0;
+  let thirdPartyCount = 0;
+
+  for (const { deviceIdentifier } of selectedMiners) {
+    const miner = miners[deviceIdentifier];
+    if (!miner) {
+      thirdPartyCount++;
+      continue;
+    }
+
+    if (miner.type === protoMinerType) {
+      if (isProtoReachable(miner.deviceStatus as DeviceStatus, miner.pairingStatus as PairingStatus)) {
+        protoReachableCount++;
+      } else {
+        protoUnreachableCount++;
+      }
+    } else {
+      thirdPartyCount++;
+    }
+  }
+
+  const isSingle = displayCount === 1;
+
+  // Single miner
+  if (isSingle) {
+    if (protoReachableCount === 1) {
+      return "This miner will be removed from your fleet and its auth key will be cleared.";
+    }
+    if (protoUnreachableCount === 1) {
+      return "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.";
+    }
+    return "This miner will be removed from your fleet and will stop sending telemetry data.";
+  }
+
+  // All same category
+  if (thirdPartyCount === 0 && protoUnreachableCount === 0) {
+    return "These miners will be removed from your fleet and their auth keys will be cleared.";
+  }
+  if (thirdPartyCount === 0 && protoReachableCount === 0) {
+    return "These miners will be removed from your fleet. They may need to be factory reset before re-pairing.";
+  }
+  if (protoReachableCount === 0 && protoUnreachableCount === 0) {
+    return "These miners will be removed from your fleet and will stop sending telemetry data.";
+  }
+
+  // Mixed — summarize with unreachable Proto warning
+  const parts: string[] = [];
+  parts.push(`${displayCount} miners will be removed from your fleet.`);
+  if (protoUnreachableCount > 0) {
+    parts.push(
+      `${protoUnreachableCount} Proto ${protoUnreachableCount === 1 ? "miner is" : "miners are"} unreachable and may need factory reset to re-pair.`,
+    );
+  }
+  return parts.join(" ");
+};
+
 export const useMinerActions = ({
   selectedMiners,
   selectionMode,
   totalCount,
+  currentFilter,
   onActionStart,
   onActionComplete,
 }: UseMinerActionsParams) => {
@@ -128,7 +229,7 @@ export const useMinerActions = ({
     startMining,
     stopMining,
     blinkLED,
-    unpair,
+    deleteMiners,
     reboot,
     streamCommandBatchUpdates,
     setPowerTarget,
@@ -152,6 +253,9 @@ export const useMinerActions = ({
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
+  // Read miners from store reactively so delete confirmation subtitle updates
+  const fleetMiners = useFleetStore((s) => s.fleet.miners);
+
   const [showAuthenticateFleetModal, setShowAuthenticateFleetModal] = useState(false);
   const [authenticationPurpose, setAuthenticationPurpose] = useState<"security" | "pool" | null>(null);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
@@ -171,6 +275,12 @@ export const useMinerActions = ({
 
   // Extract device identifiers for API calls
   const deviceIdentifiers = useMemo(() => selectedMiners.map((m) => m.deviceIdentifier), [selectedMiners]);
+
+  // Contextual subtitle for delete confirmation dialog (per RFC Option C)
+  const deleteConfirmationSubtitle = useMemo(
+    () => buildDeleteConfirmationSubtitle(selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter),
+    [selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter],
+  );
 
   // Create device selector based on selection mode (undefined when nothing selected)
   const deviceSelector = useMemo(
@@ -363,12 +473,8 @@ export const useMinerActions = ({
 
           waitForStatusChange();
         } else {
-          // Complete batch immediately for actions that don't change device state (blink, unpair, etc.)
+          // Complete batch immediately for actions that don't change device state (blink, etc.)
           completeBatchOperation(batchIdentifier);
-        }
-
-        if (action === deviceActions.unpair && successCount > 0) {
-          useFleetStore.getState().fleet.refetchMiners?.();
         }
       });
     },
@@ -571,21 +677,32 @@ export const useMinerActions = ({
           });
           break;
         }
-        case deviceActions.unpair: {
-          const unpairRequest = create(UnpairRequestSchema, {
-            deviceSelector: selectorToUse,
+        case deviceActions.delete: {
+          const deleteRequest = create(DeleteMinersRequestSchema, {
+            deviceSelector: create(DeviceSelectorSchema, {
+              selectionType:
+                selectionMode === "all"
+                  ? { case: "allDevices", value: currentFilter ?? create(MinerListFilterSchema) }
+                  : {
+                      case: "includeDevices",
+                      value: create(DeviceIdentifierListSchema, { deviceIdentifiers: deviceIdsToUse }),
+                    },
+            }),
           });
-          unpair({
-            unpairRequest: unpairRequest,
-            onSuccess: (value: UnpairResponse) => {
-              startBatchOperation({
-                batchIdentifier: value.batchIdentifier,
-                action: deviceActions.unpair,
-                deviceIdentifiers: deviceIdsToUse,
+          deleteMiners({
+            deleteMinersRequest: deleteRequest,
+            onSuccess: (value: DeleteMinersResponse) => {
+              updateToast(id, {
+                message: `${successMessages[deviceActions.delete]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
+                status: TOAST_STATUSES.success,
               });
-              handleSuccess(deviceActions.unpair, id, value.batchIdentifier);
+              useFleetStore.getState().fleet.refetchMiners?.();
+              onActionComplete?.();
             },
-            onError: handleError.bind(null, id),
+            onError: (error) => {
+              handleError(id, error);
+              onActionComplete?.();
+            },
           });
           break;
         }
@@ -620,14 +737,16 @@ export const useMinerActions = ({
       currentAction,
       onActionComplete,
       deviceSelector,
+      selectionMode,
       startMining,
       stopMining,
-      unpair,
+      deleteMiners,
       reboot,
       handleSuccess,
       handleError,
       startBatchOperation,
       deviceIdentifiers,
+      currentFilter,
     ],
   );
 
@@ -755,8 +874,8 @@ export const useMinerActions = ({
       }
     };
 
-    const handleUnpair = () => {
-      setCurrentAction(deviceActions.unpair);
+    const handleDelete = () => {
+      setCurrentAction(deviceActions.delete);
       onActionStart?.();
     };
 
@@ -988,19 +1107,19 @@ export const useMinerActions = ({
       //   requiresConfirmation: false,
       // },
       {
-        action: deviceActions.unpair,
-        title: "Unpair",
-        icon: <Unpair />,
-        actionHandler: handleUnpair,
+        action: deviceActions.delete,
+        title: "Delete",
+        icon: <Trash />,
+        actionHandler: handleDelete,
         requiresConfirmation: true,
         confirmation: {
-          title: `Unpair ${displayCount} ${displayCount === 1 ? "miner" : "miners"}?`,
-          subtitle: `${displayCount === 1 ? "This miner" : "These miners"} will be removed from your fleet and will stop sending telemetry data. You can re-pair ${displayCount === 1 ? "it" : "them"} later.`,
+          title: `Delete ${displayCount} ${displayCount === 1 ? "miner" : "miners"}?`,
+          subtitle: deleteConfirmationSubtitle,
           confirmAction: {
-            title: "Unpair",
+            title: "Delete",
             variant: variants.secondaryDanger,
           },
-          testId: "unpair-confirm-button",
+          testId: "delete-confirm-button",
         },
       },
     ] as BulkAction<SupportedAction>[];
@@ -1018,6 +1137,7 @@ export const useMinerActions = ({
     deviceIdentifiers,
     selectedMiners,
     fetchCoolingMode,
+    deleteConfirmationSubtitle,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)

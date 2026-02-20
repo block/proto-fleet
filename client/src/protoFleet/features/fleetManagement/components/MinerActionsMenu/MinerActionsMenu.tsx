@@ -5,6 +5,7 @@ import { performanceActions, settingsActions, SupportedAction } from "./constant
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { useMinerActions } from "./useMinerActions";
+import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -16,6 +17,8 @@ interface MinerActionsMenuProps {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
+  /** Active UI filter — forwarded for "all" mode delete */
+  currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
@@ -24,6 +27,7 @@ const MinerActionsMenu = ({
   selectedMiners,
   selectionMode,
   totalCount,
+  currentFilter,
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
@@ -61,6 +65,7 @@ const MinerActionsMenu = ({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
     totalCount,
+    currentFilter,
     onActionStart,
     onActionComplete,
   });

@@ -14,13 +14,6 @@ INSERT INTO device (
 )
 RETURNING id;
 
--- name: GetDeviceByIdentifier :one
-SELECT id, device_identifier
-FROM device
-WHERE device_identifier = $1
-    AND org_id = $2
-LIMIT 1;
-
 -- name: UpdateDeviceIPAssignment :exec
 -- PostgreSQL equivalent of UPDATE with INNER JOIN
 UPDATE discovered_device
@@ -123,24 +116,28 @@ LIMIT 1;
 SELECT id
 FROM device
 WHERE device_identifier = $1
+  AND deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device
 WHERE id = $1
+  AND deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device
-WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL;
 
 -- name: GetDeviceIDsWithIdentifiers :many
 -- Returns device IDs mapped to their identifiers for batch operations.
 SELECT id, device_identifier
 FROM device
-WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL;
 
 -- name: AllDevicesBelongToOrg :one
 -- Returns true if all provided device identifiers belong to the specified organization.
@@ -453,3 +450,25 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED';
+
+-- name: SoftDeleteDevices :execrows
+-- Soft-deletes devices by setting deleted_at timestamp.
+-- Returns the number of rows affected.
+UPDATE device SET deleted_at = NOW()
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
+-- Soft-deletes discovered_device records linked to the specified devices.
+UPDATE discovered_device dd SET deleted_at = NOW()
+FROM device d
+WHERE dd.id = d.discovered_device_id
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = sqlc.arg('org_id')
+  AND dd.deleted_at IS NULL;
+
+-- GetDeviceIdentifiersByOrgWithFilter is implemented as a dynamic query in
+-- sqlstores/device.go to reuse appendFilterSQL and ensure semantic parity with
+-- the list view's "needs attention" filter logic (ERROR status includes devices
+-- with open actionable errors).

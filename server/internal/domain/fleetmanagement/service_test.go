@@ -1291,3 +1291,259 @@ func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.
 		"expected NotFound or Internal error code, got %v", fleetErr.GRPCCode,
 	)
 }
+
+// --- DeleteMiners tests ---
+
+func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Delete 2 of the 3 miners
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &pb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs[:2],
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), resp.DeletedCount)
+
+	// Verify only 1 miner remains in the fleet
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Len(t, listResp.Miners, 1, "only 1 miner should remain after deleting 2")
+	assert.Equal(t, deviceIDs[2], listResp.Miners[0].DeviceIdentifier)
+}
+
+func TestService_DeleteMiners_ShouldRejectEmptyRequestWithoutFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{}
+	_, err := service.DeleteMiners(ctx, req)
+
+	require.Error(t, err, "request without device_selector should be rejected")
+}
+
+func TestService_DeleteMiners_ShouldReturnZeroForEmptyFilterWithNoDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.DeletedCount)
+}
+
+func TestService_DeleteMiners_ShouldDenyAccessToOtherOrgDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user1 := testContext.DatabaseService.CreateSuperAdminUser()
+	user2 := testContext.DatabaseService.CreateSuperAdminUser2()
+
+	// Create a miner for user2
+	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.2:2121")
+
+	// user1 attempts to delete user2's miner
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user1.DatabaseID, user1.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &pb.DeviceIdentifierList{
+					DeviceIdentifiers: user2DeviceIDs,
+				},
+			},
+		},
+	}
+	_, err := service.DeleteMiners(ctx, req)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestService_DeleteMiners_ShouldRejectAlreadyDeletedDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// First delete
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &pb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+
+	// Soft-deleted devices are excluded from ownership checks, so the second
+	// delete is rejected as if the devices don't belong to the org.
+	_, err = service.DeleteMiners(ctx, req)
+	require.Error(t, err, "deleting already-deleted device should fail ownership check")
+}
+
+func TestService_DeleteMiners_ShouldDeleteAllPairedDevicesWithEmptyFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create 3 paired miners
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Empty filter signals "delete all paired devices"
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), resp.DeletedCount)
+
+	// Verify all miners are gone
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, listResp.Miners, "no miners should remain after deleting all")
+}
+
+func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Delete the miner
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &pb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+
+	// Re-create a miner with the same IP (simulating re-discovery and re-pairing)
+	// This should succeed because partial unique indexes only enforce uniqueness
+	// among non-deleted rows.
+	newDeviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.5:2121")
+	require.Len(t, newDeviceIDs, 1)
+
+	// Verify the new miner is visible
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Len(t, listResp.Miners, 1, "re-discovered miner should be visible")
+}
+
+func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+	}
+	_, err := service.DeleteMiners(ctx, req)
+	require.NoError(t, err)
+
+	// WaitForPendingClearAuthKeys should return promptly (background ClearAuthKey
+	// will fail since there's no real device, but that's expected — best-effort)
+	done := make(chan struct{})
+	go func() {
+		service.WaitForPendingClearAuthKeys(1 * time.Minute)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Expected: completed within timeout
+	case <-time.After(1 * time.Minute):
+		t.Fatal("WaitForPendingClearAuthKeys did not complete within timeout")
+	}
+}

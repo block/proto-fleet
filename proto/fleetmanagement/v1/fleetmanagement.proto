@@ -43,6 +43,11 @@ service FleetManagementService {
   // Returns the cooling mode configuration from the miner
   // Used to pre-populate the cooling mode selection UI when editing a miner's settings
   rpc GetMinerCoolingMode(GetMinerCoolingModeRequest) returns (GetMinerCoolingModeResponse);
+
+  // Delete miners from the fleet by soft-deleting their database records.
+  // Immediately removes devices from the fleet and telemetry collection.
+  // Attempts best-effort ClearAuthKey on Proto rigs in the background.
+  rpc DeleteMiners(DeleteMinersRequest) returns (DeleteMinersResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -569,4 +574,31 @@ message GetMinerCoolingModeResponse {
   // UNSPECIFIED if the miner doesn't support cooling mode configuration
   // An RPC error is returned if the miner could not be queried
   common.v1.CoolingMode cooling_mode = 1;
+}
+
+// Selects devices for fleet management operations.
+// Follows the same oneof pattern as minercommand.v1.DeviceSelector.
+message DeviceSelector {
+  oneof selection_type {
+    // Select all paired devices, optionally filtered.
+    // An empty filter selects all paired devices in the org.
+    MinerListFilter all_devices = 1;
+    // Select specific devices by identifier.
+    DeviceIdentifierList include_devices = 2;
+  }
+}
+
+message DeviceIdentifierList {
+  repeated string device_identifiers = 1;
+}
+
+// Request to delete miners from the fleet.
+message DeleteMinersRequest {
+  DeviceSelector device_selector = 1;
+}
+
+// Response from deleting miners
+message DeleteMinersResponse {
+  // Number of devices successfully deleted
+  int32 deleted_count = 1;
 }

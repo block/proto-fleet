@@ -1,8 +1,12 @@
 import { useCallback, useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
-import { minerCommandClient } from "@/protoFleet/api/clients";
+import { fleetManagementClient, minerCommandClient } from "@/protoFleet/api/clients";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import {
+  type DeleteMinersRequest,
+  type DeleteMinersResponse,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   BlinkLEDRequest,
   BlinkLEDResponse,
@@ -26,8 +30,6 @@ import {
   StopMiningResponse,
   StreamCommandBatchUpdatesRequest,
   StreamCommandBatchUpdatesResponse,
-  UnpairRequest,
-  UnpairResponse,
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -51,9 +53,9 @@ interface StopMiningProps {
   onError?: (error: string) => void;
 }
 
-interface UnpairProps {
-  unpairRequest: UnpairRequest;
-  onSuccess: (value: UnpairResponse) => void;
+interface DeleteMinersProps {
+  deleteMinersRequest: DeleteMinersRequest;
+  onSuccess: (value: DeleteMinersResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -163,10 +165,10 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
-  const unpair = useCallback(
-    async ({ unpairRequest, onSuccess, onError }: UnpairProps) => {
-      await minerCommandClient
-        .unpair(unpairRequest)
+  const deleteMiners = useCallback(
+    async ({ deleteMinersRequest, onSuccess, onError }: DeleteMinersProps) => {
+      await fleetManagementClient
+        .deleteMiners(deleteMinersRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -341,7 +343,7 @@ const useMinerCommand = () => {
       blinkLED,
       startMining,
       stopMining,
-      unpair,
+      deleteMiners,
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
@@ -353,7 +355,7 @@ const useMinerCommand = () => {
       blinkLED,
       startMining,
       stopMining,
-      unpair,
+      deleteMiners,
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,

@@ -102,6 +102,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceByDeviceIdentifier(ctx, identifi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByDeviceIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceByDeviceIdentifier), ctx, identifier, orgID)
 }
 
+// GetDeviceIdentifiersByOrgWithFilter mocks base method.
+func (m *MockDeviceStore) GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceIdentifiersByOrgWithFilter", ctx, orgID, filter)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceIdentifiersByOrgWithFilter indicates an expected call of GetDeviceIdentifiersByOrgWithFilter.
+func (mr *MockDeviceStoreMockRecorder) GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceIdentifiersByOrgWithFilter", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceIdentifiersByOrgWithFilter), ctx, orgID, filter)
+}
+
 // GetDeviceStatusForDeviceIdentifiers mocks base method.
 func (m *MockDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models1.DeviceIdentifier) (map[models1.DeviceIdentifier]models.MinerStatus, error) {
 	m.ctrl.T.Helper()
@@ -236,6 +251,21 @@ func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int
 func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter, sortConfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
+}
+
+// SoftDeleteDevices mocks base method.
+func (m *MockDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SoftDeleteDevices", ctx, deviceIdentifiers, orgID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SoftDeleteDevices indicates an expected call of SoftDeleteDevices.
+func (mr *MockDeviceStoreMockRecorder) SoftDeleteDevices(ctx, deviceIdentifiers, orgID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteDevices", reflect.TypeOf((*MockDeviceStore)(nil).SoftDeleteDevices), ctx, deviceIdentifiers, orgID)
 }
 
 // UpdateDeviceInfo mocks base method.

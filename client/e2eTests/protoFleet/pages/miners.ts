@@ -173,12 +173,12 @@ export class MinersPage extends BasePage {
     await this.page.getByRole("button", { name: "Update cooling mode" }).click();
   }
 
-  async clickUnpairButton() {
-    await this.page.getByTestId("unpair-popover-button").click();
+  async clickDeleteButton() {
+    await this.page.getByTestId("delete-popover-button").click();
   }
 
-  async clickUnpairConfirm() {
-    await this.page.getByTestId("unpair-confirm-button").click();
+  async clickDeleteConfirm() {
+    await this.page.getByTestId("delete-confirm-button").click();
   }
 
   async validateUpdateInProgress() {

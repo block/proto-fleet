@@ -8,7 +8,11 @@ import minerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  type MinerListFilter,
+  MinerListFilterSchema,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -79,6 +83,8 @@ type MinerListProps = {
    * Comes from the API response.
    */
   availableModels?: string[];
+  /** Active server-side filter — forwarded for "all" mode delete */
+  currentFilter?: MinerListFilter;
 };
 
 // TODO: move this to state when we
@@ -113,6 +119,7 @@ const MinerList = ({
   currentSort,
   onSort,
   availableModels = [],
+  currentFilter,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -305,6 +312,7 @@ const MinerList = ({
                 onClearSelection={clearSelection}
                 selectionMode={selectionMode}
                 totalCount={totalSelectable}
+                currentFilter={currentFilter}
               />
             </div>
           )}

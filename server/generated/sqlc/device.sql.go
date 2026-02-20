@@ -326,35 +326,11 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 	return i, err
 }
 
-const getDeviceByIdentifier = `-- name: GetDeviceByIdentifier :one
-SELECT id, device_identifier
-FROM device
-WHERE device_identifier = $1
-    AND org_id = $2
-LIMIT 1
-`
-
-type GetDeviceByIdentifierParams struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-type GetDeviceByIdentifierRow struct {
-	ID               int64
-	DeviceIdentifier string
-}
-
-func (q *Queries) GetDeviceByIdentifier(ctx context.Context, arg GetDeviceByIdentifierParams) (GetDeviceByIdentifierRow, error) {
-	row := q.queryRow(ctx, q.getDeviceByIdentifierStmt, getDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
-	var i GetDeviceByIdentifierRow
-	err := row.Scan(&i.ID, &i.DeviceIdentifier)
-	return i, err
-}
-
 const getDeviceIDByDeviceIdentifier = `-- name: GetDeviceIDByDeviceIdentifier :one
 SELECT id
 FROM device
 WHERE device_identifier = $1
+  AND deleted_at IS NULL
 LIMIT 1
 `
 
@@ -369,6 +345,7 @@ const getDeviceIDsByDeviceIdentifiers = `-- name: GetDeviceIDsByDeviceIdentifier
 SELECT id
 FROM device
 WHERE device_identifier = ANY($1::text[])
+  AND deleted_at IS NULL
 `
 
 func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
@@ -398,6 +375,7 @@ const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
 SELECT id, device_identifier
 FROM device
 WHERE device_identifier = ANY($1::text[])
+  AND deleted_at IS NULL
 `
 
 type GetDeviceIDsWithIdentifiersRow struct {
@@ -433,6 +411,7 @@ const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device
 WHERE id = $1
+  AND deleted_at IS NULL
 LIMIT 1
 `
 
@@ -1001,6 +980,48 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 		return nil, err
 	}
 	return items, nil
+}
+
+const softDeleteDevices = `-- name: SoftDeleteDevices :execrows
+UPDATE device SET deleted_at = NOW()
+WHERE device_identifier = ANY($1::text[])
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type SoftDeleteDevicesParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Soft-deletes devices by setting deleted_at timestamp.
+// Returns the number of rows affected.
+func (q *Queries) SoftDeleteDevices(ctx context.Context, arg SoftDeleteDevicesParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteDevicesStmt, softDeleteDevices, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const softDeleteDiscoveredDevicesForDeletedDevices = `-- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
+UPDATE discovered_device dd SET deleted_at = NOW()
+FROM device d
+WHERE dd.id = d.discovered_device_id
+  AND d.device_identifier = ANY($1::text[])
+  AND d.org_id = $2
+  AND dd.deleted_at IS NULL
+`
+
+type SoftDeleteDiscoveredDevicesForDeletedDevicesParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Soft-deletes discovered_device records linked to the specified devices.
+func (q *Queries) SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error {
+	_, err := q.exec(ctx, q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, softDeleteDiscoveredDevicesForDeletedDevices, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	return err
 }
 
 const updateDeviceIPAssignment = `-- name: UpdateDeviceIPAssignment :exec

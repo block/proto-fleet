@@ -47,12 +47,12 @@ SELECT
     e.*,
     d.device_identifier
 FROM errors e
-JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id
+JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id AND d.deleted_at IS NULL
 WHERE e.error_id = $1 AND e.org_id = $2;
 
 -- name: GetDeviceIDByIdentifier :one
 -- Resolves device_identifier to internal device_id.
-SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2;
+SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2 AND deleted_at IS NULL;
 
 -- ============================================================================
 -- Query Errors (AND Filter Logic)
@@ -86,7 +86,7 @@ SELECT
     d.device_identifier,
     dd.model as device_type
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = sqlc.arg('org_id')
     -- Base filters (always AND)
@@ -114,7 +114,7 @@ LIMIT $1;
 -- Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 SELECT COUNT(*) as total
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('time_from')::timestamptz IS NULL OR e.last_seen_at >= sqlc.narg('time_from')::timestamptz)
@@ -141,7 +141,7 @@ SELECT
     d.device_identifier,
     MIN(e.severity) as worst_severity
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('time_from')::timestamptz IS NULL OR e.last_seen_at >= sqlc.narg('time_from')::timestamptz)
@@ -169,7 +169,7 @@ LIMIT $1;
 -- Counts distinct devices that have errors matching filter criteria.
 SELECT COUNT(DISTINCT e.device_id) as total
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('time_from')::timestamptz IS NULL OR e.last_seen_at >= sqlc.narg('time_from')::timestamptz)
@@ -198,7 +198,7 @@ SELECT
     e.component_id,
     MIN(e.severity) as worst_severity
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('time_from')::timestamptz IS NULL OR e.last_seen_at >= sqlc.narg('time_from')::timestamptz)
@@ -232,7 +232,7 @@ LIMIT $1;
 SELECT COUNT(*) as total FROM (
     SELECT DISTINCT e.device_id, e.component_type, e.component_id
     FROM errors e
-    JOIN device d ON e.device_id = d.id
+    JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
     JOIN discovered_device dd ON d.discovered_device_id = dd.id
     WHERE e.org_id = sqlc.arg('org_id')
         AND (sqlc.narg('time_from')::timestamptz IS NULL OR e.last_seen_at >= sqlc.narg('time_from')::timestamptz)

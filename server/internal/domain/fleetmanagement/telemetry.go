@@ -8,6 +8,7 @@ import (
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -35,6 +36,9 @@ type TelemetryCollector interface {
 	// This allows consumers to receive telemetry events without the conversion to protobuf responses
 	// eventTypes filters which event types to receive (empty means all types)
 	SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error)
+
+	// RemoveDevices removes devices from the telemetry scheduler so they are no longer polled
+	RemoveDevices(ctx context.Context, deviceID ...minerModels.DeviceIdentifier) error
 }
 
 // MockTelemetryCollector provides a mock implementation of TelemetryCollector for testing
@@ -184,6 +188,10 @@ func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context
 	}
 
 	return ch, unsubscribe, nil
+}
+
+func (m *MockTelemetryCollector) RemoveDevices(_ context.Context, _ ...minerModels.DeviceIdentifier) error {
+	return nil
 }
 
 func (m *MockTelemetryCollector) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error) {

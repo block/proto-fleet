@@ -76,7 +76,7 @@ beforeEach(async () => {
     blinkLED: vi.fn(),
     startMining: vi.fn(),
     stopMining: vi.fn(),
-    unpair: vi.fn(),
+    deleteMiners: vi.fn(),
     reboot: vi.fn(),
     updateMiningPools: vi.fn(),
     setPowerTarget: vi.fn(),

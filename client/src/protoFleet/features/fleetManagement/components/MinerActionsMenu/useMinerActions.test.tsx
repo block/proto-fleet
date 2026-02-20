@@ -1,10 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { create as createProto } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { deviceActions, performanceActions, settingsActions } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
@@ -25,7 +27,7 @@ const mockStreamCommandBatchUpdates = vi.fn((_params: any) => Promise.resolve())
 const mockStartMining = vi.fn();
 const mockStopMining = vi.fn();
 const mockBlinkLED = vi.fn();
-const mockUnpair = vi.fn();
+const mockDeleteMiners = vi.fn();
 const mockReboot = vi.fn();
 const mockSetPowerTarget = vi.fn();
 const mockSetCoolingMode = vi.fn();
@@ -48,7 +50,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     startMining: mockStartMining,
     stopMining: mockStopMining,
     blinkLED: mockBlinkLED,
-    unpair: mockUnpair,
+    deleteMiners: mockDeleteMiners,
     reboot: mockReboot,
     streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
     setPowerTarget: mockSetPowerTarget,
@@ -71,10 +73,14 @@ vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({
   }),
 }));
 
+const { mockUseFleetStore } = vi.hoisted(() => {
+  const fn: any = vi.fn();
+  fn.getState = vi.fn();
+  return { mockUseFleetStore: fn };
+});
+
 vi.mock("@/protoFleet/store", () => ({
-  useFleetStore: {
-    getState: vi.fn(),
-  },
+  useFleetStore: mockUseFleetStore,
   useStartBatchOperation: () => mockStartBatchOperation,
   useCompleteBatchOperation: () => mockCompleteBatchOperation,
   useRemoveDevicesFromBatch: () => mockRemoveDevicesFromBatch,
@@ -107,9 +113,14 @@ describe("useMinerActions", () => {
       })),
     );
 
-    // Setup mock implementations
-    const { useFleetStore } = vi.mocked(await import("@/protoFleet/store"));
-    useFleetStore.getState = vi.fn(() => store.getState());
+    // Setup mock implementations: support both selector calls and getState()
+    mockUseFleetStore.mockImplementation((selector: any) => {
+      if (typeof selector === "function") {
+        return selector(store.getState());
+      }
+      return store.getState();
+    });
+    mockUseFleetStore.getState = vi.fn(() => store.getState());
   });
 
   describe("Basic hook initialization", () => {
@@ -171,7 +182,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.blinkLEDs);
       expect(actions).toContain(deviceActions.reboot);
       expect(actions).toContain(deviceActions.shutdown);
-      expect(actions).toContain(deviceActions.unpair);
+      expect(actions).toContain(deviceActions.delete);
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
       expect(actions).toContain(settingsActions.coolingMode);
@@ -307,7 +318,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should set currentAction when unpair action handler is called", () => {
+    it("should set currentAction when delete action handler is called", () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -318,13 +329,13 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const unpairAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
 
       act(() => {
-        unpairAction?.actionHandler();
+        deleteAction?.actionHandler();
       });
 
-      expect(result.current.currentAction).toBe(deviceActions.unpair);
+      expect(result.current.currentAction).toBe(deviceActions.delete);
       expect(onActionStart).toHaveBeenCalled();
     });
 
@@ -723,9 +734,9 @@ describe("useMinerActions", () => {
       });
     });
 
-    it("should call unpair API when confirming unpair action", async () => {
-      mockUnpair.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ batchIdentifier: "batch-unpair" });
+    it("should call deleteMiners API with explicit device identifiers in subset mode", async () => {
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 1 });
       });
 
       const { result } = renderHook(() =>
@@ -735,22 +746,140 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const unpairAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
 
       act(() => {
-        unpairAction?.actionHandler();
+        deleteAction?.actionHandler();
       });
 
       await act(async () => {
         await result.current.handleConfirmation();
       });
 
-      expect(mockUnpair).toHaveBeenCalled();
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier: "batch-unpair",
-        action: deviceActions.unpair,
-        deviceIdentifiers: ["device-1"],
+      expect(mockDeleteMiners).toHaveBeenCalled();
+      const calledWith = mockDeleteMiners.mock.calls[0][0];
+      const selector = calledWith.deleteMinersRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("includeDevices");
+      expect(selector.selectionType.value.deviceIdentifiers).toEqual(["device-1"]);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Deleted 1 miner",
+          status: "success",
+        }),
+      );
+    });
+
+    it("should call deleteMiners API with allDevices selector and filter in 'all' mode", async () => {
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 10 });
       });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "all",
+          totalCount: 10,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+
+      act(() => {
+        deleteAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockDeleteMiners).toHaveBeenCalled();
+      const calledWith = mockDeleteMiners.mock.calls[0][0];
+      const selector = calledWith.deleteMinersRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
+      expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Deleted 10 miners",
+          status: "success",
+        }),
+      );
+    });
+
+    it("should send allDevices selector in 'all' mode when no active filter", async () => {
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 5 });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "all",
+          totalCount: 5,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+
+      act(() => {
+        deleteAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockDeleteMiners).toHaveBeenCalled();
+      const calledWith = mockDeleteMiners.mock.calls[0][0];
+      const selector = calledWith.deleteMinersRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
+      expect(selector.selectionType.value).toBeDefined();
+    });
+
+    it("should use includeDevices selector in subset mode even with active filter", async () => {
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 1 });
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+
+      act(() => {
+        deleteAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockDeleteMiners).toHaveBeenCalled();
+      const calledWith = mockDeleteMiners.mock.calls[0][0];
+      const selector = calledWith.deleteMinersRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("includeDevices");
+      expect(selector.selectionType.value.deviceIdentifiers).toEqual(["device-1"]);
     });
 
     it("should call reboot API when confirming reboot action", async () => {
@@ -1348,6 +1477,212 @@ describe("useMinerActions", () => {
 
       expect(result.current.unsupportedMinersInfo.show).toBe(false);
       expect(result.current.currentAction).toBe(deviceActions.reboot);
+    });
+  });
+
+  describe("Delete confirmation contextual subtitles", () => {
+    const setStoreMiners = (
+      miners: Array<{ id: string; type: string; deviceStatus: number; pairingStatus: number }>,
+    ) => {
+      const minerSnapshots = miners.map((m) => ({
+        deviceIdentifier: m.id,
+        type: m.type,
+        deviceStatus: m.deviceStatus,
+        pairingStatus: m.pairingStatus,
+        name: m.id,
+        macAddress: "",
+        serialNumber: "",
+        model: "",
+        manufacturer: "",
+        ipAddress: "",
+        url: "",
+        firmwareVersion: "",
+        powerUsage: [],
+        temperature: [],
+        hashrate: [],
+        efficiency: [],
+        temperatureStatus: 0,
+      }));
+      store.getState().fleet.setMiners(minerSnapshots);
+    };
+
+    it("should show auth-key-cleared message for single online paired Proto rig", () => {
+      setStoreMiners([
+        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "This miner will be removed from your fleet and its auth key will be cleared.",
+      );
+    });
+
+    it("should show unreachable warning for single offline Proto rig", () => {
+      setStoreMiners([
+        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.OFFLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
+      );
+    });
+
+    it("should show unreachable warning for single unauthenticated Proto rig", () => {
+      setStoreMiners([
+        {
+          id: "device-1",
+          type: "proto",
+          deviceStatus: DeviceStatus.ONLINE,
+          pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
+      );
+    });
+
+    it("should show telemetry-stop message for single 3rd-party miner", () => {
+      setStoreMiners([
+        { id: "device-1", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "This miner will be removed from your fleet and will stop sending telemetry data.",
+      );
+    });
+
+    it("should show auth-key-cleared message for multiple online paired Proto rigs", () => {
+      setStoreMiners([
+        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toBe(
+        "These miners will be removed from your fleet and their auth keys will be cleared.",
+      );
+    });
+
+    it("should show mixed warning when bulk deleting Proto rigs with some unreachable", () => {
+      setStoreMiners([
+        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-3", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.OFFLINE },
+            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toContain("3 miners will be removed");
+      expect(deleteAction?.confirmation?.subtitle).toContain("1 Proto miner is unreachable");
+      expect(deleteAction?.confirmation?.subtitle).toContain("factory reset");
+    });
+
+    it("should show generic message for 'all' selection mode", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1" }],
+          selectionMode: "all",
+          totalCount: 50,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toContain("All 50 miners");
+      expect(deleteAction?.confirmation?.subtitle).toContain("removed from your fleet");
+    });
+
+    it("should show 'matching' message for 'all' selection mode with active filter", () => {
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1" }],
+          selectionMode: "all",
+          totalCount: 12,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toContain("12 matching miners");
+      expect(deleteAction?.confirmation?.subtitle).toContain("removed from your fleet");
+      expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
+    });
+
+    it("should use correct plural for multiple unreachable Proto miners in mixed batch", () => {
+      setStoreMiners([
+        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-3", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.OFFLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.OFFLINE },
+            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      expect(deleteAction?.confirmation?.subtitle).toContain("2 Proto miners are unreachable");
     });
   });
 

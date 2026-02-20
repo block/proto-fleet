@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
@@ -53,6 +55,13 @@ const (
 	// - Preventing slow queries from holding DB connections during rapid user interactions
 	// - Being short enough that cancelled requests release connections quickly
 	defaultQueryTimeout = 5 * time.Second
+
+	// concurrentClearAuthKeyLimit bounds the number of parallel ClearAuthKey RPCs
+	// fired in the background after a delete operation
+	concurrentClearAuthKeyLimit = 20
+
+	// clearAuthKeyTimeout is the per-device timeout for best-effort ClearAuthKey calls
+	clearAuthKeyTimeout = 5 * time.Second
 )
 
 // constructWebViewURL builds a web view URL
@@ -89,6 +98,15 @@ type Service struct {
 	// to prevent connection exhaustion from rapid scrolling.
 	activeStreams   map[string]*activeStream
 	activeStreamsMu sync.Mutex
+
+	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
+	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
+	backgroundWg sync.WaitGroup
+
+	// clearAuthKeySem bounds the total number of concurrent ClearAuthKey RPCs
+	// across all delete operations. Shared at the service level so that multiple
+	// concurrent DeleteMiners calls don't exceed the limit.
+	clearAuthKeySem chan struct{}
 }
 
 // activeStream tracks an active streaming goroutine with its cancel function and unique ID.
@@ -116,6 +134,22 @@ func NewService(
 		capabilitiesProvider:  capabilitiesProvider,
 		poolStore:             poolStore,
 		activeStreams:         make(map[string]*activeStream),
+		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+	}
+}
+
+// WaitForPendingClearAuthKeys blocks until all background ClearAuthKey goroutines
+// complete or the timeout expires. Call during graceful server shutdown.
+func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		s.backgroundWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		slog.Warn("timed out waiting for pending ClearAuthKey operations during shutdown")
 	}
 }
 
@@ -1019,7 +1053,148 @@ func findMatchingFleetPoolID(url, username string, fleetPools []*poolspb.Pool) *
 	return nil
 }
 
+// DeleteMiners soft-deletes devices from the fleet and attempts best-effort ClearAuthKey on Proto devices.
+// The DB deletion always succeeds immediately. ClearAuthKey runs in background goroutines and
+// failures are logged but never surfaced to the caller.
+func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceIdentifiers, err := s.resolveDeleteDeviceIdentifiers(ctx, req, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(deviceIdentifiers) == 0 {
+		return &pb.DeleteMinersResponse{DeletedCount: 0}, nil
+	}
+
+	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
+	miners := s.collectProtoMinersForClearAuthKey(ctx, deviceIdentifiers)
+
+	// SoftDeleteDevices verifies ownership and deletes in a single transaction
+	// to prevent TOCTOU races between the check and the delete.
+	deletedCount, err := s.deviceStore.SoftDeleteDevices(ctx, deviceIdentifiers, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.telemetry.RemoveDevices(ctx, telemetryModels.ToDeviceIdentifiers(deviceIdentifiers)...); err != nil {
+		slog.Warn("failed to remove devices from telemetry scheduler", "error", err)
+	}
+
+	// Best-effort background ClearAuthKey for Proto rigs using a bounded worker pool.
+	// Workers are tracked by s.backgroundWg so the server can await completion
+	// during graceful shutdown via WaitForPendingClearAuthKeys.
+	// The shared semaphore limits total concurrent RPCs across all delete calls.
+	if len(miners) > 0 {
+		minerCh := make(chan minerInterfaces.Miner, len(miners))
+		for _, m := range miners {
+			minerCh <- m
+		}
+		close(minerCh)
+
+		numWorkers := min(len(miners), concurrentClearAuthKeyLimit)
+		for range numWorkers {
+			s.backgroundWg.Add(1)
+			go func() {
+				defer s.backgroundWg.Done()
+				for miner := range minerCh {
+					s.clearAuthKeySem <- struct{}{}
+
+					clearCtx, cancel := context.WithTimeout(context.Background(), clearAuthKeyTimeout)
+					err := miner.Unpair(clearCtx)
+					cancel()
+					if err != nil {
+						slog.Warn("best-effort ClearAuthKey failed", "deviceID", miner.GetID(), "error", err)
+					}
+
+					<-s.clearAuthKeySem
+				}
+			}()
+		}
+	}
+
+	cappedCount := min(deletedCount, math.MaxInt32)
+
+	// #nosec G115 -- Capped to math.MaxInt32 on the line above, safe for int32
+	return &pb.DeleteMinersResponse{DeletedCount: int32(cappedCount)}, nil
+}
+
+// resolveDeleteDeviceIdentifiers resolves the DeviceSelector into a list of device identifiers.
+// For include_devices, ownership is validated to prevent unauthorized miner lookups.
+// For all_devices, the query is inherently org-scoped.
+// SoftDeleteDevices re-checks ownership atomically to guard against TOCTOU races.
+func (s *Service) resolveDeleteDeviceIdentifiers(ctx context.Context, req *pb.DeleteMinersRequest, orgID int64) ([]string, error) {
+	if req.DeviceSelector == nil {
+		return nil, fleeterror.NewInvalidArgumentError("device_selector is required")
+	}
+
+	switch sel := req.DeviceSelector.SelectionType.(type) {
+	case *pb.DeviceSelector_IncludeDevices:
+		if sel.IncludeDevices == nil || len(sel.IncludeDevices.DeviceIdentifiers) == 0 {
+			return nil, fleeterror.NewInvalidArgumentError("include_devices requires at least one device identifier")
+		}
+		ids := deduplicateStrings(sel.IncludeDevices.DeviceIdentifiers)
+
+		// Validate ownership — prevents unauthorized miner lookups in
+		// collectProtoMinersForClearAuthKey (which doesn't filter by org).
+		allBelong, err := s.deviceStore.AllDevicesBelongToOrg(ctx, ids, orgID)
+		if err != nil {
+			return nil, err
+		}
+		if !allBelong {
+			return nil, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+		}
+		return ids, nil
+
+	case *pb.DeviceSelector_AllDevices:
+		filter, err := parseFilter(sel.AllDevices)
+		if err != nil {
+			return nil, err
+		}
+		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, filter)
+
+	default:
+		return nil, fleeterror.NewInvalidArgumentError("device_selector must specify a selection_type")
+	}
+}
+
+// collectProtoMinersForClearAuthKey collects Miner objects only for Proto rigs.
+// Per the RFC, ClearAuthKey is only attempted for Proto devices; 3rd-party miners
+// (Antminer, etc.) require no device communication on delete.
+func (s *Service) collectProtoMinersForClearAuthKey(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
+	var miners []minerInterfaces.Miner
+	for _, id := range deviceIdentifiers {
+		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
+		if err != nil {
+			slog.Debug("skipping ClearAuthKey for device", "deviceID", id, "error", err)
+			continue
+		}
+		if m.GetType() != mm.TypeProto {
+			continue
+		}
+		miners = append(miners, m)
+	}
+	return miners
+}
+
 // isMinerNotFoundError checks if an error from the miner service indicates the device was not found.
 func isMinerNotFoundError(err error) bool {
 	return fleeterror.IsNotFoundError(err)
+}
+
+func deduplicateStrings(s []string) []string {
+	seen := make(map[string]struct{}, len(s))
+	result := make([]string, 0, len(s))
+	for _, v := range s {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
 }

@@ -266,6 +266,7 @@ func start(config *Config) error {
 	}()
 
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore)
+	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 

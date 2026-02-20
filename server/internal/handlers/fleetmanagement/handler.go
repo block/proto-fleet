@@ -131,3 +131,12 @@ func (h *Handler) GetMinerCoolingMode(ctx context.Context, r *connect.Request[pb
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) DeleteMiners(ctx context.Context, r *connect.Request[pb.DeleteMinersRequest]) (*connect.Response[pb.DeleteMinersResponse], error) {
+	result, err := h.fleetMgmtSvc.DeleteMiners(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

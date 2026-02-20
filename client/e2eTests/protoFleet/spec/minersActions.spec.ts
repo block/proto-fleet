@@ -418,33 +418,28 @@ test.describe("Miners", () => {
     });
   });
 
-  test("UNPAIR a single miner", async ({ minersPage, commonSteps }) => {
+  test("DELETE a single miner", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
     let minerCount: number;
     let minerIp: string;
 
-    await test.step("Select a miner and unpair it", async () => {
+    await test.step("Select a miner and delete it", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.clickUnpairButton();
-      await minersPage.clickUnpairConfirm();
+      await minersPage.clickDeleteButton();
+      await minersPage.clickDeleteConfirm();
     });
 
-    await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
-    });
-
-    await test.step("Validate miner was unpaired", async () => {
+    await test.step("Validate miner was deleted", async () => {
       await minersPage.validateMinerNotPresent(minerIp);
       await minersPage.validateAmountOfMiners(minerCount - 1);
     });
   });
 
-  test("UNPAIR multiple miners", async ({ minersPage, commonSteps }) => {
+  test("DELETE multiple miners", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -453,7 +448,7 @@ test.describe("Miners", () => {
     let minerIp2: string;
     let minerIp3: string;
 
-    await test.step("Select multiple miners and unpair them", async () => {
+    await test.step("Select multiple miners and delete them", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
       minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
@@ -465,16 +460,11 @@ test.describe("Miners", () => {
       await minersPage.clickMinerCheckbox(minerIp3);
       await minersPage.validateActionBarMinerCount(3);
       await minersPage.clickActionsMenuButton();
-      await minersPage.clickUnpairButton();
-      await minersPage.clickUnpairConfirm();
+      await minersPage.clickDeleteButton();
+      await minersPage.clickDeleteConfirm();
     });
 
-    await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
-    });
-
-    await test.step("Validate miners were unpaired", async () => {
+    await test.step("Validate miners were deleted", async () => {
       await minersPage.validateMinerNotPresent(minerIp1);
       await minersPage.validateMinerNotPresent(minerIp2);
       await minersPage.validateMinerNotPresent(minerIp3);

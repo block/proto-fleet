@@ -46,7 +46,7 @@ const countComponentsWithErrors = `-- name: CountComponentsWithErrors :one
 SELECT COUNT(*) as total FROM (
     SELECT DISTINCT e.device_id, e.component_type, e.component_id
     FROM errors e
-    JOIN device d ON e.device_id = d.id
+    JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
     JOIN discovered_device dd ON d.discovered_device_id = dd.id
     WHERE e.org_id = $1
         AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
@@ -109,7 +109,7 @@ func (q *Queries) CountComponentsWithErrors(ctx context.Context, arg CountCompon
 const countDevicesWithErrors = `-- name: CountDevicesWithErrors :one
 SELECT COUNT(DISTINCT e.device_id) as total
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = $1
     AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
@@ -171,7 +171,7 @@ func (q *Queries) CountDevicesWithErrors(ctx context.Context, arg CountDevicesWi
 const countErrors = `-- name: CountErrors :one
 SELECT COUNT(*) as total
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = $1
     AND ($2::timestamptz IS NULL OR e.last_seen_at >= $2::timestamptz)
@@ -231,7 +231,7 @@ func (q *Queries) CountErrors(ctx context.Context, arg CountErrorsParams) (int64
 }
 
 const getDeviceIDByIdentifier = `-- name: GetDeviceIDByIdentifier :one
-SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2
+SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2 AND deleted_at IS NULL
 `
 
 type GetDeviceIDByIdentifierParams struct {
@@ -252,7 +252,7 @@ SELECT
     e.id, e.error_id, e.org_id, e.miner_error, e.severity, e.summary, e.impact, e.cause_summary, e.recommended_action, e.first_seen_at, e.last_seen_at, e.closed_at, e.device_id, e.component_id, e.component_type, e.vendor_code, e.firmware, e.extra, e.created_at, e.updated_at,
     d.device_identifier
 FROM errors e
-JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id
+JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id AND d.deleted_at IS NULL
 WHERE e.error_id = $1 AND e.org_id = $2
 `
 
@@ -473,7 +473,7 @@ SELECT
     e.component_id,
     MIN(e.severity) as worst_severity
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = $2
     AND ($3::timestamptz IS NULL OR e.last_seen_at >= $3::timestamptz)
@@ -599,7 +599,7 @@ SELECT
     d.device_identifier,
     MIN(e.severity) as worst_severity
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = $2
     AND ($3::timestamptz IS NULL OR e.last_seen_at >= $3::timestamptz)
@@ -727,7 +727,7 @@ SELECT
     d.device_identifier,
     dd.model as device_type
 FROM errors e
-JOIN device d ON e.device_id = d.id
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE e.org_id = $2
     -- Base filters (always AND)

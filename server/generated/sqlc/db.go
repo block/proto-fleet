@@ -117,9 +117,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceByIDStmt, err = db.PrepareContext(ctx, getDeviceByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByID: %w", err)
 	}
-	if q.getDeviceByIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByIdentifier); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceByIdentifier: %w", err)
-	}
 	if q.getDeviceIDByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceIDByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDByDeviceIdentifier: %w", err)
 	}
@@ -323,6 +320,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
+	}
+	if q.softDeleteDevicesStmt, err = db.PrepareContext(ctx, softDeleteDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteDevices: %w", err)
+	}
+	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, err = db.PrepareContext(ctx, softDeleteDiscoveredDevicesForDeletedDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteDiscoveredDevicesForDeletedDevices: %w", err)
 	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
@@ -572,11 +575,6 @@ func (q *Queries) Close() error {
 	if q.getDeviceByIDStmt != nil {
 		if cerr := q.getDeviceByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByIDStmt: %w", cerr)
-		}
-	}
-	if q.getDeviceByIdentifierStmt != nil {
-		if cerr := q.getDeviceByIdentifierStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceIDByDeviceIdentifierStmt != nil {
@@ -919,6 +917,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteDevicesStmt != nil {
+		if cerr := q.softDeleteDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteDevicesStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt != nil {
+		if cerr := q.softDeleteDiscoveredDevicesForDeletedDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteDiscoveredDevicesForDeletedDevicesStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -1139,7 +1147,6 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
-	getDeviceByIdentifierStmt                           *sql.Stmt
 	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
 	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
@@ -1208,6 +1215,8 @@ type Queries struct {
 	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
 	queryErrorsStmt                                     *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
+	softDeleteDevicesStmt                               *sql.Stmt
+	softDeleteDiscoveredDevicesForDeletedDevicesStmt    *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -1275,7 +1284,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:                           q.getDeviceByIdentifierStmt,
 		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
 		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
@@ -1344,6 +1352,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
 		queryErrorsStmt:                                     q.queryErrorsStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
+		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
+		softDeleteDiscoveredDevicesForDeletedDevicesStmt:    q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,

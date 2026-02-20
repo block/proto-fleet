@@ -83,7 +83,7 @@ const Fleet = () => {
 
   const { fetchBatchTelemetry, resetFetchedIds } = useBatchTelemetry();
 
-  // Reset telemetry cache when refetch completes (e.g., after unpair)
+  // Reset telemetry cache when refetch completes (e.g., after delete)
   const prevHasInitialLoadCompletedRef = useRef(hasInitialLoadCompleted);
   useEffect(() => {
     if (hasInitialLoadCompleted && !prevHasInitialLoadCompletedRef.current) {
@@ -209,6 +209,7 @@ const Fleet = () => {
           currentSort={currentSort}
           onSort={handleSort}
           availableModels={availableModels}
+          currentFilter={currentFilter}
         />
       </ErrorBoundary>
 

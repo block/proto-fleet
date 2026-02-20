@@ -20,6 +20,7 @@ import (
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -818,6 +819,97 @@ func (s *SQLDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdenti
 		DeviceIdentifiers: deviceIdentifiers,
 		OrgID:             orgID,
 	})
+}
+
+// SoftDeleteDevices verifies ownership and soft-deletes devices and their associated
+// discovered_device records in a single transaction to prevent TOCTOU races.
+// Returns a Forbidden error if any device does not belong to the specified org.
+func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+
+	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (int64, error) {
+		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
+			ExpectedCount:     len(deviceIdentifiers),
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to validate device ownership: %v", err)
+		}
+		if !allBelong {
+			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+		}
+
+		count, err := q.SoftDeleteDevices(ctx, sqlc.SoftDeleteDevicesParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to soft-delete devices: %v", err)
+		}
+
+		err = q.SoftDeleteDiscoveredDevicesForDeletedDevices(ctx, sqlc.SoftDeleteDiscoveredDevicesForDeletedDevicesParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to soft-delete discovered devices: %v", err)
+		}
+
+		return count, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return deletedCount, nil
+}
+
+// GetDeviceIdentifiersByOrgWithFilter returns paired device identifiers filtered by optional
+// status, model, and error component types. Uses appendFilterSQL (the same dynamic filter
+// logic as the list view) to ensure semantic parity — particularly for the "needs attention"
+// status filter that includes devices with open actionable errors.
+func (s *SQLDeviceStore) GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]string, error) {
+	fp := buildMinerFilterParams(filter)
+
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	sb.WriteString(`SELECT device.device_identifier
+FROM device
+JOIN discovered_device ON device.discovered_device_id = discovered_device.id
+JOIN device_pairing ON device.id = device_pairing.device_id
+LEFT JOIN device_status ON device.id = device_status.device_id
+WHERE device_pairing.pairing_status = 'PAIRED'
+    AND device.deleted_at IS NULL
+    AND device.org_id = $1
+    AND discovered_device.is_active = TRUE
+    AND discovered_device.deleted_at IS NULL`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	rows, err := s.conn.QueryContext(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get filtered device identifiers for org %d: %v", orgID, err)
+	}
+	defer rows.Close()
+
+	var identifiers []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to scan device identifier: %v", err)
+		}
+		identifiers = append(identifiers, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to iterate device identifiers: %v", err)
+	}
+
+	return identifiers, nil
 }
 
 func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
