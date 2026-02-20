@@ -10,12 +10,12 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.7.3"
+    "version": "1.7.6"
   },
   "servers": [
     {
-      "url": "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0",
-      "description": "SwaggerHub API Auto Mocking"
+      "url": "http://127.0.0.1:8080",
+      "description": "Simulator default instance, used in API contract testing against the spec"
     }
   ],
   "tags": [
@@ -706,6 +706,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MiningTargetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/mining/tuning": {
+      "put": {
+        "tags": [
+          "Mining"
+        ],
+        "description": "The mining tuning endpoint can be used to set a hashboard level optimization algorithm",
+        "operationId": "EditMiningTuning",
+        "requestBody": {
+          "description": "The tuning algorithm to run on the hashboards",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MiningTuningConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The mining tuning algorithm has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningTuningConfig"
                 }
               }
             }
@@ -2261,7 +2310,14 @@
             }
           },
           "500": {
-            "$ref": "#/components/responses/InternalServerError"
+            "description": "Internal server error while reading telemetry configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -2304,7 +2360,14 @@
             "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "$ref": "#/components/responses/InternalServerError"
+            "description": "Internal server error while setting telemetry configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2778,6 +2841,11 @@
             "type": "boolean",
             "description": "If enabled, will keep power evenly distributed across bays to balance power phases.",
             "example": false
+          },
+          "hash_on_disconnect": {
+            "type": "boolean",
+            "description": "If true, continue mining even when no valid pools are available. If false, stop mining when no valid pools are available.",
+            "example": false
           }
         }
       },
@@ -2808,8 +2876,35 @@
           "default_power_target_watts": {
             "type": "integer",
             "example": 2500
+          },
+          "hash_on_disconnect": {
+            "type": "boolean",
+            "description": "If true, continue mining even when no valid pools are available. If false, stop mining when no valid pools are available.",
+            "example": false
           }
         }
+      },
+      "MiningTuning": {
+        "type": "string",
+        "description": "The hashboard performance tuning algorithm",
+        "example": "None",
+        "enum": [
+          "None",
+          "VoltageImbalanceCompensation",
+          "Fuzzing"
+        ]
+      },
+      "MiningTuningConfig": {
+        "type": "object",
+        "description": "Mining tuning configuration for setting hashboard optimization algorithms",
+        "properties": {
+          "algorithm": {
+            "$ref": "#/components/schemas/MiningTuning"
+          }
+        },
+        "required": [
+          "algorithm"
+        ]
       },
       "Pool": {
         "description": "Mining pool configuration with connection details and priorities",
@@ -3015,7 +3110,7 @@
           },
           "hashrate_ghs": {
             "type": "number",
-            "description": "The current hash rate of the ASIC, measured in GH/s.",
+            "description": "The current hashrate of the ASIC, measured in GH/s.",
             "example": 300.05
           },
           "ideal_hashrate_ghs": {
@@ -3440,7 +3535,10 @@
             "example": 1704067200
           },
           "value": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "Value of data requested at the given datetime.",
             "example": 95.5
           }
@@ -3556,7 +3654,7 @@
           },
           "average_hashrate_ghs": {
             "type": "number",
-            "description": "The average hash rate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)",
+            "description": "The average hashrate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)",
             "example": 110000.2
           },
           "ideal_hashrate_ghs": {
@@ -3649,16 +3747,19 @@
           },
           "hashrate_ghs": {
             "type": "number",
-            "description": "The current hash rate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.",
+            "description": "The current hashrate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.",
             "example": 300.05
           },
           "ideal_hashrate_ghs": {
             "type": "number",
-            "description": "The expected hashrate is determined by the clock frequency of the all ASIC on the hash board, measured in GH/s.",
+            "description": "The expected hashrate is determined by the clock frequency of the all ASIC on the hashboard, measured in GH/s.",
             "example": 300.05
           },
           "efficiency_jth": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "The efficiency of the hashboard in joules per terahash.",
             "example": 40.05
           },
@@ -3780,7 +3881,8 @@
             "enum": [
               "BZM",
               "MC1",
-              "MC2"
+              "MC2",
+              "Mc3"
             ]
           },
           "mining_asic_count": {
@@ -4233,12 +4335,18 @@
             "example": 0.5
           },
           "avg": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "Average value in data.",
             "example": 50.5
           },
           "max": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "description": "Maximum value in data.",
             "example": 100.5
           }
@@ -4487,7 +4595,7 @@
       "PoolUrl": {
         "type": "string",
         "description": "The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.",
-        "example": "stratum+tcp://myuser.worker1:x@btc.pool.com:3333"
+        "example": "stratum+tcp://stratum.braiins.com:3333"
       },
       "PoolUsername": {
         "type": "string",
@@ -4930,7 +5038,10 @@
             "type": "array",
             "description": "Array of values at each time interval",
             "items": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             },
             "example": [
               95.00,

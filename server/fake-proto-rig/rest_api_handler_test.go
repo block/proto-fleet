@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
@@ -220,5 +221,177 @@ func TestCreatePools_InvalidURL_DoesNotClearExistingPools(t *testing.T) {
 	}
 	if pools[0].Url != "stratum+tcp://mine.ocean.xyz:3334" {
 		t.Fatalf("expected original pool url to remain, got %q", pools[0].Url)
+	}
+}
+
+func TestHandleMiningTarget_HashOnDisconnectOnly(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	// Only send hash_on_disconnect, no power target or performance mode
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/target",
+		strings.NewReader(`{"hash_on_disconnect":true}`))
+	h.handleMiningTarget(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp MiningTargetResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if !resp.HashOnDisconnect {
+		t.Fatal("expected hash_on_disconnect to be true")
+	}
+	if resp.PowerTargetWatts != defaultPowerTargetW {
+		t.Fatalf("expected power target to remain %d, got %d", defaultPowerTargetW, resp.PowerTargetWatts)
+	}
+	if resp.PerformanceMode != "MaximumHashrate" {
+		t.Fatalf("expected performance mode to remain MaximumHashrate, got %s", resp.PerformanceMode)
+	}
+}
+
+func TestHandleMiningTarget_PerformanceModeEfficiency(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/target",
+		strings.NewReader(`{"performance_mode":"Efficiency"}`))
+	h.handleMiningTarget(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp MiningTargetResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.PerformanceMode != "Efficiency" {
+		t.Fatalf("expected Efficiency, got %s", resp.PerformanceMode)
+	}
+}
+
+func TestHandleMiningTuning_ValidAlgorithm_PersistsToState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/tuning",
+		strings.NewReader(`{"algorithm":"VoltageImbalanceCompensation"}`))
+	h.handleMiningTuning(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp MiningTuningConfig
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.Algorithm != "VoltageImbalanceCompensation" {
+		t.Fatalf("expected VoltageImbalanceCompensation, got %s", resp.Algorithm)
+	}
+
+	state.mu.RLock()
+	algo := state.TuningAlgorithm
+	state.mu.RUnlock()
+	if algo != miner_command_api.TuningAlgorithm_VoltageImbalanceCompensation {
+		t.Fatalf("expected state to have VoltageImbalanceCompensation, got %v", algo)
+	}
+}
+
+func TestHandleMiningTuning_InvalidAlgorithm_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/tuning",
+		strings.NewReader(`{"algorithm":"InvalidAlgo"}`))
+	h.handleMiningTuning(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleMiningTuning_WrongMethod_Returns405(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mining/tuning", nil)
+	h.handleMiningTuning(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusMethodNotAllowed, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleMiningTarget_PowerTargetOutOfRange_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/target",
+		strings.NewReader(`{"power_target_watts":9999}`))
+	h.handleMiningTarget(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+
+	if state.PowerTargetW != defaultPowerTargetW {
+		t.Fatalf("expected power target to remain %d, got %d", defaultPowerTargetW, state.PowerTargetW)
+	}
+}
+
+func TestHandleMiningTarget_NegativePowerTarget_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/target",
+		strings.NewReader(`{"power_target_watts":-1}`))
+	h.handleMiningTarget(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.Error.Message != "power_target_watts must be positive" {
+		t.Fatalf("expected positive error message, got %q", resp.Error.Message)
+	}
+
+	if state.PowerTargetW != defaultPowerTargetW {
+		t.Fatalf("expected power target to remain %d, got %d", defaultPowerTargetW, state.PowerTargetW)
+	}
+}
+
+func TestHandleMiningTarget_InvalidPerformanceMode_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/mining/target",
+		strings.NewReader(`{"performance_mode":"Turbo"}`))
+	h.handleMiningTarget(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+
+	if state.PerformanceMode != miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE {
+		t.Fatal("expected performance mode to remain MaximumHashrate")
 	}
 }

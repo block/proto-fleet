@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
@@ -56,7 +57,7 @@ const (
 	defaultPoolDifficulty     = 1048576.0
 
 	// Software info
-	defaultFirmwareVersion = "1.2.3"
+	defaultFirmwareVersion = "1.7.6"
 	defaultSoftwareName    = "Proto Mining Firmware"
 
 	// Random variation percentage
@@ -81,11 +82,13 @@ type MinerState struct {
 	Onboarded bool
 
 	// Mining state
-	MiningState     miner_data_api.MiningState
-	CoolingMode     miner_data_api.CoolingMode
-	FanSpeedPct     uint32
-	PowerTargetW    uint32
-	PerformanceMode miner_data_api.PerformanceMode
+	MiningState      miner_data_api.MiningState
+	CoolingMode      miner_data_api.CoolingMode
+	FanSpeedPct      uint32
+	PowerTargetW     uint32
+	PerformanceMode  miner_data_api.PerformanceMode
+	HashOnDisconnect bool
+	TuningAlgorithm  miner_command_api.TuningAlgorithm
 
 	// Configured pools
 	Pools []*miner_data_api.Pool
@@ -372,13 +375,23 @@ func (s *MinerState) SetCoolingMode(mode miner_data_api.CoolingMode, speedPct *u
 	}
 }
 
-// SetPowerTarget updates the power target.
-func (s *MinerState) SetPowerTarget(powerW uint32, mode miner_data_api.PerformanceMode) {
+// SetPowerTarget updates the power target, performance mode, and optionally hash-on-disconnect.
+func (s *MinerState) SetPowerTarget(powerW uint32, mode miner_data_api.PerformanceMode, hashOnDisconnect *bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.PowerTargetW = powerW
 	s.PerformanceMode = mode
+	if hashOnDisconnect != nil {
+		s.HashOnDisconnect = *hashOnDisconnect
+	}
+}
+
+// SetTuningAlgorithm updates the performance tuning algorithm.
+func (s *MinerState) SetTuningAlgorithm(algo miner_command_api.TuningAlgorithm) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TuningAlgorithm = algo
 }
 
 // SetLocateActive sets the locate sequence active state.

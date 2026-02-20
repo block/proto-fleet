@@ -154,6 +154,8 @@ message PsuErrorStats {
     uint32 input_over_voltage_count = 15;
     uint32 input_under_voltage_count = 16;
     uint32 input_over_current_count = 17;
+    uint32 over_power_count = 18;
+    uint32 power_no_good_count = 19;
 }
 
 // --------------------
@@ -336,6 +338,8 @@ message RecoveryLimits {
     RecoveryLimitSetting psu_output_fault = 15;
     RecoveryLimitSetting asic_communication_error = 16;
     RecoveryLimitSetting asic_over_temp = 17;
+    RecoveryLimitSetting psu_other = 18;  // Bucket for other PSU errors (e.g., transient MFR register issues)
+    RecoveryLimitSetting psu_hardware_failure = 19;  // Hardware failures requiring shutdown (e.g., PFC/LLC circuit failures)
 }
 
 // This enum defines the types of recovery limits that can be set

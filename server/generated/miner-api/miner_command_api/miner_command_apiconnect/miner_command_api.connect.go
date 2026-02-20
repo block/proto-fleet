@@ -79,6 +79,9 @@ const (
 	// MinerCommandApiStopLocateSequenceProcedure is the fully-qualified name of the MinerCommandApi's
 	// StopLocateSequence RPC.
 	MinerCommandApiStopLocateSequenceProcedure = "/miner_command_api.MinerCommandApi/StopLocateSequence"
+	// MinerCommandApiSetPerformanceTuningAlgorithmProcedure is the fully-qualified name of the
+	// MinerCommandApi's SetPerformanceTuningAlgorithm RPC.
+	MinerCommandApiSetPerformanceTuningAlgorithmProcedure = "/miner_command_api.MinerCommandApi/SetPerformanceTuningAlgorithm"
 )
 
 // MinerCommandApiClient is a client for the miner_command_api.MinerCommandApi service.
@@ -92,6 +95,7 @@ type MinerCommandApiClient interface {
 	EditPool(context.Context, *connect.Request[miner_data_api.Pool]) (*connect.Response[miner_command_api.CommandResponse], error)
 	PlayLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetPerformanceTuningAlgorithm(context.Context, *connect.Request[miner_command_api.PerformanceTuningAlgorithmRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
 // NewMinerCommandApiClient constructs a client for the miner_command_api.MinerCommandApi service.
@@ -149,20 +153,26 @@ func NewMinerCommandApiClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+MinerCommandApiStopLocateSequenceProcedure,
 			opts...,
 		),
+		setPerformanceTuningAlgorithm: connect.NewClient[miner_command_api.PerformanceTuningAlgorithmRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerCommandApiSetPerformanceTuningAlgorithmProcedure,
+			opts...,
+		),
 	}
 }
 
 // minerCommandApiClient implements MinerCommandApiClient.
 type minerCommandApiClient struct {
-	startMining        *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
-	stopMining         *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
-	setPowerTarget     *connect.Client[miner_command_api.PowerTargetRequest, miner_data_api.PowerTargetResponse]
-	setCoolingMode     *connect.Client[miner_command_api.CoolingModeRequest, miner_data_api.CoolingModeResponse]
-	addPools           *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
-	removePools        *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
-	editPool           *connect.Client[miner_data_api.Pool, miner_command_api.CommandResponse]
-	playLocateSequence *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	stopLocateSequence *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	startMining                   *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
+	stopMining                    *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
+	setPowerTarget                *connect.Client[miner_command_api.PowerTargetRequest, miner_data_api.PowerTargetResponse]
+	setCoolingMode                *connect.Client[miner_command_api.CoolingModeRequest, miner_data_api.CoolingModeResponse]
+	addPools                      *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
+	removePools                   *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
+	editPool                      *connect.Client[miner_data_api.Pool, miner_command_api.CommandResponse]
+	playLocateSequence            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	stopLocateSequence            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	setPerformanceTuningAlgorithm *connect.Client[miner_command_api.PerformanceTuningAlgorithmRequest, miner_common_api.ApiResultResponse]
 }
 
 // StartMining calls miner_command_api.MinerCommandApi.StartMining.
@@ -210,6 +220,12 @@ func (c *minerCommandApiClient) StopLocateSequence(ctx context.Context, req *con
 	return c.stopLocateSequence.CallUnary(ctx, req)
 }
 
+// SetPerformanceTuningAlgorithm calls
+// miner_command_api.MinerCommandApi.SetPerformanceTuningAlgorithm.
+func (c *minerCommandApiClient) SetPerformanceTuningAlgorithm(ctx context.Context, req *connect.Request[miner_command_api.PerformanceTuningAlgorithmRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.setPerformanceTuningAlgorithm.CallUnary(ctx, req)
+}
+
 // MinerCommandApiHandler is an implementation of the miner_command_api.MinerCommandApi service.
 type MinerCommandApiHandler interface {
 	StartMining(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
@@ -221,6 +237,7 @@ type MinerCommandApiHandler interface {
 	EditPool(context.Context, *connect.Request[miner_data_api.Pool]) (*connect.Response[miner_command_api.CommandResponse], error)
 	PlayLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetPerformanceTuningAlgorithm(context.Context, *connect.Request[miner_command_api.PerformanceTuningAlgorithmRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
 // NewMinerCommandApiHandler builds an HTTP handler from the service implementation. It returns the
@@ -274,6 +291,11 @@ func NewMinerCommandApiHandler(svc MinerCommandApiHandler, opts ...connect.Handl
 		svc.StopLocateSequence,
 		opts...,
 	)
+	minerCommandApiSetPerformanceTuningAlgorithmHandler := connect.NewUnaryHandler(
+		MinerCommandApiSetPerformanceTuningAlgorithmProcedure,
+		svc.SetPerformanceTuningAlgorithm,
+		opts...,
+	)
 	return "/miner_command_api.MinerCommandApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerCommandApiStartMiningProcedure:
@@ -294,6 +316,8 @@ func NewMinerCommandApiHandler(svc MinerCommandApiHandler, opts ...connect.Handl
 			minerCommandApiPlayLocateSequenceHandler.ServeHTTP(w, r)
 		case MinerCommandApiStopLocateSequenceProcedure:
 			minerCommandApiStopLocateSequenceHandler.ServeHTTP(w, r)
+		case MinerCommandApiSetPerformanceTuningAlgorithmProcedure:
+			minerCommandApiSetPerformanceTuningAlgorithmHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -337,4 +361,8 @@ func (UnimplementedMinerCommandApiHandler) PlayLocateSequence(context.Context, *
 
 func (UnimplementedMinerCommandApiHandler) StopLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerCommandApi.StopLocateSequence is not implemented"))
+}
+
+func (UnimplementedMinerCommandApiHandler) SetPerformanceTuningAlgorithm(context.Context, *connect.Request[miner_command_api.PerformanceTuningAlgorithmRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerCommandApi.SetPerformanceTuningAlgorithm is not implemented"))
 }

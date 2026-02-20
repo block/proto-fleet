@@ -33,6 +33,7 @@ service MinerCommandApi {
     rpc EditPool(miner_data_api.Pool) returns (CommandResponse);
     rpc PlayLocateSequence(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
     rpc StopLocateSequence(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetPerformanceTuningAlgorithm(PerformanceTuningAlgorithmRequest) returns (miner_common_api.ApiResultResponse);
 }
 
 message CommandResponse {
@@ -44,6 +45,7 @@ message PowerTargetRequest {
     uint32 power_target_w = 1;
     miner_data_api.PerformanceMode performance_mode = 2;
     bool phase_balancing_enabled = 3;
+    optional bool hash_on_disconnect = 4;
 }
 
 message CoolingModeRequest {
@@ -53,4 +55,14 @@ message CoolingModeRequest {
 
 message PoolsRequest {
     repeated miner_data_api.Pool pools = 1;
+}
+
+enum TuningAlgorithm {
+    None = 0;
+    VoltageImbalanceCompensation = 1;
+    Fuzzing = 100;
+}
+
+message PerformanceTuningAlgorithmRequest {
+    TuningAlgorithm tuning_algorithm = 1;
 }

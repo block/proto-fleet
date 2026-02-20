@@ -136,6 +136,7 @@ func (h *DataApiHandler) GetPowerTarget(ctx context.Context, req *connect.Reques
 	h.state.mu.RLock()
 	powerTarget := h.state.PowerTargetW
 	perfMode := h.state.PerformanceMode
+	hashOnDisconnect := h.state.HashOnDisconnect
 	h.state.mu.RUnlock()
 
 	return connect.NewResponse(&miner_data_api.PowerTargetResponse{
@@ -146,6 +147,7 @@ func (h *DataApiHandler) GetPowerTarget(ctx context.Context, req *connect.Reques
 		PowerTargetMaxW:       defaultPowerTargetMax,
 		DefaultPowerTargetW:   defaultPowerTargetW,
 		PhaseBalancingEnabled: false,
+		HashOnDisconnect:      hashOnDisconnect,
 	}), nil
 }
 
@@ -557,6 +559,43 @@ func (h *DataApiHandler) generateASICTelemetry(miningState miner_data_api.Mining
 		HashrateThS:  hashrateValues,
 		TemperatureC: tempValues,
 	}
+}
+
+// GetAsicMetadata returns detailed ASIC metadata for all hashboards.
+func (h *DataApiHandler) GetAsicMetadata(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
+	hashboards := make([]*miner_data_api.HashboardAsicMetadata, 0, defaultHashboardCount)
+
+	for i := range defaultHashboardCount {
+		if h.state.IsHashboardMissing(i) {
+			continue
+		}
+
+		asics := make([]*miner_data_api.HashboardAsicMetadata_AsicMetadata, defaultASICCount)
+		for j := range defaultASICCount {
+			asics[j] = &miner_data_api.HashboardAsicMetadata_AsicMetadata{
+				LotId:          fmt.Sprintf("LOT-%04d", i),
+				WaferId:        fmt.Sprintf("W%02d", j%25),
+				DieX:           uint32(j % 10),
+				DieY:           uint32(j / 10),
+				BinningVersion: 1,
+				Binning:        3,
+				Valid:          true,
+				Grwvpl:         uint64(1000000 + i*1000 + j),
+			}
+		}
+
+		hashboards = append(hashboards, &miner_data_api.HashboardAsicMetadata{
+			SerialNumber: fmt.Sprintf("HB-%s-%d", h.state.SerialNumber, i),
+			HashboardId:  uint32(i),
+			Slot:         uint32(i),
+			AsicMetadata: asics,
+		})
+	}
+
+	return connect.NewResponse(&miner_data_api.GetAsicMetadataResponse{
+		Result:     miner_common_api.ApiResult_RESULT_SUCCESS,
+		Hashboards: hashboards,
+	}), nil
 }
 
 // generatePSUTelemetry creates PSU telemetry data.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
@@ -170,12 +171,19 @@ type MiningTargetResponse struct {
 	DefaultPowerTargetWatts int    `json:"default_power_target_watts"`
 	PerformanceMode         string `json:"performance_mode"`
 	BalanceBays             bool   `json:"balance_bays,omitempty"`
+	HashOnDisconnect        bool   `json:"hash_on_disconnect"`
 }
 
 // MiningTargetRequest is the request to set mining target
 type MiningTargetRequest struct {
-	PowerTargetWatts int    `json:"power_target_watts,omitempty"`
+	PowerTargetWatts *int   `json:"power_target_watts,omitempty"`
 	PerformanceMode  string `json:"performance_mode,omitempty"`
+	HashOnDisconnect *bool  `json:"hash_on_disconnect,omitempty"`
+}
+
+// MiningTuningConfig is the request/response for the mining tuning endpoint
+type MiningTuningConfig struct {
+	Algorithm string `json:"algorithm"`
 }
 
 // CoolingStatus contains cooling system status
@@ -462,6 +470,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Mining
 	mux.HandleFunc("/api/v1/mining", h.handleMining)
 	mux.HandleFunc("/api/v1/mining/target", h.handleMiningTarget)
+	mux.HandleFunc("/api/v1/mining/tuning", h.handleMiningTuning)
 	mux.HandleFunc("/api/v1/mining/start", h.handleMiningStart)
 	mux.HandleFunc("/api/v1/mining/stop", h.handleMiningStop)
 
@@ -1166,25 +1175,41 @@ func (h *RESTApiHandler) handleMining(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parsePerformanceMode maps an OpenAPI performance mode string to its protobuf enum.
+func parsePerformanceMode(s string) (miner_data_api.PerformanceMode, bool) {
+	switch s {
+	case "MaximumHashrate":
+		return miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE, true
+	case "Efficiency":
+		return miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, true
+	default:
+		return 0, false
+	}
+}
+
+func performanceModeToString(mode miner_data_api.PerformanceMode) string {
+	if mode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
+		return "Efficiency"
+	}
+	return "MaximumHashrate"
+}
+
 func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.state.mu.RLock()
 		powerTarget := h.state.PowerTargetW
 		perfMode := h.state.PerformanceMode
+		hashOnDisconnect := h.state.HashOnDisconnect
 		h.state.mu.RUnlock()
-
-		modeStr := "MaximumHashrate"
-		if perfMode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
-			modeStr = "Efficiency"
-		}
 
 		h.writeJSON(w, http.StatusOK, MiningTargetResponse{
 			PowerTargetWatts:        int(powerTarget),
 			PowerTargetMinWatts:     defaultPowerTargetMin,
 			PowerTargetMaxWatts:     defaultPowerTargetMax,
 			DefaultPowerTargetWatts: defaultPowerTargetW,
-			PerformanceMode:         modeStr,
+			PerformanceMode:         performanceModeToString(perfMode),
+			HashOnDisconnect:        hashOnDisconnect,
 		})
 
 	case http.MethodPut:
@@ -1194,33 +1219,61 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		perfMode := miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE
-		if strings.ToLower(req.PerformanceMode) == "maximumefficiency" {
-			perfMode = miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
+		// Validate power target when provided
+		if req.PowerTargetWatts != nil {
+			pw := *req.PowerTargetWatts
+			if pw <= 0 {
+				h.writeError(w, http.StatusUnprocessableEntity, "OUT_OF_RANGE", "power_target_watts must be positive")
+				return
+			}
+			if pw < defaultPowerTargetMin || pw > defaultPowerTargetMax {
+				h.writeError(w, http.StatusUnprocessableEntity, "OUT_OF_RANGE",
+					fmt.Sprintf("power_target_watts must be between %d and %d", defaultPowerTargetMin, defaultPowerTargetMax))
+				return
+			}
 		}
 
-		if req.PowerTargetWatts > 0 {
-			h.state.SetPowerTarget(uint32(req.PowerTargetWatts), perfMode)
+		// Validate and parse performance mode when provided
+		var perfMode miner_data_api.PerformanceMode
+		if req.PerformanceMode != "" {
+			var ok bool
+			perfMode, ok = parsePerformanceMode(req.PerformanceMode)
+			if !ok {
+				h.writeError(w, http.StatusUnprocessableEntity, "INVALID_PERFORMANCE_MODE",
+					fmt.Sprintf("Invalid performance_mode %q; expected MaximumHashrate or Efficiency", req.PerformanceMode))
+				return
+			}
 		}
+
+		// Read current values, apply only the fields that were provided, then persist
+		h.state.mu.RLock()
+		powerW := h.state.PowerTargetW
+		mode := h.state.PerformanceMode
+		h.state.mu.RUnlock()
+
+		if req.PowerTargetWatts != nil {
+			powerW = uint32(*req.PowerTargetWatts)
+		}
+		if req.PerformanceMode != "" {
+			mode = perfMode
+		}
+
+		h.state.SetPowerTarget(powerW, mode, req.HashOnDisconnect)
 
 		// Read back the updated values
 		h.state.mu.RLock()
 		updatedPowerTarget := h.state.PowerTargetW
 		updatedPerfMode := h.state.PerformanceMode
+		updatedHashOnDisconnect := h.state.HashOnDisconnect
 		h.state.mu.RUnlock()
 
-		updatedModeStr := "MaximumHashrate"
-		if updatedPerfMode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
-			updatedModeStr = "Efficiency"
-		}
-
-		// Return the full MiningTargetResponse (not just a message)
 		h.writeJSON(w, http.StatusOK, MiningTargetResponse{
 			PowerTargetWatts:        int(updatedPowerTarget),
 			PowerTargetMinWatts:     defaultPowerTargetMin,
 			PowerTargetMaxWatts:     defaultPowerTargetMax,
 			DefaultPowerTargetWatts: defaultPowerTargetW,
-			PerformanceMode:         updatedModeStr,
+			PerformanceMode:         performanceModeToString(updatedPerfMode),
+			HashOnDisconnect:        updatedHashOnDisconnect,
 		})
 
 	default:
@@ -1244,6 +1297,35 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 	}
 	h.state.SetMiningState(miner_data_api.MiningState_MINING_STATE_STOPPED)
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Mining stopped"})
+}
+
+func (h *RESTApiHandler) handleMiningTuning(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	var req MiningTuningConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	algorithmMap := map[string]miner_command_api.TuningAlgorithm{
+		"None":                         miner_command_api.TuningAlgorithm_None,
+		"VoltageImbalanceCompensation": miner_command_api.TuningAlgorithm_VoltageImbalanceCompensation,
+		"Fuzzing":                      miner_command_api.TuningAlgorithm_Fuzzing,
+	}
+	algo, ok := algorithmMap[req.Algorithm]
+	if !ok {
+		h.writeError(w, http.StatusUnprocessableEntity, "INVALID_ALGORITHM",
+			fmt.Sprintf("Invalid tuning algorithm %q; expected None, VoltageImbalanceCompensation, or Fuzzing", req.Algorithm))
+		return
+	}
+
+	h.state.SetTuningAlgorithm(algo)
+	log.Printf("Mining tuning set: %s (SN: %s)", req.Algorithm, h.state.SerialNumber)
+	h.writeJSON(w, http.StatusOK, MiningTuningConfig{Algorithm: req.Algorithm})
 }
 
 // Hardware handlers

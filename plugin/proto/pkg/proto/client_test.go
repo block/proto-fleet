@@ -803,6 +803,10 @@ func (m *mockDataClient) GetTelemetryValues(_ context.Context, _ *connect.Reques
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *mockDataClient) GetAsicMetadata(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 // TestGetStatusPoolStateOverride tests that the actual pool list is the source of truth
 // for determining NeedsMiningPool status, overriding the firmware-reported MiningState.
 func TestGetStatusPoolStateOverride(t *testing.T) {

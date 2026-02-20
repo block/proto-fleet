@@ -46,6 +46,7 @@ service MinerDataApi {
     rpc GetPsuStatusList(miner_common_api.EmptyRequest) returns (PsuStatusListResponse);
     rpc GetPsuInfoList(miner_common_api.EmptyRequest) returns (PsuInfoListResponse);
     rpc GetTelemetryValues(GetTelemetryValuesRequest) returns (GetTelemetryValuesResponse);
+    rpc GetAsicMetadata(miner_common_api.EmptyRequest) returns (GetAsicMetadataResponse);
 }
 
 // ---------------------------------------------------
@@ -325,7 +326,9 @@ message HashboardInfo {
         string image_hash = 3;
         miner_common_api.Build build = 4;
     }
+    // DEPRECATED: Use GetAsicMetadata RPC instead for detailed ASIC metadata
     message AsicBinInfo {
+        option deprecated = true;
         uint32 id = 1;
         uint32 version = 2;
     }
@@ -342,7 +345,8 @@ message HashboardInfo {
     uint32 usb_port = 11;
     string ec_logs_path = 12;
     uint32 slot = 13;
-    optional AsicBinInfo mining_asic_bin = 14;
+    // DEPRECATED: Use GetAsicMetadata RPC instead for detailed ASIC metadata
+    optional AsicBinInfo mining_asic_bin = 14 [deprecated = true];
 }
 
 message HashboardsInfoResponse {
@@ -450,6 +454,13 @@ message MiningStatus {
     MiningState state = 1;
 }
 
+message BayStatus {
+    MiningState state = 1;
+    uint32 power_target_watts = 2;
+    PerformanceMode mode = 3;
+    bool phase_balancing_enabled = 4;
+}
+
 enum PerformanceMode {
     PERFORMANCE_MODE_MAXIMUM_HASHRATE = 0;
     PERFORMANCE_MODE_EFFICIENCY = 1;
@@ -466,6 +477,8 @@ message PowerTargetResponse {
     uint32 default_power_target_w = 6;
 
     bool phase_balancing_enabled = 7;
+
+    bool hash_on_disconnect = 8;
 }
 
 message HashboardStatusRequest {
@@ -584,6 +597,34 @@ message ErrorFromDb {
 message ErrorsResponse {
     miner_common_api.ApiResult result = 1;
     repeated ErrorFromDb errors = 2;
+}
+
+// ---------------------------------------------------
+// ASIC Metadata API messages
+// ---------------------------------------------------
+
+message HashboardAsicMetadata {
+    // ASIC metadata structure (matches hashboard proto definition)
+    message AsicMetadata {
+        string lot_id = 1;
+        string wafer_id = 2;
+        uint32 die_x = 3;
+        uint32 die_y = 4;
+        uint32 binning_version = 5;
+        uint32 binning = 6;
+        bool valid = 7;
+        uint64 grwvpl = 8; // Manufacturer Part Number
+    }
+
+    string serial_number = 1;
+    uint32 hashboard_id = 2;
+    uint32 slot = 3;
+    repeated AsicMetadata asic_metadata = 4;
+}
+
+message GetAsicMetadataResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated HashboardAsicMetadata hashboards = 2;
 }
 
 // ---------------------------------------------------

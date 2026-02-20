@@ -81,8 +81,12 @@ func (h *CommandApiHandler) SetPowerTarget(ctx context.Context, req *connect.Req
 		}), nil
 	}
 
-	h.state.SetPowerTarget(powerTarget, perfMode)
+	h.state.SetPowerTarget(powerTarget, perfMode, req.Msg.HashOnDisconnect)
 	log.Printf("Power target set: %dW, mode: %v (SN: %s)", powerTarget, perfMode, h.state.SerialNumber)
+
+	h.state.mu.RLock()
+	hashOnDisconnect := h.state.HashOnDisconnect
+	h.state.mu.RUnlock()
 
 	return connect.NewResponse(&miner_data_api.PowerTargetResponse{
 		Result:                miner_common_api.ApiResult_RESULT_SUCCESS,
@@ -92,6 +96,7 @@ func (h *CommandApiHandler) SetPowerTarget(ctx context.Context, req *connect.Req
 		PowerTargetMaxW:       defaultPowerTargetMax,
 		DefaultPowerTargetW:   defaultPowerTargetW,
 		PhaseBalancingEnabled: req.Msg.PhaseBalancingEnabled,
+		HashOnDisconnect:      hashOnDisconnect,
 	}), nil
 }
 
@@ -247,6 +252,17 @@ func (h *CommandApiHandler) PlayLocateSequence(ctx context.Context, req *connect
 func (h *CommandApiHandler) StopLocateSequence(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	h.state.SetLocateActive(false)
 	log.Printf("Locate sequence stopped (SN: %s)", h.state.SerialNumber)
+
+	return connect.NewResponse(&miner_common_api.ApiResultResponse{
+		Result: miner_common_api.ApiResult_RESULT_SUCCESS,
+	}), nil
+}
+
+// SetPerformanceTuningAlgorithm sets the hashboard performance tuning algorithm.
+func (h *CommandApiHandler) SetPerformanceTuningAlgorithm(ctx context.Context, req *connect.Request[miner_command_api.PerformanceTuningAlgorithmRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	algo := req.Msg.TuningAlgorithm
+	h.state.SetTuningAlgorithm(algo)
+	log.Printf("Tuning algorithm set: %v (SN: %s)", algo, h.state.SerialNumber)
 
 	return connect.NewResponse(&miner_common_api.ApiResultResponse{
 		Result: miner_common_api.ApiResult_RESULT_SUCCESS,

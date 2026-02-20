@@ -35,8 +35,8 @@ enum PsuErrorCode {
     PSU_ERROR_CODE_GPIO_FAILURE = 14;           // PSU_EN GPIO control failure
     PSU_ERROR_CODE_UNDER_TEMPERATURE = 15;      // [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature below minimum threshold
     PSU_ERROR_CODE_RECOVERY = 16;               // PSU is in recovery mode
-    PSU_ERROR_CODE_POWER_NO_GOOD = 17;          // [PMBUS] (PMBUS_STATUS_WORD:PG)		    Power good signal not asserted
-    PSU_ERROR_CODE_PFC_FAILURE = 18;            // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure
+    PSU_ERROR_CODE_POWER_NO_GOOD = 17;          // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)	One of two internal PSU modules is not functioning properly (Chicony-specific)
+    PSU_ERROR_CODE_PFC_FAILURE = 18;            // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure (Chicony-specific)
     PSU_ERROR_CODE_NO_INPUT_VOLTAGE = 19;       // [PMBUS] (PMBUS_STATUS_INPUT)		      No input AC/DC voltage detected
 
     // Software detected errors
@@ -48,6 +48,7 @@ enum PsuErrorCode {
     PSU_ERROR_CODE_INPUT_OVER_VOLTAGE = 23;    // [PMBUS] (PMBUS_STATUS_INPUT)		      Input voltage exceeds safe threshold
     PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE = 24;   // [PMBUS] (PMBUS_STATUS_INPUT)		      Input voltage below minimum threshold
     PSU_ERROR_CODE_INPUT_OVER_CURRENT = 25;    // [PMBUS] (PMBUS_STATUS_INPUT)		      Input current exceeds safe threshold
+    PSU_ERROR_CODE_LLC_FAILURE = 26;           // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)   LLC circuit hardware failure (detected via Chicony vendor attributes)
 }
 
 message PsuError {
@@ -81,9 +82,10 @@ enum PsuFaultType {
   PSU_FAULT_TYPE_COMMS = 13;            // [PMBUS] (PMBUS_STATUS_CML)		        Communication with PSU lost
   PSU_FAULT_TYPE_GPIO_FAILURE = 14;     // GPIO control failure (non-PMBus)
   PSU_FAULT_TYPE_UNDER_TEMPERATURE = 15;// [PMBUS] (PMBUS_STATUS_TEMPERATURE)	  PSU temperature below minimum threshold
-  PSU_FAULT_TYPE_POWER_NO_GOOD = 16;    // [PMBUS] (PMBUS_STATUS_WORD:PG)		    Power good signal not asserted
-  PSU_FAULT_TYPE_PFC_FAILURE = 17;      // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure
+  PSU_FAULT_TYPE_POWER_NO_GOOD = 16;    // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)	One of two internal PSU modules is not functioning properly (Chicony-specific)
+  PSU_FAULT_TYPE_PFC_FAILURE = 17;      // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure (Chicony-specific)
   PSU_FAULT_TYPE_NO_INPUT_VOLTAGE = 18; // [PMBUS] (PMBUS_STATUS_INPUT)		      No input AC/DC voltage detected
+  PSU_FAULT_TYPE_LLC_FAILURE = 19;      // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  LLC circuit hardware failure (Chicony-specific)
 }
 
 enum PsuFaultLevel {
@@ -195,20 +197,26 @@ message PsuFanStatus {
 // - OFF -> ON_NOT_READY: PSU enabled, voltage ramping
 // - ON_NOT_READY -> ON_READY: Output voltage stable at target
 // - ON_READY -> OFF: PSU disabled
-// - ANY -> ERROR: PSU fault detected (connected but faulty)
+// - ANY (except FIRMWARE_UPDATING, DISCONNECTED) -> ERROR_RECOVERABLE: PSU fault detected (saves pre-error config)
+// - ERROR_RECOVERABLE -> RECOVERING: Attempting auto-recovery
+// - RECOVERING -> ERROR_RECOVERABLE: Always returns (whether success or failure)
+// - ERROR_RECOVERABLE -> ON_NOT_READY/OFF: Faults cleared (restores pre-error config)
+// - ERROR_RECOVERABLE -> ERROR_FATAL: Recovery limit exceeded
+// - ERROR_FATAL -> ERROR_RECOVERABLE: ResetRecoveryLimits command
 // - ANY -> DISCONNECTED: PSU physically unplugged
-// - ANY -> FIRMWARE_UPDATING: PSU in bootloader/update mode
+// - ANY (except DISCONNECTED) -> FIRMWARE_UPDATING: PSU in bootloader/update mode
 // - DISCONNECTED -> OFF: PSU reconnected
 // - FIRMWARE_UPDATING -> OFF: Update complete, PSU reconnected
 enum PsuControllerState {
   PSU_CONTROLLER_STATE_INIT = 0;
   PSU_CONTROLLER_STATE_OFF = 1;
-  PSU_CONTROLLER_STATE_ON_READY = 2;        // Output voltage ready and on
-  PSU_CONTROLLER_STATE_ON_NOT_READY = 3;    // Output voltage NOT ready/stable yet
-  PSU_CONTROLLER_STATE_ERROR = 4;           // Connected but has faults
+  PSU_CONTROLLER_STATE_ON_READY = 2;           // Output voltage ready and on
+  PSU_CONTROLLER_STATE_ON_NOT_READY = 3;       // Output voltage NOT ready/stable yet
+  PSU_CONTROLLER_STATE_ERROR_RECOVERABLE = 4;  // Connected but has faults, recovery possible
   PSU_CONTROLLER_STATE_RECOVERING = 5;
   PSU_CONTROLLER_STATE_FIRMWARE_UPDATING = 6;  // In bootloader/update mode
   PSU_CONTROLLER_STATE_DISCONNECTED = 7;       // Physically unplugged
+  PSU_CONTROLLER_STATE_ERROR_FATAL = 8;        // Recovery limit exceeded, requires reset or disconnect
 }
 
 // Publish on "psu.<id>.info".
@@ -231,7 +239,6 @@ message PsuStatusMsg {
   uint32 target_output_voltage_mv = 2;
   bool enable = 3;
   bool voltage_locked = 4; // When true, voltage changes are prevented while enabled
-  bool recovery_limit_reached = 5; // When true, PSU will remain in Error state due to exhausted recovery attempts
 }
 
 // publish on "psu.<id>.error"

@@ -93,6 +93,9 @@ const (
 	// MinerDataApiGetTelemetryValuesProcedure is the fully-qualified name of the MinerDataApi's
 	// GetTelemetryValues RPC.
 	MinerDataApiGetTelemetryValuesProcedure = "/miner_data_api.MinerDataApi/GetTelemetryValues"
+	// MinerDataApiGetAsicMetadataProcedure is the fully-qualified name of the MinerDataApi's
+	// GetAsicMetadata RPC.
+	MinerDataApiGetAsicMetadataProcedure = "/miner_data_api.MinerDataApi/GetAsicMetadata"
 )
 
 // MinerDataApiClient is a client for the miner_data_api.MinerDataApi service.
@@ -111,6 +114,7 @@ type MinerDataApiClient interface {
 	GetPsuStatusList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error)
 	GetPsuInfoList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuInfoListResponse], error)
 	GetTelemetryValues(context.Context, *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error)
+	GetAsicMetadata(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error)
 }
 
 // NewMinerDataApiClient constructs a client for the miner_data_api.MinerDataApi service. By
@@ -193,6 +197,11 @@ func NewMinerDataApiClient(httpClient connect.HTTPClient, baseURL string, opts .
 			baseURL+MinerDataApiGetTelemetryValuesProcedure,
 			opts...,
 		),
+		getAsicMetadata: connect.NewClient[miner_common_api.EmptyRequest, miner_data_api.GetAsicMetadataResponse](
+			httpClient,
+			baseURL+MinerDataApiGetAsicMetadataProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -212,6 +221,7 @@ type minerDataApiClient struct {
 	getPsuStatusList         *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuStatusListResponse]
 	getPsuInfoList           *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuInfoListResponse]
 	getTelemetryValues       *connect.Client[miner_data_api.GetTelemetryValuesRequest, miner_data_api.GetTelemetryValuesResponse]
+	getAsicMetadata          *connect.Client[miner_common_api.EmptyRequest, miner_data_api.GetAsicMetadataResponse]
 }
 
 // GetSoftwareInfo calls miner_data_api.MinerDataApi.GetSoftwareInfo.
@@ -284,6 +294,11 @@ func (c *minerDataApiClient) GetTelemetryValues(ctx context.Context, req *connec
 	return c.getTelemetryValues.CallUnary(ctx, req)
 }
 
+// GetAsicMetadata calls miner_data_api.MinerDataApi.GetAsicMetadata.
+func (c *minerDataApiClient) GetAsicMetadata(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
+	return c.getAsicMetadata.CallUnary(ctx, req)
+}
+
 // MinerDataApiHandler is an implementation of the miner_data_api.MinerDataApi service.
 type MinerDataApiHandler interface {
 	GetSoftwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error)
@@ -300,6 +315,7 @@ type MinerDataApiHandler interface {
 	GetPsuStatusList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error)
 	GetPsuInfoList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuInfoListResponse], error)
 	GetTelemetryValues(context.Context, *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error)
+	GetAsicMetadata(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error)
 }
 
 // NewMinerDataApiHandler builds an HTTP handler from the service implementation. It returns the
@@ -378,6 +394,11 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 		svc.GetTelemetryValues,
 		opts...,
 	)
+	minerDataApiGetAsicMetadataHandler := connect.NewUnaryHandler(
+		MinerDataApiGetAsicMetadataProcedure,
+		svc.GetAsicMetadata,
+		opts...,
+	)
 	return "/miner_data_api.MinerDataApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerDataApiGetSoftwareInfoProcedure:
@@ -408,6 +429,8 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 			minerDataApiGetPsuInfoListHandler.ServeHTTP(w, r)
 		case MinerDataApiGetTelemetryValuesProcedure:
 			minerDataApiGetTelemetryValuesHandler.ServeHTTP(w, r)
+		case MinerDataApiGetAsicMetadataProcedure:
+			minerDataApiGetAsicMetadataHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -471,4 +494,8 @@ func (UnimplementedMinerDataApiHandler) GetPsuInfoList(context.Context, *connect
 
 func (UnimplementedMinerDataApiHandler) GetTelemetryValues(context.Context, *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetTelemetryValues is not implemented"))
+}
+
+func (UnimplementedMinerDataApiHandler) GetAsicMetadata(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetAsicMetadata is not implemented"))
 }
