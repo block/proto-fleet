@@ -25,6 +25,4 @@ deployment-files/client/nginx.conf
 
 # proto-python-gen package artifacts
 packages/proto-python-gen/.venv/
-packages/proto-python-gen/tests/output/
-packages/proto-python-gen/demo/output/
-packages/proto-python-gen/*.tar.gz
+packages/proto-python-gen/tests/output*/

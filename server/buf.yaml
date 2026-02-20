@@ -8,3 +8,5 @@ breaking:
 modules:
   - path: miner-protos
   - path: sdk/v1
+    excludes:
+      - sdk/v1/python

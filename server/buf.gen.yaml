@@ -20,6 +20,20 @@ plugins:
     opt: module=github.com/btc-mining/proto-fleet/server/sdk/v1/pb
     types:
       - sdk.v1
+  - protoc_builtin: python
+    out: sdk/v1/python/proto_fleet_sdk/generated
+    types:
+      - sdk.v1
+  - protoc_builtin: pyi
+    out: sdk/v1/python/proto_fleet_sdk/generated
+    types:
+      - sdk.v1
+  - local: protoc-gen-python-grpc
+    out: sdk/v1/python/proto_fleet_sdk/generated
+    opt:
+      - import_prefix=proto_fleet_sdk.generated
+    types:
+      - sdk.v1
 managed:
   enabled: true
   override:

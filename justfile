@@ -1,7 +1,12 @@
 default: 
   just --list
 
-init: _server-init _client-init
+init: _server-init _client-init _python-gen-init
+
+# Set up proto-python-gen venv so protoc-gen-python-grpc is available for code generation
+[working-directory: 'packages/proto-python-gen']
+_python-gen-init:
+  just setup
 
 # Build plugin binaries for local development
 build-plugins:

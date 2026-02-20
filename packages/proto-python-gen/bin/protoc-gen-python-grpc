@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# protoc-gen-python-grpc — Protoc plugin wrapper for Python gRPC stub generation.
+#
+# This script locates the package's Python venv and delegates to the plugin module.
+# It follows the protoc plugin protocol: reads CodeGeneratorRequest from stdin,
+# writes CodeGeneratorResponse to stdout.
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACKAGE_ROOT="${PROTO_PYTHON_GEN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+VENV_DIR="${PROTO_PYTHON_GEN_VENV:-${PACKAGE_ROOT}/.venv}"
+PYTHON="${VENV_DIR}/bin/python"
+
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "Error: Python venv not found at ${VENV_DIR}" >&2
+  echo "Run 'just setup' in ${PACKAGE_ROOT} first." >&2
+  exit 1
+fi
+
+exec "${PYTHON}" "${PACKAGE_ROOT}/protoc_gen_python_grpc.py" "$@"

@@ -1,0 +1,10 @@
+version: v2
+plugins:
+  - protoc_builtin: python
+    out: .
+  - protoc_builtin: pyi
+    out: .
+  - local: protoc-gen-python-grpc
+    out: .
+    opt:
+      - import_prefix=my_pkg.generated

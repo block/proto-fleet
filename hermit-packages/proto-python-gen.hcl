@@ -1,18 +1,18 @@
-description = "Python gRPC code generation with Buf"
-binaries = ["buf-gen-python"]
-test = "buf-gen-python --help"
+description = "Python gRPC protoc plugin for use with Buf"
+binaries = ["bin/protoc-gen-python-grpc"]
+test = "protoc-gen-python-grpc --help"
 
 on "unpack" {
   run {
-    cmd = "bash"
+    cmd = "/bin/bash"
     args = ["${root}/setup.sh"]
   }
   run {
-    cmd = "chmod"
-    args = ["+x", "${root}/bin/buf-gen-python"]
+    cmd = "/bin/chmod"
+    args = ["+x", "${root}/bin/protoc-gen-python-grpc"]
   }
 }
 
-version "0.1.0" {
-  source = "file://${env.HERMIT_ENV}/packages/proto-python-gen/proto-python-gen-${version}.tar.gz"
+version "0.2.0" {
+  source = "file://${HERMIT_ENV}/packages/proto-python-gen/proto-python-gen-${version}.tar.gz"
 }
