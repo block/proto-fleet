@@ -7,15 +7,14 @@
 package miner_error_code
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	miner_fan_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
 	miner_hb_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_hb_api"
 	miner_psu_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_psu_api"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
