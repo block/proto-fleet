@@ -27,7 +27,7 @@ import { useCleanupStaleBatches, useNotifyPairingCompleted } from "@/protoFleet/
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
-const POLL_INTERVAL_MS = Number(import.meta.env.VITE_MINER_LIST_POLL_INTERVAL_MS) || 60000;
+export const POLL_INTERVAL_MS = Number(import.meta.env.VITE_MINER_LIST_POLL_INTERVAL_MS) || 60000;
 
 // Stable reference to prevent re-renders
 const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
@@ -104,12 +104,12 @@ const Fleet = () => {
     enabled: hasInitialLoadCompleted && minerIds.length > 0,
   });
 
-  // Cleanup stale batch operations every minute
+  // Cleanup stale batch operations at the same interval as polling
   const cleanupStaleBatches = useCleanupStaleBatches();
   useEffect(() => {
     const interval = setInterval(() => {
       cleanupStaleBatches();
-    }, 60000);
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [cleanupStaleBatches]);
 
