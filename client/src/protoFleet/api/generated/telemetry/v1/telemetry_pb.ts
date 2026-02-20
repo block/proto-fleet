@@ -14,17 +14,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file telemetry/v1/telemetry.proto.
  */
-export const file_telemetry_v1_telemetry: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "Chx0ZWxlbWV0cnkvdjEvdGVsZW1ldHJ5LnByb3RvEgx0ZWxlbWV0cnkudjEiagoORGV2aWNlU2VsZWN0b3ISFQoLYWxsX2RldmljZXMYASABKAhIABIvCgtkZXZpY2VfbGlzdBgCIAEoCzIYLnRlbGVtZXRyeS52MS5EZXZpY2VMaXN0SABCEAoOc2VsZWN0b3JfdmFsdWUiIAoKRGV2aWNlTGlzdBISCgpkZXZpY2VfaWRzGAEgAygJIpgBChZUZW1wZXJhdHVyZVN0YXR1c0NvdW50Ei0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY29sZF9jb3VudBgCIAEoBRIQCghva19jb3VudBgDIAEoBRIRCglob3RfY291bnQYBCABKAUSFgoOY3JpdGljYWxfY291bnQYBSABKAUidAoRVXB0aW1lU3RhdHVzQ291bnQSLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhkKEW5vdF9oYXNoaW5nX2NvdW50GAMgASgFIo8BCglUaW1lUmFuZ2USMwoKc3RhcnRfdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIxCghlbmRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBAUINCgtfc3RhcnRfdGltZUILCglfZW5kX3RpbWUipQIKDVRlbGVtZXRyeURhdGESEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEigKBHVuaXQYBCABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0Ei0KCXRpbWVzdGFtcBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoEdGFncxgGIAMoCzIlLnRlbGVtZXRyeS52MS5UZWxlbWV0cnlEYXRhLlRhZ3NFbnRyeRorCglUYWdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLIAgoORGV2aWNlTWV0YWRhdGESEQoJZGV2aWNlX2lkGAEgASgJEhgKC2RldmljZV90eXBlGAIgASgJSACIAQESLQoJbGFzdF9zZWVuGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBItCgZzdGF0dXMYBCABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzEhUKCGxvY2F0aW9uGAUgASgJSAGIAQESNAoEdGFncxgGIAMoCzImLnRlbGVtZXRyeS52MS5EZXZpY2VNZXRhZGF0YS5UYWdzRW50cnkSFAoMY2FwYWJpbGl0aWVzGAcgAygJGisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg4KDF9kZXZpY2VfdHlwZUILCglfbG9jYXRpb24i1AIKE0FnZ3JlZ2F0ZWRUZWxlbWV0cnkSEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYBCABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEhMKC2RhdGFfcG9pbnRzGAUgASgFEiwKC3RpbWVfd2luZG93GAYgASgLMhcudGVsZW1ldHJ5LnYxLlRpbWVSYW5nZRI5CgR0YWdzGAcgAygLMisudGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0ZWRUZWxlbWV0cnkuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIm4KEE1pbmVyU3RhdGVDb3VudHMSFQoNaGFzaGluZ19jb3VudBgBIAEoBRIUCgxicm9rZW5fY291bnQYAiABKAUSFQoNb2ZmbGluZV9jb3VudBgDIAEoBRIWCg5zbGVlcGluZ19jb3VudBgEIAEoBSLWAwoPVGVsZW1ldHJ5VXBkYXRlEiYKBHR5cGUYASABKA4yGC50ZWxlbWV0cnkudjEuVXBkYXRlVHlwZRIWCglkZXZpY2VfaWQYAiABKAlIAIgBARItCgl0aW1lc3RhbXAYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KBGRhdGEYBCABKAsyGy50ZWxlbWV0cnkudjEuVGVsZW1ldHJ5RGF0YUgBiAEBEhoKDWVycm9yX21lc3NhZ2UYBSABKAlIAogBARIyCgZzdGF0dXMYBiABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzSAOIAQESNgoNZGV2aWNlX3N0YXR1cxgHIAEoDjIaLnRlbGVtZXRyeS52MS5EZXZpY2VTdGF0dXNIBIgBARI/ChJtaW5lcl9zdGF0ZV9jb3VudHMYCCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50c0gFiAEBQgwKCl9kZXZpY2VfaWRCBwoFX2RhdGFCEAoOX2Vycm9yX21lc3NhZ2VCCQoHX3N0YXR1c0IQCg5fZGV2aWNlX3N0YXR1c0IVChNfbWluZXJfc3RhdGVfY291bnRzIuwDChlHZXRDb21iaW5lZE1ldHJpY3NSZXF1ZXN0Ej0KD2RldmljZV9zZWxlY3RvchgBIAEoCzIcLnRlbGVtZXRyeS52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBEjgKEW1lYXN1cmVtZW50X3R5cGVzGAMgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZRIzCgxhZ2dyZWdhdGlvbnMYBCADKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEi4KC2dyYW51bGFyaXR5GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEjYKCnN0YXJ0X3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQga6SAPIAQESLAoIZW5kX3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCnBhZ2VfdG9rZW4YCCABKAkSEQoJcGFnZV9zaXplGAkgASgFOmS6SGEaXwoZZW5kX3RpbWVfYWZ0ZXJfc3RhcnRfdGltZRIhZW5kX3RpbWUgbXVzdCBiZSBhZnRlciBzdGFydF90aW1lGh90aGlzLmVuZF90aW1lID4gdGhpcy5zdGFydF90aW1lIlkKD0FnZ3JlZ2F0ZWRWYWx1ZRI3ChBhZ2dyZWdhdGlvbl90eXBlGAEgASgOMh0udGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0aW9uVHlwZRINCgV2YWx1ZRgCIAEoASLAAQoGTWV0cmljEjcKEG1lYXN1cmVtZW50X3R5cGUYASABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEi0KCW9wZW5fdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOAoRYWdncmVnYXRlZF92YWx1ZXMYAyADKAsyHS50ZWxlbWV0cnkudjEuQWdncmVnYXRlZFZhbHVlEhQKDGRldmljZV9jb3VudBgEIAEoBSLkAQoaR2V0Q29tYmluZWRNZXRyaWNzUmVzcG9uc2USJQoHbWV0cmljcxgBIAMoCzIULnRlbGVtZXRyeS52MS5NZXRyaWMSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEkcKGXRlbXBlcmF0dXJlX3N0YXR1c19jb3VudHMYAyADKAsyJC50ZWxlbWV0cnkudjEuVGVtcGVyYXR1cmVTdGF0dXNDb3VudBI9ChR1cHRpbWVfc3RhdHVzX2NvdW50cxgEIAMoCzIfLnRlbGVtZXRyeS52MS5VcHRpbWVTdGF0dXNDb3VudCLVAgoiU3RyZWFtQ29tYmluZWRNZXRyaWNVcGRhdGVzUmVxdWVzdBI9Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHC50ZWxlbWV0cnkudjEuRGV2aWNlU2VsZWN0b3JCBrpIA8gBARIuCgdtZXRyaWNzGAIgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZRIzCgxhZ2dyZWdhdGlvbnMYAyADKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEkAKC2dyYW51bGFyaXR5GAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBAiAowUyAggKEjIKD3VwZGF0ZV9pbnRlcnZhbBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIVCg1jb25uZWN0aW9uX2lkGAYgASgJIsYCCiNTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXNwb25zZRIlCgdtZXRyaWNzGAEgAygLMhQudGVsZW1ldHJ5LnYxLk1ldHJpYxI0ChBuZXh0X3VwZGF0ZV90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBJHChl0ZW1wZXJhdHVyZV9zdGF0dXNfY291bnRzGAMgAygLMiQudGVsZW1ldHJ5LnYxLlRlbXBlcmF0dXJlU3RhdHVzQ291bnQSPQoUdXB0aW1lX3N0YXR1c19jb3VudHMYBCADKAsyHy50ZWxlbWV0cnkudjEuVXB0aW1lU3RhdHVzQ291bnQSOgoSbWluZXJfc3RhdGVfY291bnRzGAUgASgLMh4udGVsZW1ldHJ5LnYxLk1pbmVyU3RhdGVDb3VudHMqywIKD01lYXN1cmVtZW50VHlwZRIgChxNRUFTVVJFTUVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocTUVBU1VSRU1FTlRfVFlQRV9URU1QRVJBVFVSRRABEh0KGU1FQVNVUkVNRU5UX1RZUEVfSEFTSFJBVEUQAhIaChZNRUFTVVJFTUVOVF9UWVBFX1BPV0VSEAMSHwobTUVBU1VSRU1FTlRfVFlQRV9FRkZJQ0lFTkNZEAQSHgoaTUVBU1VSRU1FTlRfVFlQRV9GQU5fU1BFRUQQBRIcChhNRUFTVVJFTUVOVF9UWVBFX1ZPTFRBR0UQBhIcChhNRUFTVVJFTUVOVF9UWVBFX0NVUlJFTlQQBxIbChdNRUFTVVJFTUVOVF9UWVBFX1VQVElNRRAIEh8KG01FQVNVUkVNRU5UX1RZUEVfRVJST1JfUkFURRAJKr0CCg9BZ2dyZWdhdGlvblR5cGUSIAocQUdHUkVHQVRJT05fVFlQRV9VTlNQRUNJRklFRBAAEhwKGEFHR1JFR0FUSU9OX1RZUEVfQVZFUkFHRRABEhgKFEFHR1JFR0FUSU9OX1RZUEVfTUlOEAISGAoUQUdHUkVHQVRJT05fVFlQRV9NQVgQAxIYChRBR0dSRUdBVElPTl9UWVBFX1NVTRAEEiMKH0FHR1JFR0FUSU9OX1RZUEVfRklSU1RfUVVBUlRJTEUQBRIbChdBR0dSRUdBVElPTl9UWVBFX01FRElBThAGEiMKH0FHR1JFR0FUSU9OX1RZUEVfVEhJUkRfUVVBUlRJTEUQBxIaChZBR0dSRUdBVElPTl9UWVBFX0ZJUlNUEAgSGQoVQUdHUkVHQVRJT05fVFlQRV9MQVNUEAkqrAEKD0NvbXBvbmVudFN0YXR1cxIgChxDT01QT05FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYQ09NUE9ORU5UX1NUQVRVU19IRUFMVEhZEAESHAoYQ09NUE9ORU5UX1NUQVRVU19XQVJOSU5HEAISHQoZQ09NUE9ORU5UX1NUQVRVU19DUklUSUNBTBADEhwKGENPTVBPTkVOVF9TVEFUVVNfT0ZGTElORRAEKqwBChFUZW1wZXJhdHVyZVN0YXR1cxIiCh5URU1QRVJBVFVSRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdURU1QRVJBVFVSRV9TVEFUVVNfQ09MRBABEhkKFVRFTVBFUkFUVVJFX1NUQVRVU19PSxACEhoKFlRFTVBFUkFUVVJFX1NUQVRVU19IT1QQAxIfChtURU1QRVJBVFVSRV9TVEFUVVNfQ1JJVElDQUwQBCrbAQoMRGV2aWNlU3RhdHVzEh0KGURFVklDRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIYChRERVZJQ0VfU1RBVFVTX09OTElORRABEhkKFURFVklDRV9TVEFUVVNfT0ZGTElORRACEh0KGURFVklDRV9TVEFUVVNfTUFJTlRFTkFOQ0UQAxIXChNERVZJQ0VfU1RBVFVTX0VSUk9SEAQSGgoWREVWSUNFX1NUQVRVU19JTkFDVElWRRAFEiMKH0RFVklDRV9TVEFUVVNfTkVFRFNfTUlOSU5HX1BPT0wQBiq5AQoKVXBkYXRlVHlwZRIbChdVUERBVEVfVFlQRV9VTlNQRUNJRklFRBAAEhkKFVVQREFURV9UWVBFX1RFTEVNRVRSWRABEhkKFVVQREFURV9UWVBFX0hFQVJUQkVBVBACEhUKEVVQREFURV9UWVBFX0VSUk9SEAMSHQoZVVBEQVRFX1RZUEVfREVWSUNFX1NUQVRVUxAEEiIKHlVQREFURV9UWVBFX01JTkVSX1NUQVRFX0NPVU5UUxAFMoYCChBUZWxlbWV0cnlTZXJ2aWNlEmkKEkdldENvbWJpbmVkTWV0cmljcxInLnRlbGVtZXRyeS52MS5HZXRDb21iaW5lZE1ldHJpY3NSZXF1ZXN0GigudGVsZW1ldHJ5LnYxLkdldENvbWJpbmVkTWV0cmljc1Jlc3BvbnNlIgAShgEKG1N0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlcxIwLnRlbGVtZXRyeS52MS5TdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXF1ZXN0GjEudGVsZW1ldHJ5LnYxLlN0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlc1Jlc3BvbnNlIgAwAULFAQoQY29tLnRlbGVtZXRyeS52MUIOVGVsZW1ldHJ5UHJvdG9QAVpQZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy90ZWxlbWV0cnkvdjE7dGVsZW1ldHJ5djGiAgNUWFiqAgxUZWxlbWV0cnkuVjHKAgxUZWxlbWV0cnlcVjHiAhhUZWxlbWV0cnlcVjFcR1BCTWV0YWRhdGHqAg1UZWxlbWV0cnk6OlYxYgZwcm90bzM",
-    [
-      file_google_protobuf_timestamp,
-      file_google_protobuf_duration,
-      file_buf_validate_validate,
-      file_common_v1_measurement,
-    ],
-  );
+export const file_telemetry_v1_telemetry: GenFile = /*@__PURE__*/
+  fileDesc("Chx0ZWxlbWV0cnkvdjEvdGVsZW1ldHJ5LnByb3RvEgx0ZWxlbWV0cnkudjEiagoORGV2aWNlU2VsZWN0b3ISFQoLYWxsX2RldmljZXMYASABKAhIABIvCgtkZXZpY2VfbGlzdBgCIAEoCzIYLnRlbGVtZXRyeS52MS5EZXZpY2VMaXN0SABCEAoOc2VsZWN0b3JfdmFsdWUiIAoKRGV2aWNlTGlzdBISCgpkZXZpY2VfaWRzGAEgAygJIpgBChZUZW1wZXJhdHVyZVN0YXR1c0NvdW50Ei0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY29sZF9jb3VudBgCIAEoBRIQCghva19jb3VudBgDIAEoBRIRCglob3RfY291bnQYBCABKAUSFgoOY3JpdGljYWxfY291bnQYBSABKAUidAoRVXB0aW1lU3RhdHVzQ291bnQSLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1oYXNoaW5nX2NvdW50GAIgASgFEhkKEW5vdF9oYXNoaW5nX2NvdW50GAMgASgFIo8BCglUaW1lUmFuZ2USMwoKc3RhcnRfdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIxCghlbmRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBAUINCgtfc3RhcnRfdGltZUILCglfZW5kX3RpbWUipQIKDVRlbGVtZXRyeURhdGESEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEigKBHVuaXQYBCABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0Ei0KCXRpbWVzdGFtcBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoEdGFncxgGIAMoCzIlLnRlbGVtZXRyeS52MS5UZWxlbWV0cnlEYXRhLlRhZ3NFbnRyeRorCglUYWdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLIAgoORGV2aWNlTWV0YWRhdGESEQoJZGV2aWNlX2lkGAEgASgJEhgKC2RldmljZV90eXBlGAIgASgJSACIAQESLQoJbGFzdF9zZWVuGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBItCgZzdGF0dXMYBCABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzEhUKCGxvY2F0aW9uGAUgASgJSAGIAQESNAoEdGFncxgGIAMoCzImLnRlbGVtZXRyeS52MS5EZXZpY2VNZXRhZGF0YS5UYWdzRW50cnkSFAoMY2FwYWJpbGl0aWVzGAcgAygJGisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg4KDF9kZXZpY2VfdHlwZUILCglfbG9jYXRpb24i1AIKE0FnZ3JlZ2F0ZWRUZWxlbWV0cnkSEQoJZGV2aWNlX2lkGAEgASgJEjcKEG1lYXN1cmVtZW50X3R5cGUYAiABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEg0KBXZhbHVlGAMgASgBEjcKEGFnZ3JlZ2F0aW9uX3R5cGUYBCABKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEhMKC2RhdGFfcG9pbnRzGAUgASgFEiwKC3RpbWVfd2luZG93GAYgASgLMhcudGVsZW1ldHJ5LnYxLlRpbWVSYW5nZRI5CgR0YWdzGAcgAygLMisudGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0ZWRUZWxlbWV0cnkuVGFnc0VudHJ5GisKCVRhZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIm4KEE1pbmVyU3RhdGVDb3VudHMSFQoNaGFzaGluZ19jb3VudBgBIAEoBRIUCgxicm9rZW5fY291bnQYAiABKAUSFQoNb2ZmbGluZV9jb3VudBgDIAEoBRIWCg5zbGVlcGluZ19jb3VudBgEIAEoBSLWAwoPVGVsZW1ldHJ5VXBkYXRlEiYKBHR5cGUYASABKA4yGC50ZWxlbWV0cnkudjEuVXBkYXRlVHlwZRIWCglkZXZpY2VfaWQYAiABKAlIAIgBARItCgl0aW1lc3RhbXAYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KBGRhdGEYBCABKAsyGy50ZWxlbWV0cnkudjEuVGVsZW1ldHJ5RGF0YUgBiAEBEhoKDWVycm9yX21lc3NhZ2UYBSABKAlIAogBARIyCgZzdGF0dXMYBiABKA4yHS50ZWxlbWV0cnkudjEuQ29tcG9uZW50U3RhdHVzSAOIAQESNgoNZGV2aWNlX3N0YXR1cxgHIAEoDjIaLnRlbGVtZXRyeS52MS5EZXZpY2VTdGF0dXNIBIgBARI/ChJtaW5lcl9zdGF0ZV9jb3VudHMYCCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50c0gFiAEBQgwKCl9kZXZpY2VfaWRCBwoFX2RhdGFCEAoOX2Vycm9yX21lc3NhZ2VCCQoHX3N0YXR1c0IQCg5fZGV2aWNlX3N0YXR1c0IVChNfbWluZXJfc3RhdGVfY291bnRzIuwDChlHZXRDb21iaW5lZE1ldHJpY3NSZXF1ZXN0Ej0KD2RldmljZV9zZWxlY3RvchgBIAEoCzIcLnRlbGVtZXRyeS52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBEjgKEW1lYXN1cmVtZW50X3R5cGVzGAMgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZRIzCgxhZ2dyZWdhdGlvbnMYBCADKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEi4KC2dyYW51bGFyaXR5GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEjYKCnN0YXJ0X3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQga6SAPIAQESLAoIZW5kX3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCnBhZ2VfdG9rZW4YCCABKAkSEQoJcGFnZV9zaXplGAkgASgFOmS6SGEaXwoZZW5kX3RpbWVfYWZ0ZXJfc3RhcnRfdGltZRIhZW5kX3RpbWUgbXVzdCBiZSBhZnRlciBzdGFydF90aW1lGh90aGlzLmVuZF90aW1lID4gdGhpcy5zdGFydF90aW1lIlkKD0FnZ3JlZ2F0ZWRWYWx1ZRI3ChBhZ2dyZWdhdGlvbl90eXBlGAEgASgOMh0udGVsZW1ldHJ5LnYxLkFnZ3JlZ2F0aW9uVHlwZRINCgV2YWx1ZRgCIAEoASLAAQoGTWV0cmljEjcKEG1lYXN1cmVtZW50X3R5cGUYASABKA4yHS50ZWxlbWV0cnkudjEuTWVhc3VyZW1lbnRUeXBlEi0KCW9wZW5fdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOAoRYWdncmVnYXRlZF92YWx1ZXMYAyADKAsyHS50ZWxlbWV0cnkudjEuQWdncmVnYXRlZFZhbHVlEhQKDGRldmljZV9jb3VudBgEIAEoBSLkAQoaR2V0Q29tYmluZWRNZXRyaWNzUmVzcG9uc2USJQoHbWV0cmljcxgBIAMoCzIULnRlbGVtZXRyeS52MS5NZXRyaWMSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEkcKGXRlbXBlcmF0dXJlX3N0YXR1c19jb3VudHMYAyADKAsyJC50ZWxlbWV0cnkudjEuVGVtcGVyYXR1cmVTdGF0dXNDb3VudBI9ChR1cHRpbWVfc3RhdHVzX2NvdW50cxgEIAMoCzIfLnRlbGVtZXRyeS52MS5VcHRpbWVTdGF0dXNDb3VudCLVAgoiU3RyZWFtQ29tYmluZWRNZXRyaWNVcGRhdGVzUmVxdWVzdBI9Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyHC50ZWxlbWV0cnkudjEuRGV2aWNlU2VsZWN0b3JCBrpIA8gBARIuCgdtZXRyaWNzGAIgAygOMh0udGVsZW1ldHJ5LnYxLk1lYXN1cmVtZW50VHlwZRIzCgxhZ2dyZWdhdGlvbnMYAyADKA4yHS50ZWxlbWV0cnkudjEuQWdncmVnYXRpb25UeXBlEkAKC2dyYW51bGFyaXR5GAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBAiAowUyAggKEjIKD3VwZGF0ZV9pbnRlcnZhbBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIVCg1jb25uZWN0aW9uX2lkGAYgASgJIsYCCiNTdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXNwb25zZRIlCgdtZXRyaWNzGAEgAygLMhQudGVsZW1ldHJ5LnYxLk1ldHJpYxI0ChBuZXh0X3VwZGF0ZV90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBJHChl0ZW1wZXJhdHVyZV9zdGF0dXNfY291bnRzGAMgAygLMiQudGVsZW1ldHJ5LnYxLlRlbXBlcmF0dXJlU3RhdHVzQ291bnQSPQoUdXB0aW1lX3N0YXR1c19jb3VudHMYBCADKAsyHy50ZWxlbWV0cnkudjEuVXB0aW1lU3RhdHVzQ291bnQSOgoSbWluZXJfc3RhdGVfY291bnRzGAUgASgLMh4udGVsZW1ldHJ5LnYxLk1pbmVyU3RhdGVDb3VudHMqywIKD01lYXN1cmVtZW50VHlwZRIgChxNRUFTVVJFTUVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocTUVBU1VSRU1FTlRfVFlQRV9URU1QRVJBVFVSRRABEh0KGU1FQVNVUkVNRU5UX1RZUEVfSEFTSFJBVEUQAhIaChZNRUFTVVJFTUVOVF9UWVBFX1BPV0VSEAMSHwobTUVBU1VSRU1FTlRfVFlQRV9FRkZJQ0lFTkNZEAQSHgoaTUVBU1VSRU1FTlRfVFlQRV9GQU5fU1BFRUQQBRIcChhNRUFTVVJFTUVOVF9UWVBFX1ZPTFRBR0UQBhIcChhNRUFTVVJFTUVOVF9UWVBFX0NVUlJFTlQQBxIbChdNRUFTVVJFTUVOVF9UWVBFX1VQVElNRRAIEh8KG01FQVNVUkVNRU5UX1RZUEVfRVJST1JfUkFURRAJKr0CCg9BZ2dyZWdhdGlvblR5cGUSIAocQUdHUkVHQVRJT05fVFlQRV9VTlNQRUNJRklFRBAAEhwKGEFHR1JFR0FUSU9OX1RZUEVfQVZFUkFHRRABEhgKFEFHR1JFR0FUSU9OX1RZUEVfTUlOEAISGAoUQUdHUkVHQVRJT05fVFlQRV9NQVgQAxIYChRBR0dSRUdBVElPTl9UWVBFX1NVTRAEEiMKH0FHR1JFR0FUSU9OX1RZUEVfRklSU1RfUVVBUlRJTEUQBRIbChdBR0dSRUdBVElPTl9UWVBFX01FRElBThAGEiMKH0FHR1JFR0FUSU9OX1RZUEVfVEhJUkRfUVVBUlRJTEUQBxIaChZBR0dSRUdBVElPTl9UWVBFX0ZJUlNUEAgSGQoVQUdHUkVHQVRJT05fVFlQRV9MQVNUEAkqrAEKD0NvbXBvbmVudFN0YXR1cxIgChxDT01QT05FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYQ09NUE9ORU5UX1NUQVRVU19IRUFMVEhZEAESHAoYQ09NUE9ORU5UX1NUQVRVU19XQVJOSU5HEAISHQoZQ09NUE9ORU5UX1NUQVRVU19DUklUSUNBTBADEhwKGENPTVBPTkVOVF9TVEFUVVNfT0ZGTElORRAEKqwBChFUZW1wZXJhdHVyZVN0YXR1cxIiCh5URU1QRVJBVFVSRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdURU1QRVJBVFVSRV9TVEFUVVNfQ09MRBABEhkKFVRFTVBFUkFUVVJFX1NUQVRVU19PSxACEhoKFlRFTVBFUkFUVVJFX1NUQVRVU19IT1QQAxIfChtURU1QRVJBVFVSRV9TVEFUVVNfQ1JJVElDQUwQBCrbAQoMRGV2aWNlU3RhdHVzEh0KGURFVklDRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIYChRERVZJQ0VfU1RBVFVTX09OTElORRABEhkKFURFVklDRV9TVEFUVVNfT0ZGTElORRACEh0KGURFVklDRV9TVEFUVVNfTUFJTlRFTkFOQ0UQAxIXChNERVZJQ0VfU1RBVFVTX0VSUk9SEAQSGgoWREVWSUNFX1NUQVRVU19JTkFDVElWRRAFEiMKH0RFVklDRV9TVEFUVVNfTkVFRFNfTUlOSU5HX1BPT0wQBiq5AQoKVXBkYXRlVHlwZRIbChdVUERBVEVfVFlQRV9VTlNQRUNJRklFRBAAEhkKFVVQREFURV9UWVBFX1RFTEVNRVRSWRABEhkKFVVQREFURV9UWVBFX0hFQVJUQkVBVBACEhUKEVVQREFURV9UWVBFX0VSUk9SEAMSHQoZVVBEQVRFX1RZUEVfREVWSUNFX1NUQVRVUxAEEiIKHlVQREFURV9UWVBFX01JTkVSX1NUQVRFX0NPVU5UUxAFMoYCChBUZWxlbWV0cnlTZXJ2aWNlEmkKEkdldENvbWJpbmVkTWV0cmljcxInLnRlbGVtZXRyeS52MS5HZXRDb21iaW5lZE1ldHJpY3NSZXF1ZXN0GigudGVsZW1ldHJ5LnYxLkdldENvbWJpbmVkTWV0cmljc1Jlc3BvbnNlIgAShgEKG1N0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlcxIwLnRlbGVtZXRyeS52MS5TdHJlYW1Db21iaW5lZE1ldHJpY1VwZGF0ZXNSZXF1ZXN0GjEudGVsZW1ldHJ5LnYxLlN0cmVhbUNvbWJpbmVkTWV0cmljVXBkYXRlc1Jlc3BvbnNlIgAwAULFAQoQY29tLnRlbGVtZXRyeS52MUIOVGVsZW1ldHJ5UHJvdG9QAVpQZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy90ZWxlbWV0cnkvdjE7dGVsZW1ldHJ5djGiAgNUWFiqAgxUZWxlbWV0cnkuVjHKAgxUZWxlbWV0cnlcVjHiAhhUZWxlbWV0cnlcVjFcR1BCTWV0YWRhdGHqAg1UZWxlbWV0cnk6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_google_protobuf_duration, file_buf_validate_validate, file_common_v1_measurement]);
 
 /**
  * @generated from message telemetry.v1.DeviceSelector
@@ -33,34 +24,30 @@ export type DeviceSelector = Message<"telemetry.v1.DeviceSelector"> & {
   /**
    * @generated from oneof telemetry.v1.DeviceSelector.selector_value
    */
-  selectorValue:
-    | {
-        /**
-         * Select all devices in the org
-         *
-         * @generated from field: bool all_devices = 1;
-         */
-        value: boolean;
-        case: "allDevices";
-      }
-    | {
-        /**
-         * Select specific devices by ID
-         *
-         * @generated from field: telemetry.v1.DeviceList device_list = 2;
-         */
-        value: DeviceList;
-        case: "deviceList";
-      }
-    | { case: undefined; value?: undefined };
+  selectorValue: {
+    /**
+     * Select all devices in the org
+     *
+     * @generated from field: bool all_devices = 1;
+     */
+    value: boolean;
+    case: "allDevices";
+  } | {
+    /**
+     * Select specific devices by ID
+     *
+     * @generated from field: telemetry.v1.DeviceList device_list = 2;
+     */
+    value: DeviceList;
+    case: "deviceList";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message telemetry.v1.DeviceSelector.
  * Use `create(DeviceSelectorSchema)` to create a new message.
  */
-export const DeviceSelectorSchema: GenMessage<DeviceSelector> =
-  /*@__PURE__*/
+export const DeviceSelectorSchema: GenMessage<DeviceSelector> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 0);
 
 /**
@@ -81,7 +68,8 @@ export type DeviceList = Message<"telemetry.v1.DeviceList"> & {
  * Describes the message telemetry.v1.DeviceList.
  * Use `create(DeviceListSchema)` to create a new message.
  */
-export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 1);
+export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/
+  messageDesc(file_telemetry_v1_telemetry, 1);
 
 /**
  * Temperature status distribution at a point in time
@@ -127,8 +115,7 @@ export type TemperatureStatusCount = Message<"telemetry.v1.TemperatureStatusCoun
  * Describes the message telemetry.v1.TemperatureStatusCount.
  * Use `create(TemperatureStatusCountSchema)` to create a new message.
  */
-export const TemperatureStatusCountSchema: GenMessage<TemperatureStatusCount> =
-  /*@__PURE__*/
+export const TemperatureStatusCountSchema: GenMessage<TemperatureStatusCount> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 2);
 
 /**
@@ -161,8 +148,7 @@ export type UptimeStatusCount = Message<"telemetry.v1.UptimeStatusCount"> & {
  * Describes the message telemetry.v1.UptimeStatusCount.
  * Use `create(UptimeStatusCountSchema)` to create a new message.
  */
-export const UptimeStatusCountSchema: GenMessage<UptimeStatusCount> =
-  /*@__PURE__*/
+export const UptimeStatusCountSchema: GenMessage<UptimeStatusCount> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 3);
 
 /**
@@ -186,7 +172,8 @@ export type TimeRange = Message<"telemetry.v1.TimeRange"> & {
  * Describes the message telemetry.v1.TimeRange.
  * Use `create(TimeRangeSchema)` to create a new message.
  */
-export const TimeRangeSchema: GenMessage<TimeRange> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 4);
+export const TimeRangeSchema: GenMessage<TimeRange> = /*@__PURE__*/
+  messageDesc(file_telemetry_v1_telemetry, 4);
 
 /**
  * Telemetry data structure
@@ -233,7 +220,8 @@ export type TelemetryData = Message<"telemetry.v1.TelemetryData"> & {
  * Describes the message telemetry.v1.TelemetryData.
  * Use `create(TelemetryDataSchema)` to create a new message.
  */
-export const TelemetryDataSchema: GenMessage<TelemetryData> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 5);
+export const TelemetryDataSchema: GenMessage<TelemetryData> = /*@__PURE__*/
+  messageDesc(file_telemetry_v1_telemetry, 5);
 
 /**
  * Device metadata
@@ -285,8 +273,7 @@ export type DeviceMetadata = Message<"telemetry.v1.DeviceMetadata"> & {
  * Describes the message telemetry.v1.DeviceMetadata.
  * Use `create(DeviceMetadataSchema)` to create a new message.
  */
-export const DeviceMetadataSchema: GenMessage<DeviceMetadata> =
-  /*@__PURE__*/
+export const DeviceMetadataSchema: GenMessage<DeviceMetadata> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 6);
 
 /**
@@ -339,8 +326,7 @@ export type AggregatedTelemetry = Message<"telemetry.v1.AggregatedTelemetry"> & 
  * Describes the message telemetry.v1.AggregatedTelemetry.
  * Use `create(AggregatedTelemetrySchema)` to create a new message.
  */
-export const AggregatedTelemetrySchema: GenMessage<AggregatedTelemetry> =
-  /*@__PURE__*/
+export const AggregatedTelemetrySchema: GenMessage<AggregatedTelemetry> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 7);
 
 /**
@@ -391,8 +377,7 @@ export type MinerStateCounts = Message<"telemetry.v1.MinerStateCounts"> & {
  * Describes the message telemetry.v1.MinerStateCounts.
  * Use `create(MinerStateCountsSchema)` to create a new message.
  */
-export const MinerStateCountsSchema: GenMessage<MinerStateCounts> =
-  /*@__PURE__*/
+export const MinerStateCountsSchema: GenMessage<MinerStateCounts> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 8);
 
 /**
@@ -452,8 +437,7 @@ export type TelemetryUpdate = Message<"telemetry.v1.TelemetryUpdate"> & {
  * Describes the message telemetry.v1.TelemetryUpdate.
  * Use `create(TelemetryUpdateSchema)` to create a new message.
  */
-export const TelemetryUpdateSchema: GenMessage<TelemetryUpdate> =
-  /*@__PURE__*/
+export const TelemetryUpdateSchema: GenMessage<TelemetryUpdate> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 9);
 
 /**
@@ -519,8 +503,7 @@ export type GetCombinedMetricsRequest = Message<"telemetry.v1.GetCombinedMetrics
  * Describes the message telemetry.v1.GetCombinedMetricsRequest.
  * Use `create(GetCombinedMetricsRequestSchema)` to create a new message.
  */
-export const GetCombinedMetricsRequestSchema: GenMessage<GetCombinedMetricsRequest> =
-  /*@__PURE__*/
+export const GetCombinedMetricsRequestSchema: GenMessage<GetCombinedMetricsRequest> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 10);
 
 /**
@@ -544,8 +527,7 @@ export type AggregatedValue = Message<"telemetry.v1.AggregatedValue"> & {
  * Describes the message telemetry.v1.AggregatedValue.
  * Use `create(AggregatedValueSchema)` to create a new message.
  */
-export const AggregatedValueSchema: GenMessage<AggregatedValue> =
-  /*@__PURE__*/
+export const AggregatedValueSchema: GenMessage<AggregatedValue> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 11);
 
 /**
@@ -581,7 +563,8 @@ export type Metric = Message<"telemetry.v1.Metric"> & {
  * Describes the message telemetry.v1.Metric.
  * Use `create(MetricSchema)` to create a new message.
  */
-export const MetricSchema: GenMessage<Metric> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 12);
+export const MetricSchema: GenMessage<Metric> = /*@__PURE__*/
+  messageDesc(file_telemetry_v1_telemetry, 12);
 
 /**
  * @generated from message telemetry.v1.GetCombinedMetricsResponse
@@ -618,8 +601,7 @@ export type GetCombinedMetricsResponse = Message<"telemetry.v1.GetCombinedMetric
  * Describes the message telemetry.v1.GetCombinedMetricsResponse.
  * Use `create(GetCombinedMetricsResponseSchema)` to create a new message.
  */
-export const GetCombinedMetricsResponseSchema: GenMessage<GetCombinedMetricsResponse> =
-  /*@__PURE__*/
+export const GetCombinedMetricsResponseSchema: GenMessage<GetCombinedMetricsResponse> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 13);
 
 /**
@@ -672,8 +654,7 @@ export type StreamCombinedMetricUpdatesRequest = Message<"telemetry.v1.StreamCom
  * Describes the message telemetry.v1.StreamCombinedMetricUpdatesRequest.
  * Use `create(StreamCombinedMetricUpdatesRequestSchema)` to create a new message.
  */
-export const StreamCombinedMetricUpdatesRequestSchema: GenMessage<StreamCombinedMetricUpdatesRequest> =
-  /*@__PURE__*/
+export const StreamCombinedMetricUpdatesRequestSchema: GenMessage<StreamCombinedMetricUpdatesRequest> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 14);
 
 /**
@@ -720,8 +701,7 @@ export type StreamCombinedMetricUpdatesResponse = Message<"telemetry.v1.StreamCo
  * Describes the message telemetry.v1.StreamCombinedMetricUpdatesResponse.
  * Use `create(StreamCombinedMetricUpdatesResponseSchema)` to create a new message.
  */
-export const StreamCombinedMetricUpdatesResponseSchema: GenMessage<StreamCombinedMetricUpdatesResponse> =
-  /*@__PURE__*/
+export const StreamCombinedMetricUpdatesResponseSchema: GenMessage<StreamCombinedMetricUpdatesResponse> = /*@__PURE__*/
   messageDesc(file_telemetry_v1_telemetry, 15);
 
 /**
@@ -784,7 +764,8 @@ export enum MeasurementType {
 /**
  * Describes the enum telemetry.v1.MeasurementType.
  */
-export const MeasurementTypeSchema: GenEnum<MeasurementType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 0);
+export const MeasurementTypeSchema: GenEnum<MeasurementType> = /*@__PURE__*/
+  enumDesc(file_telemetry_v1_telemetry, 0);
 
 /**
  * @generated from enum telemetry.v1.AggregationType
@@ -844,7 +825,8 @@ export enum AggregationType {
 /**
  * Describes the enum telemetry.v1.AggregationType.
  */
-export const AggregationTypeSchema: GenEnum<AggregationType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 1);
+export const AggregationTypeSchema: GenEnum<AggregationType> = /*@__PURE__*/
+  enumDesc(file_telemetry_v1_telemetry, 1);
 
 /**
  * @generated from enum telemetry.v1.ComponentStatus
@@ -879,7 +861,8 @@ export enum ComponentStatus {
 /**
  * Describes the enum telemetry.v1.ComponentStatus.
  */
-export const ComponentStatusSchema: GenEnum<ComponentStatus> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 2);
+export const ComponentStatusSchema: GenEnum<ComponentStatus> = /*@__PURE__*/
+  enumDesc(file_telemetry_v1_telemetry, 2);
 
 /**
  * Temperature status based on threshold ranges
@@ -924,8 +907,7 @@ export enum TemperatureStatus {
 /**
  * Describes the enum telemetry.v1.TemperatureStatus.
  */
-export const TemperatureStatusSchema: GenEnum<TemperatureStatus> =
-  /*@__PURE__*/
+export const TemperatureStatusSchema: GenEnum<TemperatureStatus> = /*@__PURE__*/
   enumDesc(file_telemetry_v1_telemetry, 3);
 
 /**
@@ -987,7 +969,8 @@ export enum DeviceStatus {
 /**
  * Describes the enum telemetry.v1.DeviceStatus.
  */
-export const DeviceStatusSchema: GenEnum<DeviceStatus> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 4);
+export const DeviceStatusSchema: GenEnum<DeviceStatus> = /*@__PURE__*/
+  enumDesc(file_telemetry_v1_telemetry, 4);
 
 /**
  * @generated from enum telemetry.v1.UpdateType
@@ -1029,7 +1012,8 @@ export enum UpdateType {
 /**
  * Describes the enum telemetry.v1.UpdateType.
  */
-export const UpdateTypeSchema: GenEnum<UpdateType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 5);
+export const UpdateTypeSchema: GenEnum<UpdateType> = /*@__PURE__*/
+  enumDesc(file_telemetry_v1_telemetry, 5);
 
 /**
  * Service for retrieving telemetry data from mining devices
@@ -1046,7 +1030,7 @@ export const TelemetryService: GenService<{
     methodKind: "unary";
     input: typeof GetCombinedMetricsRequestSchema;
     output: typeof GetCombinedMetricsResponseSchema;
-  };
+  },
   /**
    * Live updates pushed by the server (used by dashboard).
    *
@@ -1056,5 +1040,7 @@ export const TelemetryService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamCombinedMetricUpdatesRequestSchema;
     output: typeof StreamCombinedMetricUpdatesResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_telemetry_v1_telemetry, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_telemetry_v1_telemetry, 0);
+

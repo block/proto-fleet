@@ -22,20 +22,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file fleetmanagement/v1/fleetmanagement.proto.
  */
-export const file_fleetmanagement_v1_fleetmanagement: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEioQUKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmlwX2FkZHJlc3MYCiABKAkSCwoDdXJsGAsgASgJEjcKDWRldmljZV9zdGF0dXMYDCABKA4yIC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzEjkKDnBhaXJpbmdfc3RhdHVzGA0gASgOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJpbmdTdGF0dXMSDQoFbW9kZWwYDiABKAkSFAoMbWFudWZhY3R1cmVyGA8gASgJEgwKBHR5cGUYECABKAkSOAoMY2FwYWJpbGl0aWVzGBEgASgLMiIuY2FwYWJpbGl0aWVzLnYxLk1pbmVyQ2FwYWJpbGl0aWVzEjsKEnRlbXBlcmF0dXJlX3N0YXR1cxgSIAEoDjIfLnRlbGVtZXRyeS52MS5UZW1wZXJhdHVyZVN0YXR1cxIYChBmaXJtd2FyZV92ZXJzaW9uGBMgASgJIrcBCh5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QSHQoJcGFnZV9zaXplGAEgASgFQgq6SAcaBRjoBygAEg4KBmN1cnNvchgCIAEoCRIzCgZmaWx0ZXIYAyABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyEjEKBHNvcnQYBCADKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJTb3J0Q29uZmlnIokBCg9NaW5lclNvcnRDb25maWcSNgoFZmllbGQYASABKA4yHS5mbGVldG1hbmFnZW1lbnQudjEuU29ydEZpZWxkQgi6SAWCAQIQARI+CglkaXJlY3Rpb24YAiABKA4yIS5mbGVldG1hbmFnZW1lbnQudjEuU29ydERpcmVjdGlvbkIIukgFggECEAEi0AEKD01pbmVyTGlzdEZpbHRlchI3Cg1kZXZpY2Vfc3RhdHVzGAMgAygOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cxI3ChVlcnJvcl9jb21wb25lbnRfdHlwZXMYBCADKA4yGC5lcnJvcnMudjEuQ29tcG9uZW50VHlwZRIOCgZtb2RlbHMYBSADKAkSOwoQcGFpcmluZ19zdGF0dXNlcxgGIAMoDjIhLmZsZWV0bWFuYWdlbWVudC52MS5QYWlyaW5nU3RhdHVzIssBCh9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBRI6ChJ0b3RhbF9zdGF0ZV9jb3VudHMYBCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50cxIOCgZtb2RlbHMYBSADKAkiHAoaR2V0TWluZXJTdGF0ZUNvdW50c1JlcXVlc3QiaQobR2V0TWluZXJTdGF0ZUNvdW50c1Jlc3BvbnNlEhQKDHRvdGFsX21pbmVycxgBIAEoBRI0CgxzdGF0ZV9jb3VudHMYAiABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50cyJDCh5HZXRNaW5lclBvb2xBc3NpZ25tZW50c1JlcXVlc3QSIQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCBrpIA8gBASJRCg5Qb29sQXNzaWdubWVudBIUCgdwb29sX2lkGAEgASgDSACIAQESCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJQgoKCF9wb29sX2lkIlQKH0dldE1pbmVyUG9vbEFzc2lnbm1lbnRzUmVzcG9uc2USMQoFcG9vbHMYASADKAsyIi5mbGVldG1hbmFnZW1lbnQudjEuUG9vbEFzc2lnbm1lbnQiPwoaR2V0TWluZXJDb29saW5nTW9kZVJlcXVlc3QSIQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCBrpIA8gBASJLChtHZXRNaW5lckNvb2xpbmdNb2RlUmVzcG9uc2USLAoMY29vbGluZ19tb2RlGAEgASgOMhYuY29tbW9uLnYxLkNvb2xpbmdNb2RlIqMBCg5EZXZpY2VTZWxlY3RvchI6CgthbGxfZGV2aWNlcxgBIAEoCzIjLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3RGaWx0ZXJIABJDCg9pbmNsdWRlX2RldmljZXMYAiABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlSWRlbnRpZmllckxpc3RIAEIQCg5zZWxlY3Rpb25fdHlwZSIyChREZXZpY2VJZGVudGlmaWVyTGlzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkiUgoTRGVsZXRlTWluZXJzUmVxdWVzdBI7Cg9kZXZpY2Vfc2VsZWN0b3IYASABKAsyIi5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU2VsZWN0b3IiLQoURGVsZXRlTWluZXJzUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoBSqZAQofRmxlZXRNYW5hZ2VtZW50U2VydmljZUVycm9yQ29kZRIzCi9GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEkEKPUZMRUVUX01BTkFHRU1FTlRfU0VSVklDRV9FUlJPUl9DT0RFX0lOVkFMSURfUEFHSU5BVElPTl9DVVJTT1IQASrbAQoMRGV2aWNlU3RhdHVzEh0KGURFVklDRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIYChRERVZJQ0VfU1RBVFVTX09OTElORRABEhkKFURFVklDRV9TVEFUVVNfT0ZGTElORRACEh0KGURFVklDRV9TVEFUVVNfTUFJTlRFTkFOQ0UQAxIXChNERVZJQ0VfU1RBVFVTX0VSUk9SEAQSGgoWREVWSUNFX1NUQVRVU19JTkFDVElWRRAFEiMKH0RFVklDRV9TVEFUVVNfTkVFRFNfTUlOSU5HX1BPT0wQBipZCglNaW5lclR5cGUSGgoWTUlORVJfVFlQRV9VTlNQRUNJRklFRBAAEhgKFE1JTkVSX1RZUEVfUFJPVE9fUklHEAESFgoSTUlORVJfVFlQRV9CSVRNQUlOEAIqyAEKDVBhaXJpbmdTdGF0dXMSHgoaUEFJUklOR19TVEFUVVNfVU5TUEVDSUZJRUQQABIZChVQQUlSSU5HX1NUQVRVU19QQUlSRUQQARIbChdQQUlSSU5HX1NUQVRVU19VTlBBSVJFRBACEigKJFBBSVJJTkdfU1RBVFVTX0FVVEhFTlRJQ0FUSU9OX05FRURFRBADEhoKFlBBSVJJTkdfU1RBVFVTX1BFTkRJTkcQBBIZChVQQUlSSU5HX1NUQVRVU19GQUlMRUQQBSq6AgoJU29ydEZpZWxkEhoKFlNPUlRfRklFTERfVU5TUEVDSUZJRUQQABITCg9TT1JUX0ZJRUxEX05BTUUQARIZChVTT1JUX0ZJRUxEX0lQX0FERFJFU1MQAhIaChZTT1JUX0ZJRUxEX01BQ19BRERSRVNTEAMSFAoQU09SVF9GSUVMRF9NT0RFTBAFEhcKE1NPUlRfRklFTERfSEFTSFJBVEUQBhIaChZTT1JUX0ZJRUxEX1RFTVBFUkFUVVJFEAcSFAoQU09SVF9GSUVMRF9QT1dFUhAIEhkKFVNPUlRfRklFTERfRUZGSUNJRU5DWRAJEhcKE1NPUlRfRklFTERfRklSTVdBUkUQCyIECAQQBCIECAoQCioRU09SVF9GSUVMRF9TVEFUVVMqEVNPUlRfRklFTERfSVNTVUVTKmAKDVNvcnREaXJlY3Rpb24SHgoaU09SVF9ESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIWChJTT1JUX0RJUkVDVElPTl9BU0MQARIXChNTT1JUX0RJUkVDVElPTl9ERVNDEAIy9QQKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USggEKF0xpc3RNaW5lclN0YXRlU25hcHNob3RzEjIuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBozLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEnYKE0dldE1pbmVyU3RhdGVDb3VudHMSLi5mbGVldG1hbmFnZW1lbnQudjEuR2V0TWluZXJTdGF0ZUNvdW50c1JlcXVlc3QaLy5mbGVldG1hbmFnZW1lbnQudjEuR2V0TWluZXJTdGF0ZUNvdW50c1Jlc3BvbnNlEoIBChdHZXRNaW5lclBvb2xBc3NpZ25tZW50cxIyLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lclBvb2xBc3NpZ25tZW50c1JlcXVlc3QaMy5mbGVldG1hbmFnZW1lbnQudjEuR2V0TWluZXJQb29sQXNzaWdubWVudHNSZXNwb25zZRJ2ChNHZXRNaW5lckNvb2xpbmdNb2RlEi4uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyQ29vbGluZ01vZGVSZXF1ZXN0Gi8uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyQ29vbGluZ01vZGVSZXNwb25zZRJhCgxEZWxldGVNaW5lcnMSJy5mbGVldG1hbmFnZW1lbnQudjEuRGVsZXRlTWluZXJzUmVxdWVzdBooLmZsZWV0bWFuYWdlbWVudC52MS5EZWxldGVNaW5lcnNSZXNwb25zZUL1AQoWY29tLmZsZWV0bWFuYWdlbWVudC52MUIURmxlZXRtYW5hZ2VtZW50UHJvdG9QAVpcZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG1hbmFnZW1lbnQvdjE7ZmxlZXRtYW5hZ2VtZW50djGiAgNGWFiqAhJGbGVldG1hbmFnZW1lbnQuVjHKAhJGbGVldG1hbmFnZW1lbnRcVjHiAh5GbGVldG1hbmFnZW1lbnRcVjFcR1BCTWV0YWRhdGHqAhNGbGVldG1hbmFnZW1lbnQ6OlYxYgZwcm90bzM",
-    [
-      file_google_protobuf_timestamp,
-      file_common_v1_measurement,
-      file_common_v1_cooling,
-      file_telemetry_v1_telemetry,
-      file_capabilities_v1_capabilities,
-      file_errors_v1_errors,
-      file_buf_validate_validate,
-    ],
-  );
+export const file_fleetmanagement_v1_fleetmanagement: GenFile = /*@__PURE__*/
+  fileDesc("CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEioQUKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmlwX2FkZHJlc3MYCiABKAkSCwoDdXJsGAsgASgJEjcKDWRldmljZV9zdGF0dXMYDCABKA4yIC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzEjkKDnBhaXJpbmdfc3RhdHVzGA0gASgOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJpbmdTdGF0dXMSDQoFbW9kZWwYDiABKAkSFAoMbWFudWZhY3R1cmVyGA8gASgJEgwKBHR5cGUYECABKAkSOAoMY2FwYWJpbGl0aWVzGBEgASgLMiIuY2FwYWJpbGl0aWVzLnYxLk1pbmVyQ2FwYWJpbGl0aWVzEjsKEnRlbXBlcmF0dXJlX3N0YXR1cxgSIAEoDjIfLnRlbGVtZXRyeS52MS5UZW1wZXJhdHVyZVN0YXR1cxIYChBmaXJtd2FyZV92ZXJzaW9uGBMgASgJIrcBCh5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QSHQoJcGFnZV9zaXplGAEgASgFQgq6SAcaBRjoBygAEg4KBmN1cnNvchgCIAEoCRIzCgZmaWx0ZXIYAyABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyEjEKBHNvcnQYBCADKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJTb3J0Q29uZmlnIokBCg9NaW5lclNvcnRDb25maWcSNgoFZmllbGQYASABKA4yHS5mbGVldG1hbmFnZW1lbnQudjEuU29ydEZpZWxkQgi6SAWCAQIQARI+CglkaXJlY3Rpb24YAiABKA4yIS5mbGVldG1hbmFnZW1lbnQudjEuU29ydERpcmVjdGlvbkIIukgFggECEAEi0AEKD01pbmVyTGlzdEZpbHRlchI3Cg1kZXZpY2Vfc3RhdHVzGAMgAygOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cxI3ChVlcnJvcl9jb21wb25lbnRfdHlwZXMYBCADKA4yGC5lcnJvcnMudjEuQ29tcG9uZW50VHlwZRIOCgZtb2RlbHMYBSADKAkSOwoQcGFpcmluZ19zdGF0dXNlcxgGIAMoDjIhLmZsZWV0bWFuYWdlbWVudC52MS5QYWlyaW5nU3RhdHVzIssBCh9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBRI6ChJ0b3RhbF9zdGF0ZV9jb3VudHMYBCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50cxIOCgZtb2RlbHMYBSADKAkiHAoaR2V0TWluZXJTdGF0ZUNvdW50c1JlcXVlc3QiaQobR2V0TWluZXJTdGF0ZUNvdW50c1Jlc3BvbnNlEhQKDHRvdGFsX21pbmVycxgBIAEoBRI0CgxzdGF0ZV9jb3VudHMYAiABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50cyJDCh5HZXRNaW5lclBvb2xBc3NpZ25tZW50c1JlcXVlc3QSIQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCBrpIA8gBASJRCg5Qb29sQXNzaWdubWVudBIUCgdwb29sX2lkGAEgASgDSACIAQESCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJQgoKCF9wb29sX2lkIlQKH0dldE1pbmVyUG9vbEFzc2lnbm1lbnRzUmVzcG9uc2USMQoFcG9vbHMYASADKAsyIi5mbGVldG1hbmFnZW1lbnQudjEuUG9vbEFzc2lnbm1lbnQiRQoPTWluZXJNb2RlbEdyb3VwEg0KBW1vZGVsGAEgASgJEhQKDG1hbnVmYWN0dXJlchgCIAEoCRINCgVjb3VudBgDIAEoBSJRChpHZXRNaW5lck1vZGVsR3JvdXBzUmVxdWVzdBIzCgZmaWx0ZXIYASABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyIlIKG0dldE1pbmVyTW9kZWxHcm91cHNSZXNwb25zZRIzCgZncm91cHMYASADKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJNb2RlbEdyb3VwIj8KGkdldE1pbmVyQ29vbGluZ01vZGVSZXF1ZXN0EiEKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQga6SAPIAQEiSwobR2V0TWluZXJDb29saW5nTW9kZVJlc3BvbnNlEiwKDGNvb2xpbmdfbW9kZRgBIAEoDjIWLmNvbW1vbi52MS5Db29saW5nTW9kZSKjAQoORGV2aWNlU2VsZWN0b3ISOgoLYWxsX2RldmljZXMYASABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVySAASQwoPaW5jbHVkZV9kZXZpY2VzGAIgASgLMiguZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZUlkZW50aWZpZXJMaXN0SABCEAoOc2VsZWN0aW9uX3R5cGUiMgoURGV2aWNlSWRlbnRpZmllckxpc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJIlIKE0RlbGV0ZU1pbmVyc1JlcXVlc3QSOwoPZGV2aWNlX3NlbGVjdG9yGAEgASgLMiIuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVNlbGVjdG9yIi0KFERlbGV0ZU1pbmVyc1Jlc3BvbnNlEhUKDWRlbGV0ZWRfY291bnQYASABKAUqmQEKH0ZsZWV0TWFuYWdlbWVudFNlcnZpY2VFcnJvckNvZGUSMwovRkxFRVRfTUFOQUdFTUVOVF9TRVJWSUNFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABJBCj1GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9JTlZBTElEX1BBR0lOQVRJT05fQ1VSU09SEAEq2wEKDERldmljZVN0YXR1cxIdChlERVZJQ0VfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGAoUREVWSUNFX1NUQVRVU19PTkxJTkUQARIZChVERVZJQ0VfU1RBVFVTX09GRkxJTkUQAhIdChlERVZJQ0VfU1RBVFVTX01BSU5URU5BTkNFEAMSFwoTREVWSUNFX1NUQVRVU19FUlJPUhAEEhoKFkRFVklDRV9TVEFUVVNfSU5BQ1RJVkUQBRIjCh9ERVZJQ0VfU1RBVFVTX05FRURTX01JTklOR19QT09MEAYqWQoJTWluZXJUeXBlEhoKFk1JTkVSX1RZUEVfVU5TUEVDSUZJRUQQABIYChRNSU5FUl9UWVBFX1BST1RPX1JJRxABEhYKEk1JTkVSX1RZUEVfQklUTUFJThACKsgBCg1QYWlyaW5nU3RhdHVzEh4KGlBBSVJJTkdfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGQoVUEFJUklOR19TVEFUVVNfUEFJUkVEEAESGwoXUEFJUklOR19TVEFUVVNfVU5QQUlSRUQQAhIoCiRQQUlSSU5HX1NUQVRVU19BVVRIRU5USUNBVElPTl9ORUVERUQQAxIaChZQQUlSSU5HX1NUQVRVU19QRU5ESU5HEAQSGQoVUEFJUklOR19TVEFUVVNfRkFJTEVEEAUqugIKCVNvcnRGaWVsZBIaChZTT1JUX0ZJRUxEX1VOU1BFQ0lGSUVEEAASEwoPU09SVF9GSUVMRF9OQU1FEAESGQoVU09SVF9GSUVMRF9JUF9BRERSRVNTEAISGgoWU09SVF9GSUVMRF9NQUNfQUREUkVTUxADEhQKEFNPUlRfRklFTERfTU9ERUwQBRIXChNTT1JUX0ZJRUxEX0hBU0hSQVRFEAYSGgoWU09SVF9GSUVMRF9URU1QRVJBVFVSRRAHEhQKEFNPUlRfRklFTERfUE9XRVIQCBIZChVTT1JUX0ZJRUxEX0VGRklDSUVOQ1kQCRIXChNTT1JUX0ZJRUxEX0ZJUk1XQVJFEAsiBAgEEAQiBAgKEAoqEVNPUlRfRklFTERfU1RBVFVTKhFTT1JUX0ZJRUxEX0lTU1VFUypgCg1Tb3J0RGlyZWN0aW9uEh4KGlNPUlRfRElSRUNUSU9OX1VOU1BFQ0lGSUVEEAASFgoSU09SVF9ESVJFQ1RJT05fQVNDEAESFwoTU09SVF9ESVJFQ1RJT05fREVTQxACMu0FChZGbGVldE1hbmFnZW1lbnRTZXJ2aWNlEoIBChdMaXN0TWluZXJTdGF0ZVNuYXBzaG90cxIyLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QaMy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXNwb25zZRJ2ChNHZXRNaW5lclN0YXRlQ291bnRzEi4uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyU3RhdGVDb3VudHNSZXF1ZXN0Gi8uZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyU3RhdGVDb3VudHNSZXNwb25zZRKCAQoXR2V0TWluZXJQb29sQXNzaWdubWVudHMSMi5mbGVldG1hbmFnZW1lbnQudjEuR2V0TWluZXJQb29sQXNzaWdubWVudHNSZXF1ZXN0GjMuZmxlZXRtYW5hZ2VtZW50LnYxLkdldE1pbmVyUG9vbEFzc2lnbm1lbnRzUmVzcG9uc2USdgoTR2V0TWluZXJDb29saW5nTW9kZRIuLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lckNvb2xpbmdNb2RlUmVxdWVzdBovLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lckNvb2xpbmdNb2RlUmVzcG9uc2USYQoMRGVsZXRlTWluZXJzEicuZmxlZXRtYW5hZ2VtZW50LnYxLkRlbGV0ZU1pbmVyc1JlcXVlc3QaKC5mbGVldG1hbmFnZW1lbnQudjEuRGVsZXRlTWluZXJzUmVzcG9uc2USdgoTR2V0TWluZXJNb2RlbEdyb3VwcxIuLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lck1vZGVsR3JvdXBzUmVxdWVzdBovLmZsZWV0bWFuYWdlbWVudC52MS5HZXRNaW5lck1vZGVsR3JvdXBzUmVzcG9uc2VC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_common_v1_measurement, file_common_v1_cooling, file_telemetry_v1_telemetry, file_capabilities_v1_capabilities, file_errors_v1_errors, file_buf_validate_validate]);
 
 /**
  * MinerStateSnapshot represents the operational state of a mining device
@@ -188,8 +176,7 @@ export type MinerStateSnapshot = Message<"fleetmanagement.v1.MinerStateSnapshot"
  * Describes the message fleetmanagement.v1.MinerStateSnapshot.
  * Use `create(MinerStateSnapshotSchema)` to create a new message.
  */
-export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> =
-  /*@__PURE__*/
+export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 0);
 
 /**
@@ -240,8 +227,7 @@ export type ListMinerStateSnapshotsRequest = Message<"fleetmanagement.v1.ListMin
  * Describes the message fleetmanagement.v1.ListMinerStateSnapshotsRequest.
  * Use `create(ListMinerStateSnapshotsRequestSchema)` to create a new message.
  */
-export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> =
-  /*@__PURE__*/
+export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
@@ -269,8 +255,7 @@ export type MinerSortConfig = Message<"fleetmanagement.v1.MinerSortConfig"> & {
  * Describes the message fleetmanagement.v1.MinerSortConfig.
  * Use `create(MinerSortConfigSchema)` to create a new message.
  */
-export const MinerSortConfigSchema: GenMessage<MinerSortConfig> =
-  /*@__PURE__*/
+export const MinerSortConfigSchema: GenMessage<MinerSortConfig> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
@@ -325,8 +310,7 @@ export type MinerListFilter = Message<"fleetmanagement.v1.MinerListFilter"> & {
  * Describes the message fleetmanagement.v1.MinerListFilter.
  * Use `create(MinerListFilterSchema)` to create a new message.
  */
-export const MinerListFilterSchema: GenMessage<MinerListFilter> =
-  /*@__PURE__*/
+export const MinerListFilterSchema: GenMessage<MinerListFilter> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
@@ -383,8 +367,7 @@ export type ListMinerStateSnapshotsResponse = Message<"fleetmanagement.v1.ListMi
  * Describes the message fleetmanagement.v1.ListMinerStateSnapshotsResponse.
  * Use `create(ListMinerStateSnapshotsResponseSchema)` to create a new message.
  */
-export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> =
-  /*@__PURE__*/
+export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
@@ -394,14 +377,14 @@ export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSna
  *
  * @generated from message fleetmanagement.v1.GetMinerStateCountsRequest
  */
-export type GetMinerStateCountsRequest = Message<"fleetmanagement.v1.GetMinerStateCountsRequest"> & {};
+export type GetMinerStateCountsRequest = Message<"fleetmanagement.v1.GetMinerStateCountsRequest"> & {
+};
 
 /**
  * Describes the message fleetmanagement.v1.GetMinerStateCountsRequest.
  * Use `create(GetMinerStateCountsRequestSchema)` to create a new message.
  */
-export const GetMinerStateCountsRequestSchema: GenMessage<GetMinerStateCountsRequest> =
-  /*@__PURE__*/
+export const GetMinerStateCountsRequestSchema: GenMessage<GetMinerStateCountsRequest> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
 
 /**
@@ -429,8 +412,7 @@ export type GetMinerStateCountsResponse = Message<"fleetmanagement.v1.GetMinerSt
  * Describes the message fleetmanagement.v1.GetMinerStateCountsResponse.
  * Use `create(GetMinerStateCountsResponseSchema)` to create a new message.
  */
-export const GetMinerStateCountsResponseSchema: GenMessage<GetMinerStateCountsResponse> =
-  /*@__PURE__*/
+export const GetMinerStateCountsResponseSchema: GenMessage<GetMinerStateCountsResponse> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
 
 /**
@@ -451,8 +433,7 @@ export type GetMinerPoolAssignmentsRequest = Message<"fleetmanagement.v1.GetMine
  * Describes the message fleetmanagement.v1.GetMinerPoolAssignmentsRequest.
  * Use `create(GetMinerPoolAssignmentsRequestSchema)` to create a new message.
  */
-export const GetMinerPoolAssignmentsRequestSchema: GenMessage<GetMinerPoolAssignmentsRequest> =
-  /*@__PURE__*/
+export const GetMinerPoolAssignmentsRequestSchema: GenMessage<GetMinerPoolAssignmentsRequest> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
 
 /**
@@ -489,8 +470,7 @@ export type PoolAssignment = Message<"fleetmanagement.v1.PoolAssignment"> & {
  * Describes the message fleetmanagement.v1.PoolAssignment.
  * Use `create(PoolAssignmentSchema)` to create a new message.
  */
-export const PoolAssignmentSchema: GenMessage<PoolAssignment> =
-  /*@__PURE__*/
+export const PoolAssignmentSchema: GenMessage<PoolAssignment> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
 
 /**
@@ -514,9 +494,75 @@ export type GetMinerPoolAssignmentsResponse = Message<"fleetmanagement.v1.GetMin
  * Describes the message fleetmanagement.v1.GetMinerPoolAssignmentsResponse.
  * Use `create(GetMinerPoolAssignmentsResponseSchema)` to create a new message.
  */
-export const GetMinerPoolAssignmentsResponseSchema: GenMessage<GetMinerPoolAssignmentsResponse> =
-  /*@__PURE__*/
+export const GetMinerPoolAssignmentsResponseSchema: GenMessage<GetMinerPoolAssignmentsResponse> = /*@__PURE__*/
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
+
+/**
+ * A single model group result with count
+ *
+ * @generated from message fleetmanagement.v1.MinerModelGroup
+ */
+export type MinerModelGroup = Message<"fleetmanagement.v1.MinerModelGroup"> & {
+  /**
+   * @generated from field: string model = 1;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string manufacturer = 2;
+   */
+  manufacturer: string;
+
+  /**
+   * @generated from field: int32 count = 3;
+   */
+  count: number;
+};
+
+/**
+ * Describes the message fleetmanagement.v1.MinerModelGroup.
+ * Use `create(MinerModelGroupSchema)` to create a new message.
+ */
+export const MinerModelGroupSchema: GenMessage<MinerModelGroup> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
+
+/**
+ * Request to get miner model groups with counts
+ *
+ * @generated from message fleetmanagement.v1.GetMinerModelGroupsRequest
+ */
+export type GetMinerModelGroupsRequest = Message<"fleetmanagement.v1.GetMinerModelGroupsRequest"> & {
+  /**
+   * @generated from field: fleetmanagement.v1.MinerListFilter filter = 1;
+   */
+  filter?: MinerListFilter;
+};
+
+/**
+ * Describes the message fleetmanagement.v1.GetMinerModelGroupsRequest.
+ * Use `create(GetMinerModelGroupsRequestSchema)` to create a new message.
+ */
+export const GetMinerModelGroupsRequestSchema: GenMessage<GetMinerModelGroupsRequest> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
+
+/**
+ * Response containing miner model groups with counts
+ *
+ * @generated from message fleetmanagement.v1.GetMinerModelGroupsResponse
+ */
+export type GetMinerModelGroupsResponse = Message<"fleetmanagement.v1.GetMinerModelGroupsResponse"> & {
+  /**
+   * @generated from field: repeated fleetmanagement.v1.MinerModelGroup groups = 1;
+   */
+  groups: MinerModelGroup[];
+};
+
+/**
+ * Describes the message fleetmanagement.v1.GetMinerModelGroupsResponse.
+ * Use `create(GetMinerModelGroupsResponseSchema)` to create a new message.
+ */
+export const GetMinerModelGroupsResponseSchema: GenMessage<GetMinerModelGroupsResponse> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
 
 /**
  * Request to get the current cooling mode for a specific miner
@@ -536,9 +582,8 @@ export type GetMinerCoolingModeRequest = Message<"fleetmanagement.v1.GetMinerCoo
  * Describes the message fleetmanagement.v1.GetMinerCoolingModeRequest.
  * Use `create(GetMinerCoolingModeRequestSchema)` to create a new message.
  */
-export const GetMinerCoolingModeRequestSchema: GenMessage<GetMinerCoolingModeRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
+export const GetMinerCoolingModeRequestSchema: GenMessage<GetMinerCoolingModeRequest> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
 
 /**
  * Response containing the miner's current cooling mode
@@ -560,9 +605,8 @@ export type GetMinerCoolingModeResponse = Message<"fleetmanagement.v1.GetMinerCo
  * Describes the message fleetmanagement.v1.GetMinerCoolingModeResponse.
  * Use `create(GetMinerCoolingModeResponseSchema)` to create a new message.
  */
-export const GetMinerCoolingModeResponseSchema: GenMessage<GetMinerCoolingModeResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
+export const GetMinerCoolingModeResponseSchema: GenMessage<GetMinerCoolingModeResponse> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
 
 /**
  * Selects devices for fleet management operations.
@@ -574,36 +618,32 @@ export type DeviceSelector = Message<"fleetmanagement.v1.DeviceSelector"> & {
   /**
    * @generated from oneof fleetmanagement.v1.DeviceSelector.selection_type
    */
-  selectionType:
-    | {
-        /**
-         * Select all paired devices, optionally filtered.
-         * An empty filter selects all paired devices in the org.
-         *
-         * @generated from field: fleetmanagement.v1.MinerListFilter all_devices = 1;
-         */
-        value: MinerListFilter;
-        case: "allDevices";
-      }
-    | {
-        /**
-         * Select specific devices by identifier.
-         *
-         * @generated from field: fleetmanagement.v1.DeviceIdentifierList include_devices = 2;
-         */
-        value: DeviceIdentifierList;
-        case: "includeDevices";
-      }
-    | { case: undefined; value?: undefined };
+  selectionType: {
+    /**
+     * Select all paired devices, optionally filtered.
+     * An empty filter selects all paired devices in the org.
+     *
+     * @generated from field: fleetmanagement.v1.MinerListFilter all_devices = 1;
+     */
+    value: MinerListFilter;
+    case: "allDevices";
+  } | {
+    /**
+     * Select specific devices by identifier.
+     *
+     * @generated from field: fleetmanagement.v1.DeviceIdentifierList include_devices = 2;
+     */
+    value: DeviceIdentifierList;
+    case: "includeDevices";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message fleetmanagement.v1.DeviceSelector.
  * Use `create(DeviceSelectorSchema)` to create a new message.
  */
-export const DeviceSelectorSchema: GenMessage<DeviceSelector> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
+export const DeviceSelectorSchema: GenMessage<DeviceSelector> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
 
 /**
  * @generated from message fleetmanagement.v1.DeviceIdentifierList
@@ -619,9 +659,8 @@ export type DeviceIdentifierList = Message<"fleetmanagement.v1.DeviceIdentifierL
  * Describes the message fleetmanagement.v1.DeviceIdentifierList.
  * Use `create(DeviceIdentifierListSchema)` to create a new message.
  */
-export const DeviceIdentifierListSchema: GenMessage<DeviceIdentifierList> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
+export const DeviceIdentifierListSchema: GenMessage<DeviceIdentifierList> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
 
 /**
  * Request to delete miners from the fleet.
@@ -639,9 +678,8 @@ export type DeleteMinersRequest = Message<"fleetmanagement.v1.DeleteMinersReques
  * Describes the message fleetmanagement.v1.DeleteMinersRequest.
  * Use `create(DeleteMinersRequestSchema)` to create a new message.
  */
-export const DeleteMinersRequestSchema: GenMessage<DeleteMinersRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
+export const DeleteMinersRequestSchema: GenMessage<DeleteMinersRequest> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
 
 /**
  * Response from deleting miners
@@ -661,9 +699,8 @@ export type DeleteMinersResponse = Message<"fleetmanagement.v1.DeleteMinersRespo
  * Describes the message fleetmanagement.v1.DeleteMinersResponse.
  * Use `create(DeleteMinersResponseSchema)` to create a new message.
  */
-export const DeleteMinersResponseSchema: GenMessage<DeleteMinersResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
+export const DeleteMinersResponseSchema: GenMessage<DeleteMinersResponse> = /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
 
 /**
  * @generated from enum fleetmanagement.v1.FleetManagementServiceErrorCode
@@ -683,8 +720,7 @@ export enum FleetManagementServiceErrorCode {
 /**
  * Describes the enum fleetmanagement.v1.FleetManagementServiceErrorCode.
  */
-export const FleetManagementServiceErrorCodeSchema: GenEnum<FleetManagementServiceErrorCode> =
-  /*@__PURE__*/
+export const FleetManagementServiceErrorCodeSchema: GenEnum<FleetManagementServiceErrorCode> = /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 0);
 
 /**
@@ -746,8 +782,7 @@ export enum DeviceStatus {
 /**
  * Describes the enum fleetmanagement.v1.DeviceStatus.
  */
-export const DeviceStatusSchema: GenEnum<DeviceStatus> =
-  /*@__PURE__*/
+export const DeviceStatusSchema: GenEnum<DeviceStatus> = /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
@@ -781,7 +816,8 @@ export enum MinerType {
 /**
  * Describes the enum fleetmanagement.v1.MinerType.
  */
-export const MinerTypeSchema: GenEnum<MinerType> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
+export const MinerTypeSchema: GenEnum<MinerType> = /*@__PURE__*/
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * Pairing status of a device
@@ -835,8 +871,7 @@ export enum PairingStatus {
 /**
  * Describes the enum fleetmanagement.v1.PairingStatus.
  */
-export const PairingStatusSchema: GenEnum<PairingStatus> =
-  /*@__PURE__*/
+export const PairingStatusSchema: GenEnum<PairingStatus> = /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
@@ -919,7 +954,8 @@ export enum SortField {
 /**
  * Describes the enum fleetmanagement.v1.SortField.
  */
-export const SortFieldSchema: GenEnum<SortField> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+export const SortFieldSchema: GenEnum<SortField> = /*@__PURE__*/
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
  * Direction to sort results
@@ -952,8 +988,7 @@ export enum SortDirection {
 /**
  * Describes the enum fleetmanagement.v1.SortDirection.
  */
-export const SortDirectionSchema: GenEnum<SortDirection> =
-  /*@__PURE__*/
+export const SortDirectionSchema: GenEnum<SortDirection> = /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 5);
 
 /**
@@ -973,7 +1008,7 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof ListMinerStateSnapshotsRequestSchema;
     output: typeof ListMinerStateSnapshotsResponseSchema;
-  };
+  },
   /**
    * Get counts of miners in different states without fetching miner data
    * More efficient than ListMinerStateSnapshots when only counts are needed
@@ -984,7 +1019,7 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof GetMinerStateCountsRequestSchema;
     output: typeof GetMinerStateCountsResponseSchema;
-  };
+  },
   /**
    * Get the current pool assignments for a specific miner
    * Returns the fleet pool IDs that match the miner's currently configured pools
@@ -996,7 +1031,7 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof GetMinerPoolAssignmentsRequestSchema;
     output: typeof GetMinerPoolAssignmentsResponseSchema;
-  };
+  },
   /**
    * Get the current cooling mode for a specific miner
    * Returns the cooling mode configuration from the miner
@@ -1008,7 +1043,7 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof GetMinerCoolingModeRequestSchema;
     output: typeof GetMinerCoolingModeResponseSchema;
-  };
+  },
   /**
    * Delete miners from the fleet by soft-deleting their database records.
    * Immediately removes devices from the fleet and telemetry collection.
@@ -1020,5 +1055,18 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof DeleteMinersRequestSchema;
     output: typeof DeleteMinersResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_fleetmanagement_v1_fleetmanagement, 0);
+  },
+  /**
+   * Get miner model groups with counts, optionally filtered by the current fleet filter
+   * Used for bulk password update to show accurate model groups across the full fleet
+   *
+   * @generated from rpc fleetmanagement.v1.FleetManagementService.GetMinerModelGroups
+   */
+  getMinerModelGroups: {
+    methodKind: "unary";
+    input: typeof GetMinerModelGroupsRequestSchema;
+    output: typeof GetMinerModelGroupsResponseSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_fleetmanagement_v1_fleetmanagement, 0);
+
