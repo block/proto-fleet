@@ -60,6 +60,7 @@ test.describe("Mining Pools", () => {
     minersPage,
     editPoolPage,
     newPoolModal,
+    loginModal,
     commonSteps,
   }) => {
     const poolName = generateRandomText("PoolName");
@@ -74,6 +75,7 @@ test.describe("Mining Pools", () => {
       await minersPage.clickSelectAllCheckbox();
       await minersPage.clickActionsMenuButton();
       await minersPage.clickEditMiningPoolButton();
+      await loginModal.loginAsAdmin();
     });
 
     await test.step("Add default mining pool", async () => {
@@ -104,6 +106,7 @@ test.describe("Mining Pools", () => {
     minersPage,
     editPoolPage,
     commonSteps,
+    loginModal,
   }) => {
     const newPoolName = generateRandomText("PoolName");
     const newPoolUsername = generateRandomText("PoolUsername");
@@ -136,6 +139,7 @@ test.describe("Mining Pools", () => {
       minerStatus = await minersPage.getMinerStatus(minerIp);
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickEditMiningPoolButton();
+      await loginModal.loginAsAdmin();
     });
 
     await test.step("Get existing pool details", async () => {
@@ -180,6 +184,7 @@ test.describe("Mining Pools", () => {
     await test.step("Reopen miner and validate the pools have been saved successfully", async () => {
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickEditMiningPoolButton();
+      await loginModal.loginAsAdmin();
       await editPoolPage.validatePoolCount(2);
       await editPoolPage.validatePoolByIndex(0, newPoolName, validPoolUrl);
       await editPoolPage.validatePoolByIndex(1, existingPoolName, existingPoolUrl);

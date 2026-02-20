@@ -4,6 +4,7 @@ import { test as base } from "@playwright/test";
 import { CommonSteps } from "../helpers/commonSteps";
 import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
+import { LoginModalComponent } from "../pages/components/loginModal";
 import { EditPoolPage } from "../pages/editPool";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -24,6 +25,7 @@ type PageFixtures = {
   settingsPoolsPage: SettingsPoolsPage;
   editPoolPage: EditPoolPage;
   newPoolModal: NewPoolModalPage;
+  loginModal: LoginModalComponent;
   commonSteps: CommonSteps;
 };
 
@@ -57,6 +59,9 @@ export const test = base.extend<PageFixtures>({
   },
   newPoolModal: async ({ page, isMobile }, use) => {
     await use(new NewPoolModalPage(page, isMobile));
+  },
+  loginModal: async ({ page, isMobile }, use) => {
+    await use(new LoginModalComponent(page, isMobile));
   },
   commonSteps: async ({ authPage, minersPage }, use) => {
     await use(new CommonSteps(authPage, minersPage));
