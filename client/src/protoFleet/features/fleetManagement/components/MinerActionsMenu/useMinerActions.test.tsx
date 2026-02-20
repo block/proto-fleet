@@ -60,7 +60,6 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
   }),
 }));
 
-
 const mockFetchCoolingMode = vi.fn(() => Promise.resolve(0)); // CoolingMode.UNSPECIFIED
 vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({
   default: () => ({
