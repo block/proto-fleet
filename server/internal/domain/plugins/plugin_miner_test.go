@@ -196,9 +196,76 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	return pm, mockDevice
+}
+
+func TestFormatLogLineToCSVRow(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected string
+	}{
+		{
+			name:     "Proto miner INFO log",
+			line:     "Jun 14 16:01:58 proto-miner-001D mcdd[716]: 2024-06-14 16:01:58.470952 | INFO  | mcdd::temp::temp_control:322 | [TempCtrl] Control temps",
+			expected: `2024-06-14 16:01:58,INFO,"mcdd::temp::temp_control:322 | [TempCtrl] Control temps"`,
+		},
+		{
+			name:     "Proto miner WARN log",
+			line:     "Jun 14 16:02:04 proto-miner-001D mcdd[716]: 2024-06-14 16:02:04.512536 | WARN  | mcdd::pool_interface:379 | Share rejected",
+			expected: `2024-06-14 16:02:04,WARN,"mcdd::pool_interface:379 | Share rejected"`,
+		},
+		{
+			name:     "Proto miner ERROR log",
+			line:     "Jun 14 16:02:06 proto-miner-001D mcdd[716]: 2024-06-14 16:02:06.575555 | ERROR | mcdd::hashboard:649 | Error during SetWork",
+			expected: `2024-06-14 16:02:06,ERROR,"mcdd::hashboard:649 | Error during SetWork"`,
+		},
+		{
+			name:     "Proto miner DEBUG log",
+			line:     "Jun 14 16:00:01 proto-miner-001D mcdd[716]: 2024-06-14 16:00:01.123456 | DEBUG | mcdd::debug:10 | debug info",
+			expected: `2024-06-14 16:00:01,DEBUG,"mcdd::debug:10 | debug info"`,
+		},
+		{
+			name:     "Antminer ISO timestamp log",
+			line:     "[2026-02-20T17:35:18Z] Mining operation normal - hashrate: 140.0 TH/s",
+			expected: `2026-02-20T17:35:18Z,,"Mining operation normal - hashrate: 140.0 TH/s"`,
+		},
+		{
+			name:     "Antminer kernel seconds-since-boot log",
+			line:     "[    0.000000] Booting Linux on physical CPU 0x0",
+			expected: `0.000000,,"Booting Linux on physical CPU 0x0"`,
+		},
+		{
+			name:     "Bracketed keyword without digits falls through to raw message",
+			line:     "[INFO] Proto Miner Simulator started",
+			expected: `,,"[INFO] Proto Miner Simulator started"`,
+		},
+		{
+			name:     "Message with double quotes is escaped",
+			line:     "[2026-01-01T00:00:00Z] error: \"disk full\"",
+			expected: `2026-01-01T00:00:00Z,,"error: ""disk full"""`,
+		},
+		{
+			name:     "Unrecognised format falls through to raw message",
+			line:     "some unstructured log line",
+			expected: `,,"some unstructured log line"`,
+		},
+		{
+			name:     "Empty line",
+			line:     "",
+			expected: `,,""`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatLogLineToCSVRow(tt.line)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestPluginMiner_GetOrgID(t *testing.T) {
@@ -709,6 +776,7 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	status, err := pluginMiner.GetDeviceStatus(context.Background())
@@ -751,6 +819,7 @@ func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *tes
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	status, err := pluginMiner.GetDeviceStatus(context.Background())
