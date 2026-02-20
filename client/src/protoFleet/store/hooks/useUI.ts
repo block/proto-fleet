@@ -12,8 +12,6 @@ export const useTemperatureUnit = () => useFleetStore((state) => state.ui.temper
 
 export const useDuration = () => useFleetStore((state) => state.ui.duration);
 
-export const useVisibleMinerIds = () => useFleetStore((state) => state.ui.visibleMinerIds);
-
 // =============================================================================
 // UI Action Selectors
 // =============================================================================
@@ -25,5 +23,3 @@ export const useSetDeviceTheme = () => useFleetStore((state) => state.ui.setDevi
 export const useSetTemperatureUnit = () => useFleetStore((state) => state.ui.setTemperatureUnit);
 
 export const useSetDuration = () => useFleetStore((state) => state.ui.setDuration);
-
-export const useSetVisibleMinerIds = () => useFleetStore((state) => state.ui.setVisibleMinerIds);

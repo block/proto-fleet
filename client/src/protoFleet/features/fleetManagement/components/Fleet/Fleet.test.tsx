@@ -8,9 +8,11 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   default: vi.fn(() => ({
     isInitialLoad: false,
     hasMore: false,
+    hasInitialLoadCompleted: false,
     isLoadingMiners: false,
     isFetching: false,
     loadMore: vi.fn(),
+    refetch: vi.fn(),
   })),
 }));
 
@@ -19,7 +21,6 @@ vi.mock("@/protoFleet/store", () => {
     vi.fn(() => ({
       fleet: {
         isLoading: false,
-        isStreaming: false,
         minerIds: [],
         totalMiners: 0,
         deviceStatusCounts: {},
@@ -36,27 +37,17 @@ vi.mock("@/protoFleet/store", () => {
     useFleetStore,
     useFleetMiners: vi.fn(() => []),
     useIsLoading: vi.fn(() => false),
-    useIsStreaming: vi.fn(() => false),
     useMinerIds: vi.fn(() => []),
     useTotalMiners: vi.fn(() => 0),
     useDeviceStatusCounts: vi.fn(() => ({})),
     useSetRefetchCallback: vi.fn(() => vi.fn()),
     useCleanupStaleBatches: vi.fn(() => vi.fn()),
-    useLastPairingCompletedAt: vi.fn(() => 0),
     useNotifyPairingCompleted: vi.fn(() => vi.fn()),
-    useBatchOperationCount: vi.fn(() => 0),
   };
 });
 
 vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
   default: vi.fn(() => ({ totalMiners: 0 })),
-}));
-
-vi.mock("@/protoFleet/api/useBatchTelemetry", () => ({
-  default: vi.fn(() => ({
-    fetchBatchTelemetry: vi.fn(),
-    resetFetchedIds: vi.fn(),
-  })),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
@@ -65,17 +56,6 @@ vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
 
 vi.mock("@/protoFleet/api/useStreamDeviceErrors", () => ({
   useStreamDeviceErrors: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/api/useStreamMinerListUpdates", () => ({
-  default: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/hooks", () => ({
-  useVisibleMiners: vi.fn(() => ({
-    visibleMinerIds: new Set(),
-    registerMiner: vi.fn(),
-  })),
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
@@ -187,428 +167,124 @@ describe("Fleet - Stale Batch Cleanup", () => {
   });
 });
 
-describe("Fleet - Telemetry Cache Reset", () => {
-  beforeEach(() => {
+describe("Fleet - Polling", () => {
+  let mockRefetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.resetModules();
     vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    mockRefetch = vi.fn();
   });
 
-  it("should call resetFetchedIds when batch count decreases", async () => {
-    const useBatchTelemetryModule = await import("@/protoFleet/api/useBatchTelemetry");
-    const { useFleetStore, useBatchOperationCount } = await import("@/protoFleet/store");
-    const resetFetchedIds = vi.fn();
-    const fetchBatchTelemetry = vi.fn();
-
-    vi.mocked(useBatchTelemetryModule.default).mockReturnValue({
-      fetchBatchTelemetry,
-      resetFetchedIds,
-    });
-
-    // Start with 2 batch operations
-    const initialState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(initialState);
-      }
-      return initialState;
-    });
-
-    // Mock batch count to return 2 initially
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
-
-    const { rerender } = renderFleet();
-
-    // Clear mocks after initial render to only track calls from the batch count change
-    vi.clearAllMocks();
-
-    // Batch count decreases to 1 (a batch completed)
-    const updatedState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(updatedState);
-      }
-      return updatedState;
-    });
-
-    // Mock batch count to return 1 after batch completion
-    vi.mocked(useBatchOperationCount).mockReturnValue(1);
-
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    expect(resetFetchedIds).toHaveBeenCalledTimes(1);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("should refetch telemetry for visible miners when batch completes", async () => {
-    const useBatchTelemetryModule = await import("@/protoFleet/api/useBatchTelemetry");
-    const { useFleetStore, useBatchOperationCount } = await import("@/protoFleet/store");
-    const { useVisibleMiners } = await import("@/protoFleet/hooks");
-    const resetFetchedIds = vi.fn();
-    const fetchBatchTelemetry = vi.fn();
+  it("should setup polling interval after initial load completes", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useBatchTelemetryModule.default).mockReturnValue({
-      fetchBatchTelemetry,
-      resetFetchedIds,
+    vi.mocked(useFleetModule.default).mockReturnValue({
+      minerIds: ["miner1"],
+      totalMiners: 1,
+      hasMore: false,
+      hasInitialLoadCompleted: true,
+      refetch: mockRefetch,
+      availableModels: [],
+      currentPage: 1,
+      hasPreviousPage: false,
+      goToNextPage: vi.fn(),
+      goToPrevPage: vi.fn(),
     });
 
-    const visibleMinerIds = new Set(["miner1", "miner2", "miner3"]);
-    vi.mocked(useVisibleMiners).mockReturnValue({
-      visibleMinerIds,
-      registerMiner: vi.fn(),
-    });
+    renderFleet();
 
-    // Start with 2 batch operations
-    const initialState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
+    // Advance time by default poll interval (60 seconds)
+    vi.advanceTimersByTime(60000);
 
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(initialState);
-      }
-      return initialState;
-    });
-
-    // Mock batch count to return 2 initially
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
-
-    const { rerender } = renderFleet();
-
-    // Clear mocks after initial render to only track calls from the batch count change
-    vi.clearAllMocks();
-
-    // Batch count decreases to 1
-    const updatedState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(updatedState);
-      }
-      return updatedState;
-    });
-
-    // Mock batch count to return 1 after batch completion
-    vi.mocked(useBatchOperationCount).mockReturnValue(1);
-
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    expect(resetFetchedIds).toHaveBeenCalledTimes(1);
-    expect(fetchBatchTelemetry).toHaveBeenCalledWith(visibleMinerIds);
+    expect(mockRefetch).toHaveBeenCalled();
   });
 
-  it("should not refetch when there are no visible miners", async () => {
-    const useBatchTelemetryModule = await import("@/protoFleet/api/useBatchTelemetry");
-    const { useFleetStore, useBatchOperationCount } = await import("@/protoFleet/store");
-    const { useVisibleMiners } = await import("@/protoFleet/hooks");
-    const resetFetchedIds = vi.fn();
-    const fetchBatchTelemetry = vi.fn();
+  it("should not poll before initial load completes", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useBatchTelemetryModule.default).mockReturnValue({
-      fetchBatchTelemetry,
-      resetFetchedIds,
+    vi.mocked(useFleetModule.default).mockReturnValue({
+      minerIds: [],
+      totalMiners: 0,
+      hasMore: false,
+      hasInitialLoadCompleted: false,
+      refetch: mockRefetch,
+      availableModels: [],
+      currentPage: 1,
+      hasPreviousPage: false,
+      goToNextPage: vi.fn(),
+      goToPrevPage: vi.fn(),
     });
 
-    // No visible miners
-    vi.mocked(useVisibleMiners).mockReturnValue({
-      visibleMinerIds: new Set(),
-      registerMiner: vi.fn(),
-    });
+    renderFleet();
 
-    // Start with 2 batch operations
-    const initialState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
+    // Advance time by poll interval
+    vi.advanceTimersByTime(60000);
 
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(initialState);
-      }
-      return initialState;
-    });
-
-    // Mock batch count to return 2 initially
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
-
-    const { rerender } = renderFleet();
-
-    // Clear mocks after initial render to only track calls from the batch count change
-    vi.clearAllMocks();
-
-    // Batch count decreases to 1
-    const updatedState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(updatedState);
-      }
-      return updatedState;
-    });
-
-    // Mock batch count to return 1 after batch completion
-    vi.mocked(useBatchOperationCount).mockReturnValue(1);
-
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    expect(resetFetchedIds).toHaveBeenCalledTimes(1);
-    expect(fetchBatchTelemetry).not.toHaveBeenCalled();
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 
-  it("should not reset cache when batch count increases", async () => {
-    const useBatchTelemetryModule = await import("@/protoFleet/api/useBatchTelemetry");
-    const { useFleetStore, useBatchOperationCount } = await import("@/protoFleet/store");
-    const resetFetchedIds = vi.fn();
-    const fetchBatchTelemetry = vi.fn();
+  it("should poll repeatedly at the configured interval", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useBatchTelemetryModule.default).mockReturnValue({
-      fetchBatchTelemetry,
-      resetFetchedIds,
+    vi.mocked(useFleetModule.default).mockReturnValue({
+      minerIds: ["miner1"],
+      totalMiners: 1,
+      hasMore: false,
+      hasInitialLoadCompleted: true,
+      refetch: mockRefetch,
+      availableModels: [],
+      currentPage: 1,
+      hasPreviousPage: false,
+      goToNextPage: vi.fn(),
+      goToPrevPage: vi.fn(),
     });
 
-    // Start with 1 batch operation
-    const initialState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-          },
-        },
-      },
-    };
+    renderFleet();
 
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(initialState);
-      }
-      return initialState;
-    });
+    // First poll
+    vi.advanceTimersByTime(60000);
+    const callsAfterFirst = mockRefetch.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
 
-    // Mock batch count to return 1 initially
-    vi.mocked(useBatchOperationCount).mockReturnValue(1);
-
-    const { rerender } = renderFleet();
-
-    // Clear mocks after initial render to only track calls from the batch count change
-    vi.clearAllMocks();
-
-    // Batch count increases to 2 (new batch started)
-    const updatedState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(updatedState);
-      }
-      return updatedState;
-    });
-
-    // Mock batch count to return 2 after new batch starts
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
-
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    expect(resetFetchedIds).not.toHaveBeenCalled();
-    expect(fetchBatchTelemetry).not.toHaveBeenCalled();
+    // Second poll
+    vi.advanceTimersByTime(60000);
+    expect(mockRefetch.mock.calls.length).toBeGreaterThan(callsAfterFirst);
   });
 
-  it("should not reset cache when batch count stays the same", async () => {
-    const useBatchTelemetryModule = await import("@/protoFleet/api/useBatchTelemetry");
-    const { useFleetStore, useBatchOperationCount } = await import("@/protoFleet/store");
-    const resetFetchedIds = vi.fn();
-    const fetchBatchTelemetry = vi.fn();
+  it("should cleanup polling interval on unmount", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useBatchTelemetryModule.default).mockReturnValue({
-      fetchBatchTelemetry,
-      resetFetchedIds,
+    vi.mocked(useFleetModule.default).mockReturnValue({
+      minerIds: ["miner1"],
+      totalMiners: 1,
+      hasMore: false,
+      hasInitialLoadCompleted: true,
+      refetch: mockRefetch,
+      availableModels: [],
+      currentPage: 1,
+      hasPreviousPage: false,
+      goToNextPage: vi.fn(),
+      goToPrevPage: vi.fn(),
     });
 
-    // Start with 2 batch operations
-    const initialState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
+    const { unmount } = renderFleet();
 
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(initialState);
-      }
-      return initialState;
-    });
+    vi.advanceTimersByTime(60000);
+    const callsBeforeUnmount = mockRefetch.mock.calls.length;
+    expect(callsBeforeUnmount).toBeGreaterThan(0);
 
-    // Mock batch count to return 2 initially
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
+    unmount();
 
-    const { rerender } = renderFleet();
-
-    // Clear mocks after initial render to only track calls from the batch count change
-    vi.clearAllMocks();
-
-    // Batch count stays at 2 (no change)
-    const updatedState = {
-      fleet: {
-        isLoading: false,
-        isStreaming: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-        batchOperations: {
-          byBatchId: {
-            batch1: { id: "batch1" },
-            batch2: { id: "batch2" },
-          },
-        },
-      },
-    };
-
-    vi.mocked(useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(updatedState);
-      }
-      return updatedState;
-    });
-
-    // Mock batch count to still return 2 (no change)
-    vi.mocked(useBatchOperationCount).mockReturnValue(2);
-
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    expect(resetFetchedIds).not.toHaveBeenCalled();
-    expect(fetchBatchTelemetry).not.toHaveBeenCalled();
+    // Advance time again - should not poll after unmount
+    vi.advanceTimersByTime(60000);
+    expect(mockRefetch.mock.calls.length).toBe(callsBeforeUnmount);
   });
 });
 

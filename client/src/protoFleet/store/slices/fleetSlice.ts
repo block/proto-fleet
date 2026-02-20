@@ -171,7 +171,6 @@ export interface FleetSlice {
 
   // Loading states
   isLoading: boolean;
-  isStreaming: boolean;
   cursor: string;
 
   // Current filter applied to the fleet list (synced from URL params)
@@ -198,7 +197,6 @@ export interface FleetSlice {
   updateMinerDeviceStatus: (deviceId: string, deviceStatusUpdate: DeviceStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
-  setStreaming: (streaming: boolean) => void;
   setCursor: (cursor: string) => void;
   notifyPairingCompleted: () => void;
 
@@ -246,7 +244,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
   isLoading: false,
-  isStreaming: false,
   cursor: "",
   currentFilter: null,
   lastPairingCompletedAt: 0,
@@ -405,11 +402,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   setLoading: (loading) =>
     set((state) => {
       state.fleet.isLoading = loading;
-    }),
-
-  setStreaming: (streaming) =>
-    set((state) => {
-      state.fleet.isStreaming = streaming;
     }),
 
   setCursor: (cursor) =>

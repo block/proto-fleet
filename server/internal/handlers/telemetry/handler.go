@@ -33,8 +33,6 @@ type Handler struct {
 	// Stream deduplication: ensures only one active stream per session per endpoint.
 	// When a new stream request arrives for a session that already has an active stream,
 	// the previous stream is cancelled to prevent connection exhaustion from rapid scrolling.
-	activeUpdateStreams     map[string]*activeStream
-	activeUpdateStreamsMu   sync.Mutex
 	activeCombinedStreams   map[string]*activeStream
 	activeCombinedStreamsMu sync.Mutex
 }
@@ -42,114 +40,7 @@ type Handler struct {
 func NewHandler(telemetryService *telemetry.TelemetryService) *Handler {
 	return &Handler{
 		telemetryService:      telemetryService,
-		activeUpdateStreams:   make(map[string]*activeStream),
 		activeCombinedStreams: make(map[string]*activeStream),
-	}
-}
-
-func (h *Handler) StreamUpdates(
-	ctx context.Context,
-	req *connect.Request[telemetryv1.StreamUpdatesRequest],
-	stream *connect.ServerStream[telemetryv1.StreamUpdatesResponse],
-) error {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get session info: %w", err))
-	}
-
-	// Build deduplication key from session ID and connection ID
-	// This allows multiple tabs (different connection IDs) to have independent streams
-	dedupeKey := info.SessionID
-	if req.Msg.ConnectionId != "" {
-		dedupeKey = info.SessionID + ":" + req.Msg.ConnectionId
-	}
-
-	// Cancel any existing stream for this session+connection to prevent connection exhaustion
-	h.activeUpdateStreamsMu.Lock()
-	if existing, exists := h.activeUpdateStreams[dedupeKey]; exists {
-		existing.cancel()
-		slog.Debug("cancelled existing telemetry update stream", "dedupeKey", dedupeKey)
-	}
-	streamCtx, cancelStream := context.WithCancel(ctx)
-	streamID := atomic.AddUint64(&telemetryStreamIDCounter, 1)
-	h.activeUpdateStreams[dedupeKey] = &activeStream{
-		cancel: cancelStream,
-		id:     streamID,
-	}
-	h.activeUpdateStreamsMu.Unlock()
-
-	// Clean up on exit
-	defer func() {
-		cancelStream()
-		h.activeUpdateStreamsMu.Lock()
-		if existing, exists := h.activeUpdateStreams[dedupeKey]; exists && existing.id == streamID {
-			delete(h.activeUpdateStreams, dedupeKey)
-			slog.Debug("cleaned up telemetry update stream", "dedupeKey", dedupeKey, "streamID", streamID)
-		}
-		h.activeUpdateStreamsMu.Unlock()
-	}()
-
-	query, err := toStreamQuery(req.Msg)
-	if err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	updateTelemetryChan, err := h.telemetryService.StreamTelemetryUpdates(streamCtx, query)
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
-	}
-	updateStatusChan, err := h.telemetryService.StreamDeviceStatusUpdates(streamCtx, query)
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
-	}
-
-	updateCountsChan, err := h.telemetryService.StreamMinerStateCounts(streamCtx, info.OrganizationID, *query.HeartbeatInterval)
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start miner state counts stream: %w", err))
-	}
-
-	for {
-		select {
-		case <-streamCtx.Done():
-			return fleeterror.NewCanceledError()
-		case update, ok := <-updateTelemetryChan:
-			if !ok {
-				return nil
-			}
-
-			response, err := fromTelemetryUpdate(update)
-			if err != nil {
-				return connect.NewError(connect.CodeInternal, err)
-			}
-
-			if err := stream.Send(response); err != nil {
-				return fleeterror.NewInternalErrorf("failed to send stream response: %v", err)
-			}
-		case update, ok := <-updateStatusChan:
-			if !ok {
-				return nil
-			}
-			response, err := fromTelemetryUpdate(update)
-			if err != nil {
-				return connect.NewError(connect.CodeInternal, err)
-			}
-
-			if err := stream.Send(response); err != nil {
-				return fleeterror.NewInternalErrorf("failed to send stream response: %v", err)
-			}
-		case update, ok := <-updateCountsChan:
-			if !ok {
-				return nil
-			}
-			response, err := fromTelemetryUpdate(update)
-			if err != nil {
-				return connect.NewError(connect.CodeInternal, err)
-			}
-
-			if err := stream.Send(response); err != nil {
-				return fleeterror.NewInternalErrorf("failed to send stream response: %v", err)
-			}
-		}
 	}
 }
 

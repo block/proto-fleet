@@ -29,8 +29,6 @@ export const useFleetMiners = () => useFleetStore(useShallow((state) => state.fl
 
 export const useIsLoading = () => useFleetStore((state) => state.fleet.isLoading);
 
-export const useIsStreaming = () => useFleetStore((state) => state.fleet.isStreaming);
-
 // =============================================================================
 // Property-specific selectors for surgical updates
 // =============================================================================
@@ -200,8 +198,6 @@ export const useUpdateMinerDeviceStatus = () => useFleetStore((state) => state.f
 export const useUpdateMinerTimestamp = () => useFleetStore((state) => state.fleet.updateMinerTimestamp);
 
 export const useSetLoading = () => useFleetStore((state) => state.fleet.setLoading);
-
-export const useSetStreaming = () => useFleetStore((state) => state.fleet.setStreaming);
 
 export const useSetCursor = () => useFleetStore((state) => state.fleet.setCursor);
 

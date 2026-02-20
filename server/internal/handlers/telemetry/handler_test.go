@@ -69,13 +69,6 @@ func TestHandler_ConversionFunctions(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, protoType, edProto)
 	})
-
-	t.Run("component status conversion", func(t *testing.T) {
-		domainStatus := models.ComponentStatusHealthy
-		protoStatus, err := componentStatusToProto(domainStatus)
-		require.NoError(t, err)
-		require.Equal(t, telemetryv1.ComponentStatus_COMPONENT_STATUS_HEALTHY, protoStatus)
-	})
 }
 
 func TestHandler_GetCombinedMetrics(t *testing.T) {

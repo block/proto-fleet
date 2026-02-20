@@ -38,7 +38,6 @@ import {
   StreamCommandBatchUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useMinerCoolingMode from "@/protoFleet/api/useMinerCoolingMode";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
@@ -244,7 +243,6 @@ export const useMinerActions = ({
   const startBatchOperation = useStartBatchOperation();
   const completeBatchOperation = useCompleteBatchOperation();
   const removeDevicesFromBatch = useRemoveDevicesFromBatch();
-  const { resetFetchedIds } = useBatchTelemetry();
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
 
@@ -437,9 +435,6 @@ export const useMinerActions = ({
           removeToast(originalToastId);
         }
 
-        // Reset telemetry cache and immediately fetch fresh status for status polling
-        resetFetchedIds();
-
         onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
         // Immediately remove failed devices from batch (revert to their original status)
@@ -468,16 +463,13 @@ export const useMinerActions = ({
             const store = useFleetStore.getState();
             pollCount++;
 
-            // Rely entirely on telemetry stream for device status updates
-            // No need to fetch batch telemetry during polling - stream provides real-time updates
-
             // Get batch startedAt for time-based checks (e.g., minimum reboot duration)
             const batchOperation = store.fleet.batchOperations.byBatchId[batchIdentifier];
             const batchStartedAt = batchOperation?.startedAt;
 
             // Check status for all successfully queued devices (from successDeviceIds array)
             // Note: For "select all" operations, only visible/paginated device IDs are stored client-side.
-            // This is intentional - telemetry stream updates status for all devices, but we only track
+            // This is intentional - polling will update status for all devices, but we only track
             // loading states for devices in the current view. Non-visible devices will show updated
             // status when they scroll into view.
             const allSuccessfulDevicesUpdated = successDeviceIds.every((deviceId) => {
@@ -505,7 +497,7 @@ export const useMinerActions = ({
         }
       });
     },
-    [streamCommandBatchUpdates, completeBatchOperation, removeDevicesFromBatch, resetFetchedIds],
+    [streamCommandBatchUpdates, completeBatchOperation, removeDevicesFromBatch],
   );
 
   const handleError = useCallback((originalToastId: number, error: string) => {

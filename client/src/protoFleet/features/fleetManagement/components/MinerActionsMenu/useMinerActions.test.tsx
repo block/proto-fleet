@@ -21,8 +21,6 @@ type TestStore = { fleet: FleetSlice; ui: UISlice };
 const mockStartBatchOperation = vi.fn();
 const mockCompleteBatchOperation = vi.fn();
 const mockRemoveDevicesFromBatch = vi.fn();
-const mockFetchBatchTelemetry = vi.fn();
-const mockResetFetchedIds = vi.fn();
 const mockStreamCommandBatchUpdates = vi.fn((_params: any) => Promise.resolve());
 const mockStartMining = vi.fn();
 const mockStopMining = vi.fn();
@@ -62,12 +60,6 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
   }),
 }));
 
-vi.mock("@/protoFleet/api/useBatchTelemetry", () => ({
-  default: () => ({
-    fetchBatchTelemetry: mockFetchBatchTelemetry,
-    resetFetchedIds: mockResetFetchedIds,
-  }),
-}));
 
 const mockFetchCoolingMode = vi.fn(() => Promise.resolve(0)); // CoolingMode.UNSPECIFIED
 vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({

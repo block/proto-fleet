@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -9,11 +9,9 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
-import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
 import { useStreamDeviceErrors } from "@/protoFleet/api/useStreamDeviceErrors";
-import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { MINERS_PAGE_SIZE } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -25,16 +23,11 @@ import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
-import { useVisibleMiners } from "@/protoFleet/hooks";
-import {
-  useBatchOperationCount,
-  useCleanupStaleBatches,
-  useFleetStore,
-  useLastPairingCompletedAt,
-  useNotifyPairingCompleted,
-} from "@/protoFleet/store";
+import { useCleanupStaleBatches, useNotifyPairingCompleted } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
+
+const POLL_INTERVAL_MS = Number(import.meta.env.VITE_MINER_LIST_POLL_INTERVAL_MS) || 60000;
 
 // Stable reference to prevent re-renders
 const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
@@ -47,10 +40,6 @@ const DEFAULT_SORT_CONFIG: MinerSortConfig = create(MinerSortConfigSchema, {
 
 const Fleet = () => {
   const navigate = useNavigate();
-  const { visibleMinerIds, registerMiner } = useVisibleMiners({
-    rootMargin: "100px", // Preload telemetry for miners 100px before they enter viewport
-    debounceMs: 300, // Debounce visibility updates during scroll
-  });
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
@@ -79,13 +68,13 @@ const Fleet = () => {
   });
 
   // Fetch all devices (both paired and unpaired) with a single API call
-  // Metadata only - telemetry is fetched separately via useBatchTelemetry for visible miners
   const {
     minerIds,
     totalMiners,
     hasMore,
     hasInitialLoadCompleted,
     refetch,
+    refreshCurrentPage,
     availableModels,
     currentPage,
     hasPreviousPage,
@@ -94,22 +83,19 @@ const Fleet = () => {
   } = useFleet({
     scope: "global",
     pageSize: MINERS_PAGE_SIZE,
-    visibleMinerIds,
     filter: currentFilter,
     sort: currentSortConfig,
     pairingStatuses: FLEET_PAIRING_STATUSES,
   });
 
-  const { fetchBatchTelemetry, resetFetchedIds } = useBatchTelemetry();
-
-  // Reset telemetry cache when refetch completes (e.g., after delete)
-  const prevHasInitialLoadCompletedRef = useRef(hasInitialLoadCompleted);
+  // Poll for updates to keep data fresh on the current page
   useEffect(() => {
-    if (hasInitialLoadCompleted && !prevHasInitialLoadCompletedRef.current) {
-      resetFetchedIds();
-    }
-    prevHasInitialLoadCompletedRef.current = hasInitialLoadCompleted;
-  }, [hasInitialLoadCompleted, resetFetchedIds]);
+    if (!hasInitialLoadCompleted) return;
+    const intervalId = setInterval(() => {
+      refreshCurrentPage();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [hasInitialLoadCompleted, refreshCurrentPage]);
 
   // Fetch and stream errors for all loaded miners
   useDeviceErrors(minerIds);
@@ -118,59 +104,12 @@ const Fleet = () => {
     enabled: hasInitialLoadCompleted && minerIds.length > 0,
   });
 
-  useEffect(() => {
-    if (hasInitialLoadCompleted && visibleMinerIds.size > 0) {
-      fetchBatchTelemetry(visibleMinerIds);
-    }
-  }, [visibleMinerIds, hasInitialLoadCompleted, fetchBatchTelemetry]);
-
-  useEffect(() => {
-    resetFetchedIds();
-  }, [currentFilter, resetFetchedIds]);
-
-  useEffect(() => {
-    useFleetStore.getState().fleet.setCurrentFilter(currentFilter ?? null);
-  }, [currentFilter]);
-
-  // Reset telemetry cache and refetch when pairing status changes (e.g., after authentication)
-  const lastPairingCompletedAt = useLastPairingCompletedAt();
-  useEffect(() => {
-    if (lastPairingCompletedAt > 0) {
-      resetFetchedIds();
-      // Immediately refetch telemetry for visible miners after cache reset
-      if (hasInitialLoadCompleted && visibleMinerIds.size > 0) {
-        fetchBatchTelemetry(visibleMinerIds);
-      }
-    }
-  }, [lastPairingCompletedAt, resetFetchedIds, hasInitialLoadCompleted, visibleMinerIds, fetchBatchTelemetry]);
-
-  useStreamMinerListUpdates({
-    filter: currentFilter,
-    sort: currentSortConfig,
-  });
-
-  // Reset telemetry cache when batch operations complete to refetch fresh status data
-  const batchOperationCount = useBatchOperationCount();
-  const prevBatchCountRef = useRef(batchOperationCount);
-  useEffect(() => {
-    // When batch count decreases, a batch completed - reset cache to get fresh telemetry
-    if (batchOperationCount < prevBatchCountRef.current) {
-      resetFetchedIds();
-      // Immediately refetch for visible miners
-      if (visibleMinerIds.size > 0) {
-        fetchBatchTelemetry(visibleMinerIds);
-      }
-    }
-    prevBatchCountRef.current = batchOperationCount;
-  }, [batchOperationCount, resetFetchedIds, visibleMinerIds, fetchBatchTelemetry]);
-
   // Cleanup stale batch operations every minute
   const cleanupStaleBatches = useCleanupStaleBatches();
   useEffect(() => {
     const interval = setInterval(() => {
       cleanupStaleBatches();
-    }, 60000); // Check every minute
-
+    }, 60000);
     return () => clearInterval(interval);
   }, [cleanupStaleBatches]);
 
@@ -178,14 +117,7 @@ const Fleet = () => {
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 
   const handleAddMinersClose = () => {
-    // Refetch fleet data to show newly paired miners
-    // The refetchFleet() call in MinersWrapper should have already triggered this,
-    // but we call it again here to ensure data freshness when modal closes
     refetch();
-    // Reset telemetry cache to allow re-fetching for all miners
-    resetFetchedIds();
-    // Notify store that pairing operations completed
-    // This signals CompleteSetup to refetch auth-needed count
     notifyPairingCompleted();
     setShowAddMinersModal(false);
   };
@@ -223,7 +155,6 @@ const Fleet = () => {
             desktop: "40px",
           }}
           onAddMiners={() => setShowAddMinersModal(true)}
-          itemRef={registerMiner}
           loading={!hasInitialLoadCompleted}
           pageSize={MINERS_PAGE_SIZE}
           currentPage={currentPage}
