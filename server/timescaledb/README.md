@@ -1,18 +1,41 @@
 # Custom TimescaleDB Docker Image
 
 A lightweight alternative to `timescale/timescaledb-ha` that includes only what Proto Fleet needs:
-PostgreSQL 18, TimescaleDB, and the timescaledb_toolkit extension.
+PostgreSQL 18, TimescaleDB, timescaledb_toolkit, pgvector, and timescaledb-tune.
 
 ## Size Comparison
 
-| Image | Content Size | Toolkit? |
-|---|---|---|
-| `timescale/timescaledb-ha:pg17-ts2.25` | **1.67 GB** | ✅ |
-| `timescale/timescaledb:2.25.1-pg18` (Alpine, no toolkit) | **169 MB** | ❌ |
-| `proto-fleet/timescaledb` (this image) | **123 MB** | ✅ |
+| Image | Content Size | Toolkit? | pgvector? | timescaledb-tune? |
+|---|---|---|---|---|
+| `timescale/timescaledb-ha:pg17-ts2.25` | **1.67 GB** | ✅ | ✅ | ✅ |
+| `timescale/timescaledb:2.25.1-pg18` (Alpine) | **169 MB** | ❌ | ✅ | ✅ |
+| `proto-fleet/timescaledb` (this image) | **~120 MB** | ✅ | ✅ | ✅ |
 
-**93% smaller** than the HA image, and **27% smaller** than the standard Alpine
+**93% smaller** than the HA image, and **29% smaller** than the standard Alpine
 image — while including the toolkit that Alpine can't support.
+
+## Comparison with the Standard Alpine Image
+
+The standard `timescale/timescaledb:2.25.1-pg18` is Alpine-based and includes
+timescaledb-tune, pgvector, and PL/Python3 (for PG < 18), but **cannot** include
+the timescaledb_toolkit extension (requires glibc; Alpine uses musl libc).
+
+| Feature | Alpine (`timescale/timescaledb`) | This Image |
+|---|---|---|
+| Base OS | Alpine (musl libc) | Ubuntu 24.04 (glibc) |
+| PostgreSQL | 18 | 18 |
+| TimescaleDB | ✅ | ✅ |
+| timescaledb_toolkit | ❌ (requires glibc) | ✅ |
+| pgvector | ✅ (built from source) | ✅ (pre-built PGDG package) |
+| timescaledb-tune | ✅ (built from source) | ✅ (built from source) |
+| PL/Python3 | ❌ (not available for PG18) | ❌ (not installed) |
+| timescaledb-parallel-copy | ✅ | ❌ (not needed) |
+| Auto-tune on first start | ✅ | ✅ |
+| Image size | ~169 MB | ~120 MB |
+
+The Alpine image builds both pgvector and TimescaleDB from source during the
+Docker build, resulting in a larger image. This image uses pre-compiled `.deb`
+packages from PGDG and Timescale's packagecloud repositories.
 
 ## Why This Image Exists
 
@@ -45,6 +68,10 @@ Proto Fleet does not use:
 - **TimescaleDB 2.x** from Timescale's packagecloud apt repository
 - **timescaledb_toolkit** from the same repository — provides `time_weight()`,
   `stats_agg()`, and other analytical hyperfunctions
+- **pgvector** from the PGDG apt repository — vector similarity search for
+  embeddings and nearest-neighbor queries
+- **timescaledb-tune** — auto-tunes PostgreSQL configuration based on container
+  resources (memory, CPUs) on first start, with cgroups v1/v2 detection
 - Minimal entrypoint handling database initialization, database creation, and
   privilege management via `gosu`
 
@@ -55,6 +82,8 @@ Proto Fleet does not use:
 | PostgreSQL | 18.2 |
 | TimescaleDB | 2.25.1 |
 | timescaledb_toolkit | 1.22.0 |
+| pgvector | 0.8.1 |
+| timescaledb-tune | 0.18.1 |
 
 Versions are not pinned in the Dockerfile by default, so rebuilding will pull
 the latest compatible packages. Pin versions in the `apt-get install` line if
@@ -92,6 +121,21 @@ Both `docker-compose.yaml` (dev) and `deployment-files/docker-compose.yaml`
 | `POSTGRES_DB` | (none) | Database to create on first run |
 | `POSTGRES_USER` | `postgres` | Superuser name |
 | `POSTGRES_PASSWORD` | (none) | Superuser password |
+| `NO_TS_TUNE` | (none) | Set to any value to skip timescaledb-tune on init |
+| `TS_TUNE_MEMORY` | (auto-detected) | Override memory for tuning (e.g., `4GB`) |
+| `TS_TUNE_NUM_CPUS` | (auto-detected) | Override CPU count for tuning |
+| `TS_TUNE_MAX_CONNS` | (none) | Set max connections for tuning |
+| `TS_TUNE_MAX_BG_WORKERS` | (none) | Set max background workers for tuning |
+
+### Notes on timescaledb-tune
+
+On first start, `timescaledb-tune` automatically optimizes `postgresql.conf`
+based on the container's available resources. It detects memory and CPU limits
+from cgroups (v1 and v2), so Docker `--memory` and `--cpus` flags are respected.
+
+When using docker-compose with explicit `-c` flags (as Proto Fleet does), those
+command-line settings take precedence over the tuned `postgresql.conf` values.
+The tune is still useful for any settings not explicitly overridden.
 
 ## Volume Path
 
@@ -101,8 +145,10 @@ without data migration.
 
 ## Architecture Support
 
-Pre-compiled packages for TimescaleDB and the toolkit are available for both
-`amd64` and `arm64` on Ubuntu Noble via Timescale's packagecloud repository.
+Pre-compiled packages for TimescaleDB, the toolkit, and pgvector are available
+for both `amd64` and `arm64` on Ubuntu Noble via the PGDG and Timescale
+packagecloud repositories. The timescaledb-tune binary is compiled from Go
+source during the Docker build, supporting any architecture Go targets.
 
 ## Initialization Scripts
 

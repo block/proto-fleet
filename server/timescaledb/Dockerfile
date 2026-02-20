@@ -1,7 +1,7 @@
 # Proto Fleet Custom TimescaleDB Image
 #
 # A lightweight alternative to timescale/timescaledb-ha (~1.6 GB) that includes
-# only PostgreSQL 18, TimescaleDB, and the timescaledb_toolkit extension.
+# PostgreSQL 18, TimescaleDB, timescaledb_toolkit, pgvector, and timescaledb-tune.
 #
 # What's excluded (and why this image is ~75% smaller):
 #   - Patroni + Python 3 (~120 MB) — HA cluster manager, not needed for single-node
@@ -22,6 +22,16 @@
 #   - Matches the HA image path for volume compatibility during migration
 #   - Existing named volumes (timescaledb-data) will work without data migration
 
+############################
+# Build timescaledb-tune from source
+############################
+FROM golang:1.23-alpine AS tools
+
+RUN CGO_ENABLED=0 go install github.com/timescale/timescaledb-tune/cmd/timescaledb-tune@latest
+
+############################
+# Main image
+############################
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -64,13 +74,14 @@ RUN set -eux; \
         https://packagecloud.io/timescale/timescaledb/ubuntu/ $(lsb_release -cs) main" \
         > /etc/apt/sources.list.d/timescaledb.list; \
     \
-    # --- Install PostgreSQL + TimescaleDB + Toolkit ---
+    # --- Install PostgreSQL + TimescaleDB + Toolkit + pgvector ---
     apt-get update; \
     apt-get install -y --no-install-recommends \
         postgresql-${PG_MAJOR} \
         postgresql-client-${PG_MAJOR} \
         timescaledb-2-postgresql-${PG_MAJOR} \
-        timescaledb-toolkit-postgresql-${PG_MAJOR}; \
+        timescaledb-toolkit-postgresql-${PG_MAJOR} \
+        postgresql-${PG_MAJOR}-pgvector; \
     \
     # --- Cleanup to minimize image size ---
     apt-get purge -y --auto-remove \
@@ -86,6 +97,9 @@ RUN set -eux; \
         /usr/share/locale/en_[A-T]* \
         /usr/share/locale/en_[V-Z]*
 
+# Copy timescaledb-tune from builder
+COPY --from=tools /go/bin/timescaledb-tune /usr/local/bin/
+
 # Configure shared_preload_libraries for TimescaleDB
 RUN echo "shared_preload_libraries = 'timescaledb'" \
     >> /usr/share/postgresql/${PG_MAJOR}/postgresql.conf.sample
@@ -94,7 +108,8 @@ RUN echo "shared_preload_libraries = 'timescaledb'" \
 ENV PGDATA=/home/postgres/pgdata/data \
     PATH=/usr/lib/postgresql/${PG_MAJOR}/bin:$PATH \
     LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8
+    LC_ALL=en_US.UTF-8 \
+    PG_MAJOR=${PG_MAJOR}
 
 RUN mkdir -p "$PGDATA" /var/run/postgresql \
     && chown -R postgres:postgres "$PGDATA" /var/run/postgresql \
