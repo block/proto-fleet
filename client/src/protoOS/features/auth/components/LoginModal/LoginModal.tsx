@@ -14,7 +14,7 @@ const LoginModal = ({ onDismiss, onSuccess }: LoginModalProps) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   return (
-    <Modal onDismiss={onDismiss} showHeader={false} size="small">
+    <Modal onDismiss={onDismiss} showHeader={false} size="small" zIndex="z-70">
       <ResizeablePanel resizeOn={showForgotPassword}>
         {showForgotPassword ? (
           <ForgotPassword key="forgot-password" onDismiss={() => setShowForgotPassword(false)} />

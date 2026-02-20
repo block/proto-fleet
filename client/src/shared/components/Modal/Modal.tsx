@@ -33,6 +33,7 @@ interface ModalProps {
   description?: string;
   divider?: boolean;
   size?: keyof typeof sizes;
+  zIndex?: string;
 }
 
 const Modal = ({
@@ -51,6 +52,7 @@ const Modal = ({
   description,
   divider = true,
   size = sizes.large,
+  zIndex,
 }: ModalProps) => {
   const [showModal, setShowModal] = useState(show);
   const ModalRef = useRef<HTMLDivElement>(null);
@@ -98,7 +100,7 @@ const Modal = ({
   });
 
   return (
-    <PageOverlay show={showModal} position="top">
+    <PageOverlay show={showModal} position="top" {...(zIndex && { zIndex })}>
       <div
         className={clsx(
           "relative h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
