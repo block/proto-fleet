@@ -83,6 +83,8 @@ beforeEach(async () => {
     setCoolingMode: vi.fn(),
     updateMinerPassword: vi.fn(),
     checkCommandCapabilities: vi.fn(),
+    downloadLogs: vi.fn(),
+    getCommandBatchLogBundle: vi.fn(),
   });
 
   vi.mocked(useLastPairingCompletedAt).mockReturnValue(0);
