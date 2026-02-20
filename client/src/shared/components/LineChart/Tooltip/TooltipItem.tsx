@@ -2,7 +2,6 @@ import { ComponentType } from "react";
 
 import { Circle } from "@/shared/assets/icons";
 import useCssVariable from "@/shared/hooks/useCssVariable";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface TooltipItemProps {
   itemKey: string;
@@ -13,8 +12,6 @@ interface TooltipItemProps {
 }
 
 const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipItemProps) => {
-  const { isPhone } = useWindowDimensions();
-
   const color = useCssVariable(colorMap?.[itemKey] || "--color-bg-core-primary-5");
 
   if (!value) return null;
@@ -29,7 +26,7 @@ const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipIte
           </div>
         </div>
 
-        {!isPhone && Icon && <Icon itemKey={itemKey} />}
+        {Icon && <Icon itemKey={itemKey} />}
       </div>
     </>
   );

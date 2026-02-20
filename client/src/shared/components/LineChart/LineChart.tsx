@@ -20,7 +20,7 @@ import useMeasure from "@/shared/hooks/useMeasure";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const TOOLTIP_WIDTH = 269;
-const TOOLTIP_WIDTH_PHONE = 150;
+const TOOLTIP_WIDTH_PHONE = 235;
 const TOOLTIP_OFFSET = 24;
 const Y_AXIS_TICK_WIDTH = 50;
 const MIN_TIMESTAMP_X_POSITION = 70; // Padding to prevent timestamp label from being clipped on left edge
