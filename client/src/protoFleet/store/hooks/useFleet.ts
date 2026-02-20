@@ -189,12 +189,6 @@ export const useSetDeviceStatusCounts = () => useFleetStore((state) => state.fle
 
 export const useSetRefetchCallback = () => useFleetStore((state) => state.fleet.setRefetchCallback);
 
-export const useUpdateMinerMeasurement = () => useFleetStore((state) => state.fleet.updateMinerMeasurement);
-
-export const useUpdateMinerTelemetry = () => useFleetStore((state) => state.fleet.updateMinerTelemetry);
-
-export const useUpdateMinerDeviceStatus = () => useFleetStore((state) => state.fleet.updateMinerDeviceStatus);
-
 export const useUpdateMinerTimestamp = () => useFleetStore((state) => state.fleet.updateMinerTimestamp);
 
 export const useSetLoading = () => useFleetStore((state) => state.fleet.setLoading);

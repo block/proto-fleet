@@ -1150,7 +1150,27 @@ describe("useMinerActions", () => {
       );
 
       // Keep device OFFLINE to trigger polling
-      store.getState().fleet.updateMinerDeviceStatus({ deviceId: "device-1", deviceStatus: DeviceStatus.OFFLINE });
+      store.getState().fleet.setMiners([
+        {
+          deviceIdentifier: "device-1",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+          name: "device-1",
+          macAddress: "",
+          serialNumber: "",
+          model: "",
+          manufacturer: "",
+          ipAddress: "",
+          url: "",
+          firmwareVersion: "",
+          powerUsage: [],
+          temperature: [],
+          hashrate: [],
+          efficiency: [],
+          temperatureStatus: 0,
+          type: "",
+        },
+      ]);
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 

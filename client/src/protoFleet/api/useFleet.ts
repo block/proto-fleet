@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { create, equals } from "@bufbuild/protobuf";
-import { fleetManagementClient, telemetryClient } from "@/protoFleet/api/clients";
+import { equals } from "@bufbuild/protobuf";
+import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
-  DeviceStatusUpdateSchema,
   MinerListFilter,
   MinerListFilterSchema,
   MinerSortConfig,
@@ -10,14 +9,7 @@ import {
   MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import {
-  MeasurementType,
-  StreamUpdatesRequestSchema,
-  StreamUpdatesResponse,
-  UpdateType,
-} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
-import { getConnectionId } from "@/protoFleet/utils/connectionId";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type UseFleetOptions = {
@@ -32,20 +24,12 @@ type UseFleetOptions = {
   /**
    * Scope determines where the fetched data is stored:
    * - 'global': Updates the global Zustand store. Should only be used by MinerList.
-   *             Enables telemetry streaming and affects all components reading from global state.
    * - 'local': Stores data in component-local state. Use for secondary views like
    *            CompleteSetup or AuthenticateMiners that need to fetch filtered data
    *            without affecting the main fleet view.
    * @default 'global'
    */
   scope?: "global" | "local";
-  /**
-   * Set of miner IDs currently visible in viewport (for global scope only).
-   * When provided, telemetry streaming will only subscribe to these visible miners
-   * instead of all paired miners. Updates to this set will restart the stream
-   * with the new subset of miners.
-   */
-  visibleMinerIds?: Set<string>;
 };
 
 // Constants to prevent re-renders from unstable default values
@@ -61,31 +45,21 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
  * @example
  * ```tsx
  * // Global scope - for main fleet view (MinerList)
- * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
  *   scope: 'global'
  * });
  *
  * // Local scope - for secondary views that shouldn't affect global state
- * const { minerIds, miners, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
+ * const { minerIds, miners, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
  *   scope: 'local',
  *   filter: { status: [ComponentStatus.OK] }
  * });
  *
  * // With custom page size
- * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
  *   scope: 'global',
  *   pageSize: 50
  * });
- *
- * // With visible miners for optimized telemetry streaming
- * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
- *   scope: 'global',
- *   visibleMinerIds: myVisibleMinerIds,
- *   pageSize: 25
- * });
- *
- * // Filter to show only broken miners
- * setFilter({ status: [ComponentStatus.ERROR] });
  *
  * // Load the next page (replaces current data)
  * if (hasMore) {
@@ -103,7 +77,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     pageSize = 20,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
     scope = "local",
-    visibleMinerIds,
   } = options;
   const { handleAuthErrors } = useAuthErrors();
 
@@ -120,9 +93,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const minerIds = scope === "global" ? globalMinerIds : localMinerIds;
   const totalMiners = scope === "global" ? globalTotalMiners : localTotalMiners;
 
-  const telemetryStreamAbortController = useRef<AbortController | null>(null);
-  const previousVisibleIdsRef = useRef<Set<string>>(new Set());
-
   // Pagination state
   const [currentPage, setCurrentPage] = useState(0);
   // cursorHistory[i] = cursor to pass when fetching page i
@@ -134,113 +104,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
-
-  const updateMinerState = useCallback((response: StreamUpdatesResponse) => {
-    const update = response.update;
-
-    if (!update) {
-      return;
-    }
-
-    // Handle heartbeat updates
-    if (update.type === UpdateType.HEARTBEAT) {
-      return;
-    }
-
-    // Handle device status counts updates (fleet-wide, no deviceId required)
-    if (update.type === UpdateType.MINER_STATE_COUNTS && update.minerStateCounts) {
-      const store = useFleetStore.getState();
-      store.fleet.setDeviceStatusCounts(update.minerStateCounts);
-      return;
-    }
-
-    // For device-specific updates, deviceId is required
-    if (!update.deviceId) {
-      return;
-    }
-
-    // Handle telemetry data updates
-    if (update.type === UpdateType.TELEMETRY && update.data) {
-      useFleetStore.getState().fleet.updateMinerTelemetry(update.deviceId, update);
-
-      // Handle device status updates
-    } else if (update.type === UpdateType.DEVICE_STATUS && update.deviceStatus) {
-      useFleetStore.getState().fleet.updateMinerDeviceStatus(
-        update.deviceId,
-        create(DeviceStatusUpdateSchema, {
-          status: update.deviceStatus,
-        }),
-      );
-    }
-
-    if (update.timestamp) {
-      useFleetStore.getState().fleet.updateMinerTimestamp(update.deviceId, update.timestamp);
-    }
-  }, []);
-
-  const startStreamingTelemetry = useCallback(
-    (deviceIdentifiers: string[]) => {
-      if (!deviceIdentifiers || deviceIdentifiers.length === 0) {
-        return;
-      }
-
-      if (telemetryStreamAbortController.current) {
-        telemetryStreamAbortController.current.abort();
-      }
-
-      telemetryStreamAbortController.current = new AbortController();
-
-      useFleetStore.getState().fleet.setStreaming(true);
-
-      (async () => {
-        try {
-          const request = create(StreamUpdatesRequestSchema, {
-            deviceIds: deviceIdentifiers,
-            measurementTypes: [
-              MeasurementType.HASHRATE,
-              MeasurementType.POWER,
-              MeasurementType.TEMPERATURE,
-              MeasurementType.EFFICIENCY,
-            ],
-            includeHeartbeat: true,
-            heartbeatInterval: {
-              seconds: BigInt(30),
-              nanos: 0,
-            },
-            connectionId: getConnectionId(),
-          });
-
-          for await (const response of telemetryClient.streamUpdates(request, {
-            signal: telemetryStreamAbortController.current?.signal,
-          })) {
-            updateMinerState(response);
-          }
-        } catch (error) {
-          const errorMessage = String(error);
-
-          // Check if the error is due to an aborted request
-          // ConnectError with 'canceled' or AbortError means the request was intentionally aborted
-          if (
-            errorMessage.includes("[canceled]") ||
-            errorMessage.includes("AbortError") ||
-            (telemetryStreamAbortController.current && telemetryStreamAbortController.current.signal.aborted)
-          ) {
-            return;
-          }
-
-          handleAuthErrors({
-            error: error,
-            onError: (err) => {
-              console.error("Error streaming telemetry updates:", err);
-            },
-          });
-        } finally {
-          useFleetStore.getState().fleet.setStreaming(false);
-        }
-      })();
-    },
-    [updateMinerState, handleAuthErrors],
-  );
 
   // Fetch initial list using one-time query
   const fetchMinerList = useCallback(
@@ -284,9 +147,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
           if (models && models.length > 0) {
             setAvailableModels(models);
           }
-
-          // Note: Telemetry streaming is handled by the separate useEffect
-          // that watches visibleMinerIds changes (see below)
         } else {
           // Local scope: always replace
           const ids = miners.map((miner) => miner.deviceIdentifier);
@@ -297,7 +157,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
           setLocalMinerIds(ids);
           setLocalMiners(minersMap);
           setLocalTotalMiners(responseTotalMiners);
-          // Note: Local scope doesn't stream telemetry or update device status counts
         }
 
         // Store the response cursor for the next page
@@ -480,64 +339,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     // Fetch with filter and sort
     void fetchMinerListRef.current(filter, sort, undefined, 0);
   }, [filter, sort]);
-
-  // Cleanup streaming on unmount
-  useEffect(() => {
-    return () => {
-      if (scope === "global" && telemetryStreamAbortController.current) {
-        telemetryStreamAbortController.current.abort();
-        telemetryStreamAbortController.current = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps - truly only run on mount
-
-  // Restart telemetry stream when visible miners or miner list changes (global scope only)
-  useEffect(() => {
-    if (scope !== "global" || !visibleMinerIds) {
-      return;
-    }
-
-    // Get all paired miner IDs from store
-    const allMinerIds = useFleetStore.getState().fleet.minerIds;
-    const allMiners = allMinerIds.map((id) => useFleetStore.getState().fleet.miners[id]).filter(Boolean);
-
-    const pairedDeviceIds = allMiners
-      .filter((miner) => miner.pairingStatus === PairingStatus.PAIRED)
-      .map((miner) => miner.deviceIdentifier)
-      .filter((id) => visibleMinerIds.has(id));
-
-    // Check if the streaming IDs actually changed (deep comparison)
-    const previousIds = previousVisibleIdsRef.current;
-    const currentStreamingIds = new Set(pairedDeviceIds);
-
-    // Early exit if sizes differ - definitely changed
-    let hasChanged = currentStreamingIds.size !== previousIds.size;
-
-    // If sizes match, check if contents differ (iterate Set directly, no array allocation)
-    if (!hasChanged) {
-      for (const id of currentStreamingIds) {
-        if (!previousIds.has(id)) {
-          hasChanged = true;
-          break;
-        }
-      }
-    }
-
-    if (!hasChanged) {
-      return;
-    }
-
-    // Update ref with new streaming IDs
-    previousVisibleIdsRef.current = currentStreamingIds;
-
-    if (pairedDeviceIds.length > 0) {
-      startStreamingTelemetry(pairedDeviceIds);
-    } else if (telemetryStreamAbortController.current) {
-      // No visible miners - stop streaming
-      telemetryStreamAbortController.current.abort();
-    }
-  }, [visibleMinerIds, minerIds, scope, startStreamingTelemetry]);
 
   return {
     minerIds,

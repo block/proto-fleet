@@ -190,12 +190,14 @@ describe("Fleet - Polling", () => {
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
-      refetch: mockRefetch,
+      isLoading: false,
+      refetch: mockRefetch as () => void,
+      loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
       hasPreviousPage: false,
-      goToNextPage: vi.fn(),
-      goToPrevPage: vi.fn(),
+      goToNextPage: vi.fn() as () => void,
+      goToPrevPage: vi.fn() as () => void,
     });
 
     renderFleet();
@@ -214,12 +216,14 @@ describe("Fleet - Polling", () => {
       totalMiners: 0,
       hasMore: false,
       hasInitialLoadCompleted: false,
-      refetch: mockRefetch,
+      isLoading: false,
+      refetch: mockRefetch as () => void,
+      loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
       hasPreviousPage: false,
-      goToNextPage: vi.fn(),
-      goToPrevPage: vi.fn(),
+      goToNextPage: vi.fn() as () => void,
+      goToPrevPage: vi.fn() as () => void,
     });
 
     renderFleet();
@@ -238,12 +242,14 @@ describe("Fleet - Polling", () => {
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
-      refetch: mockRefetch,
+      isLoading: false,
+      refetch: mockRefetch as () => void,
+      loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
       hasPreviousPage: false,
-      goToNextPage: vi.fn(),
-      goToPrevPage: vi.fn(),
+      goToNextPage: vi.fn() as () => void,
+      goToPrevPage: vi.fn() as () => void,
     });
 
     renderFleet();
@@ -266,12 +272,14 @@ describe("Fleet - Polling", () => {
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
-      refetch: mockRefetch,
+      isLoading: false,
+      refetch: mockRefetch as () => void,
+      loadMore: vi.fn() as () => void,
       availableModels: [],
       currentPage: 1,
       hasPreviousPage: false,
-      goToNextPage: vi.fn(),
-      goToPrevPage: vi.fn(),
+      goToNextPage: vi.fn() as () => void,
+      goToPrevPage: vi.fn() as () => void,
     });
 
     const { unmount } = renderFleet();
