@@ -14,14 +14,15 @@
 package mfgtool_test_commandsconnect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	http "net/http"
+	strings "strings"
+
+	connect "connectrpc.com/connect"
 	mfgtool_test_commands "github.com/btc-mining/proto-fleet/server/generated/miner-api/mfgtool_test_commands"
 	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	miner_debug_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api"
-	http "net/http"
-	strings "strings"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

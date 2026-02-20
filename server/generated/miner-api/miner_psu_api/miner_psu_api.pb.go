@@ -7,12 +7,13 @@
 package miner_psu_api
 
 import (
-	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (

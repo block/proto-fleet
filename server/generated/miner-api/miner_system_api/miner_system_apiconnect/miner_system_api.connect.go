@@ -5,13 +5,14 @@
 package miner_system_apiconnect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	miner_system_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	miner_system_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
