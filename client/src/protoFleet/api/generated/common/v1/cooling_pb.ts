@@ -8,8 +8,11 @@ import { enumDesc, fileDesc } from "@bufbuild/protobuf/codegenv2";
 /**
  * Describes the file common/v1/cooling.proto.
  */
-export const file_common_v1_cooling: GenFile = /*@__PURE__*/
-  fileDesc("Chdjb21tb24vdjEvY29vbGluZy5wcm90bxIJY29tbW9uLnYxKoQBCgtDb29saW5nTW9kZRIcChhDT09MSU5HX01PREVfVU5TUEVDSUZJRUQQABIbChdDT09MSU5HX01PREVfQUlSX0NPT0xFRBABEiEKHUNPT0xJTkdfTU9ERV9JTU1FUlNJT05fQ09PTEVEEAISFwoTQ09PTElOR19NT0RFX01BTlVBTBADQq4BCg1jb20uY29tbW9uLnYxQgxDb29saW5nUHJvdG9QAVpKZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM");
+export const file_common_v1_cooling: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "Chdjb21tb24vdjEvY29vbGluZy5wcm90bxIJY29tbW9uLnYxKoQBCgtDb29saW5nTW9kZRIcChhDT09MSU5HX01PREVfVU5TUEVDSUZJRUQQABIbChdDT09MSU5HX01PREVfQUlSX0NPT0xFRBABEiEKHUNPT0xJTkdfTU9ERV9JTU1FUlNJT05fQ09PTEVEEAISFwoTQ09PTElOR19NT0RFX01BTlVBTBADQq4BCg1jb20uY29tbW9uLnYxQgxDb29saW5nUHJvdG9QAVpKZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
+  );
 
 /**
  * CoolingMode represents the cooling configuration for a miner device.
@@ -41,6 +44,4 @@ export enum CoolingMode {
 /**
  * Describes the enum common.v1.CoolingMode.
  */
-export const CoolingModeSchema: GenEnum<CoolingMode> = /*@__PURE__*/
-  enumDesc(file_common_v1_cooling, 0);
-
+export const CoolingModeSchema: GenEnum<CoolingMode> = /*@__PURE__*/ enumDesc(file_common_v1_cooling, 0);
