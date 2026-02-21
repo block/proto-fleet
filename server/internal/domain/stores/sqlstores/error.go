@@ -974,10 +974,15 @@ func (s *SQLErrorStore) GetDeviceErrorSummaries(ctx context.Context, orgID int64
 			status = models.StatusError
 		}
 
+		// #nosec G115 -- Error counts bounded by database row limits
 		result[row.DeviceIdentifier] = models.DeviceErrorSummary{
-			DeviceIdentifier: row.DeviceIdentifier,
-			ErrorCount:       int32(row.ErrorCount), // #nosec G115 -- Error count bounded by database row limit
-			Status:           status,
+			DeviceIdentifier:       row.DeviceIdentifier,
+			ErrorCount:             int32(row.ErrorCount),
+			Status:                 status,
+			HashboardErrorCount:    int32(row.HashboardErrorCount),
+			FanErrorCount:          int32(row.FanErrorCount),
+			PsuErrorCount:          int32(row.PsuErrorCount),
+			ControlBoardErrorCount: int32(row.ControlBoardErrorCount),
 		}
 	}
 

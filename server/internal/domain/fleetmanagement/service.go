@@ -457,10 +457,18 @@ func (s *Service) populateErrorData(ctx context.Context, orgID int64, snapshots 
 		if summary, ok := errorSummaries[snapshot.DeviceIdentifier]; ok {
 			snapshot.ErrorStatus = convertErrorStatus(summary.Status)
 			snapshot.ErrorCount = summary.ErrorCount
+			snapshot.HashboardErrorCount = summary.HashboardErrorCount
+			snapshot.FanErrorCount = summary.FanErrorCount
+			snapshot.PsuErrorCount = summary.PsuErrorCount
+			snapshot.ControlBoardErrorCount = summary.ControlBoardErrorCount
 		} else {
 			// No errors for this device
 			snapshot.ErrorStatus = errorsv1.Status_STATUS_OK
 			snapshot.ErrorCount = 0
+			snapshot.HashboardErrorCount = 0
+			snapshot.FanErrorCount = 0
+			snapshot.PsuErrorCount = 0
+			snapshot.ControlBoardErrorCount = 0
 		}
 	}
 }
