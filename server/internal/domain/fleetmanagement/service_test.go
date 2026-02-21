@@ -601,6 +601,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -608,6 +609,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		poolStore,
+		errorStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -711,6 +713,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 	// Create service with mock capabilities provider
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -718,6 +721,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		poolStore,
+		errorStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -786,6 +790,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -793,6 +798,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		poolStore,
+		errorStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)

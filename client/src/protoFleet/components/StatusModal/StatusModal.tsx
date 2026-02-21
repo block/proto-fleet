@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { useGroupedErrors, useMinerData } from "./hooks";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
@@ -13,6 +13,7 @@ import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import { useFleetStore } from "@/protoFleet/store";
@@ -51,6 +52,14 @@ const ProtoFleetStatusModal = ({
 }: ProtoFleetStatusModalProps) => {
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
+
+  // Fetch errors on-demand when modal opens (errors are no longer pre-fetched with miner list)
+  const { refetch: fetchErrors } = useDeviceErrors([]);
+  useEffect(() => {
+    if (show && deviceId) {
+      fetchErrors([deviceId]);
+    }
+  }, [show, deviceId, fetchErrors]);
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);

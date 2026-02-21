@@ -113,6 +113,12 @@ message MinerStateSnapshot {
   // Firmware version installed on the device
   string firmware_version = 19;
 
+  // Aggregated error status based on open errors (OK, WARNING, ERROR)
+  errors.v1.Status error_status = 20;
+
+  // Count of open errors for this device
+  int32 error_count = 21;
+
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

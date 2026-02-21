@@ -52,10 +52,6 @@ vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
   default: vi.fn(() => ({ totalMiners: 0 })),
 }));
 
-vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
-  useDeviceErrors: vi.fn(() => ({ refetch: vi.fn() })),
-}));
-
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
   default: () => <div data-testid="miner-list">MinerList</div>,
 }));

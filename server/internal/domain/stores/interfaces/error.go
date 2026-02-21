@@ -64,4 +64,8 @@ type ErrorStore interface {
 	// This is a bulk operation that operates globally across all organizations.
 	// Returns the number of errors closed.
 	CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error)
+
+	// GetDeviceErrorSummaries returns error summaries (status and count) for a list of device identifiers.
+	// Returns a map keyed by device_identifier. Devices with no open errors are not included in the map.
+	GetDeviceErrorSummaries(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]models.DeviceErrorSummary, error)
 }

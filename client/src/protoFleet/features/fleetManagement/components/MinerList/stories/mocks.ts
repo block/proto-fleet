@@ -1,4 +1,5 @@
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
+import { Status as ErrorStatus } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
   type MinerStateSnapshot,
@@ -58,6 +59,8 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
+    errorStatus: ErrorStatus.OK,
+    errorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -110,6 +113,8 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
+    errorStatus: ErrorStatus.OK,
+    errorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -162,6 +167,8 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
+    errorStatus: ErrorStatus.OK,
+    errorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -214,5 +221,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
+    errorStatus: ErrorStatus.OK,
+    errorCount: 0,
   },
 ];

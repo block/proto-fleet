@@ -230,6 +230,60 @@ func (q *Queries) CountErrors(ctx context.Context, arg CountErrorsParams) (int64
 	return total, err
 }
 
+const getDeviceErrorSummaries = `-- name: GetDeviceErrorSummaries :many
+
+SELECT
+    d.device_identifier,
+    COUNT(*) as error_count,
+    MIN(e.severity) as worst_severity
+FROM errors e
+JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
+WHERE e.org_id = $1
+    AND d.device_identifier = ANY($2::text[])
+    AND e.closed_at IS NULL
+GROUP BY d.device_identifier
+`
+
+type GetDeviceErrorSummariesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetDeviceErrorSummariesRow struct {
+	DeviceIdentifier string
+	ErrorCount       int64
+	WorstSeverity    interface{}
+}
+
+// ============================================================================
+// Device Error Summaries
+// ============================================================================
+// Gets error summaries (status and count) for a list of device identifiers.
+// Status is determined by the worst severity: CRITICAL=ERROR, other=WARNING, none=OK.
+// Only considers open errors (closed_at IS NULL).
+func (q *Queries) GetDeviceErrorSummaries(ctx context.Context, arg GetDeviceErrorSummariesParams) ([]GetDeviceErrorSummariesRow, error) {
+	rows, err := q.query(ctx, q.getDeviceErrorSummariesStmt, getDeviceErrorSummaries, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceErrorSummariesRow
+	for rows.Next() {
+		var i GetDeviceErrorSummariesRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.ErrorCount, &i.WorstSeverity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceIDByIdentifier = `-- name: GetDeviceIDByIdentifier :one
 SELECT id FROM device WHERE device_identifier = $1 AND org_id = $2 AND deleted_at IS NULL
 `

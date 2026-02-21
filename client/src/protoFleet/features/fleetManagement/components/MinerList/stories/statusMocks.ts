@@ -16,6 +16,7 @@ import {
   ErrorMessageSchema,
   MinerError,
   Severity,
+  Status as ErrorStatus,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
@@ -97,6 +98,8 @@ export const hashingMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const offlineMiner: MinerStateSnapshot = {
@@ -119,6 +122,8 @@ export const offlineMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -146,6 +151,8 @@ export const sleepingMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 // ============================================================================
@@ -172,6 +179,8 @@ export const authRequiredMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {
@@ -191,6 +200,8 @@ export const poolRequiredMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const controlBoardFailureMiner: MinerStateSnapshot = {
@@ -210,6 +221,8 @@ export const controlBoardFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const hashboardFailureMiner: MinerStateSnapshot = {
@@ -229,6 +242,8 @@ export const hashboardFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const psuFailureMiner: MinerStateSnapshot = {
@@ -248,6 +263,8 @@ export const psuFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const fanFailureMiner: MinerStateSnapshot = {
@@ -267,6 +284,8 @@ export const fanFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 // ============================================================================
@@ -290,6 +309,8 @@ export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const multipleComponentFailuresMiner: MinerStateSnapshot = {
@@ -309,6 +330,8 @@ export const multipleComponentFailuresMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 // ============================================================================

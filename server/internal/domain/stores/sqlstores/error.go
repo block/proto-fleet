@@ -946,6 +946,45 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 }
 
 // ============================================================================
+// Device Error Summaries
+// ============================================================================
+
+// GetDeviceErrorSummaries returns error summaries (status and count) for a list of device identifiers.
+// Devices with no open errors are not included in the result map.
+func (s *SQLErrorStore) GetDeviceErrorSummaries(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]models.DeviceErrorSummary, error) {
+	if len(deviceIdentifiers) == 0 {
+		return make(map[string]models.DeviceErrorSummary), nil
+	}
+
+	q := s.getQueries(ctx)
+
+	rows, err := q.GetDeviceErrorSummaries(ctx, sqlc.GetDeviceErrorSummariesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get device error summaries: %v", err)
+	}
+
+	result := make(map[string]models.DeviceErrorSummary, len(rows))
+	for _, row := range rows {
+		// Derive status from worst severity: CRITICAL (1) → ERROR, others → WARNING
+		status := models.StatusWarning
+		if severity, ok := row.WorstSeverity.(int64); ok && severity == int64(models.SeverityCritical) {
+			status = models.StatusError
+		}
+
+		result[row.DeviceIdentifier] = models.DeviceErrorSummary{
+			DeviceIdentifier: row.DeviceIdentifier,
+			ErrorCount:       int32(row.ErrorCount), // #nosec G115 -- Error count bounded by database row limit
+			Status:           status,
+		}
+	}
+
+	return result, nil
+}
+
+// ============================================================================
 // Error Lifecycle Management
 // ============================================================================
 

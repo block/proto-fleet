@@ -149,7 +149,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore, userStore)
 
-	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore)
+	errorStore := sqlstores.NewSQLErrorStore(db, transactor)
+	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore)
 
 	return &ServiceProvider{
 		DB:                     db,

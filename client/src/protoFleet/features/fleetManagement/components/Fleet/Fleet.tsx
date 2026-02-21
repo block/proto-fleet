@@ -10,7 +10,6 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
-import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -86,18 +85,15 @@ const Fleet = () => {
     pairingStatuses: FLEET_PAIRING_STATUSES,
   });
 
-  // Fetch errors for all loaded miners
-  const { refetch: refetchErrors } = useDeviceErrors(minerIds);
-
   // Poll for updates to keep data fresh on the current page
+  // Error data is now included in miner snapshots from the API
   useEffect(() => {
     if (!hasInitialLoadCompleted) return;
     const intervalId = setInterval(() => {
       refreshCurrentPage();
-      refetchErrors(minerIds);
     }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [hasInitialLoadCompleted, refreshCurrentPage, refetchErrors, minerIds]);
+  }, [hasInitialLoadCompleted, refreshCurrentPage]);
 
   // Cleanup stale batch operations at the same interval as polling
   const cleanupStaleBatches = useCleanupStaleBatches();
