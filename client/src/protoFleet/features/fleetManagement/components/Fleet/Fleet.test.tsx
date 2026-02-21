@@ -53,11 +53,7 @@ vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
-  useDeviceErrors: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/api/useStreamDeviceErrors", () => ({
-  useStreamDeviceErrors: vi.fn(),
+  useDeviceErrors: vi.fn(() => ({ refetch: vi.fn() })),
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({

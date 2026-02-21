@@ -12,7 +12,6 @@ import {
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
-import { useStreamDeviceErrors } from "@/protoFleet/api/useStreamDeviceErrors";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { MINERS_PAGE_SIZE } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -87,21 +86,18 @@ const Fleet = () => {
     pairingStatuses: FLEET_PAIRING_STATUSES,
   });
 
+  // Fetch errors for all loaded miners
+  const { refetch: refetchErrors } = useDeviceErrors(minerIds);
+
   // Poll for updates to keep data fresh on the current page
   useEffect(() => {
     if (!hasInitialLoadCompleted) return;
     const intervalId = setInterval(() => {
       refreshCurrentPage();
+      refetchErrors(minerIds);
     }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [hasInitialLoadCompleted, refreshCurrentPage]);
-
-  // Fetch and stream errors for all loaded miners
-  useDeviceErrors(minerIds);
-  useStreamDeviceErrors({
-    deviceIds: minerIds,
-    enabled: hasInitialLoadCompleted && minerIds.length > 0,
-  });
+  }, [hasInitialLoadCompleted, refreshCurrentPage, refetchErrors, minerIds]);
 
   // Cleanup stale batch operations at the same interval as polling
   const cleanupStaleBatches = useCleanupStaleBatches();
