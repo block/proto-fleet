@@ -18,10 +18,11 @@ test.describe("Miner Issues Tests", () => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Capture miner data from ListMinerStateSnapshots", async () => {
+      const expectedMinerCount = 5;
       const responsePromise = page.waitForResponse(async (response) => {
         if (!response.url().includes("ListMinerStateSnapshots")) return false;
         const data = await response.json();
-        return data.miners !== undefined;
+        return Array.isArray(data.miners) && data.miners.length >= expectedMinerCount;
       });
       await commonSteps.goToMinersPage();
       const response = await responsePromise;

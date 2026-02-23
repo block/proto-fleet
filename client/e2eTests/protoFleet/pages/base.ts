@@ -109,7 +109,7 @@ export class BasePage {
   async navigateSettingsIfDesktop() {
     // desktop can't navigate directly to subpages of settings
     if (!this.isMobile && !this.page.url().includes("/settings")) {
-      this.navigateToSettingsPage();
+      await this.navigateToSettingsPage();
     }
   }
 
