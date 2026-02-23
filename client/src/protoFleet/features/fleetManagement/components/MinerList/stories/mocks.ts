@@ -61,10 +61,6 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     errorStatus: ErrorStatus.OK,
     errorCount: 0,
-    hashboardErrorCount: 0,
-    fanErrorCount: 0,
-    psuErrorCount: 0,
-    controlBoardErrorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -119,10 +115,6 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     errorStatus: ErrorStatus.OK,
     errorCount: 0,
-    hashboardErrorCount: 0,
-    fanErrorCount: 0,
-    psuErrorCount: 0,
-    controlBoardErrorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -177,10 +169,6 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     errorStatus: ErrorStatus.OK,
     errorCount: 0,
-    hashboardErrorCount: 0,
-    fanErrorCount: 0,
-    psuErrorCount: 0,
-    controlBoardErrorCount: 0,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -235,9 +223,5 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     errorStatus: ErrorStatus.OK,
     errorCount: 0,
-    hashboardErrorCount: 0,
-    fanErrorCount: 0,
-    psuErrorCount: 0,
-    controlBoardErrorCount: 0,
   },
 ];

@@ -143,11 +143,7 @@ type ComponentKey struct {
 // DeviceErrorSummary provides a lightweight error summary for a device.
 // Used by fleet management to populate error_status and error_count in MinerStateSnapshot.
 type DeviceErrorSummary struct {
-	DeviceIdentifier       string
-	ErrorCount             int32
-	Status                 Status // Derived from worst severity: CRITICAL→ERROR, other→WARNING
-	HashboardErrorCount    int32
-	FanErrorCount          int32
-	PsuErrorCount          int32
-	ControlBoardErrorCount int32
+	DeviceIdentifier string
+	ErrorCount       int32
+	Status           Status // Derived from worst severity: CRITICAL→ERROR, other→WARNING
 }

@@ -100,10 +100,6 @@ export const hashingMiner: MinerStateSnapshot = {
   capabilities: baseCapabilities,
   errorStatus: ErrorStatus.OK,
   errorCount: 0,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
 };
 
 export const offlineMiner: MinerStateSnapshot = {
@@ -128,10 +124,6 @@ export const offlineMiner: MinerStateSnapshot = {
   capabilities: baseCapabilities,
   errorStatus: ErrorStatus.OK,
   errorCount: 0,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -161,10 +153,6 @@ export const sleepingMiner: MinerStateSnapshot = {
   capabilities: baseCapabilities,
   errorStatus: ErrorStatus.OK,
   errorCount: 0,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
 };
 
 // ============================================================================
@@ -193,10 +181,6 @@ export const authRequiredMiner: MinerStateSnapshot = {
   capabilities: baseCapabilities,
   errorStatus: ErrorStatus.OK,
   errorCount: 0,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {
@@ -218,10 +202,6 @@ export const poolRequiredMiner: MinerStateSnapshot = {
   capabilities: baseCapabilities,
   errorStatus: ErrorStatus.OK,
   errorCount: 0,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
 };
 
 export const controlBoardFailureMiner: MinerStateSnapshot = {
@@ -241,12 +221,8 @@ export const controlBoardFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 1,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 1,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const hashboardFailureMiner: MinerStateSnapshot = {
@@ -266,12 +242,8 @@ export const hashboardFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 1,
-  hashboardErrorCount: 1,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const psuFailureMiner: MinerStateSnapshot = {
@@ -291,12 +263,8 @@ export const psuFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 1,
-  hashboardErrorCount: 0,
-  fanErrorCount: 0,
-  psuErrorCount: 1,
-  controlBoardErrorCount: 0,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const fanFailureMiner: MinerStateSnapshot = {
@@ -316,12 +284,8 @@ export const fanFailureMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 1,
-  hashboardErrorCount: 0,
-  fanErrorCount: 1,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 // ============================================================================
@@ -345,12 +309,8 @@ export const multipleHashboardFailuresMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 2,
-  hashboardErrorCount: 2,
-  fanErrorCount: 0,
-  psuErrorCount: 0,
-  controlBoardErrorCount: 0,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 export const multipleComponentFailuresMiner: MinerStateSnapshot = {
@@ -370,12 +330,8 @@ export const multipleComponentFailuresMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  errorStatus: ErrorStatus.ERROR,
-  errorCount: 3,
-  hashboardErrorCount: 1,
-  fanErrorCount: 1,
-  psuErrorCount: 1,
-  controlBoardErrorCount: 0,
+  errorStatus: ErrorStatus.OK,
+  errorCount: 0,
 };
 
 // ============================================================================

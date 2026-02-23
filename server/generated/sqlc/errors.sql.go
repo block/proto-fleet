@@ -235,11 +235,7 @@ const getDeviceErrorSummaries = `-- name: GetDeviceErrorSummaries :many
 SELECT
     d.device_identifier,
     COUNT(*) as error_count,
-    MIN(e.severity) as worst_severity,
-    COUNT(*) FILTER (WHERE e.component_type = 1) as hashboard_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 2) as fan_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 3) as psu_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 4) as control_board_error_count
+    MIN(e.severity) as worst_severity
 FROM errors e
 JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 WHERE e.org_id = $1
@@ -254,13 +250,9 @@ type GetDeviceErrorSummariesParams struct {
 }
 
 type GetDeviceErrorSummariesRow struct {
-	DeviceIdentifier       string
-	ErrorCount             int64
-	WorstSeverity          interface{}
-	HashboardErrorCount    int64
-	FanErrorCount          int64
-	PsuErrorCount          int64
-	ControlBoardErrorCount int64
+	DeviceIdentifier string
+	ErrorCount       int64
+	WorstSeverity    interface{}
 }
 
 // ============================================================================
@@ -269,7 +261,6 @@ type GetDeviceErrorSummariesRow struct {
 // Gets error summaries (status and count) for a list of device identifiers.
 // Status is determined by the worst severity: CRITICAL=ERROR, other=WARNING, none=OK.
 // Only considers open errors (closed_at IS NULL).
-// Component types: 1=HASH_BOARD, 2=FAN, 3=PSU, 4=CONTROL_BOARD
 func (q *Queries) GetDeviceErrorSummaries(ctx context.Context, arg GetDeviceErrorSummariesParams) ([]GetDeviceErrorSummariesRow, error) {
 	rows, err := q.query(ctx, q.getDeviceErrorSummariesStmt, getDeviceErrorSummaries, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -279,15 +270,7 @@ func (q *Queries) GetDeviceErrorSummaries(ctx context.Context, arg GetDeviceErro
 	var items []GetDeviceErrorSummariesRow
 	for rows.Next() {
 		var i GetDeviceErrorSummariesRow
-		if err := rows.Scan(
-			&i.DeviceIdentifier,
-			&i.ErrorCount,
-			&i.WorstSeverity,
-			&i.HashboardErrorCount,
-			&i.FanErrorCount,
-			&i.PsuErrorCount,
-			&i.ControlBoardErrorCount,
-		); err != nil {
+		if err := rows.Scan(&i.DeviceIdentifier, &i.ErrorCount, &i.WorstSeverity); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

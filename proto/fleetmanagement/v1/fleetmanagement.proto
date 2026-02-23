@@ -119,18 +119,6 @@ message MinerStateSnapshot {
   // Count of open errors for this device
   int32 error_count = 21;
 
-  // Count of hashboard errors
-  int32 hashboard_error_count = 22;
-
-  // Count of fan errors
-  int32 fan_error_count = 23;
-
-  // Count of PSU errors
-  int32 psu_error_count = 24;
-
-  // Count of control board errors
-  int32 control_board_error_count = 25;
-
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

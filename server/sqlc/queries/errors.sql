@@ -255,15 +255,10 @@ SELECT COUNT(*) as total FROM (
 -- Gets error summaries (status and count) for a list of device identifiers.
 -- Status is determined by the worst severity: CRITICAL=ERROR, other=WARNING, none=OK.
 -- Only considers open errors (closed_at IS NULL).
--- Component types: 1=HASH_BOARD, 2=FAN, 3=PSU, 4=CONTROL_BOARD
 SELECT
     d.device_identifier,
     COUNT(*) as error_count,
-    MIN(e.severity) as worst_severity,
-    COUNT(*) FILTER (WHERE e.component_type = 1) as hashboard_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 2) as fan_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 3) as psu_error_count,
-    COUNT(*) FILTER (WHERE e.component_type = 4) as control_board_error_count
+    MIN(e.severity) as worst_severity
 FROM errors e
 JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
 WHERE e.org_id = sqlc.arg('org_id')

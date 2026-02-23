@@ -59,8 +59,7 @@ const ProtoFleetStatusModal = ({
     if (show && deviceId) {
       fetchErrors([deviceId]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchErrors identity changes on render, but we only want to fetch when show/deviceId change
-  }, [show, deviceId]);
+  }, [show, deviceId, fetchErrors]);
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
