@@ -474,9 +474,10 @@ func convertErrorStatus(status diagnosticsmodels.Status) errorsv1.Status {
 		return errorsv1.Status_STATUS_WARNING
 	case diagnosticsmodels.StatusError:
 		return errorsv1.Status_STATUS_ERROR
-	default:
+	case diagnosticsmodels.StatusUnspecified:
 		return errorsv1.Status_STATUS_UNSPECIFIED
 	}
+	return errorsv1.Status_STATUS_UNSPECIFIED
 }
 
 // convertToMeasurement converts a MetricValue to a proto Measurement with unit conversion.

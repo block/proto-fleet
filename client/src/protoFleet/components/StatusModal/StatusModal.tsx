@@ -61,9 +61,13 @@ const ProtoFleetStatusModal = ({
   const { refetch: fetchErrors } = useDeviceErrors(EMPTY_DEVICE_IDS);
   // Store fetchErrors in a ref to avoid including it in deps (its identity may change)
   const fetchErrorsRef = useRef(fetchErrors);
-  fetchErrorsRef.current = fetchErrors;
   // Track which deviceId we've fetched for to avoid re-fetching on every render
   const fetchedForDeviceRef = useRef<string | null>(null);
+
+  // Update ref when fetchErrors changes (must be in useEffect, not during render)
+  useEffect(() => {
+    fetchErrorsRef.current = fetchErrors;
+  }, [fetchErrors]);
 
   useEffect(() => {
     if (show && deviceId && fetchedForDeviceRef.current !== deviceId) {

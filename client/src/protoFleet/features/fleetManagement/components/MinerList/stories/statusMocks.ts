@@ -14,9 +14,9 @@ import { type Measurement } from "@/protoFleet/api/generated/common/v1/measureme
 import {
   ComponentType,
   ErrorMessageSchema,
+  Status as ErrorStatus,
   MinerError,
   Severity,
-  Status as ErrorStatus,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
