@@ -363,9 +363,9 @@ const (
 	hashToTeraHashConversion = 1e12
 	// wattsToKilowattsConversion converts W to kW
 	wattsToKilowattsConversion = 1000.0
-	// joulesPerHashToJoulesPerTeraHashDivisor is used to convert J/H to J/TH.
-	// Since convertToMeasurement divides by this value: J/H / 1e-12 = J/H * 1e12 = J/TH
-	joulesPerHashToJoulesPerTeraHashDivisor = 1e-12
+	// joulesPerHashToJoulesPerTeraHashMultiplier converts J/H to J/TH
+	// Since 1 TH = 1e12 H, efficiency in J/H * 1e12 = efficiency in J/TH
+	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
 )
 
 // populateTelemetryData fetches telemetry data for paired devices and populates the snapshot fields.
@@ -418,17 +418,26 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 
 		if metrics.EfficiencyJH != nil {
 			snapshot.Efficiency = []*commonpb.Measurement{
-				convertToMeasurement(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashDivisor),
+				convertToMeasurementWithMultiplier(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashMultiplier),
 			}
 		}
 	}
 }
 
-// convertToMeasurement converts a MetricValue to a proto Measurement with unit conversion.
+// convertToMeasurement converts a MetricValue to a proto Measurement by dividing by the conversion factor.
 func convertToMeasurement(metric *modelsV2.MetricValue, timestamp time.Time, unit commonpb.MeasurementUnit, divisor float64) *commonpb.Measurement {
 	return &commonpb.Measurement{
 		Timestamp: timestamppb.New(timestamp),
 		Value:     metric.Value / divisor,
+		Unit:      unit,
+	}
+}
+
+// convertToMeasurementWithMultiplier converts a MetricValue to a proto Measurement by multiplying by the conversion factor.
+func convertToMeasurementWithMultiplier(metric *modelsV2.MetricValue, timestamp time.Time, unit commonpb.MeasurementUnit, multiplier float64) *commonpb.Measurement {
+	return &commonpb.Measurement{
+		Timestamp: timestamppb.New(timestamp),
+		Value:     metric.Value * multiplier,
 		Unit:      unit,
 	}
 }
