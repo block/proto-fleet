@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { useGroupedErrors, useMinerData } from "./hooks";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
@@ -22,6 +22,9 @@ import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModa
 import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
 import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useMinerStatusSummary } from "@/shared/hooks/useStatusSummary";
+
+// Stable empty array to avoid triggering useDeviceErrors internal effects on every render
+const EMPTY_DEVICE_IDS: string[] = [];
 
 /**
  * ProtoFleet-specific StatusModal wrapper that integrates with the store
@@ -54,12 +57,24 @@ const ProtoFleetStatusModal = ({
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
   // Fetch errors on-demand when modal opens (errors are no longer pre-fetched with miner list)
-  const { refetch: fetchErrors } = useDeviceErrors([]);
+  // Use stable empty array to avoid triggering useDeviceErrors internal clear/fetch on every render
+  const { refetch: fetchErrors } = useDeviceErrors(EMPTY_DEVICE_IDS);
+  // Store fetchErrors in a ref to avoid including it in deps (its identity may change)
+  const fetchErrorsRef = useRef(fetchErrors);
+  fetchErrorsRef.current = fetchErrors;
+  // Track which deviceId we've fetched for to avoid re-fetching on every render
+  const fetchedForDeviceRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (show && deviceId) {
-      fetchErrors([deviceId]);
+    if (show && deviceId && fetchedForDeviceRef.current !== deviceId) {
+      fetchedForDeviceRef.current = deviceId;
+      fetchErrorsRef.current([deviceId]);
     }
-  }, [show, deviceId, fetchErrors]);
+    // Reset when modal closes so we re-fetch if opened again
+    if (!show) {
+      fetchedForDeviceRef.current = null;
+    }
+  }, [show, deviceId]);
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
