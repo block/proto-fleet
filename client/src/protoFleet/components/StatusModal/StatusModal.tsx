@@ -59,26 +59,19 @@ const ProtoFleetStatusModal = ({
   // Fetch errors on-demand when modal opens (errors are no longer pre-fetched with miner list)
   // Use stable empty array to avoid triggering useDeviceErrors internal clear/fetch on every render
   const { refetch: fetchErrors } = useDeviceErrors(EMPTY_DEVICE_IDS);
-  // Store fetchErrors in a ref to avoid including it in deps (its identity may change)
-  const fetchErrorsRef = useRef(fetchErrors);
   // Track which deviceId we've fetched for to avoid re-fetching on every render
   const fetchedForDeviceRef = useRef<string | null>(null);
-
-  // Update ref when fetchErrors changes (must be in useEffect, not during render)
-  useEffect(() => {
-    fetchErrorsRef.current = fetchErrors;
-  }, [fetchErrors]);
 
   useEffect(() => {
     if (show && deviceId && fetchedForDeviceRef.current !== deviceId) {
       fetchedForDeviceRef.current = deviceId;
-      fetchErrorsRef.current([deviceId]);
+      fetchErrors([deviceId]);
     }
     // Reset when modal closes so we re-fetch if opened again
     if (!show) {
       fetchedForDeviceRef.current = null;
     }
-  }, [show, deviceId]);
+  }, [show, deviceId, fetchErrors]);
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
