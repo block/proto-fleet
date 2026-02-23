@@ -38,6 +38,7 @@ var _ interfaces.MinerInfo = &PluginMiner{}
 //   - Option 1: Add Close() to interfaces.Miner interface (breaking change)
 //   - Option 2: Track SDK devices in plugin manager and close them during shutdown
 //   - Option 3: Document that plugin processes handle cleanup on exit
+//
 // logSaver is the subset of files.Service used by PluginMiner.
 type logSaver interface {
 	SaveLogs(batchLogUUID string, deviceIdentifier *models.DeviceIdentifier, logLines []string) (string, error)
