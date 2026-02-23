@@ -27,7 +27,7 @@
 ############################
 FROM golang:1.23-alpine AS tools
 
-RUN CGO_ENABLED=0 go install github.com/timescale/timescaledb-tune/cmd/timescaledb-tune@latest
+RUN CGO_ENABLED=0 go install github.com/timescale/timescaledb-tune/cmd/timescaledb-tune@v0.18.1
 
 ############################
 # Main image
@@ -39,9 +39,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Versions — pin these for reproducible builds
 ARG PG_MAJOR=18
 
-# Create postgres user/group with fixed UID/GID matching the HA image convention.
-# The HA image uses uid 1000 (default Ubuntu user), but we use 999 to match
-# the official postgres Docker image convention. Adjust if migrating existing volumes.
+# Create postgres user/group with UID/GID 999 matching the official postgres Docker
+# image convention. Note: the HA image used UID 1000 — the entrypoint handles
+# ownership fixup via chown on startup, so existing volumes will work regardless.
 RUN groupadd -r postgres --gid=999 \
     && useradd -r -g postgres --uid=999 --home-dir=/home/postgres --shell=/bin/bash postgres \
     && mkdir -p /home/postgres \

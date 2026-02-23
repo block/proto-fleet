@@ -106,14 +106,17 @@ if [ "$1" = 'postgres' ]; then
     if [ -z "$(ls -A "$PGDATA" 2>/dev/null)" ]; then
         echo "TimescaleDB: Initializing database in $PGDATA"
 
-        initdb --username="${POSTGRES_USER:-postgres}" --pwfile=<(echo "${POSTGRES_PASSWORD:-}") \
-            --auth-host=md5 --auth-local=trust
+        pwfile="$(mktemp)"
+        printf '%s' "${POSTGRES_PASSWORD:-}" >"$pwfile"
+        initdb --username="${POSTGRES_USER:-postgres}" --pwfile="$pwfile" \
+            --auth-host=scram-sha-256 --auth-local=trust
+        rm -f "$pwfile"
 
         # Configure pg_hba.conf: allow connections from any host with password
         {
             echo "# Allow connections from anywhere (Docker networking)"
-            echo "host all all 0.0.0.0/0 md5"
-            echo "host all all ::/0 md5"
+            echo "host all all 0.0.0.0/0 scram-sha-256"
+            echo "host all all ::/0 scram-sha-256"
         } >> "$PGDATA/pg_hba.conf"
 
         # Configure postgresql.conf
@@ -141,6 +144,7 @@ EOSQL
         # Run any init scripts mounted in /docker-entrypoint-initdb.d/
         if [ -d /docker-entrypoint-initdb.d/ ]; then
             for f in /docker-entrypoint-initdb.d/*; do
+                [ -e "$f" ] || continue
                 case "$f" in
                     *.sh)
                         echo "Running init script: $f"
