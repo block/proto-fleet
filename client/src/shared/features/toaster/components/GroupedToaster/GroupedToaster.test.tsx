@@ -12,7 +12,7 @@ describe("Grouped toaster", () => {
 
   it("renders without crashing when no toasts are provided", () => {
     const { queryByText } = render(<GroupedToaster toasts={[]} />);
-    expect(queryByText("updates in progress")).not.toBeInTheDocument();
+    expect(queryByText("actions in progress")).not.toBeInTheDocument();
   });
 
   it("displays toasts correctly", () => {
@@ -24,7 +24,7 @@ describe("Grouped toaster", () => {
 
     const { getByTestId, getByText } = render(<GroupedToaster toasts={toasts} />);
 
-    expect(getByText("3 updates in progress")).toBeInTheDocument();
+    expect(getByText("3 actions in progress")).toBeInTheDocument();
     expect(getByTestId(headerProgress)).toBeInTheDocument();
 
     const headerElement = getByTestId(header);

@@ -24,6 +24,7 @@ import {
 import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
+  CommandBatchUpdateStatus_CommandBatchUpdateStatusType,
   CommandType,
   DeviceSelector,
   DownloadLogsRequestSchema,
@@ -883,18 +884,33 @@ export const useMinerActions = ({
         downloadLogsRequest: request,
         onSuccess: ({ batchIdentifier }) => {
           const streamAbortController = new AbortController();
+          let failureCount = 0;
+          let successCount = 0;
+          let allDevicesFailed = false;
           streamCommandBatchUpdates({
             streamRequest: create(StreamCommandBatchUpdatesRequestSchema, { batchIdentifier }),
             streamAbortController,
             onStreamData: (response) => {
-              const total = Number(response.status?.commandBatchDeviceCount?.total || 0);
-              const success = Number(response.status?.commandBatchDeviceCount?.success || 0);
-              const failure = Number(response.status?.commandBatchDeviceCount?.failure || 0);
-              if (total > 0 && success + failure === total) {
+              if (
+                response.status?.commandBatchUpdateStatus ===
+                CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED
+              ) {
+                failureCount = Number(response.status.commandBatchDeviceCount?.failure ?? 0);
+                successCount = Number(response.status.commandBatchDeviceCount?.success ?? 0);
+                allDevicesFailed = successCount === 0 && failureCount > 0;
                 streamAbortController.abort();
               }
             },
           }).finally(() => {
+            if (allDevicesFailed) {
+              updateToast(id, {
+                message: "Failed to download logs",
+                status: TOAST_STATUSES.error,
+              });
+              onActionComplete?.();
+              return;
+            }
+
             getCommandBatchLogBundle({
               request: create(GetCommandBatchLogBundleRequestSchema, { batchIdentifier }),
               onSuccess: ({ chunkData, filename }) => {
@@ -909,17 +925,29 @@ export const useMinerActions = ({
                   message: successMessages[deviceActions.downloadLogs],
                   status: TOAST_STATUSES.success,
                 });
+                if (failureCount > 0) {
+                  pushToast({
+                    message: `Failed to retrieve logs from ${failureCount} ${failureCount === 1 ? "miner" : "miners"}`,
+                    status: TOAST_STATUSES.error,
+                    longRunning: true,
+                  });
+                }
+                onActionComplete?.();
               },
               onError: (err) => {
                 updateToast(id, {
                   message: err || "Failed to download logs",
                   status: TOAST_STATUSES.error,
                 });
+                onActionComplete?.();
               },
             });
           });
         },
-        onError: handleError.bind(null, id),
+        onError: (err) => {
+          handleError(id, err);
+          onActionComplete?.();
+        },
       });
     };
 
@@ -1185,6 +1213,7 @@ export const useMinerActions = ({
     handleError,
     displayCount,
     onActionStart,
+    onActionComplete,
     deviceSelector,
     deviceStatus,
     withCapabilityCheck,
