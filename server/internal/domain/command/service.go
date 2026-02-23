@@ -161,20 +161,12 @@ func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(c
 	}
 }
 
-func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string, processingMarkedInDB bool) (bool, error) {
+func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	isFinished, err := s.messageQueue.IsBatchFinished(ctx, commandBatchLogUUID)
 	if err != nil {
 		return false, fleeterror.NewInternalErrorf("error asking is finished: %v", err)
 	}
-	if isFinished {
-		err = s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogUUID)
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
-		}
-
-		return true, nil
-	}
-	return false, nil
+	return isFinished, nil
 }
 
 type onFinishedCallbackFunc func() error
@@ -200,16 +192,24 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 					}
 					processingMarkedInDB = isProcessing
 				}
-				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID, processingMarkedInDB)
+				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID)
 				if err != nil {
 					slog.Error("error in isFinished branch", "error", err)
 					return
 				}
 				if isFinished {
+					// Run the callback before marking the batch finished in the DB.
+					// This ensures any side-effects (e.g. ZIP creation for download-logs)
+					// are complete before the stream sees FINISHED and the client fetches
+					// the result, preventing a race where the client requests the bundle
+					// before it exists.
 					if onFinishedCallback != nil {
 						if callbackErr := onFinishedCallback(); callbackErr != nil {
 							slog.Error("error in onFinished callback", "error", callbackErr)
 						}
+					}
+					if markErr := s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogUUID); markErr != nil {
+						slog.Error("error marking batch finished", "error", markErr)
 					}
 					return
 				}

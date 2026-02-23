@@ -20,7 +20,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -39,6 +38,11 @@ var _ interfaces.MinerInfo = &PluginMiner{}
 //   - Option 1: Add Close() to interfaces.Miner interface (breaking change)
 //   - Option 2: Track SDK devices in plugin manager and close them during shutdown
 //   - Option 3: Document that plugin processes handle cleanup on exit
+// logSaver is the subset of files.Service used by PluginMiner.
+type logSaver interface {
+	SaveLogs(batchLogUUID string, deviceIdentifier *models.DeviceIdentifier, logLines []string) (string, error)
+}
+
 type PluginMiner struct {
 	orgID          int64
 	deviceID       models.DeviceIdentifier
@@ -47,7 +51,7 @@ type PluginMiner struct {
 	connectionInfo networking.ConnectionInfo
 	sdkDevice      sdk.Device
 	deviceInfo     sdk.DeviceInfo
-	filesService   *files.Service
+	filesService   logSaver
 }
 
 // NewPluginMiner creates a new PluginMiner wrapper around an SDK Device
@@ -59,7 +63,7 @@ func NewPluginMiner(
 	connectionInfo networking.ConnectionInfo,
 	sdkDevice sdk.Device,
 	deviceInfo sdk.DeviceInfo,
-	filesService *files.Service,
+	filesService logSaver,
 ) *PluginMiner {
 	return &PluginMiner{
 		orgID:          orgID,
@@ -290,7 +294,7 @@ func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) err
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
 	}
-	logLines := strings.Split(logData, "\n")
+	logLines := strings.Split(strings.TrimRight(logData, "\n"), "\n")
 	csvRows := formatLogsToCSV(logLines)
 	if _, err := p.filesService.SaveLogs(batchLogUUID, &p.deviceID, csvRows); err != nil {
 		return fleeterror.NewInternalErrorf("failed to save logs: %v", err)
@@ -339,12 +343,10 @@ func formatLogLineToCSVRow(line string) string {
 		prefix := line[:idx]
 		message := line[idx+len(level.separator):]
 
-		// Extract timestamp from the part after the first ": " in the prefix.
-		// This matches TypeScript: info[0].split(": ")?.[1]
+		// Matches TypeScript: info[0].split(": ")?.[1]
 		timestamp := ""
 		if parts := strings.SplitN(prefix, ": ", 2); len(parts) == 2 {
 			ts := parts[1]
-			// Strip milliseconds (everything from first "." onwards).
 			// Matches TypeScript: timestamp?.split(".")?.[0]
 			if dotIdx := strings.Index(ts, "."); dotIdx >= 0 {
 				ts = ts[:dotIdx]
@@ -372,7 +374,6 @@ func formatLogLineToCSVRow(line string) string {
 		}
 	}
 
-	// No recognised log format: write the full line as the message with empty timestamp and type.
 	escapedLine := strings.ReplaceAll(line, `"`, `""`)
 	return fmt.Sprintf(",,\"%s\"", escapedLine)
 }

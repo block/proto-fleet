@@ -202,6 +202,81 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 	return pm, mockDevice
 }
 
+// mockLogSaver captures the rows passed to SaveLogs for assertion in tests.
+type mockLogSaver struct {
+	savedLines []string
+	err        error
+}
+
+func (m *mockLogSaver) SaveLogs(_ string, _ *models.DeviceIdentifier, logLines []string) (string, error) {
+	m.savedLines = logLines
+	return "", m.err
+}
+
+func TestPluginMiner_DownloadLogs_Success(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	saver := &mockLogSaver{}
+	pm.filesService = saver
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "Jun 1 00:00:01 miner mcdd[1]: 2024-06-01 00:00:01.000000 | INFO  | module:1 | started", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.NoError(t, err)
+	require.Len(t, saver.savedLines, 2) // header + 1 data row
+	assert.Equal(t, "Time,Type,Message", saver.savedLines[0])
+	assert.Equal(t, `2024-06-01 00:00:01,INFO,"module:1 | started"`, saver.savedLines[1])
+}
+
+func TestPluginMiner_DownloadLogs_TrailingNewlineTrimmed(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	saver := &mockLogSaver{}
+	pm.filesService = saver
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		// Log data with a trailing newline — should not produce a spurious empty row.
+		return "[2026-01-01T00:00:00Z] line one\n[2026-01-01T00:00:01Z] line two\n", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.NoError(t, err)
+	require.Len(t, saver.savedLines, 3) // header + 2 data rows, no empty row
+	assert.Equal(t, "Time,Type,Message", saver.savedLines[0])
+	assert.Equal(t, `2026-01-01T00:00:00Z,,"line one"`, saver.savedLines[1])
+	assert.Equal(t, `2026-01-01T00:00:01Z,,"line two"`, saver.savedLines[2])
+}
+
+func TestPluginMiner_DownloadLogs_SDKError(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	pm.filesService = &mockLogSaver{}
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "", false, errors.New("connection refused")
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to download logs")
+}
+
+func TestPluginMiner_DownloadLogs_SaveError(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	pm.filesService = &mockLogSaver{err: errors.New("disk full")}
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "[2026-01-01T00:00:00Z] hello\n", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to save logs")
+}
+
 func TestFormatLogLineToCSVRow(t *testing.T) {
 	tests := []struct {
 		name     string
