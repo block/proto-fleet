@@ -248,25 +248,6 @@ SELECT COUNT(*) as total FROM (
 ) as component_count;
 
 -- ============================================================================
--- Device Error Summaries
--- ============================================================================
-
--- name: GetDeviceErrorSummaries :many
--- Gets error summaries (status and count) for a list of device identifiers.
--- Status is determined by the worst severity: CRITICAL=ERROR, other=WARNING, none=OK.
--- Only considers open errors (closed_at IS NULL).
-SELECT
-    d.device_identifier,
-    COUNT(*) as error_count,
-    MIN(e.severity) as worst_severity
-FROM errors e
-JOIN device d ON e.device_id = d.id AND d.deleted_at IS NULL
-WHERE e.org_id = sqlc.arg('org_id')
-    AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
-    AND e.closed_at IS NULL
-GROUP BY d.device_identifier;
-
--- ============================================================================
 -- Error Lifecycle Management
 -- ============================================================================
 

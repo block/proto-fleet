@@ -96,21 +96,6 @@ func (mr *MockErrorStoreMockRecorder) CountErrors(ctx, opts interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountErrors", reflect.TypeOf((*MockErrorStore)(nil).CountErrors), ctx, opts)
 }
 
-// GetDeviceErrorSummaries mocks base method.
-func (m *MockErrorStore) GetDeviceErrorSummaries(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]models.DeviceErrorSummary, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceErrorSummaries", ctx, orgID, deviceIdentifiers)
-	ret0, _ := ret[0].(map[string]models.DeviceErrorSummary)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetDeviceErrorSummaries indicates an expected call of GetDeviceErrorSummaries.
-func (mr *MockErrorStoreMockRecorder) GetDeviceErrorSummaries(ctx, orgID, deviceIdentifiers interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceErrorSummaries", reflect.TypeOf((*MockErrorStore)(nil).GetDeviceErrorSummaries), ctx, orgID, deviceIdentifiers)
-}
-
 // GetErrorByErrorID mocks base method.
 func (m *MockErrorStore) GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error) {
 	m.ctrl.T.Helper()

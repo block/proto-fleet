@@ -139,11 +139,3 @@ type ComponentKey struct {
 	ComponentID      *string       // nil = NULL/device-level errors, non-nil = component-specific
 	WorstSeverity    Severity      // For keyset pagination ordering
 }
-
-// DeviceErrorSummary provides a lightweight error summary for a device.
-// Used by fleet management to populate error_status and error_count in MinerStateSnapshot.
-type DeviceErrorSummary struct {
-	DeviceIdentifier string
-	ErrorCount       int32
-	Status           Status // Derived from worst severity: CRITICAL→ERROR, other→WARNING
-}

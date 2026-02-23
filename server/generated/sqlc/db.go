@@ -117,9 +117,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceByIDStmt, err = db.PrepareContext(ctx, getDeviceByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByID: %w", err)
 	}
-	if q.getDeviceErrorSummariesStmt, err = db.PrepareContext(ctx, getDeviceErrorSummaries); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceErrorSummaries: %w", err)
-	}
 	if q.getDeviceIDByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceIDByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDByDeviceIdentifier: %w", err)
 	}
@@ -581,11 +578,6 @@ func (q *Queries) Close() error {
 	if q.getDeviceByIDStmt != nil {
 		if cerr := q.getDeviceByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByIDStmt: %w", cerr)
-		}
-	}
-	if q.getDeviceErrorSummariesStmt != nil {
-		if cerr := q.getDeviceErrorSummariesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceErrorSummariesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceIDByDeviceIdentifierStmt != nil {
@@ -1163,7 +1155,6 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
-	getDeviceErrorSummariesStmt                         *sql.Stmt
 	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
 	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
@@ -1302,7 +1293,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
-		getDeviceErrorSummariesStmt:                         q.getDeviceErrorSummariesStmt,
 		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
 		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,

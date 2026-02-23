@@ -253,9 +253,6 @@ func (s *Service) buildSnapshot(
 	// Fetch telemetry data for paired devices
 	s.populateTelemetryData(ctx, snapshots)
 
-	// Fetch error data for paired devices
-	s.populateErrorData(ctx, orgID, snapshots)
-
 	var stateCounts *telemetrypb.MinerStateCounts
 	if shouldIncludeStateCounts(filter.PairingStatuses) {
 		stateCounts, err = s.deviceStore.GetMinerStateCounts(ctx, orgID, filter)
@@ -425,59 +422,6 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 			}
 		}
 	}
-}
-
-// populateErrorData fetches error summaries for paired devices and populates the snapshot fields.
-func (s *Service) populateErrorData(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot) {
-	if s.errorStore == nil {
-		return
-	}
-
-	// Collect device IDs for paired devices only
-	var pairedDeviceIDs []string
-	for _, snapshot := range snapshots {
-		if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
-			pairedDeviceIDs = append(pairedDeviceIDs, snapshot.DeviceIdentifier)
-		}
-	}
-
-	if len(pairedDeviceIDs) == 0 {
-		return
-	}
-
-	// Fetch error summaries
-	errorSummaries, err := s.errorStore.GetDeviceErrorSummaries(ctx, orgID, pairedDeviceIDs)
-	if err != nil {
-		slog.Warn("failed to fetch error summaries for snapshots", "error", err)
-		return
-	}
-
-	// Populate error fields on snapshots
-	for _, snapshot := range snapshots {
-		if summary, ok := errorSummaries[snapshot.DeviceIdentifier]; ok {
-			snapshot.ErrorStatus = convertErrorStatus(summary.Status)
-			snapshot.ErrorCount = summary.ErrorCount
-		} else {
-			// No errors for this device
-			snapshot.ErrorStatus = errorsv1.Status_STATUS_OK
-			snapshot.ErrorCount = 0
-		}
-	}
-}
-
-// convertErrorStatus converts domain error status to proto error status.
-func convertErrorStatus(status diagnosticsmodels.Status) errorsv1.Status {
-	switch status {
-	case diagnosticsmodels.StatusOK:
-		return errorsv1.Status_STATUS_OK
-	case diagnosticsmodels.StatusWarning:
-		return errorsv1.Status_STATUS_WARNING
-	case diagnosticsmodels.StatusError:
-		return errorsv1.Status_STATUS_ERROR
-	case diagnosticsmodels.StatusUnspecified:
-		return errorsv1.Status_STATUS_UNSPECIFIED
-	}
-	return errorsv1.Status_STATUS_UNSPECIFIED
 }
 
 // convertToMeasurement converts a MetricValue to a proto Measurement with unit conversion.
