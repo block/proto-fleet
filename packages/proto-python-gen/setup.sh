@@ -3,8 +3,8 @@
 # setup.sh — Bootstrap a Python venv with pinned gRPC codegen dependencies.
 #
 # Called by:
-#   - Hermit on-unpack hook
-#   - `just setup`
+#   - `just setup` (in packages/proto-python-gen or root justfile)
+#   - `just init` (root justfile, via _python-gen-init)
 #
 set -euo pipefail
 
@@ -13,16 +13,33 @@ VENV_DIR="${SCRIPT_DIR}/.venv"
 REQUIREMENTS="${SCRIPT_DIR}/requirements.txt"
 
 # ── Find Python 3 ────────────────────────────────────────────────────────────
+# Search standard system paths first to avoid hermit shims, which can deadlock
+# when this script runs inside a hermit on-unpack hook (the shim tries to
+# acquire the hermit lock, but hermit install already holds it).
 PYTHON=""
+SYSTEM_PATHS="/usr/bin /usr/local/bin /opt/homebrew/bin"
 for candidate in python3 python; do
-  if command -v "${candidate}" &>/dev/null; then
-    PYTHON="${candidate}"
-    break
-  fi
+  for dir in ${SYSTEM_PATHS}; do
+    if [[ -x "${dir}/${candidate}" ]]; then
+      PYTHON="${dir}/${candidate}"
+      break 2
+    fi
+  done
 done
 
+# Fall back to PATH if no system python found (e.g., developer machines with
+# hermit python3 already installed — no deadlock risk outside on-unpack).
 if [[ -z "${PYTHON}" ]]; then
-  echo "Error: python3 not found on PATH." >&2
+  for candidate in python3 python; do
+    if command -v "${candidate}" &>/dev/null; then
+      PYTHON="${candidate}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PYTHON}" ]]; then
+  echo "Error: python3 not found." >&2
   exit 1
 fi
 
@@ -31,7 +48,7 @@ if ! "${PYTHON}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1
   exit 1
 fi
 
-echo "Using Python: $(${PYTHON} --version 2>&1) ($(command -v ${PYTHON}))"
+echo "Using Python: $(${PYTHON} --version 2>&1) (${PYTHON})"
 
 # ── Create venv ───────────────────────────────────────────────────────────────
 if [[ ! -d "${VENV_DIR}" ]]; then
