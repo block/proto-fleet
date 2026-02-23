@@ -24,6 +24,7 @@ describe("useAuthNeededMiners", () => {
     goToNextPage: vi.fn(),
     goToPrevPage: vi.fn(),
     refetch: vi.fn(),
+    refreshCurrentPage: vi.fn(),
     availableModels: [],
   };
 

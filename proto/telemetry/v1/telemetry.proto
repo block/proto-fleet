@@ -9,13 +9,10 @@ import "common/v1/measurement.proto";
 
 // Service for retrieving telemetry data from mining devices
 service TelemetryService {
-  // Stream real-time telemetry updates
-  rpc StreamUpdates(StreamUpdatesRequest) returns (stream StreamUpdatesResponse);
-
   // Historical, aggregated candles (pull).
   rpc GetCombinedMetrics(GetCombinedMetricsRequest) returns (GetCombinedMetricsResponse) {}
 
-  // Live updates pushed by the server.
+  // Live updates pushed by the server (used by dashboard).
   rpc StreamCombinedMetricUpdates(StreamCombinedMetricUpdatesRequest) returns (stream StreamCombinedMetricUpdatesResponse) {}
 }
 
@@ -211,29 +208,6 @@ message TelemetryUpdate {
   optional ComponentStatus status = 6;
   optional DeviceStatus device_status = 7; // e.g., ACTIVE, INACTIVE, ERROR
   optional MinerStateCounts miner_state_counts = 8;
-}
-
-// Request/Response Messages
-message StreamUpdatesRequest {
-  // List of device identifiers to stream updates for (e.g., "proto-miner-001").
-  // Note: Despite the field name, these are unique device identifier strings,
-  // not database primary key IDs.
-  repeated string device_ids = 1;
-  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
-  bool include_heartbeat = 3;
-  optional google.protobuf.Duration heartbeat_interval = 4 [(buf.validate.field).duration = {
-    gte: { seconds: 1 }
-    lte: { seconds: 600 } // 10 minutes
-  }];
-  map<string, string> tags = 5;
-
-  // Unique identifier for this browser tab/connection.
-  // Used for stream deduplication to allow multiple tabs to maintain independent streams.
-  string connection_id = 6;
-}
-
-message StreamUpdatesResponse {
-  TelemetryUpdate update = 1;
 }
 
 message GetCombinedMetricsRequest {

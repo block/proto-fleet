@@ -1,22 +1,15 @@
 import { create as createSchema } from "@bufbuild/protobuf";
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
-import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
-  type DeviceStatusUpdate,
-  MeasurementConfig_MeasurementType,
-  type MeasurementUpdate,
   type MinerListFilter,
-  type MinerTelemetry,
   type MinerStateSnapshot as ProtoMinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceStatus,
-  MeasurementType,
   MinerStateCounts,
   MinerStateCountsSchema,
-  type TelemetryUpdate,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 
@@ -75,73 +68,6 @@ export interface BatchOperationsState {
 // Helper Functions
 // =============================================================================
 
-function updateMeasurement(measurementUpdate: MeasurementUpdate, miner: MinerStateSnapshot): void {
-  const type = measurementUpdate.measurementType;
-  const measurement = measurementUpdate.measurement;
-
-  if (!measurement) return;
-
-  const measurementTypeToProperty = {
-    [MeasurementConfig_MeasurementType.HASHRATE]: "hashrate",
-    [MeasurementConfig_MeasurementType.POWER_USAGE]: "powerUsage",
-    [MeasurementConfig_MeasurementType.TEMPERATURE]: "temperature",
-    [MeasurementConfig_MeasurementType.EFFICIENCY]: "efficiency",
-  } as const;
-
-  const propertyName = measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
-
-  if (propertyName) {
-    const currentValues = miner[propertyName];
-
-    if (currentValues && currentValues.length > 0) {
-      miner[propertyName] = [...currentValues.slice(1), measurement];
-    } else {
-      miner[propertyName] = [measurement];
-    }
-  }
-}
-
-function updateTelemetryMeasurement(telemetryUpdate: TelemetryUpdate, miner: MinerStateSnapshot): void {
-  if (!telemetryUpdate.data) return;
-
-  const type = telemetryUpdate.data.measurementType;
-  const telemetryData = telemetryUpdate.data;
-
-  // Convert telemetry data to measurement format using proper protobuf creation
-  const measurement = createSchema(MeasurementSchema, {
-    value: telemetryData.value,
-    unit: telemetryData.unit,
-    timestamp: telemetryData.timestamp,
-  });
-
-  const measurementTypeToProperty = {
-    [MeasurementType.HASHRATE]: "hashrate",
-    [MeasurementType.POWER]: "powerUsage",
-    [MeasurementType.TEMPERATURE]: "temperature",
-    [MeasurementType.EFFICIENCY]: "efficiency",
-  } as const;
-
-  const propertyName = measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
-
-  if (propertyName) {
-    const currentValues = miner[propertyName];
-
-    if (currentValues && currentValues.length > 0) {
-      miner[propertyName] = [...currentValues.slice(1), measurement];
-    } else {
-      miner[propertyName] = [measurement];
-    }
-  }
-}
-
-function updateDeviceStatus(deviceStatus: DeviceStatusUpdate, miner: MinerStateSnapshot): void {
-  if (!miner.deviceStatus) {
-    miner.deviceStatus = DeviceStatus.UNSPECIFIED;
-  }
-
-  miner.deviceStatus = deviceStatus.status;
-}
-
 const isHashing = (minerSnapshot: MinerStateSnapshot) => {
   if (!minerSnapshot) return false;
   if (minerSnapshot.deviceStatus === DeviceStatus.OFFLINE) return false;
@@ -171,7 +97,6 @@ export interface FleetSlice {
 
   // Loading states
   isLoading: boolean;
-  isStreaming: boolean;
   cursor: string;
 
   // Current filter applied to the fleet list (synced from URL params)
@@ -192,13 +117,8 @@ export interface FleetSlice {
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
   setRefetchCallback: (callback?: () => void) => void;
   setCurrentFilter: (filter: MinerListFilter | null) => void;
-  updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
-  updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
-  updateBatchTelemetry: (telemetryData: MinerTelemetry[]) => void;
-  updateMinerDeviceStatus: (deviceId: string, deviceStatusUpdate: DeviceStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
-  setStreaming: (streaming: boolean) => void;
   setCursor: (cursor: string) => void;
   notifyPairingCompleted: () => void;
 
@@ -246,7 +166,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
   isLoading: false,
-  isStreaming: false,
   cursor: "",
   currentFilter: null,
   lastPairingCompletedAt: 0,
@@ -341,59 +260,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
       state.fleet.currentFilter = filter ?? null;
     }),
 
-  updateMinerMeasurement: (deviceId, measurementUpdate) =>
-    set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        updateMeasurement(measurementUpdate, miner);
-      }
-    }),
-
-  updateMinerTelemetry: (deviceId, telemetryUpdate) =>
-    set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        updateTelemetryMeasurement(telemetryUpdate, miner);
-      }
-    }),
-
-  updateBatchTelemetry: (telemetryData) =>
-    set((state) => {
-      telemetryData.forEach((telemetry) => {
-        const miner = state.fleet.miners[telemetry.deviceIdentifier];
-        if (miner) {
-          if (telemetry.powerUsage.length > 0) {
-            miner.powerUsage = telemetry.powerUsage;
-          }
-          if (telemetry.temperature.length > 0) {
-            miner.temperature = telemetry.temperature;
-          }
-          if (telemetry.hashrate.length > 0) {
-            miner.hashrate = telemetry.hashrate;
-          }
-          if (telemetry.efficiency.length > 0) {
-            miner.efficiency = telemetry.efficiency;
-          }
-          if (telemetry.timestamp) {
-            miner.timestamp = telemetry.timestamp;
-          }
-          // Only update deviceStatus if it's non-zero (falsy check)
-          // This prevents UNSPECIFIED (0) from overwriting correct statuses at page load
-          if (telemetry.deviceStatus) {
-            miner.deviceStatus = telemetry.deviceStatus;
-          }
-        }
-      });
-    }),
-
-  updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
-    set((state) => {
-      const miner = state.fleet.miners[deviceId];
-      if (miner) {
-        updateDeviceStatus(deviceStatusUpdate, miner);
-      }
-    }),
-
   updateMinerTimestamp: (deviceId, timestamp) =>
     set((state) => {
       const miner = state.fleet.miners[deviceId];
@@ -405,11 +271,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   setLoading: (loading) =>
     set((state) => {
       state.fleet.isLoading = loading;
-    }),
-
-  setStreaming: (streaming) =>
-    set((state) => {
-      state.fleet.isStreaming = streaming;
     }),
 
   setCursor: (cursor) =>

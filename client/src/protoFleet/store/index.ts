@@ -37,12 +37,10 @@ export {
   useDeviceTheme,
   useTemperatureUnit,
   useDuration,
-  useVisibleMinerIds,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
   useSetDuration,
-  useSetVisibleMinerIds,
 } from "./hooks/useUI";
 
 // =============================================================================
@@ -56,7 +54,6 @@ export {
   useDeviceStatusCounts,
   useFleetMiners,
   useIsLoading,
-  useIsStreaming,
   useMinerName,
   useMinerMacAddress,
   useMinerIpAddress,
@@ -76,12 +73,8 @@ export {
   useSetTotalMiners,
   useSetDeviceStatusCounts,
   useSetRefetchCallback,
-  useUpdateMinerMeasurement,
-  useUpdateMinerTelemetry,
-  useUpdateMinerDeviceStatus,
   useUpdateMinerTimestamp,
   useSetLoading,
-  useSetStreaming,
   useSetCursor,
   useLastPairingCompletedAt,
   useNotifyPairingCompleted,

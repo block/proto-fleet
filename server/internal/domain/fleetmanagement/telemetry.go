@@ -2,43 +2,17 @@ package fleetmanagement
 
 import (
 	"context"
-	"math/rand"
-	"time"
 
-	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
 	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // TelemetryCollector defines the interface for collecting miner telemetry data
 type TelemetryCollector interface {
-	// GetMinerTelemetry returns the latest telemetry data for a miner
-	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error)
-
-	// GetBatchMinerTelemetry returns telemetry data for multiple miners in a single batch query
-	// This is optimized to reduce N+1 query patterns by fetching telemetry for all requested devices
-	// in a single database query instead of per-device queries.
-	GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error)
-
-	// GetMinerComponentStatus removed - component status tracking now done via errors API
-	// GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
-
-	// StreamMeasurements streams measurement updates for the specified miners and measurement types
-	StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error)
-
-	// StreamComponentStatus removed - component status tracking now done via errors API
-	// StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error)
-
-	// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
-	// This allows consumers to receive telemetry events without the conversion to protobuf responses
-	// eventTypes filters which event types to receive (empty means all types)
-	SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error)
-
 	// RemoveDevices removes devices from the telemetry scheduler so they are no longer polled
 	RemoveDevices(ctx context.Context, deviceID ...minerModels.DeviceIdentifier) error
+	// GetLatestDeviceMetrics fetches the latest telemetry metrics for a batch of devices
+	GetLatestDeviceMetrics(ctx context.Context, deviceIDs []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
 }
 
 // MockTelemetryCollector provides a mock implementation of TelemetryCollector for testing
@@ -48,160 +22,10 @@ func NewMockTelemetryCollector() TelemetryCollector {
 	return &MockTelemetryCollector{}
 }
 
-func (m *MockTelemetryCollector) GetMinerTelemetry(_ context.Context, _ string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error) {
-	now := timestamppb.Now()
-
-	configMap := make(map[pb.MeasurementConfig_MeasurementType]*pb.MeasurementConfig)
-	for _, config := range measurementConfigs {
-		configMap[config.MeasurementType] = config
-	}
-
-	getMeasurements := func(mType pb.MeasurementConfig_MeasurementType) []*commonpb.Measurement {
-		if config, ok := configMap[mType]; ok {
-			if config.DataMode == pb.DataMode_DATA_MODE_METADATA {
-				return []*commonpb.Measurement{}
-			}
-			return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
-		}
-
-		if dataMode == pb.DataMode_DATA_MODE_METADATA {
-			return []*commonpb.Measurement{}
-		}
-		return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
-	}
-
-	return &models.MinerTelemetry{
-		PowerUsage:  getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE),
-		Temperature: getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE),
-		Hashrate:    getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE),
-		Efficiency:  getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY),
-		Timestamp:   now,
-	}, nil
-}
-
-func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, timestamp *timestamppb.Timestamp) *commonpb.Measurement {
-	return &commonpb.Measurement{
-		Value:     generateMockValue(mType),
-		Timestamp: timestamp,
-	}
-}
-
-const (
-	mockTelemetryChannelSize = 100
-)
-
-const (
-	// Stream channel buffer sizes
-	streamMeasurementsChannelBuffer = 100
-
-	// Mock stream intervals
-	mockMeasurementInterval = 1 * time.Second
-)
-
-func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	ch := make(chan *pb.StreamMinerUpdatesResponse, streamMeasurementsChannelBuffer)
-
-	go func() {
-		defer close(ch)
-
-		ticker := time.NewTicker(mockMeasurementInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				for _, deviceID := range deviceIDs {
-					for _, mType := range measurementTypes {
-						measurement := &pb.MeasurementUpdate{
-							MeasurementType: mType,
-							Measurement: &commonpb.Measurement{
-								Value:     generateMockValue(mType),
-								Timestamp: timestamppb.Now(),
-							},
-						}
-						resp := &pb.StreamMinerUpdatesResponse{
-							Timestamp:        timestamppb.Now(),
-							DeviceIdentifier: deviceID,
-							Update: &pb.StreamMinerUpdatesResponse_Measurement{
-								Measurement: measurement,
-							},
-						}
-						select {
-						case <-ctx.Done():
-							return
-						case ch <- resp:
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	return ch, nil
-}
-
-const (
-	// Mock data generation ranges
-	maxPowerUsageWatts    = 3000.0
-	minTemperatureCelsius = 40.0
-	maxTemperatureCelsius = 80.0
-	tempRangeCelsius      = maxTemperatureCelsius - minTemperatureCelsius
-	minHashrateThs        = 100.0
-	maxHashrateThs        = 150.0
-	hashrateRangeThs      = maxHashrateThs - minHashrateThs
-	minEfficiencyJth      = 30.0
-	maxEfficiencyJth      = 40.0
-	efficiencyRangeJth    = maxEfficiencyJth - minEfficiencyJth
-)
-
-func generateMockValue(mType pb.MeasurementConfig_MeasurementType) float64 {
-	switch mType {
-	case pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE:
-		return rand.Float64() * maxPowerUsageWatts
-	case pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE:
-		return rand.Float64()*tempRangeCelsius + minTemperatureCelsius
-	case pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE:
-		return rand.Float64()*hashrateRangeThs + minHashrateThs
-	case pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY:
-		return rand.Float64()*efficiencyRangeJth + minEfficiencyJth
-	case pb.MeasurementConfig_MEASUREMENT_TYPE_UNSPECIFIED:
-		return 0
-	default:
-		return 0
-	}
-}
-
-func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context, _ int64, _ []string, _ []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error) {
-	ch := make(chan telemetryModels.TelemetryUpdate, mockTelemetryChannelSize)
-
-	subCtx, cancel := context.WithCancel(ctx)
-
-	go func() {
-		<-subCtx.Done()
-		close(ch)
-	}()
-
-	unsubscribe := func() {
-		cancel()
-	}
-
-	return ch, unsubscribe, nil
-}
-
 func (m *MockTelemetryCollector) RemoveDevices(_ context.Context, _ ...minerModels.DeviceIdentifier) error {
 	return nil
 }
 
-func (m *MockTelemetryCollector) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error) {
-	result := make(map[string]*models.MinerTelemetry, len(deviceIDs))
-	for _, deviceID := range deviceIDs {
-		telemetry, err := m.GetMinerTelemetry(ctx, deviceID, dataMode, measurementConfigs)
-		if err != nil {
-			continue
-		}
-		result[deviceID] = telemetry
-	}
-	return result, nil
+func (m *MockTelemetryCollector) GetLatestDeviceMetrics(_ context.Context, _ []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
+	return nil, nil
 }

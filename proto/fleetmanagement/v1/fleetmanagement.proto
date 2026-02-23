@@ -17,22 +17,9 @@ service FleetManagementService {
   // Use the pairing_status filter to control whether to return paired, unpaired, or both
   rpc ListMinerStateSnapshots(ListMinerStateSnapshotsRequest) returns (ListMinerStateSnapshotsResponse);
 
-  // Stream real-time measurement updates for miners
-  rpc StreamMinerUpdates(StreamMinerUpdatesRequest) returns (stream StreamMinerUpdatesResponse);
-
-  // Stream incremental updates (additions/removals) for filtered miner list
-  // Sends initial snapshot, then delta updates when miners enter/exit filter criteria
-  // More efficient than sending full snapshots on each change
-  rpc StreamMinerListUpdates(StreamMinerListUpdatesRequest) returns (stream StreamMinerListUpdatesResponse);
-
   // Get counts of miners in different states without fetching miner data
   // More efficient than ListMinerStateSnapshots when only counts are needed
   rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
-
-  // Get telemetry data for a batch of miners by their device identifiers
-  // This is optimized for fetching telemetry for multiple miners in a single request
-  // Use this after initial metadata-only list load to populate telemetry for visible rows
-  rpc GetBatchMinerTelemetry(GetBatchMinerTelemetryRequest) returns (GetBatchMinerTelemetryResponse);
 
   // Get the current pool assignments for a specific miner
   // Returns the fleet pool IDs that match the miner's currently configured pools
@@ -154,34 +141,7 @@ enum DeviceStatus {
   DEVICE_STATUS_NEEDS_MINING_POOL = 6;
 }
 
-// Configuration for a specific measurement type
-message MeasurementConfig {
-  // Type of measurement this configuration applies to
-  enum MeasurementType {
-    // Measurement type not specified
-    MEASUREMENT_TYPE_UNSPECIFIED = 0;
-    
-    // Power usage measurements
-    MEASUREMENT_TYPE_POWER_USAGE = 1;
-    
-    // Temperature measurements
-    MEASUREMENT_TYPE_TEMPERATURE = 2;
-    
-    // Hashrate measurements
-    MEASUREMENT_TYPE_HASHRATE = 3;
-    
-    // Efficiency measurements
-    MEASUREMENT_TYPE_EFFICIENCY = 4;
-  }
-
-  // The measurement type this configuration applies to
-  MeasurementType measurement_type = 1;
-  
-  // Data mode for this specific measurement type
-  DataMode data_mode = 2;
-}
-
-// Request to list miners with their metadata (no telemetry data)
+// Request to list miners with their metadata
 // Returns paginated list of miners with identification info and status
 // Use GetBatchMinerTelemetry to fetch telemetry for specific miners after initial load
 message ListMinerStateSnapshotsRequest {
@@ -206,18 +166,6 @@ message ListMinerStateSnapshotsRequest {
   // If not specified or empty, uses default sort by name ASC (alphabetical)
   // Currently only the first element is used; multi-column sorting reserved for future
   repeated MinerSortConfig sort = 4;
-}
-
-// Determines whether to return current snapshot or historical time series data
-enum DataMode {
-  // Server will decide based on other parameters (defaults to METADATA)
-  DATA_MODE_UNSPECIFIED = 0;
-
-  // Returns only metadata with no measurements populated
-  DATA_MODE_METADATA = 1;
-
-  // Return only the most recent measurement for each metric
-  DATA_MODE_SNAPSHOT = 2;
 }
 
 // Type of miner
@@ -367,174 +315,6 @@ message GetMinerStateCountsResponse {
 
   // Counts of miners in different states
   telemetry.v1.MinerStateCounts state_counts = 2;
-}
-
-message StreamMinerUpdatesRequest {
-  // Filter for specific miners (empty means all miners)
-  repeated string device_identifiers = 1;
-
-  // Types of measurements to stream
-  repeated MeasurementConfig.MeasurementType measurement_types = 2;
-
-  // Whether to include component status updates
-  bool include_status_updates = 3;
-
-  // Optional heartbeat interval in seconds (0 means no heartbeats)
-  int32 heartbeat_interval_seconds = 4;
-}
-
-message StreamMinerUpdatesResponse {
-  // Timestamp when this update was generated
-  google.protobuf.Timestamp timestamp = 1;
-
-  // Identifier of the miner this update is for
-  string device_identifier = 2;
-
-  // Type of update
-  oneof update {
-    // New measurement value
-    MeasurementUpdate measurement = 3;
-
-    // Heartbeat to keep connection alive (no data)
-    Heartbeat heartbeat = 4;
-
-    // Device status update
-    DeviceStatusUpdate device_status = 5;
-  }
-}
-
-message MeasurementUpdate {
-  // Type of measurement being updated
-  MeasurementConfig.MeasurementType measurement_type = 1;
-
-  // The new measurement value
-  common.v1.Measurement measurement = 2;
-}
-
-
-message Heartbeat {
-  // Empty message for heartbeat
-}
-
-message DeviceStatusUpdate {
-  // The new status of the device
-  DeviceStatus status = 1;
-}
-
-// Request to stream incremental updates for a filtered miner list
-// Provides delta updates when miners move in/out of filter criteria
-// Tracks ALL miners matching the filter to ensure complete delta accuracy
-message StreamMinerListUpdatesRequest {
-  // Filter criteria for miners to track
-  MinerListFilter filter = 1;
-
-  // Global data mode for measurements (for initial snapshot and additions)
-  DataMode data_mode = 2;
-
-  // Per-measurement configurations
-  repeated MeasurementConfig measurement_configs = 4;
-
-  // Heartbeat interval in seconds (0 means no heartbeats)
-  int32 heartbeat_interval_seconds = 5;
-
-  // Unique identifier for this browser tab/connection.
-  // Used for stream deduplication: when a new stream request arrives with the same
-  // session + connection_id, the previous stream is cancelled. This prevents
-  // connection exhaustion from rapid scrolling while allowing multiple tabs to
-  // maintain independent streams.
-  // Client should generate a UUID once per tab lifecycle and reuse it for all requests.
-  string connection_id = 6;
-
-  // Sort configuration for initial snapshot and additions
-  // If not specified or empty, uses default sort by name ASC (alphabetical)
-  // Currently only the first element is used; multi-column sorting reserved for future
-  // Note: Real-time updates modify miners in place without re-sorting
-  repeated MinerSortConfig sort = 7;
-}
-
-// Response containing incremental updates to the filtered miner list
-message StreamMinerListUpdatesResponse {
-  // Timestamp when this update was generated
-  google.protobuf.Timestamp timestamp = 1;
-
-  // Type of update
-  oneof update {
-    // Delta updates - sent when list composition changes
-    MinerListDelta delta = 2;
-
-    // Heartbeat to keep connection alive
-    Heartbeat heartbeat = 3;
-  }
-}
-
-// Delta update containing additions and removals
-message MinerListDelta {
-  // Miners that now match the filter criteria (entered the list)
-  repeated MinerAddition additions = 1;
-
-  // Device IDs of miners that no longer match the filter (left the list)
-  repeated string removals = 2;
-
-  // Total miners matching the filter after applying delta
-  int32 total_miners = 3;
-}
-
-// Represents a miner being added to the filtered list
-message MinerAddition {
-  // The miner's current state snapshot
-  MinerStateSnapshot miner = 1;
-
-  // Position where the miner should be inserted (for maintaining sort order)
-  int32 position = 2;
-}
-
-// Request to get telemetry data for a batch of miners
-message GetBatchMinerTelemetryRequest {
-  // Device identifiers of miners to fetch telemetry for
-  // Maximum of 100 device IDs per request
-  repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
-    min_items: 1,
-    max_items: 100
-  }];
-
-  // Global data mode that applies to all measurements unless overridden
-  // by a specific measurement configuration
-  DataMode data_mode = 2;
-
-  // Per-measurement configurations that override the global settings
-  // If provided for a measurement type, these settings take precedence over global settings
-  repeated MeasurementConfig measurement_configs = 4;
-}
-
-// Response containing telemetry data for a batch of miners
-message GetBatchMinerTelemetryResponse {
-  // Telemetry data for each requested miner
-  // Key is the device_identifier, value contains the telemetry measurements
-  repeated MinerTelemetry miners = 1;
-}
-
-// Telemetry data for a single miner
-message MinerTelemetry {
-  // Device identifier this telemetry belongs to
-  string device_identifier = 1;
-
-  // Power consumption measurements in kilowatts (kW)
-  repeated common.v1.Measurement power_usage = 2;
-
-  // Temperature measurements in degrees Celsius
-  repeated common.v1.Measurement temperature = 3;
-
-  // Hashrate measurements in TH/s (terahash per second)
-  repeated common.v1.Measurement hashrate = 4;
-
-  // Energy efficiency measurements in joules per terahash (j/TH)
-  repeated common.v1.Measurement efficiency = 5;
-
-  // Timestamp when this telemetry was captured
-  google.protobuf.Timestamp timestamp = 6;
-
-  // Current operational status of the device
-  DeviceStatus device_status = 7;
 }
 
 // Request to get the current pool assignments for a specific miner

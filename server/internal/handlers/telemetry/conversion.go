@@ -6,9 +6,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
@@ -78,74 +76,7 @@ var (
 		telemetryv1.AggregationType_AGGREGATION_TYPE_LAST:           models.AggregationTypeAverage,
 		telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED:    models.AggregationTypeUnknown,
 	}
-
-	componentStatusToProtoMap = map[models.ComponentStatus]telemetryv1.ComponentStatus{
-		models.ComponentStatusHealthy:  telemetryv1.ComponentStatus_COMPONENT_STATUS_HEALTHY,
-		models.ComponentStatusWarning:  telemetryv1.ComponentStatus_COMPONENT_STATUS_WARNING,
-		models.ComponentStatusCritical: telemetryv1.ComponentStatus_COMPONENT_STATUS_CRITICAL,
-		models.ComponentStatusOffline:  telemetryv1.ComponentStatus_COMPONENT_STATUS_OFFLINE,
-		models.ComponentStatusUnknown:  telemetryv1.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED,
-	}
-
-	updateTypeToProtoMap = map[models.UpdateType]telemetryv1.UpdateType{
-		models.UpdateTypeTelemetry:        telemetryv1.UpdateType_UPDATE_TYPE_TELEMETRY,
-		models.UpdateTypeHeartbeat:        telemetryv1.UpdateType_UPDATE_TYPE_HEARTBEAT,
-		models.UpdateTypeError:            telemetryv1.UpdateType_UPDATE_TYPE_ERROR,
-		models.UpdateTypeDeviceStatus:     telemetryv1.UpdateType_UPDATE_TYPE_DEVICE_STATUS,
-		models.UpdateTypeMinerStateCounts: telemetryv1.UpdateType_UPDATE_TYPE_MINER_STATE_COUNTS,
-		models.UpdateTypeUnknown:          telemetryv1.UpdateType_UPDATE_TYPE_UNSPECIFIED,
-	}
-
-	measurementStringToTypeMap = map[string]models.MeasurementType{
-		"temperature_c": models.MeasurementTypeTemperature,
-		"hashrate_mhs":  models.MeasurementTypeHashrate,
-		"power_w":       models.MeasurementTypePower,
-		"efficiency_jh": models.MeasurementTypeEfficiency,
-		"fan_rpm":       models.MeasurementTypeFanSpeed,
-		"voltage_mv":    models.MeasurementTypeVoltage,
-		"current_ma":    models.MeasurementTypeCurrent,
-		"uptime":        models.MeasurementTypeUptime,
-		"error_rate":    models.MeasurementTypeErrorRate,
-	}
-
-	measurementTypeToUnitMap = map[telemetryv1.MeasurementType]commonv1.MeasurementUnit{
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE: commonv1.MeasurementUnit_MEASUREMENT_UNIT_CELSIUS,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE:    commonv1.MeasurementUnit_MEASUREMENT_UNIT_TERAHASH_PER_SECOND,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER:       commonv1.MeasurementUnit_MEASUREMENT_UNIT_KILOWATT,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY:  commonv1.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_UPTIME:      commonv1.MeasurementUnit_MEASUREMENT_UNIT_HOURS,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE:  commonv1.MeasurementUnit_MEASUREMENT_UNIT_PERCENTAGE,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED:   commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_VOLTAGE:     commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_CURRENT:     commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED,
-		telemetryv1.MeasurementType_MEASUREMENT_TYPE_UNSPECIFIED: commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED,
-	}
 )
-
-func toStreamQuery(req *telemetryv1.StreamUpdatesRequest) (models.StreamQuery, error) {
-	deviceIDs := models.ToDeviceIdentifiers(req.DeviceIds)
-
-	measurementTypes, err := measurementTypesToModels(req.MeasurementTypes)
-	if err != nil {
-		return models.StreamQuery{}, err
-	}
-
-	query := models.StreamQuery{
-		DeviceIDs:        deviceIDs,
-		MeasurementTypes: measurementTypes,
-		IncludeHeartbeat: req.IncludeHeartbeat,
-		Tags:             req.Tags,
-		HeartbeatInterval: func() *time.Duration {
-			if req.HeartbeatInterval == nil {
-				return nil
-			}
-			d := req.HeartbeatInterval.AsDuration()
-			return &d
-		}(),
-	}
-
-	return query, nil
-}
 
 func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.CombinedMetricsQuery, error) {
 	var deviceIDs []models.DeviceIdentifier
@@ -265,90 +196,6 @@ func toStreamCombinedMetricsQuery(req *telemetryv1.StreamCombinedMetricUpdatesRe
 	return query, nil
 }
 
-func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpdatesResponse, error) {
-	updateType, err := updateTypeToProto(update.Type)
-	if err != nil {
-		return nil, err
-	}
-
-	telemetryUpdate := &telemetryv1.TelemetryUpdate{
-		Type:      updateType,
-		Timestamp: timestamppb.New(update.Timestamp),
-	}
-
-	// Note: proto API uses "device_id" field but it actually contains the device identifier string,
-	// not the database primary key. This naming is kept for backwards compatibility.
-	if update.DeviceIdentifier != "" {
-		deviceID := string(update.DeviceIdentifier)
-		telemetryUpdate.DeviceId = &deviceID
-	}
-
-	if update.MeasurementName != "" {
-		domainMeasurementType := getMeasurementTypeFromString(update.MeasurementName)
-		measurementType, err := measurementTypeToProto(domainMeasurementType)
-		if err != nil {
-			return nil, err
-		}
-		deviceID := string(update.DeviceIdentifier)
-		// Convert raw storage units to display units (H/s → TH/s, W → kW, J/H → J/TH)
-		displayValue := models.ConvertToDisplayUnits(update.MeasurementValue, domainMeasurementType)
-		telemetryUpdate.Data = &telemetryv1.TelemetryData{
-			DeviceId:        deviceID,
-			MeasurementType: measurementType,
-			Value:           displayValue,
-			Unit:            getUnitForMeasurementType(measurementType),
-			Timestamp:       timestamppb.New(update.Timestamp),
-			Tags:            map[string]string{"device_id": deviceID},
-		}
-	}
-
-	if update.Error != nil {
-		telemetryUpdate.ErrorMessage = update.Error
-	}
-
-	if update.Status != nil {
-		status, err := componentStatusToProto(*update.Status)
-		if err != nil {
-			return nil, err
-		}
-		telemetryUpdate.Status = &status
-	}
-
-	if update.DeviceStatus != nil {
-		deviceStatus := telemetryv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
-		switch *update.DeviceStatus {
-		case mm.MinerStatusActive:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_ONLINE
-		case mm.MinerStatusInactive:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_INACTIVE
-		case mm.MinerStatusError:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_ERROR
-		case mm.MinerStatusMaintenance:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_MAINTENANCE
-		case mm.MinerStatusUnknown:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
-		case mm.MinerStatusOffline:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_OFFLINE
-		case mm.MinerStatusNeedsMiningPool:
-			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
-		}
-		telemetryUpdate.DeviceStatus = &deviceStatus
-	}
-
-	if update.MinerStateCounts != nil {
-		telemetryUpdate.MinerStateCounts = &telemetryv1.MinerStateCounts{
-			HashingCount:  update.MinerStateCounts.Hashing,
-			BrokenCount:   update.MinerStateCounts.Broken,
-			OfflineCount:  update.MinerStateCounts.Offline,
-			SleepingCount: update.MinerStateCounts.Sleeping,
-		}
-	}
-
-	return &telemetryv1.StreamUpdatesResponse{
-		Update: telemetryUpdate,
-	}, nil
-}
-
 func measurementTypeToDomain(protoType telemetryv1.MeasurementType) (models.MeasurementType, error) {
 	if domainType, ok := protoToMeasurementTypeMap[protoType]; ok {
 		return domainType, nil
@@ -375,34 +222,6 @@ func aggregationTypeToProto(domainType models.AggregationType) (telemetryv1.Aggr
 		return protoType, nil
 	}
 	return telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED, fmt.Errorf("unknown aggregation type: %v", domainType)
-}
-
-func componentStatusToProto(domainStatus models.ComponentStatus) (telemetryv1.ComponentStatus, error) {
-	if protoStatus, ok := componentStatusToProtoMap[domainStatus]; ok {
-		return protoStatus, nil
-	}
-	return telemetryv1.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED, fmt.Errorf("unknown component status: %v", domainStatus)
-}
-
-func updateTypeToProto(domainType models.UpdateType) (telemetryv1.UpdateType, error) {
-	if protoType, ok := updateTypeToProtoMap[domainType]; ok {
-		return protoType, nil
-	}
-	return telemetryv1.UpdateType_UPDATE_TYPE_UNSPECIFIED, fmt.Errorf("unknown update type: %v", domainType)
-}
-
-func getMeasurementTypeFromString(measurement string) models.MeasurementType {
-	if measurementType, ok := measurementStringToTypeMap[measurement]; ok {
-		return measurementType
-	}
-	return models.MeasurementTypeUnknown
-}
-
-func getUnitForMeasurementType(measurementType telemetryv1.MeasurementType) commonv1.MeasurementUnit {
-	if unit, ok := measurementTypeToUnitMap[measurementType]; ok {
-		return unit
-	}
-	return commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED
 }
 
 func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.GetCombinedMetricsResponse, error) {

@@ -34,9 +34,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// TelemetryServiceStreamUpdatesProcedure is the fully-qualified name of the TelemetryService's
-	// StreamUpdates RPC.
-	TelemetryServiceStreamUpdatesProcedure = "/telemetry.v1.TelemetryService/StreamUpdates"
 	// TelemetryServiceGetCombinedMetricsProcedure is the fully-qualified name of the TelemetryService's
 	// GetCombinedMetrics RPC.
 	TelemetryServiceGetCombinedMetricsProcedure = "/telemetry.v1.TelemetryService/GetCombinedMetrics"
@@ -47,11 +44,9 @@ const (
 
 // TelemetryServiceClient is a client for the telemetry.v1.TelemetryService service.
 type TelemetryServiceClient interface {
-	// Stream real-time telemetry updates
-	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamUpdatesResponse], error)
 	// Historical, aggregated candles (pull).
 	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
-	// Live updates pushed by the server.
+	// Live updates pushed by the server (used by dashboard).
 	StreamCombinedMetricUpdates(context.Context, *connect.Request[v1.StreamCombinedMetricUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCombinedMetricUpdatesResponse], error)
 }
 
@@ -65,11 +60,6 @@ type TelemetryServiceClient interface {
 func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) TelemetryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &telemetryServiceClient{
-		streamUpdates: connect.NewClient[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse](
-			httpClient,
-			baseURL+TelemetryServiceStreamUpdatesProcedure,
-			opts...,
-		),
 		getCombinedMetrics: connect.NewClient[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse](
 			httpClient,
 			baseURL+TelemetryServiceGetCombinedMetricsProcedure,
@@ -85,14 +75,8 @@ func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // telemetryServiceClient implements TelemetryServiceClient.
 type telemetryServiceClient struct {
-	streamUpdates               *connect.Client[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse]
 	getCombinedMetrics          *connect.Client[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse]
 	streamCombinedMetricUpdates *connect.Client[v1.StreamCombinedMetricUpdatesRequest, v1.StreamCombinedMetricUpdatesResponse]
-}
-
-// StreamUpdates calls telemetry.v1.TelemetryService.StreamUpdates.
-func (c *telemetryServiceClient) StreamUpdates(ctx context.Context, req *connect.Request[v1.StreamUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamUpdatesResponse], error) {
-	return c.streamUpdates.CallServerStream(ctx, req)
 }
 
 // GetCombinedMetrics calls telemetry.v1.TelemetryService.GetCombinedMetrics.
@@ -107,11 +91,9 @@ func (c *telemetryServiceClient) StreamCombinedMetricUpdates(ctx context.Context
 
 // TelemetryServiceHandler is an implementation of the telemetry.v1.TelemetryService service.
 type TelemetryServiceHandler interface {
-	// Stream real-time telemetry updates
-	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest], *connect.ServerStream[v1.StreamUpdatesResponse]) error
 	// Historical, aggregated candles (pull).
 	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
-	// Live updates pushed by the server.
+	// Live updates pushed by the server (used by dashboard).
 	StreamCombinedMetricUpdates(context.Context, *connect.Request[v1.StreamCombinedMetricUpdatesRequest], *connect.ServerStream[v1.StreamCombinedMetricUpdatesResponse]) error
 }
 
@@ -121,11 +103,6 @@ type TelemetryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	telemetryServiceStreamUpdatesHandler := connect.NewServerStreamHandler(
-		TelemetryServiceStreamUpdatesProcedure,
-		svc.StreamUpdates,
-		opts...,
-	)
 	telemetryServiceGetCombinedMetricsHandler := connect.NewUnaryHandler(
 		TelemetryServiceGetCombinedMetricsProcedure,
 		svc.GetCombinedMetrics,
@@ -138,8 +115,6 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 	)
 	return "/telemetry.v1.TelemetryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case TelemetryServiceStreamUpdatesProcedure:
-			telemetryServiceStreamUpdatesHandler.ServeHTTP(w, r)
 		case TelemetryServiceGetCombinedMetricsProcedure:
 			telemetryServiceGetCombinedMetricsHandler.ServeHTTP(w, r)
 		case TelemetryServiceStreamCombinedMetricUpdatesProcedure:
@@ -152,10 +127,6 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 
 // UnimplementedTelemetryServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTelemetryServiceHandler struct{}
-
-func (UnimplementedTelemetryServiceHandler) StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest], *connect.ServerStream[v1.StreamUpdatesResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.StreamUpdates is not implemented"))
-}
 
 func (UnimplementedTelemetryServiceHandler) GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetCombinedMetrics is not implemented"))

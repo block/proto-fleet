@@ -96,6 +96,7 @@ beforeEach(() => {
     goToNextPage: vi.fn(),
     goToPrevPage: vi.fn(),
     refetch: mockRefetchFleet,
+    refreshCurrentPage: vi.fn(),
     availableModels: [],
   });
 

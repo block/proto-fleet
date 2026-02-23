@@ -21,8 +21,6 @@ type TestStore = { fleet: FleetSlice; ui: UISlice };
 const mockStartBatchOperation = vi.fn();
 const mockCompleteBatchOperation = vi.fn();
 const mockRemoveDevicesFromBatch = vi.fn();
-const mockFetchBatchTelemetry = vi.fn();
-const mockResetFetchedIds = vi.fn();
 const mockStreamCommandBatchUpdates = vi.fn((_params: any) => Promise.resolve());
 const mockStartMining = vi.fn();
 const mockStopMining = vi.fn();
@@ -59,13 +57,6 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     setCoolingMode: mockSetCoolingMode,
     checkCommandCapabilities: mockCheckCommandCapabilities,
     updateMinerPassword: mockUpdateMinerPassword,
-  }),
-}));
-
-vi.mock("@/protoFleet/api/useBatchTelemetry", () => ({
-  default: () => ({
-    fetchBatchTelemetry: mockFetchBatchTelemetry,
-    resetFetchedIds: mockResetFetchedIds,
   }),
 }));
 
@@ -1158,7 +1149,27 @@ describe("useMinerActions", () => {
       );
 
       // Keep device OFFLINE to trigger polling
-      store.getState().fleet.updateMinerDeviceStatus({ deviceId: "device-1", deviceStatus: DeviceStatus.OFFLINE });
+      store.getState().fleet.setMiners([
+        {
+          deviceIdentifier: "device-1",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+          name: "device-1",
+          macAddress: "",
+          serialNumber: "",
+          model: "",
+          manufacturer: "",
+          ipAddress: "",
+          url: "",
+          firmwareVersion: "",
+          powerUsage: [],
+          temperature: [],
+          hashrate: [],
+          efficiency: [],
+          temperatureStatus: 0,
+          type: "",
+        },
+      ]);
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
