@@ -890,12 +890,19 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 	return deletedCount, nil
 }
 
-// GetDeviceIdentifiersByOrgWithFilter returns paired device identifiers filtered by optional
-// status, model, and error component types. Uses appendFilterSQL (the same dynamic filter
-// logic as the list view) to ensure semantic parity — particularly for the "needs attention"
-// status filter that includes devices with open actionable errors.
+// GetDeviceIdentifiersByOrgWithFilter returns device identifiers filtered by optional
+// pairing status, device status, model, and error component types. Uses appendFilterSQL
+// (the same dynamic filter logic as the list view) to ensure semantic parity — particularly
+// for the "needs attention" status filter that includes devices with open actionable errors.
+// If no pairing status filter is specified, defaults to PAIRED for backward compatibility.
 func (s *SQLDeviceStore) GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]string, error) {
 	fp := buildMinerFilterParams(filter)
+
+	// Default to PAIRED if no pairing status filter specified (backward compatibility)
+	if !fp.pairingStatusFilter.Valid {
+		fp.pairingStatusFilter = sql.NullString{Valid: true}
+		fp.pairingStatusValues = []string{"PAIRED"}
+	}
 
 	var sb strings.Builder
 	args := []any{orgID}
@@ -906,8 +913,7 @@ FROM device
 JOIN discovered_device ON device.discovered_device_id = discovered_device.id
 JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
-WHERE device_pairing.pairing_status = 'PAIRED'
-    AND device.deleted_at IS NULL
+WHERE device.deleted_at IS NULL
     AND device.org_id = $1
     AND discovered_device.is_active = TRUE
     AND discovered_device.deleted_at IS NULL`)

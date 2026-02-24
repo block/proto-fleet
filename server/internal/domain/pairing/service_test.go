@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	commandpb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -86,6 +88,32 @@ func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.Disco
 			Port:      port,
 			UrlScheme: "http",
 			Type:      deviceType,
+		},
+	}
+}
+
+// createPairRequest creates a PairRequest with the given device identifiers using DeviceSelector.
+func createPairRequest(deviceIdentifiers []string) *pb.PairRequest {
+	return &pb.PairRequest{
+		DeviceSelector: &commandpb.DeviceSelector{
+			SelectionType: &commandpb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commandpb.DeviceList{
+					DeviceIdentifiers: deviceIdentifiers,
+				},
+			},
+		},
+	}
+}
+
+// createPairRequestWithAllDevicesFilter creates a PairRequest with AllDevices selector and pairing status filter.
+func createPairRequestWithAllDevicesFilter(pairingStatuses []fm.PairingStatus) *pb.PairRequest {
+	return &pb.PairRequest{
+		DeviceSelector: &commandpb.DeviceSelector{
+			SelectionType: &commandpb.DeviceSelector_AllDevices{
+				AllDevices: &commandpb.DeviceFilter{
+					PairingStatus: pairingStatuses,
+				},
+			},
 		},
 	}
 }
@@ -303,9 +331,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		// Act
 		resultChan, err = pairingService.DiscoverWithIPRange(ctx, request)
 		require.NoError(t, err)
-		_, err = pairingService.PairDevices(ctx, &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
-		})
+		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{devices[0].DeviceIdentifier}))
 		require.NoError(t, err)
 
 		devices = []*pb.Device{}
@@ -413,9 +439,7 @@ func TestPairDevices(t *testing.T) {
 		require.Len(t, devices, 1)
 
 		// Now pair the device
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
-		}
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
@@ -460,9 +484,7 @@ func TestPairDevices(t *testing.T) {
 		require.Len(t, devices, 1)
 
 		// Now pair the device
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
-		}
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
@@ -508,9 +530,7 @@ func TestPairDevices(t *testing.T) {
 		)
 
 		// Try to pair a non-existent device (this will fail at device lookup)
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{"unsupported-device-001"},
-		}
+		pairRequest := createPairRequest([]string{"unsupported-device-001"})
 
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
@@ -526,9 +546,7 @@ func TestPairDevices(t *testing.T) {
 		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
 
 		// Try to pair a non-existent device
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{"non-existent-device"},
-		}
+		pairRequest := createPairRequest([]string{"non-existent-device"})
 
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
@@ -563,9 +581,7 @@ func TestPairDevices(t *testing.T) {
 		require.Len(t, devices, 1)
 
 		// send pairing request with one valid and one invalid device identifier
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier, "test-invalid-device"},
-		}
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier, "test-invalid-device"})
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
@@ -662,9 +678,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		require.Len(t, devices, 1)
 
 		// Now pair the device
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
-		}
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
@@ -725,9 +739,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		require.Len(t, devices, 1)
 
 		// Pair the device
-		pairRequest := &pb.PairRequest{
-			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
-		}
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
 
 		// Pairing should still succeed even if GetDeviceInfo fails
 		_, err = pairingService.PairDevices(ctx, pairRequest)
@@ -741,5 +753,112 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
+	})
+}
+
+func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
+	t.Run("pairs all devices with AUTHENTICATION_NEEDED status", func(t *testing.T) {
+		// Arrange
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		host := "192.168.1.100"
+		portStr := "80"
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := createMockDevice(host, portStr, miner.TypeAntminer.String())
+		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
+
+		// Create mock pairer that returns credentials required error (sets AUTHENTICATION_NEEDED)
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockAntminerPairer := pairingMocks.NewMockPairer(ctrl)
+		mockAntminerPairer.EXPECT().GetMinerType().Return(miner.TypeAntminer).AnyTimes()
+		mockAntminerPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided"))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockAntminerPairer}, mockDiscoverer)
+
+		// Discover the device
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{host},
+			Ports:       []string{portStr},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		// First pairing attempt - should set AUTHENTICATION_NEEDED
+		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
+		_, err = pairingService.PairDevices(ctx, pairRequest)
+		require.NoError(t, err)
+
+		// Verify device is AUTHENTICATION_NEEDED
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+		deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, devices[0].DeviceIdentifier)
+		require.NoError(t, err)
+
+		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus))
+
+		// Now set up mock to succeed with credentials
+		// The mock needs to update pairing status to PAIRED (like the real plugin pairer does)
+		mockAntminerPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+				// Simulate what the real plugin pairer does: set status to PAIRED
+				return queries.UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
+					PairingStatus:    sqlc.PairingStatusEnumPAIRED,
+					DeviceIdentifier: device.DeviceIdentifier,
+				})
+			})
+		mockAntminerPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, fmt.Errorf("not implemented"))
+
+		// Act: Use AllDevices selector with AUTHENTICATION_NEEDED filter
+		allDevicesRequest := createPairRequestWithAllDevicesFilter([]fm.PairingStatus{fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED})
+		allDevicesRequest.Credentials = &pb.Credentials{
+			Username: "admin",
+			Password: proto.String("password"),
+		}
+
+		_, err = pairingService.PairDevices(ctx, allDevicesRequest)
+
+		// Assert
+		require.NoError(t, err)
+
+		// Verify device is now PAIRED
+		pairingStatus, err = queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusPaired, string(pairingStatus))
+	})
+}
+
+func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {
+	t.Run("returns error for empty device list", func(t *testing.T) {
+		// Arrange
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		mockDiscoverer := &MockDiscoverer{}
+		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+		// Act
+		pairRequest := createPairRequest([]string{})
+		_, err := pairingService.PairDevices(ctx, pairRequest)
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "include_devices selector requires at least one device identifier")
 	})
 }

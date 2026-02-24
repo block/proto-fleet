@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	commandpb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -638,19 +639,58 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
 }
 
+// resolveDeviceIdentifiers resolves a DeviceSelector to a list of device identifiers.
+// This follows the same pattern as the command service's getDeviceIDs method.
+func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *commandpb.DeviceSelector, orgID int64) ([]string, error) {
+	if selector == nil {
+		return nil, fleeterror.NewInvalidArgumentError("device_selector is required")
+	}
+
+	switch x := selector.SelectionType.(type) {
+	case *commandpb.DeviceSelector_AllDevices:
+		filter := x.AllDevices
+		minerFilter := &interfaces.MinerFilter{}
+
+		if filter != nil && len(filter.PairingStatus) > 0 {
+			minerFilter.PairingStatuses = filter.PairingStatus
+		}
+
+		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, minerFilter)
+
+	case *commandpb.DeviceSelector_IncludeDevices:
+		if x.IncludeDevices == nil || len(x.IncludeDevices.DeviceIdentifiers) == 0 {
+			return nil, fleeterror.NewInvalidArgumentError("include_devices selector requires at least one device identifier")
+		}
+		return x.IncludeDevices.DeviceIdentifiers, nil
+
+	default:
+		return nil, fleeterror.NewInvalidArgumentErrorf("unknown device selector type: %T", x)
+	}
+}
+
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIDs := make([]models.DeviceIdentifier, 0, len(r.DeviceIdentifiers))
-	failedIDs := make([]string, 0, len(r.DeviceIdentifiers))
+	// Resolve device selector to identifiers
+	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, r.DeviceSelector, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(deviceIdentifiers) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("no devices match the selector")
+	}
+
+	deviceIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
+	failedIDs := make([]string, 0, len(deviceIdentifiers))
 
 	credentials := r.Credentials
 
 	// Create pairing records for each device
-	for _, deviceID := range r.DeviceIdentifiers {
+	for _, deviceID := range deviceIdentifiers {
 		err = s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
 		if err == nil {
 			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))

@@ -493,3 +493,4 @@ WHERE dd.id = d.discovered_device_id
 -- sqlstores/device.go to reuse appendFilterSQL and ensure semantic parity with
 -- the list view's "needs attention" filter logic (ERROR status includes devices
 -- with open actionable errors).
+

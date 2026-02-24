@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceFilterSchema,
+  DeviceListSchema,
+  DeviceSelectorSchema,
+} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { CredentialsSchema, PairRequestSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
@@ -41,7 +47,7 @@ type AuthenticateMinersProps = {
 
 const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => {
   // Component fetches its own data
-  const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners } = useAuthNeededMiners();
+  const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners, totalMiners } = useAuthNeededMiners();
   const { pair } = useMinerPairing();
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
   const notifyPairingCompleted = useNotifyPairingCompleted();
@@ -202,6 +208,20 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
     };
   }, [handleMinerChange, bulkCredentials, showPasswords, authenticateLoading, minerErrors, credentials]);
 
+  // Helper to perform common post-authentication operations
+  const handleAuthenticationComplete = useCallback(
+    (successCount: number) => {
+      refetchOnboardingStatus();
+      useFleetStore.getState().fleet.refetchMiners?.();
+      refetchAuthNeededMiners();
+      notifyPairingCompleted();
+      if (successCount > 0) {
+        onSuccess?.();
+      }
+    },
+    [refetchOnboardingStatus, refetchAuthNeededMiners, notifyPairingCompleted, onSuccess],
+  );
+
   const authenticateMiners = useCallback(() => {
     if (
       (bulkCredentials.username === "" || bulkCredentials.password === "") &&
@@ -214,8 +234,77 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
     setHasMissingCredentials(false);
     setAuthenticateLoading(true);
 
-    // Group selected miners by their credentials
-    // If a miner has individual credentials, use those; otherwise use bulk credentials
+    // Determine if we can use bulk mode (all miners with same credentials)
+    const hasIndividualCredentials = Object.keys(credentials).length > 0;
+    const useBulkMode =
+      !showMiners && !hasIndividualCredentials && bulkCredentials.username && bulkCredentials.password;
+
+    if (useBulkMode) {
+      // Bulk mode: Use all_devices selector with AUTHENTICATION_NEEDED filter
+      // This allows authenticating all auth-needed miners without pagination limits
+      const pairRequest = create(PairRequestSchema, {
+        credentials: create(CredentialsSchema, {
+          username: bulkCredentials.username,
+          password: bulkCredentials.password,
+        }),
+        deviceSelector: create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "allDevices",
+            value: create(DeviceFilterSchema, {
+              pairingStatus: [PairingStatus.AUTHENTICATION_NEEDED],
+            }),
+          },
+        }),
+      });
+
+      pair({
+        pairRequest,
+        onSuccess: (failedDeviceIds) => {
+          if (!isMountedRef.current) return;
+
+          setAuthenticateLoading(false);
+          setMinerErrors(failedDeviceIds);
+
+          const successCount = totalMiners - failedDeviceIds.length;
+          const allSucceeded = failedDeviceIds.length === 0;
+          const allFailed = failedDeviceIds.length === totalMiners;
+
+          if (allSucceeded) {
+            pushToast({
+              message: "All miners authenticated.",
+              status: TOAST_STATUSES.success,
+            });
+            onClose();
+          } else if (allFailed) {
+            pushToast({
+              message: "Authentication failed. Please check your credentials and try again.",
+              status: TOAST_STATUSES.error,
+            });
+          } else {
+            pushToast({
+              message: `You authenticated ${successCount} of ${totalMiners} miners.`,
+              status: TOAST_STATUSES.error,
+            });
+          }
+
+          handleAuthenticationComplete(successCount);
+        },
+        onError: (error) => {
+          if (!isMountedRef.current) return;
+
+          console.error("Pairing error:", error);
+          setAuthenticateLoading(false);
+          pushToast({
+            message: "Authentication failed. Please check your credentials and try again.",
+            status: TOAST_STATUSES.error,
+          });
+        },
+      });
+      return;
+    }
+
+    // Individual mode: Group selected miners by their credentials
+    // Uses include_devices selector with explicit device identifiers
     const credentialGroups = new Map<string, { creds: Credentials; deviceIds: string[] }>();
 
     selectedMiners.forEach((deviceId) => {
@@ -255,8 +344,8 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
       const successCount = selectedMiners.length - completionTrackerRef.current.failedMiners.length;
       const allSucceeded = completionTrackerRef.current.failedMiners.length === 0;
       const allFailed = completionTrackerRef.current.failedMiners.length === selectedMiners.length;
-      const totalMiners = Object.keys(minersByIdentifier).length;
-      const allMinersAuthenticated = allSucceeded && successCount === totalMiners;
+      const loadedMinersCount = Object.keys(minersByIdentifier).length;
+      const allMinersAuthenticated = allSucceeded && successCount === loadedMinersCount;
 
       if (allMinersAuthenticated) {
         pushToast({
@@ -282,25 +371,23 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
         });
       }
 
-      refetchOnboardingStatus();
-      // Refetch global fleet state if callback is available
-      useFleetStore.getState().fleet.refetchMiners?.();
-      refetchAuthNeededMiners();
-      // Signal that pairing status changed so Fleet can reset telemetry cache
-      notifyPairingCompleted();
-      // Call parent's success handler if at least one miner was authenticated
-      if (successCount > 0) {
-        onSuccess?.();
-      }
+      handleAuthenticationComplete(successCount);
     };
 
-    // Make a pair request for each credential group
+    // Make a pair request for each credential group using include_devices selector
     credentialGroups.forEach(({ creds, deviceIds }) => {
       const pairRequest = create(PairRequestSchema, {
-        deviceIdentifiers: deviceIds,
         credentials: create(CredentialsSchema, {
           username: creds.username,
           password: creds.password,
+        }),
+        deviceSelector: create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "includeDevices",
+            value: create(DeviceListSchema, {
+              deviceIdentifiers: deviceIds,
+            }),
+          },
         }),
       });
 
@@ -324,11 +411,10 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
     credentials,
     selectedMiners,
     minersByIdentifier,
-    refetchOnboardingStatus,
-    refetchAuthNeededMiners,
-    notifyPairingCompleted,
+    showMiners,
+    totalMiners,
+    handleAuthenticationComplete,
     onClose,
-    onSuccess,
     pair,
   ]);
 
@@ -392,7 +478,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           >
             <div className="text-emphasis-300">Bulk authenticate</div>
             <div className="text-300">
-              {minerItems.length} {minerItems.length === 1 ? "miner" : "miners"} remaining
+              {totalMiners} {totalMiners === 1 ? "miner" : "miners"} remaining
             </div>
           </div>
           <div className="flex-1">

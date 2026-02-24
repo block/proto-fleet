@@ -307,13 +307,18 @@ describe("AuthenticateMiners", () => {
     fireEvent.click(getByText("Authenticate"));
 
     expect(mockPair).toHaveBeenCalledTimes(1);
+    // Bulk mode uses allDevices selector with AUTHENTICATION_NEEDED pairing status filter
     expect(mockPair).toHaveBeenCalledWith(
       expect.objectContaining({
         pairRequest: expect.objectContaining({
-          deviceIdentifiers: expect.arrayContaining(["miner1", "miner2", "miner3"]),
           credentials: expect.objectContaining({
             username: mockUsername,
             password: mockPassword,
+          }),
+          deviceSelector: expect.objectContaining({
+            selectionType: expect.objectContaining({
+              case: "allDevices",
+            }),
           }),
         }),
         onSuccess: expect.any(Function),
