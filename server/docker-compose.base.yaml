@@ -21,9 +21,11 @@ services:
       - NET_RAW
 
   # TimescaleDB (PostgreSQL with time-series extension)
-  # Using HA image which includes timescaledb_toolkit for time_weight() and other advanced functions
+  # Custom lightweight image (~123 MB) replacing timescale/timescaledb-ha (~1.67 GB)
+  # Includes PostgreSQL 18, TimescaleDB, and timescaledb_toolkit — without HA bloat
   timescaledb:
-    image: timescale/timescaledb-ha:pg17-ts2.25
+    build:
+      context: ./timescaledb
     restart: always
     environment:
       POSTGRES_DB: "fleet"
@@ -68,7 +70,6 @@ services:
       - "-c"
       - "timescaledb.max_background_workers=8"
     volumes:
-      # TimescaleDB HA image uses /home/postgres/pgdata/data, not /var/lib/postgresql/data
       - timescaledb-data:/home/postgres/pgdata/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]

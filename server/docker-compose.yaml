@@ -61,7 +61,6 @@ services:
       - "-c"
       - "work_mem=32MB"
     volumes:
-      # TimescaleDB HA image uses /home/postgres/pgdata/data, not /var/lib/postgresql/data
       - timescaledb-data:/home/postgres/pgdata/data
       # Use tmpfs for temporary files to speed up operations
       - type: tmpfs
