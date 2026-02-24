@@ -56,6 +56,48 @@ func (ns NullBatchStatusEnum) Value() (driver.Value, error) {
 	return string(ns.BatchStatusEnum), nil
 }
 
+type CollectionType string
+
+const (
+	CollectionTypeGroup CollectionType = "group"
+	CollectionTypeRack  CollectionType = "rack"
+)
+
+func (e *CollectionType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CollectionType(s)
+	case string:
+		*e = CollectionType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CollectionType: %T", src)
+	}
+	return nil
+}
+
+type NullCollectionType struct {
+	CollectionType CollectionType
+	Valid          bool // Valid is true if CollectionType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCollectionType) Scan(value interface{}) error {
+	if value == nil {
+		ns.CollectionType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CollectionType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCollectionType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CollectionType), nil
+}
+
 type DeviceCommandStatusEnum string
 
 const (
@@ -267,6 +309,34 @@ type Device struct {
 	DeletedAt          sql.NullTime
 }
 
+type DeviceCollection struct {
+	ID          int64
+	OrgID       int64
+	Type        CollectionType
+	Label       string
+	Description sql.NullString
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   sql.NullTime
+}
+
+type DeviceCollectionMembership struct {
+	ID               int64
+	OrgID            int64
+	CollectionID     int64
+	CollectionType   CollectionType
+	DeviceID         int64
+	DeviceIdentifier string
+	CreatedAt        time.Time
+}
+
+type DeviceCollectionRack struct {
+	CollectionID int64
+	Location     sql.NullString
+	Rows         int32
+	Columns      int32
+}
+
 type DeviceMetric struct {
 	Time             time.Time
 	DeviceIdentifier string
@@ -469,6 +539,14 @@ type QueueMessage struct {
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type RackSlot struct {
+	CollectionID int64
+	DeviceID     int64
+	Row          int32
+	Col          int32
+	CreatedAt    time.Time
 }
 
 type Role struct {
