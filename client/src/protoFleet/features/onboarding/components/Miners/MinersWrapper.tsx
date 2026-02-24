@@ -14,6 +14,7 @@ import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onboarding/constants";
 import { useFleetStore, useMinerIds, useNotifyPairingCompleted } from "@/protoFleet/store";
+import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import { ManualDiscoveryTargets } from "@/shared/utils/networkDiscovery";
@@ -49,6 +50,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const loadingToastIds = useRef<number[]>([]);
 
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
+  const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
+  const [lastManualTargets, setLastManualTargets] = useState<ManualDiscoveryTargets | null>(null);
 
   // Show a toast if pairing takes longer than the threshold
   useEffect(() => {
@@ -126,6 +129,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const handleNmapDiscovery = useCallback(() => {
     if (!networkInfo) return;
 
+    setLastDiscoveryMode(minerDiscoveryModes.scan);
+    setLastManualTargets(null);
     const discoverRequest = create(DiscoverRequestSchema, {
       mode: {
         case: "nmap",
@@ -164,6 +169,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
   const handleManualDiscovery = useCallback(
     async (targets: ManualDiscoveryTargets) => {
+      setLastDiscoveryMode(minerDiscoveryModes.ipList);
+      setLastManualTargets(targets);
       const discoverRequests: DiscoverRequest[] = [];
 
       if (targets.ipAddresses.length > 0) {
@@ -222,11 +229,21 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   );
 
   const handleRescan = useCallback(() => {
-    // do not rescan if scan is already in progress
-    if (!scanDiscoveryPending) {
+    if (scanDiscoveryPending || ipListDiscoveryPending) return;
+
+    if (lastDiscoveryMode === minerDiscoveryModes.ipList && lastManualTargets) {
+      handleManualDiscovery(lastManualTargets);
+    } else {
       handleNmapDiscovery();
     }
-  }, [scanDiscoveryPending, handleNmapDiscovery]);
+  }, [
+    scanDiscoveryPending,
+    ipListDiscoveryPending,
+    lastDiscoveryMode,
+    lastManualTargets,
+    handleManualDiscovery,
+    handleNmapDiscovery,
+  ]);
 
   // Helper to clear all loading toasts
   function clearLoadingToasts() {

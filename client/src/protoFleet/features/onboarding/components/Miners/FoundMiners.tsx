@@ -83,14 +83,14 @@ const FoundMiners = ({ miners, deselectedMiners, className }: FoundMinersProps) 
           inline
           title={
             miners.length === 0
-              ? "No miners found so far"
+              ? "No miners found"
               : `${Object.values(minersByModel).reduce((total, item) => total + item.miners.length, 0)} miners found on your network`
           }
           titleSize="text-heading-300"
           description={
             <>
               {miners.length === 0
-                ? "Once some miners are found, you can select the ones you want to configure."
+                ? "Try rescanning or check that your miners are powered on and connected to the network."
                 : "Specify which miners to add to your fleet. All miners are selected by default."}
               <br className="phone:hidden" />
               You can always add more miners to this network later.

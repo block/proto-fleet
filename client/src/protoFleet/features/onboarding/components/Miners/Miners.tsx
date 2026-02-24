@@ -10,7 +10,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
-import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import Textarea from "@/shared/components/Textarea";
 import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
 
@@ -42,7 +41,6 @@ const Miners = ({
   mode = "onboarding",
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
-  const [selectedMode] = useState<string>(minerDiscoveryModes.scan);
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showScanLoading, setShowScanLoading] = useState(false);
   const [textareaValue, setTextareaValue] = useState<string>("");
@@ -54,9 +52,12 @@ const Miners = ({
   const [categorizedInvalidEntries, setCategorizedInvalidEntries] = useState<CategorizedInvalidEntries | null>(null);
   const [pendingValidTargets, setPendingValidTargets] = useState<ManualDiscoveryTargets | null>(null);
 
-  // Handle loading state with minimum display time for network scan only
+  const discoveryPending = scanDiscoveryPending || ipListDiscoveryPending;
+  const showLoadingSkeleton = showScanLoading || discoveryPending;
+
+  // Handle loading state with minimum display time
   useEffect(() => {
-    if (scanDiscoveryPending) {
+    if (discoveryPending) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowScanLoading(true);
     } else {
@@ -71,7 +72,7 @@ const Miners = ({
         loadingTimeoutId.current = null;
       }
     };
-  }, [scanDiscoveryPending]);
+  }, [discoveryPending]);
 
   function handleIpAddressChange(newValue: string) {
     setTextareaValue(newValue);
@@ -192,16 +193,17 @@ const Miners = ({
               inline
               buttonSize={sizes.base}
               buttons={
-                showScanLoading
+                showLoadingSkeleton
                   ? []
                   : [
                       {
                         variant: variants.secondary,
                         onClick: onRescan,
-                        text: "Rescan network",
-                        disabled: pairingPending,
+                        text: discoveryPending ? "Scanning" : "Rescan network",
+                        disabled: pairingPending || discoveryPending,
+                        loading: discoveryPending,
                         className: clsx({
-                          hidden: activeStep !== "pairing" || selectedMode !== minerDiscoveryModes.scan,
+                          hidden: activeStep !== "pairing",
                         }),
                       },
                       {
@@ -224,13 +226,12 @@ const Miners = ({
                             .map((miner) => miner.deviceIdentifier);
                           onContinue(selectedMinerIdentifiers);
                         },
-                        disabled:
-                          pairingPending || foundMiners.length === 0 || foundMiners.length === deselectedMiners.length,
+                        disabled: pairingPending || foundMiners.length === deselectedMiners.length,
                         text: pairingPending
                           ? `Adding ${foundMiners.length - deselectedMiners.length} miners...`
                           : `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
                         className: clsx({
-                          hidden: activeStep !== "pairing",
+                          hidden: activeStep !== "pairing" || foundMiners.length === 0,
                         }),
                       },
                     ]
@@ -322,7 +323,7 @@ const Miners = ({
             )}
             {activeStep === "pairing" && (
               <div className="mx-auto max-w-4xl">
-                {showScanLoading ? (
+                {showLoadingSkeleton ? (
                   <>
                     <Header
                       title="Finding miners on your network"

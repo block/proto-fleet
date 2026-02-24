@@ -114,7 +114,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
       // The pairing step should now be active (either loading or showing results)
       const findingMinersTitle = page.getByText("Finding miners on your network");
       const foundMinersSection = page.getByText(/\d+ miners found/);
-      const noMinersFound = page.getByText("No miners found so far");
+      const noMinersFound = page.getByText(/No miners found/);
 
       // Wait for either the loading state, results, or no miners found
       await expect(findingMinersTitle.or(foundMinersSection).or(noMinersFound)).toBeVisible({ timeout: 10000 });
