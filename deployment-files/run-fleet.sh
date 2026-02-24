@@ -570,7 +570,18 @@ else
     echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
 fi
 
-# Build Docker images
+# Load pre-built TimescaleDB image if available (built in CI for the target architecture)
+TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb-${TARGETARCH}.tar.gz"
+if [ -f "$TSDB_IMAGE" ]; then
+    echo "Loading pre-built TimescaleDB image for ${TARGETARCH}..."
+    gunzip -c "$TSDB_IMAGE" | docker load
+    echo "TimescaleDB image loaded successfully."
+else
+    echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE"
+    echo "TimescaleDB will need to be built from source or already exist locally."
+fi
+
+# Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
 docker compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 
 # ----------------------------------------------------------------------------
