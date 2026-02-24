@@ -15,6 +15,7 @@ vi.mock("@/protoFleet/store", () => ({
       return selector({
         fleet: {
           selectErrorsByDevice: vi.fn(() => []),
+          errors: { metadata: { lastFetchedAt: Date.now() } },
         },
       });
     }

@@ -28,7 +28,6 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
   const [error, setError] = useState<Error | null>(null);
 
   // Get store actions
-  const clearAllErrors = useFleetStore((state) => state.fleet.clearAllErrors);
   const setNormalizedErrors = useFleetStore((state) => state.fleet.setErrors);
 
   const fetchDeviceErrors = useCallback(
@@ -95,8 +94,6 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
 
   // Fetch errors when device IDs change
   useEffect(() => {
-    // Clear all errors and refetch when device list changes (for miners page)
-    clearAllErrors();
     fetchDeviceErrors(deviceIds);
     // Only depend on deviceIds - the store actions are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps

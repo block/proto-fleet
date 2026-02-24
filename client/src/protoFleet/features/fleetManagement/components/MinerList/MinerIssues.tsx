@@ -1,12 +1,12 @@
 import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useGroupedErrors } from "@/protoFleet/components/StatusModal/hooks/useStatusModalHooks";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
-import { useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
+import { useFleetStore, useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useMinerIssues } from "@/shared/hooks/useStatusSummary";
 
 type MinerIssuesProps = {
@@ -25,6 +25,7 @@ const componentTypeMap: Record<string, ErrorComponentType> = {
 const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
   const miner = useMiner(deviceIdentifier);
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
+  const errorsLoaded = useFleetStore((state) => state.fleet.errors.metadata.lastFetchedAt !== null);
 
   // Get errors from normalized store using existing hook
   const groupedErrors = useGroupedErrors(deviceIdentifier);
@@ -59,6 +60,11 @@ const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
     }
     return <Alert width="w-4" />;
   }, [needsAuthentication, needsMiningPool, sharedErrors]);
+
+  // While errors haven't loaded, show shimmer for devices that could have issues
+  if (!errorsLoaded && !needsAuthentication && !needsMiningPool) {
+    return <SkeletonBar className="w-24" />;
+  }
 
   // Show empty state if no issues
   if (!hasIssues) {
