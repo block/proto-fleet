@@ -54,11 +54,19 @@ interface AppProps {
   children?: ReactNode;
   fullscreen?: boolean;
   hideErrors?: boolean;
+  calloutTopSpacing?: boolean;
   title: string;
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
-const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultContentLayout }: AppProps) => {
+const App = ({
+  children,
+  fullscreen,
+  hideErrors,
+  calloutTopSpacing,
+  title,
+  ContentLayout = DefaultContentLayout,
+}: AppProps) => {
   // ============================================================================
   // THEME & BOOTSTRAPPING
   // ============================================================================
@@ -258,6 +266,8 @@ const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultC
     [poolsInfo],
   );
 
+  const hasVisibleCallout = isWarmingUp || isSleeping || noPoolsLive;
+
   // Initialize access token
   useAccessToken();
 
@@ -381,6 +391,7 @@ const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultC
       ) : (
         // Normal mode: Render with AppLayout + callouts
         <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
+          {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
           {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
           {noPoolsLive && !isWarmingUp && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
           {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}

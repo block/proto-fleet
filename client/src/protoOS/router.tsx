@@ -29,6 +29,7 @@ interface CreateRouteOptions {
   title: string;
   fullscreen?: boolean;
   hideErrors?: boolean;
+  calloutTopSpacing?: boolean;
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
@@ -39,6 +40,7 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
       title={options.title}
       fullscreen={options.fullscreen}
       hideErrors={options.hideErrors}
+      calloutTopSpacing={options.calloutTopSpacing}
       ContentLayout={options.ContentLayout}
     >
       {children}
@@ -83,6 +85,7 @@ export const routerConfig: CustomRouteObject[] = [
   createRoute("logs", <Logs />, {
     title: "Logs",
     hideErrors: true,
+    calloutTopSpacing: true,
     ContentLayout: FullScreenContentLayout,
   }),
   createRoute("diagnostics", <DiagnosticView />, {

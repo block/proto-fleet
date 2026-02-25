@@ -12,7 +12,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Search from "@/shared/components/Search";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { padLeft } from "@/shared/utils/stringUtils";
 import { getFileName } from "@/shared/utils/utility";
 
@@ -36,8 +35,6 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
-
-  const { isPhone, isTablet } = useWindowDimensions();
 
   useClickOutside({
     ref: searchBarRef,
@@ -195,16 +192,13 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
       {logs.length ? (
         <>
           <div
-            className={clsx("fixed -mt-[58px] h-[58px] bg-surface-base", {
-              "w-full": isPhone || isTablet,
-              "w-[calc(100%-240px)]": !isPhone && !isTablet,
-            })}
+            className="sticky top-[60px] z-10 h-[58px] bg-surface-base phone:top-[100px] tablet:top-[100px]"
             onClick={handleClickSearchBar}
             ref={searchBarRef}
           >
             <div
               className={clsx(
-                "flex items-center border-b-[1px] border-border-5 p-[15px]",
+                "flex items-center border-b-[1px] border-border-5 bg-surface-base p-[15px]",
                 "focus-within:border-b-2 focus-within:border-border-primary",
               )}
             >
@@ -268,7 +262,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
               </div>
             </div>
           </div>
-          <div className="mt-[58px] h-[calc(100%-60px-58px)] overflow-y-hidden">
+          <div className="h-[calc(100%-60px-58px)] overflow-y-hidden">
             <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
               {filteredLogs.length ? (
                 filteredLogs.map((log, index) => {
