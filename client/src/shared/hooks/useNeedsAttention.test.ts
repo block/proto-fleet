@@ -61,6 +61,32 @@ describe("useNeedsAttention", () => {
     });
   });
 
+  describe("device error flag", () => {
+    it("should return true when hasDeviceError is true", () => {
+      // Act
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], true));
+
+      // Assert
+      expect(result.current).toBe(true);
+    });
+
+    it("should return false when hasDeviceError is false and no other issues", () => {
+      // Act
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], false));
+
+      // Assert
+      expect(result.current).toBe(false);
+    });
+
+    it("should default hasDeviceError to false when not provided", () => {
+      // Act
+      const { result } = renderHook(() => useNeedsAttention(false, false, []));
+
+      // Assert
+      expect(result.current).toBe(false);
+    });
+  });
+
   describe("combined flags", () => {
     it("should return true when needsAuthentication and needsMiningPool are both true", () => {
       const { result } = renderHook(() => useNeedsAttention(true, true, []));
@@ -81,7 +107,15 @@ describe("useNeedsAttention", () => {
 
     it("should return true when all flags are true", () => {
       const errors = [{ componentType: "fan", slot: 1 }];
-      const { result } = renderHook(() => useNeedsAttention(true, true, errors));
+      const { result } = renderHook(() => useNeedsAttention(true, true, errors, true));
+      expect(result.current).toBe(true);
+    });
+
+    it("should return true when only hasDeviceError is true with other flags false", () => {
+      // Act
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], true));
+
+      // Assert
       expect(result.current).toBe(true);
     });
   });

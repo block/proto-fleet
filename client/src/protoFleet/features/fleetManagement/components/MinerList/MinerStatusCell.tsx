@@ -1,8 +1,7 @@
 import { useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerStatus from "./MinerStatus";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";

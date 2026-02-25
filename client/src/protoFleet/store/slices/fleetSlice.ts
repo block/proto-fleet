@@ -123,7 +123,6 @@ export interface FleetSlice {
   notifyPairingCompleted: () => void;
 
   // Normalized error management actions
-  clearAllErrors: () => void;
   setErrors: (errors: ErrorMessage[], scope: "all" | "devices", deviceIds?: string[]) => void;
   handleErrorStreamEvent: (event: "OPENED" | "UPDATED" | "CLOSED", error: ErrorMessage) => void;
 
@@ -284,54 +283,43 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
     }),
 
   // Normalized error management actions
-  clearAllErrors: () =>
-    set((state) => {
-      state.fleet.errors = {
-        byId: {},
-        byDevice: {},
-        metadata: {
-          lastFetchedAt: null,
-          lastFetchScope: null,
-          fetchedDeviceIds: [],
-          activeSubscription: null,
-        },
-      };
-      // Also clear error references from miners
-      Object.values(state.fleet.miners).forEach((miner) => {
-        miner.errorIds = [];
-        miner.hasErrors = false;
-      });
-    }),
-
   setErrors: (errors, scope, deviceIds) =>
     set((state) => {
-      // Clear existing errors
-      state.fleet.errors.byId = {};
-      state.fleet.errors.byDevice = {};
+      if (scope === "devices" && deviceIds) {
+        // Scoped update: only clear errors for the specific devices being fetched
+        deviceIds.forEach((deviceId) => {
+          const existingErrorIds = state.fleet.errors.byDevice[deviceId] || [];
+          existingErrorIds.forEach((errorId) => {
+            delete state.fleet.errors.byId[errorId];
+          });
+          delete state.fleet.errors.byDevice[deviceId];
 
-      // Clear error references from all affected miners
-      // If deviceIds provided, only clear those; otherwise clear all
-      const minersToClean = deviceIds
-        ? deviceIds.map((id) => state.fleet.miners[id]).filter(Boolean)
-        : Object.values(state.fleet.miners);
+          const miner = state.fleet.miners[deviceId];
+          if (miner) {
+            miner.errorIds = [];
+            miner.hasErrors = false;
+          }
+        });
+      } else {
+        // Full update: clear everything (used for initial load / "all" scope)
+        state.fleet.errors.byId = {};
+        state.fleet.errors.byDevice = {};
 
-      minersToClean.forEach((miner) => {
-        miner.errorIds = [];
-        miner.hasErrors = false;
-      });
+        Object.values(state.fleet.miners).forEach((miner) => {
+          miner.errorIds = [];
+          miner.hasErrors = false;
+        });
+      }
 
-      // Populate normalized structure
+      // Populate with new errors
       errors.forEach((error) => {
-        // Store the error
         state.fleet.errors.byId[error.errorId] = error;
 
-        // Update device index
         if (!state.fleet.errors.byDevice[error.deviceIdentifier]) {
           state.fleet.errors.byDevice[error.deviceIdentifier] = [];
         }
         state.fleet.errors.byDevice[error.deviceIdentifier].push(error.errorId);
 
-        // Update miner error flags
         const miner = state.fleet.miners[error.deviceIdentifier];
         if (miner) {
           if (!miner.errorIds) miner.errorIds = [];

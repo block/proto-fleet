@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { useFleetStore, useMiner, useMinerActiveBatches, useMinerDeviceStatus } from "@/protoFleet/store";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 import { useMinerStatus } from "@/shared/hooks/useStatusSummary";
@@ -23,6 +23,7 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   // Get errors from normalized store
   const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
   const errors = selectErrorsByDevice(deviceIdentifier);
+  const errorsLoaded = useFleetStore((state) => state.fleet.errors.metadata.lastFetchedAt !== null);
 
   // Compute status flags
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
@@ -33,8 +34,9 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
     !needsAuthentication;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
+  const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
 
-  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
+  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, hasDeviceError);
 
   // Compute status (Hashing, Offline, Sleeping, or Needs attention)
   const status = useMinerStatus(isOffline, isSleeping, needsAttention);
@@ -79,6 +81,12 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
       </div>
     );
+  }
+
+  // While errors haven't loaded yet, devices that would default to "Hashing"
+  // might actually need attention once errors arrive — show shimmer instead
+  if (!errorsLoaded && status === "Hashing") {
+    return <SkeletonBar className="w-20" />;
   }
 
   return (
