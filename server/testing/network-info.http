@@ -1,0 +1,30 @@
+@host = http://localhost:4000
+
+### Authenticate
+# @name authenticate
+POST {{host}}/auth.v1.AuthService/Authenticate
+Content-Type: application/json
+
+{
+  "username": "protofleet",
+  "password": "protofleet"
+}
+
+###
+@session_cookie = {{authenticate.response.headers.Set-Cookie}}
+
+### Get network info
+POST {{host}}/networkinfo.v1.NetworkInfoService/GetNetworkInfo
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{}
+
+### Update network nickname
+POST {{host}}/networkinfo.v1.NetworkInfoService/UpdateNetworkNickname
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "network_nickname": "Mining Farm A"
+}

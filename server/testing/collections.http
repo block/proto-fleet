@@ -1,0 +1,190 @@
+@host = http://localhost:4000
+
+### Authenticate
+# @name authenticate
+POST {{host}}/auth.v1.AuthService/Authenticate
+Content-Type: application/json
+
+{
+  "username": "protofleet",
+  "password": "protofleet"
+}
+
+###
+@session_cookie = {{authenticate.response.headers.Set-Cookie}}
+
+### Create a group
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_GROUP",
+  "label": "Row A",
+  "description": "First row of miners"
+}
+
+### Create a rack
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack 1",
+  "description": "Main rack",
+  "rack_info": {
+    "rows": 4,
+    "columns": 10,
+    "location": "Building A, Room 1"
+  }
+}
+
+### Get collection by ID
+POST {{host}}/collection.v1.DeviceCollectionService/GetCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1"
+}
+
+### Update collection
+POST {{host}}/collection.v1.DeviceCollectionService/UpdateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "label": "Row A (updated)"
+}
+
+### Delete collection
+POST {{host}}/collection.v1.DeviceCollectionService/DeleteCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1"
+}
+
+### List all collections
+POST {{host}}/collection.v1.DeviceCollectionService/ListCollections
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "page_size": 20
+}
+
+### List collections by type (groups only)
+POST {{host}}/collection.v1.DeviceCollectionService/ListCollections
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_GROUP",
+  "page_size": 20
+}
+
+### List collections by type (racks only)
+POST {{host}}/collection.v1.DeviceCollectionService/ListCollections
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "page_size": 20
+}
+
+### Add devices to collection (by device list)
+POST {{host}}/collection.v1.DeviceCollectionService/AddDevicesToCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "device_selector": {
+    "device_list": {
+      "device_identifiers": ["TODO_REPLACE_WITH_DEVICE_ID"]
+    }
+  }
+}
+
+### Add all devices to collection
+POST {{host}}/collection.v1.DeviceCollectionService/AddDevicesToCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "device_selector": {
+    "all_devices": true
+  }
+}
+
+### Remove devices from collection
+POST {{host}}/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "device_selector": {
+    "device_list": {
+      "device_identifiers": ["TODO_REPLACE_WITH_DEVICE_ID"]
+    }
+  }
+}
+
+### List collection members
+POST {{host}}/collection.v1.DeviceCollectionService/ListCollectionMembers
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "page_size": 20
+}
+
+### Get device collections (which collections a device belongs to)
+POST {{host}}/collection.v1.DeviceCollectionService/GetDeviceCollections
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "device_identifier": "TODO_REPLACE_WITH_DEVICE_ID"
+}
+
+### Set rack slot position
+POST {{host}}/collection.v1.DeviceCollectionService/SetRackSlotPosition
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "device_identifier": "TODO_REPLACE_WITH_DEVICE_ID",
+  "position": {
+    "row": 0,
+    "column": 3
+  }
+}
+
+### Clear rack slot position
+POST {{host}}/collection.v1.DeviceCollectionService/ClearRackSlotPosition
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1",
+  "device_identifier": "TODO_REPLACE_WITH_DEVICE_ID"
+}
+
+### Get rack slots
+POST {{host}}/collection.v1.DeviceCollectionService/GetRackSlots
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "collection_id": "1"
+}

@@ -1,0 +1,20 @@
+# Direct miner API calls — bypass the fleet server and hit miners directly.
+# Useful for debugging miner connectivity or testing miner firmware APIs.
+
+### Stop mining (direct to miner)
+POST https://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StopMining
+Content-Type: application/json
+
+{}
+
+### Start mining (direct to miner)
+POST https://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StartMining
+Content-Type: application/json
+
+{}
+
+### Start mining (direct to miner, localhost)
+POST http://localhost:2122/miner_command_api.MinerCommandApi/StartMining
+Content-Type: application/json
+
+{}

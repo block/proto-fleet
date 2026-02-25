@@ -204,4 +204,4 @@ Migrations are sequential and run automatically on startup. Always create migrat
 
 ### API Testing
 
-Use the `testing.http` file with GoLand's HTTP Client or the VS Code Rest Client extension to make API requests during development.
+Use the `.http` files in the `testing/` directory with GoLand's HTTP Client or the VS Code Rest Client extension to make API requests during development. Each service has its own file (e.g., `testing/auth.http`, `testing/telemetry.http`).

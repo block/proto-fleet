@@ -156,4 +156,4 @@ devices:
 
 ### HTTP API
 
-The service responds to both gRPC requests and HTTP requests. To interact via HTTP see [testing.http](testing.http) NB: You can make requests from this file directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.) or the [Rest Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) vscode extension.
+The service responds to both gRPC requests and HTTP requests. To interact via HTTP see the `.http` files in the [testing/](testing/) directory. Each service has its own file (e.g., `testing/auth.http`, `testing/telemetry.http`). You can make requests from these files directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.) or the [Rest Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) vscode extension.
