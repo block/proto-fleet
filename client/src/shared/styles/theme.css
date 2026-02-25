@@ -193,15 +193,15 @@ WOuld be best to switch over to mobile first stying  */
   --text-display-300: 4rem;
   --text-display-300--line-height: 4.5rem;
   --text-display-300--font-weight: 500;
-  --text-display-300--letter-spacing: -0.24rem;
+  --text-display-300--letter-spacing: -0.125rem;
   --text-display-200: 3rem;
   --text-display-200--line-height: 3.5rem;
   --text-display-200--font-weight: 500;
-  --text-display-200--letter-spacing: -0.18rem;
+  --text-display-200--letter-spacing: -0.125rem;
   --text-display-100: 2.5rem;
   --text-display-100--line-height: 3rem;
   --text-display-100--font-weight: 400;
-  --text-display-100--letter-spacing: -0.15rem;
+  --text-display-100--letter-spacing: -0.125rem;
   --text-heading-400: 2.5rem;
   --text-heading-400--line-height: 3rem;
   --text-heading-400--font-weight: 500;
