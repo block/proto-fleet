@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/deviceresolver"
 	diagnosticsmodels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
@@ -77,6 +78,8 @@ type Service struct {
 	capabilitiesCache     sync.Map
 	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
+	collectionStore       interfaces.CollectionStore
+	deviceResolver        *deviceresolver.Resolver
 
 	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
 	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
@@ -96,6 +99,7 @@ func NewService(
 	capabilitiesProvider CapabilitiesProvider,
 	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
+	collectionStore interfaces.CollectionStore,
 ) *Service {
 	return &Service{
 		deviceStore:           deviceStore,
@@ -105,6 +109,8 @@ func NewService(
 		capabilitiesProvider:  capabilitiesProvider,
 		poolStore:             poolStore,
 		errorStore:            errorStore,
+		collectionStore:       collectionStore,
+		deviceResolver:        deviceresolver.New(deviceStore),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
 	}
 }
@@ -250,8 +256,11 @@ func (s *Service) buildSnapshot(
 		return nil, err
 	}
 
-	// Fetch telemetry data for paired devices
-	s.populateTelemetryData(ctx, snapshots)
+	// Enrich snapshots with telemetry and collection labels for paired devices
+	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
+	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
+	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateRackLabels(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	var stateCounts *telemetrypb.MinerStateCounts
 	if shouldIncludeStateCounts(filter.PairingStatuses) {
@@ -368,22 +377,28 @@ const (
 	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
 )
 
-// populateTelemetryData fetches telemetry data for paired devices and populates the snapshot fields.
-func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.MinerStateSnapshot) {
-	// Collect device IDs for paired devices only
-	var pairedDeviceIDs []mm.DeviceIdentifier
-	for _, snapshot := range snapshots {
-		if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
-			pairedDeviceIDs = append(pairedDeviceIDs, mm.DeviceIdentifier(snapshot.DeviceIdentifier))
+func collectPairedDeviceIdentifiers(snapshots []*pb.MinerStateSnapshot) []string {
+	var ids []string
+	for _, s := range snapshots {
+		if s.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
+			ids = append(ids, s.DeviceIdentifier)
 		}
 	}
+	return ids
+}
 
-	if len(pairedDeviceIDs) == 0 {
+// populateTelemetryData fetches telemetry data for paired devices and populates the snapshot fields.
+func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.MinerStateSnapshot, pairedIDs []string) {
+	if len(pairedIDs) == 0 {
 		return
 	}
 
-	// Fetch telemetry data
-	telemetryData, err := s.telemetry.GetLatestDeviceMetrics(ctx, pairedDeviceIDs)
+	deviceIDs := make([]mm.DeviceIdentifier, len(pairedIDs))
+	for i, id := range pairedIDs {
+		deviceIDs[i] = mm.DeviceIdentifier(id)
+	}
+
+	telemetryData, err := s.telemetry.GetLatestDeviceMetrics(ctx, deviceIDs)
 	if err != nil {
 		slog.Warn("failed to fetch telemetry data for snapshots", "error", err)
 		return
@@ -420,6 +435,46 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 			snapshot.Efficiency = []*commonpb.Measurement{
 				convertToMeasurementWithMultiplier(metrics.EfficiencyJH, metrics.Timestamp, commonpb.MeasurementUnit_MEASUREMENT_UNIT_JOULES_PER_TERAHASH, joulesPerHashToJoulesPerTeraHashMultiplier),
 			}
+		}
+	}
+}
+
+// populateGroupLabels fetches group labels for paired devices and populates the GroupLabels field.
+func (s *Service) populateGroupLabels(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
+	if len(pairedDeviceIDs) == 0 {
+		return
+	}
+
+	groupLabels, err := s.collectionStore.GetGroupLabelsForDevices(ctx, orgID, pairedDeviceIDs)
+	if err != nil {
+		slog.Warn("failed to fetch group labels for snapshots", "error", err)
+		return
+	}
+
+	// Populate group labels on snapshots
+	for _, snapshot := range snapshots {
+		if labels, ok := groupLabels[snapshot.DeviceIdentifier]; ok {
+			snapshot.GroupLabels = labels
+		}
+	}
+}
+
+// populateRackLabels fetches rack labels for paired devices and populates the RackLabel field.
+func (s *Service) populateRackLabels(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
+	if len(pairedDeviceIDs) == 0 {
+		return
+	}
+
+	rackLabels, err := s.collectionStore.GetRackLabelsForDevices(ctx, orgID, pairedDeviceIDs)
+	if err != nil {
+		slog.Warn("failed to fetch rack labels for snapshots", "error", err)
+		return
+	}
+
+	// Populate rack label on snapshots
+	for _, snapshot := range snapshots {
+		if label, ok := rackLabels[snapshot.DeviceIdentifier]; ok {
+			snapshot.RackLabel = label
 		}
 	}
 }
@@ -513,6 +568,14 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 
 	if len(pbFilter.Models) > 0 {
 		filter.ModelNames = pbFilter.Models
+	}
+
+	if len(pbFilter.GroupIds) > 0 {
+		filter.GroupIDs = pbFilter.GroupIds
+	}
+
+	if len(pbFilter.RackIds) > 0 {
+		filter.RackIDs = pbFilter.RackIds
 	}
 
 	return filter, nil
@@ -670,7 +733,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		return nil, err
 	}
 
-	deviceIdentifiers, err := s.resolveDeleteDeviceIdentifiers(ctx, req, info.OrganizationID)
+	deviceIdentifiers, err := s.ResolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -731,32 +794,16 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	return &pb.DeleteMinersResponse{DeletedCount: int32(cappedCount)}, nil
 }
 
-// resolveDeleteDeviceIdentifiers resolves the DeviceSelector into a list of device identifiers.
-// For include_devices, ownership is validated to prevent unauthorized miner lookups.
-// For all_devices, the query is inherently org-scoped.
-// SoftDeleteDevices re-checks ownership atomically to guard against TOCTOU races.
-func (s *Service) resolveDeleteDeviceIdentifiers(ctx context.Context, req *pb.DeleteMinersRequest, orgID int64) ([]string, error) {
-	if req.DeviceSelector == nil {
+// ResolveDeviceIdentifiers resolves a fleetmanagement DeviceSelector (with rich filter support)
+// into a list of device identifiers.
+func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.DeviceSelector, orgID int64) ([]string, error) {
+	if selector == nil {
 		return nil, fleeterror.NewInvalidArgumentError("device_selector is required")
 	}
 
-	switch sel := req.DeviceSelector.SelectionType.(type) {
+	switch sel := selector.SelectionType.(type) {
 	case *pb.DeviceSelector_IncludeDevices:
-		if sel.IncludeDevices == nil || len(sel.IncludeDevices.DeviceIdentifiers) == 0 {
-			return nil, fleeterror.NewInvalidArgumentError("include_devices requires at least one device identifier")
-		}
-		ids := deduplicateStrings(sel.IncludeDevices.DeviceIdentifiers)
-
-		// Validate ownership — prevents unauthorized miner lookups in
-		// collectProtoMinersForClearAuthKey (which doesn't filter by org).
-		allBelong, err := s.deviceStore.AllDevicesBelongToOrg(ctx, ids, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if !allBelong {
-			return nil, fleeterror.NewForbiddenError("access denied to one or more requested devices")
-		}
-		return ids, nil
+		return s.deviceResolver.ResolveExplicitDevices(ctx, sel.IncludeDevices, orgID)
 
 	case *pb.DeviceSelector_AllDevices:
 		filter, err := parseFilter(sel.AllDevices)
@@ -792,17 +839,4 @@ func (s *Service) collectProtoMinersForClearAuthKey(ctx context.Context, deviceI
 // isMinerNotFoundError checks if an error from the miner service indicates the device was not found.
 func isMinerNotFoundError(err error) bool {
 	return fleeterror.IsNotFoundError(err)
-}
-
-func deduplicateStrings(s []string) []string {
-	seen := make(map[string]struct{}, len(s))
-	result := make([]string, 0, len(s))
-	for _, v := range s {
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		result = append(result, v)
-	}
-	return result
 }

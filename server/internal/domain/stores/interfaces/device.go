@@ -23,6 +23,8 @@ type MinerFilter struct {
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
+	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
+	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
 }
 
 // MinerModelGroupResult holds model group data with count.

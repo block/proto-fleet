@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -97,7 +98,7 @@ func createPairRequest(deviceIdentifiers []string) *pb.PairRequest {
 	return &pb.PairRequest{
 		DeviceSelector: &commandpb.DeviceSelector{
 			SelectionType: &commandpb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commandpb.DeviceList{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
 					DeviceIdentifiers: deviceIdentifiers,
 				},
 			},

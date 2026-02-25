@@ -1,8 +1,8 @@
 import { create } from "@bufbuild/protobuf";
+import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceFilterSchema,
-  DeviceListSchema,
   DeviceSelector,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -41,7 +41,7 @@ export const createDeviceSelector = (
   return create(DeviceSelectorSchema, {
     selectionType: {
       case: "includeDevices",
-      value: create(DeviceListSchema, {
+      value: create(DeviceIdentifierListSchema, {
         deviceIdentifiers,
       }),
     },

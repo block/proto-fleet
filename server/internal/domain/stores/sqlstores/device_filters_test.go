@@ -195,6 +195,153 @@ func TestAppendFilterSQL_NoRawSliceArgs(t *testing.T) {
 	}
 }
 
+func TestBuildMinerFilterParams_GroupIDs(t *testing.T) {
+	filter := &stores.MinerFilter{
+		GroupIDs: []int64{10, 20, 30},
+	}
+
+	// Act
+	params := buildMinerFilterParams(filter)
+
+	// Assert
+	assert.True(t, params.groupIDsFilter.Valid)
+	assert.Equal(t, []int64{10, 20, 30}, params.groupIDValues)
+}
+
+func TestBuildMinerFilterParams_RackIDs(t *testing.T) {
+	filter := &stores.MinerFilter{
+		RackIDs: []int64{5},
+	}
+
+	// Act
+	params := buildMinerFilterParams(filter)
+
+	// Assert
+	assert.True(t, params.rackIDsFilter.Valid)
+	assert.Equal(t, []int64{5}, params.rackIDValues)
+}
+
+func TestAppendFilterSQL_GroupIDsOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		groupIDsFilter: validNullString(),
+		groupIDValues:  []int64{10, 20},
+	}
+	orgID := int64(42)
+
+	// Act
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	// Assert
+	sql := sb.String()
+	assert.Contains(t, sql, "device_collection_membership")
+	assert.Contains(t, sql, "collection_type = 'group'")
+	assert.Contains(t, sql, "org_id = $2")
+	assert.Contains(t, sql, "collection_id = ANY($3::bigint[])")
+	assert.Len(t, resultArgs, 3) // initial + orgID + groupIDs
+	assert.Equal(t, 4, resultArgNum)
+}
+
+func TestAppendFilterSQL_RackIDsOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		rackIDsFilter: validNullString(),
+		rackIDValues:  []int64{5},
+	}
+	orgID := int64(42)
+
+	// Act
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	// Assert
+	sql := sb.String()
+	assert.Contains(t, sql, "collection_type = 'rack'")
+	assert.Contains(t, sql, "org_id = $2")
+	assert.Contains(t, sql, "collection_id = ANY($3::bigint[])")
+	assert.Len(t, resultArgs, 3) // initial + orgID + rackIDs
+	assert.Equal(t, 4, resultArgNum)
+}
+
+func TestAppendFilterSQL_GroupAndRackIDs_ProducesAND(t *testing.T) {
+	// Both group and rack filters should produce separate AND clauses (not OR)
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		groupIDsFilter: validNullString(),
+		groupIDValues:  []int64{10},
+		rackIDsFilter:  validNullString(),
+		rackIDValues:   []int64{5},
+	}
+	orgID := int64(42)
+
+	// Act
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	// Assert
+	sql := sb.String()
+	assert.Contains(t, sql, "collection_type = 'group'")
+	assert.Contains(t, sql, "collection_type = 'rack'")
+	// Both should be AND-ed (separate AND EXISTS clauses, no OR between them)
+	assert.NotContains(t, sql, " OR ")
+	assert.Equal(t, strings.Count(sql, " AND EXISTS"), 2)
+	// 4 new args: orgID + groupIDs + orgID + rackIDs
+	assert.Len(t, resultArgs, 5) // initial + 2*orgID + groupIDs + rackIDs
+	assert.Equal(t, 6, resultArgNum)
+}
+
+func TestAppendFilterSQL_CollectionFiltersWithExistingFilters_ArgNumContinuity(t *testing.T) {
+	// Tests that collection filters correctly continue argNum from prior filters
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		modelFilter:    validNullString(),
+		modelValues:    []string{"S21 XP"},
+		groupIDsFilter: validNullString(),
+		groupIDValues:  []int64{10},
+	}
+	orgID := int64(42)
+
+	// Act
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	// Assert
+	sql := sb.String()
+	// Model filter gets $2, group gets $3 (orgID) and $4 (groupIDs)
+	assert.Contains(t, sql, "model = ANY($2::text[])")
+	assert.Contains(t, sql, "org_id = $3")
+	assert.Contains(t, sql, "collection_id = ANY($4::bigint[])")
+	assert.Len(t, resultArgs, 4) // initial + model + orgID + groupIDs
+	assert.Equal(t, 5, resultArgNum)
+}
+
+func TestAppendFilterSQL_NoRawSliceArgs_WithCollectionFilters(t *testing.T) {
+	// Verifies collection filter args are wrapped with pq.Array()
+	var sb strings.Builder
+	args := []any{"initial_org_id"}
+	fp := minerFilterParams{
+		groupIDsFilter: validNullString(),
+		groupIDValues:  []int64{10, 20},
+		rackIDsFilter:  validNullString(),
+		rackIDValues:   []int64{5},
+	}
+
+	// Act
+	resultArgs, _ := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	// Assert
+	for i, arg := range resultArgs {
+		kind := reflect.TypeOf(arg).Kind()
+		assert.NotEqual(t, reflect.Slice, kind,
+			fmt.Sprintf("arg at position %d is a raw slice (%T); must be wrapped with pq.Array()", i, arg))
+	}
+}
+
 // validNullString creates a valid sql.NullString for testing.
 func validNullString() sql.NullString {
 	return sql.NullString{Valid: true}

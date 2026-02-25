@@ -12,10 +12,10 @@ import {
 import { useFleetAuthentication } from "./useFleetAuthentication";
 import { useManageSecurityFlow } from "./useManageSecurityFlow";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
   DeleteMinersRequestSchema,
   type DeleteMinersResponse,
-  DeviceIdentifierListSchema,
   DeviceSelectorSchema,
   type MinerListFilter,
   MinerListFilterSchema,

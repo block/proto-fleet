@@ -23,6 +23,10 @@ type minerFilterParams struct {
 	needsAttentionFilter      bool
 	errorComponentTypesFilter sql.NullString
 	errorComponentTypeValues  []int32
+	groupIDsFilter            sql.NullString
+	groupIDValues             []int64
+	rackIDsFilter             sql.NullString
+	rackIDValues              []int64
 }
 
 // buildMinerFilterParams converts a MinerFilter to SQL-ready parameters.
@@ -74,6 +78,18 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 			// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
 			fp.errorComponentTypeValues[i] = int32(ct)
 		}
+	}
+
+	// Group ID filter
+	if len(filter.GroupIDs) > 0 {
+		fp.groupIDsFilter = sql.NullString{Valid: true}
+		fp.groupIDValues = filter.GroupIDs
+	}
+
+	// Rack ID filter
+	if len(filter.RackIDs) > 0 {
+		fp.rackIDsFilter = sql.NullString{Valid: true}
+		fp.rackIDValues = filter.RackIDs
 	}
 
 	return fp
@@ -138,6 +154,30 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum)
 		args = append(args, pq.Array(fp.errorComponentTypeValues))
 		argNum++
+	}
+
+	if fp.groupIDsFilter.Valid {
+		fmt.Fprintf(sb,
+			" AND EXISTS (SELECT 1 FROM device_collection_membership dcm"+
+				" WHERE dcm.device_id = device.id"+
+				" AND dcm.org_id = $%d"+
+				" AND dcm.collection_type = 'group'"+
+				" AND dcm.collection_id = ANY($%d::bigint[]))",
+			argNum, argNum+1)
+		args = append(args, orgID, pq.Array(fp.groupIDValues))
+		argNum += 2
+	}
+
+	if fp.rackIDsFilter.Valid {
+		fmt.Fprintf(sb,
+			" AND EXISTS (SELECT 1 FROM device_collection_membership dcm"+
+				" WHERE dcm.device_id = device.id"+
+				" AND dcm.org_id = $%d"+
+				" AND dcm.collection_type = 'rack'"+
+				" AND dcm.collection_id = ANY($%d::bigint[]))",
+			argNum, argNum+1)
+		args = append(args, orgID, pq.Array(fp.rackIDValues))
+		argNum += 2
 	}
 
 	return args, argNum

@@ -8,6 +8,7 @@ import "common/v1/cooling.proto";
 import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
 import "errors/v1/errors.proto";
+import "common/v1/device_selector.proto";
 import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
@@ -113,6 +114,13 @@ message MinerStateSnapshot {
   // Firmware version installed on the device
   string firmware_version = 19;
 
+  // Labels of groups this device belongs to
+  // Empty if the device is not a member of any group
+  repeated string group_labels = 20;
+
+  // Label of the rack this device belongs to (single value since device can only be in one rack)
+  // Empty if the device is not assigned to a rack
+  string rack_label = 21;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -274,6 +282,14 @@ message MinerListFilter {
   //   [AUTHENTICATION_NEEDED, FAILED] - Devices needing attention
   //   [] or [UNSPECIFIED] - All devices
   repeated PairingStatus pairing_statuses = 6;
+
+  // Filter by group IDs. Returns miners that belong to ANY of the specified groups.
+  // When combined with rack_ids, uses AND logic (device must match both filters).
+  repeated int64 group_ids = 7;
+
+  // Filter by rack IDs. Returns miners that belong to ANY of the specified racks.
+  // When combined with group_ids, uses AND logic (device must match both filters).
+  repeated int64 rack_ids = 8;
 }
 
 
@@ -385,12 +401,8 @@ message DeviceSelector {
     // An empty filter selects all paired devices in the org.
     MinerListFilter all_devices = 1;
     // Select specific devices by identifier.
-    DeviceIdentifierList include_devices = 2;
+    common.v1.DeviceIdentifierList include_devices = 2;
   }
-}
-
-message DeviceIdentifierList {
-  repeated string device_identifiers = 1;
 }
 
 // Request to delete miners from the fleet.

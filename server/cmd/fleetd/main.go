@@ -32,6 +32,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -41,7 +42,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	collectionDomain "github.com/btc-mining/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
@@ -52,6 +55,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
+	collectionHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/collection"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	errorqueryHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/fleetmanagement"
@@ -105,6 +109,7 @@ func start(config *Config) error {
 	userStore := sqlstores.NewSQLUserStore(conn)
 	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
+	collectionStore := sqlstores.NewSQLCollectionStore(conn)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -265,7 +270,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
@@ -293,6 +298,8 @@ func start(config *Config) error {
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
+	deviceResolver := deviceresolver.New(deviceStore)
+	collectionSvc := collectionDomain.NewService(collectionStore, transactor, deviceResolver.Resolve)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -326,6 +333,7 @@ func start(config *Config) error {
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
+	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 

@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
+import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import {
-  DeviceFilterSchema,
-  DeviceListSchema,
-  DeviceSelectorSchema,
-} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { DeviceFilterSchema, DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { CredentialsSchema, PairRequestSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
@@ -384,7 +381,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
         deviceSelector: create(DeviceSelectorSchema, {
           selectionType: {
             case: "includeDevices",
-            value: create(DeviceListSchema, {
+            value: create(DeviceIdentifierListSchema, {
               deviceIdentifiers: deviceIds,
             }),
           },

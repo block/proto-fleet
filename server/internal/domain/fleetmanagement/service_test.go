@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -602,6 +603,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -610,6 +612,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 		mockCapabilities,
 		poolStore,
 		errorStore,
+		collectionStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -714,6 +717,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -722,6 +726,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 		mockCapabilities,
 		poolStore,
 		errorStore,
+		collectionStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -791,6 +796,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
@@ -799,6 +805,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 		mockCapabilities,
 		poolStore,
 		errorStore,
+		collectionStore,
 	)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
@@ -1019,7 +1026,7 @@ func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	req := &pb.DeleteMinersRequest{
 		DeviceSelector: &pb.DeviceSelector{
 			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &pb.DeviceIdentifierList{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
 					DeviceIdentifiers: deviceIDs[:2],
 				},
 			},
@@ -1098,7 +1105,7 @@ func TestService_DeleteMiners_ShouldDenyAccessToOtherOrgDevices(t *testing.T) {
 	req := &pb.DeleteMinersRequest{
 		DeviceSelector: &pb.DeviceSelector{
 			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &pb.DeviceIdentifierList{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
 					DeviceIdentifiers: user2DeviceIDs,
 				},
 			},
@@ -1129,7 +1136,7 @@ func TestService_DeleteMiners_ShouldRejectAlreadyDeletedDevices(t *testing.T) {
 	req := &pb.DeleteMinersRequest{
 		DeviceSelector: &pb.DeviceSelector{
 			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &pb.DeviceIdentifierList{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
 					DeviceIdentifiers: deviceIDs,
 				},
 			},
@@ -1195,7 +1202,7 @@ func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T
 	req := &pb.DeleteMinersRequest{
 		DeviceSelector: &pb.DeviceSelector{
 			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &pb.DeviceIdentifierList{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
 					DeviceIdentifiers: deviceIDs,
 				},
 			},

@@ -74,6 +74,8 @@ const baseMeasurements = {
       value: 65.5,
     } as Measurement,
   ],
+  groupLabels: [] as string[],
+  rackLabel: "",
 };
 
 // ============================================================================
@@ -119,6 +121,8 @@ export const offlineMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  groupLabels: [],
+  rackLabel: "",
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -146,6 +150,8 @@ export const sleepingMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  groupLabels: [],
+  rackLabel: "",
 };
 
 // ============================================================================
@@ -172,6 +178,8 @@ export const authRequiredMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
+  groupLabels: [],
+  rackLabel: "",
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {

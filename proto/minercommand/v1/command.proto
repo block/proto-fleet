@@ -4,6 +4,7 @@ package minercommand.v1;
 
 import "google/protobuf/timestamp.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
+import "common/v1/device_selector.proto";
 import "common/v1/cooling.proto";
 
 message DeviceFilter {
@@ -15,12 +16,8 @@ message DeviceFilter {
 message DeviceSelector {
   oneof selection_type {
     DeviceFilter all_devices = 1;
-    DeviceList include_devices = 2;
+    common.v1.DeviceIdentifierList include_devices = 2;
   }
-}
-
-message DeviceList {
-  repeated string device_identifiers = 1;
 }
 
 message RebootRequest {

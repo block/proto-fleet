@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package common.v1;
+
+// Selects devices for cross-service operations.
+// Services needing filter-based selection (e.g., fleetmanagement, minercommand)
+// may define their own extended DeviceSelector with service-specific filter types.
+message DeviceSelector {
+    oneof selection_type {
+        // Select specific devices by their identifiers
+        DeviceIdentifierList device_list = 1;
+        // Select all paired devices in the organization
+        bool all_devices = 2;
+    }
+}
+
+// List of device identifiers for explicit device selection
+message DeviceIdentifierList {
+    repeated string device_identifiers = 1;
+}

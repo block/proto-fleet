@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { MinerDiscoveryMode } from "./types";
-import { DeviceListSchema, DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import { DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import {
   Device,
   DiscoverRequest,
@@ -266,7 +267,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       deviceSelector: create(DeviceSelectorSchema, {
         selectionType: {
           case: "includeDevices",
-          value: create(DeviceListSchema, {
+          value: create(DeviceIdentifierListSchema, {
             deviceIdentifiers: selectedMinerIdentifiers,
           }),
         },
