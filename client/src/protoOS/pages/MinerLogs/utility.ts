@@ -3,14 +3,19 @@ import { LogInfo, logType } from "./types";
 
 const formatLog = (log: string, logType: logType): LogInfo => {
   const info = log.split(logType);
-  const timestamp = info[0].split(": ")?.[1];
-  const timeWithoutMs = timestamp?.split(".")?.[0] || timestamp;
+  const prefix = info[0];
+
+  // Try mcdd timestamp format: "... mcdd[N]: 2024-06-14 16:01:58.470952 "
+  const mcddTimestamp = prefix.split(": ")?.[1]?.trim();
+  // Fall back to syslog header: first three whitespace-separated tokens ("Feb 25 08:02:55")
+  const rawTimestamp = mcddTimestamp || prefix.trim().split(/\s+/).slice(0, 3).join(" ");
+  const timestamp = rawTimestamp?.split(".")?.[0] || rawTimestamp;
   const message = info[1];
 
   return {
     logType,
-    timestamp: timeWithoutMs && message ? timeWithoutMs : null,
-    message: timeWithoutMs && message ? message : log,
+    timestamp: timestamp && message ? timestamp : null,
+    message: timestamp && message ? message : log,
   };
 };
 

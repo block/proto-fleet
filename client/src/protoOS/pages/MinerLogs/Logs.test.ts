@@ -42,6 +42,39 @@ describe("getFormattedLog", () => {
   });
 });
 
+describe("syslog-only (BX firmware) logs", () => {
+  const bxLogs = [
+    "Feb 23 12:33:24 bx-miner mcdd[664]: | INFO  | some::module:42 | Mining started",
+    "Feb  5 08:02:55 bx-miner mcdd[664]: | WARN  | some::module:55 | High temp detected",
+    "Feb  5 08:02:55 bx-miner mcdd[664]: | ERROR | some::module:88 | Fan failure",
+  ];
+
+  let formattedBxLogs = formatLogs(bxLogs);
+
+  test("should extract syslog timestamp when no mcdd timestamp is present", () => {
+    expect(formattedBxLogs[0].timestamp).toEqual("Feb 23 12:33:24");
+    expect(formattedBxLogs[0].message).toEqual("some::module:42 | Mining started");
+  });
+
+  test("should handle single-digit day padding in syslog timestamp", () => {
+    // Syslog uses double-space padding for single-digit days: "Feb  5 08:02:55"
+    expect(formattedBxLogs[1].timestamp).toEqual("Feb 5 08:02:55");
+    expect(formattedBxLogs[1].message).toEqual("some::module:55 | High temp detected");
+  });
+
+  test("should format error log with syslog-only timestamp", () => {
+    expect(formattedBxLogs[2].timestamp).toEqual("Feb 5 08:02:55");
+    expect(formattedBxLogs[2].message).toEqual("some::module:88 | Fan failure");
+  });
+
+  test("should parse syslog-style (BX) timestamp without mcdd prefix", () => {
+    const bxDirectLogs = ["Feb 26 05:12:34 miner-host | INFO  | some::module:123 | BX log message here"];
+    const formatted = formatLogs(bxDirectLogs);
+    expect(formatted[0].timestamp).toEqual("Feb 26 05:12:34");
+    expect(formatted[0].message).toEqual("some::module:123 | BX log message here");
+  });
+});
+
 describe("getErrorWarningCount", () => {
   test("should return error and warning count", () => {
     const { error, warning } = getErrorWarningCount(logs);
