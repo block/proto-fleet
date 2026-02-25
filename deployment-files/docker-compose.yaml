@@ -53,6 +53,8 @@ services:
     extends:
       file: ./server/docker-compose.base.yaml
       service: timescaledb
+    image: proto-fleet-timescaledb:latest
+    pull_policy: never
     environment:
       POSTGRES_DB: "${DB_NAME:-fleet}"
       POSTGRES_USER: "${DB_USERNAME:-fleet}"

@@ -247,9 +247,41 @@ jobs:
             s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
             --acl public-read
 
+  build-timescaledb-image:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build TimescaleDB image (${{ matrix.arch }})
+        run: |
+          docker buildx build \
+            -t proto-fleet-timescaledb:latest \
+            --output type=docker,dest=timescaledb-${{ matrix.arch }}.tar \
+            server/timescaledb
+          gzip -9 timescaledb-${{ matrix.arch }}.tar
+          echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
+
+      - name: Upload TimescaleDB image artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: proto-fleet-timescaledb-${{ matrix.arch }}
+          path: timescaledb-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
   build-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer]
+    needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer, build-timescaledb-image]
     steps:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -276,6 +308,13 @@ jobs:
         with:
           name: proto-fleet-windows-installer
           path: /tmp/windows-installer
+
+      - name: Download TimescaleDB image artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: proto-fleet-timescaledb-*
+          path: /tmp/timescaledb-images
+          merge-multiple: true
 
       - name: Extract artifacts
         run: |
@@ -306,7 +345,6 @@ jobs:
           cp deployment-files/client/nginx.http.conf deployment/client/
           cp deployment-files/client/nginx.https.conf deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
-          cp -r server/timescaledb deployment/server/timescaledb
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
@@ -315,6 +353,11 @@ jobs:
           cp deployment-files/rollback-migration.sh deployment/
           cp -r deployment-files/scripts deployment/
           chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/migrate-data.sh deployment/rollback-migration.sh deployment/scripts/*.sh
+
+          # Pre-built TimescaleDB Docker images (avoids building from source on target)
+          mkdir -p deployment/images
+          cp /tmp/timescaledb-images/timescaledb-amd64.tar.gz deployment/images/
+          cp /tmp/timescaledb-images/timescaledb-arm64.tar.gz deployment/images/
 
       - name: Create version file
         run: |

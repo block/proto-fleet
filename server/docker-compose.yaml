@@ -37,6 +37,8 @@ services:
     extends:
       file: ./docker-compose.base.yaml
       service: timescaledb
+    build:
+      context: ./timescaledb
     # Development performance optimizations
     # NOTE: This command completely overrides the base config. Keep work_mem in sync
     # with docker-compose.base.yaml (Docker Compose replaces arrays, doesn't merge them).
