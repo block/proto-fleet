@@ -49,6 +49,19 @@ public sealed class ComposeDeployer : IComposeDeployer
             return InstallerStepResult.Failed($"Unsupported architecture reported by uname: {archResult.StandardOutput.Trim()}");
         }
 
+        var tsdbImagePath = $"{context.DeploymentRootWslPath}/images/timescaledb-{arch}.tar.gz";
+        _logSink.Info($"Loading pre-built TimescaleDB image for {arch}...");
+        var loadResult = await _executor.RunInDistroAsync(
+            context.SelectedDistro,
+            $"if [ -f {ShellEscaping.BashSingleQuote(tsdbImagePath)} ]; then gunzip -c {ShellEscaping.BashSingleQuote(tsdbImagePath)} | docker load; else echo 'Warning: Pre-built TimescaleDB image not found'; fi",
+            asRoot: true,
+            cancellationToken,
+            timeout: TimeSpan.FromMinutes(5));
+        if (!loadResult.IsSuccess)
+        {
+            return InstallerStepResult.Failed($"Failed to load pre-built TimescaleDB image. {CommandDetails(loadResult)}");
+        }
+
         var pull = await RetryPolicy.ExecuteAsync(
             attempts: ComposePullAttempts,
             action: async attempt =>
