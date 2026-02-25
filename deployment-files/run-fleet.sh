@@ -574,11 +574,15 @@ fi
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb-${TARGETARCH}.tar.gz"
 if [ -f "$TSDB_IMAGE" ]; then
     echo "Loading pre-built TimescaleDB image for ${TARGETARCH}..."
-    gunzip -c "$TSDB_IMAGE" | docker load
-    echo "TimescaleDB image loaded successfully."
+    if gunzip -c "$TSDB_IMAGE" | docker load; then
+        echo "TimescaleDB image loaded successfully."
+    else
+        echo "Error: Failed to load TimescaleDB image from $TSDB_IMAGE"
+        exit 1
+    fi
 else
-    echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE"
-    echo "TimescaleDB will need to be built from source or already exist locally."
+    echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE."
+    echo "The deployment will fail unless the image 'proto-fleet-timescaledb:latest' already exists locally."
 fi
 
 # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
