@@ -46,7 +46,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const { discover, pairingPending, pair } = useMinerPairing();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [ipListDiscoveryPending, setIpListDiscoveryPending] = useState(false);
-  const scanAbortController = useRef<AbortController>(new AbortController());
+  const discoveryAbortController = useRef<AbortController>(new AbortController());
   const longPairingToastShown = useRef(false);
   const loadingToastIds = useRef<number[]>([]);
 
@@ -130,6 +130,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const handleNmapDiscovery = useCallback(() => {
     if (!networkInfo) return;
 
+    setFoundMiners([]);
+    setScanDiscoveryPending(true);
     setLastDiscoveryMode(minerDiscoveryModes.scan);
     setLastManualTargets(null);
     const discoverRequest = create(DiscoverRequestSchema, {
@@ -141,14 +143,22 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         },
       },
     });
-    setScanDiscoveryPending(true);
-    handleDiscover(discoverRequest, scanAbortController.current).finally(() => setScanDiscoveryPending(false));
+    const controller = discoveryAbortController.current;
+    handleDiscover(discoverRequest, controller).finally(() => {
+      if (!controller.signal.aborted) {
+        setScanDiscoveryPending(false);
+      }
+    });
   }, [handleDiscover, networkInfo]);
 
   const cancelNetworkScan = useCallback(() => {
-    if (scanAbortController.current) {
-      scanAbortController.current.abort();
-      scanAbortController.current = new AbortController();
+    setScanDiscoveryPending(false);
+    setIpListDiscoveryPending(false);
+    setLastDiscoveryMode(minerDiscoveryModes.scan);
+    setLastManualTargets(null);
+    if (discoveryAbortController.current) {
+      discoveryAbortController.current.abort();
+      discoveryAbortController.current = new AbortController();
     }
     onExit?.();
   }, [onExit]);
@@ -170,6 +180,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
   const handleManualDiscovery = useCallback(
     async (targets: ManualDiscoveryTargets) => {
+      setFoundMiners([]);
       setLastDiscoveryMode(minerDiscoveryModes.ipList);
       setLastManualTargets(targets);
       const discoverRequests: DiscoverRequest[] = [];
@@ -219,11 +230,14 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
       if (discoverRequests.length === 0) return;
 
+      const controller = discoveryAbortController.current;
       setIpListDiscoveryPending(true);
       try {
-        await Promise.allSettled(discoverRequests.map((request) => handleDiscover(request)));
+        await Promise.allSettled(discoverRequests.map((request) => handleDiscover(request, controller)));
       } finally {
-        setIpListDiscoveryPending(false);
+        if (!controller.signal.aborted) {
+          setIpListDiscoveryPending(false);
+        }
       }
     },
     [handleDiscover],
@@ -338,11 +352,11 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       scanDiscoveryPending={scanDiscoveryPending}
       ipListDiscoveryPending={ipListDiscoveryPending}
       pairingPending={pairingPending}
+      networkInfoReady={!!networkInfo}
       onCancelScan={cancelNetworkScan}
       onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}
       onRescan={handleRescan}
-      onClearFoundMiners={() => setFoundMiners([])}
       mode={mode}
     />
   );
