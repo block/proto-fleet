@@ -1,8 +1,6 @@
-import { durationToSeconds, getGranularityForDuration } from "@/protoFleet/api/useTelemetryMetrics";
-import type { FleetDuration } from "@/shared/components/DurationSelector";
+import { getGranularityForDuration } from "@/protoFleet/features/dashboard/utils/granularity";
+import { type FleetDuration, getFleetDurationMs } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart/types";
-
-const DEFAULT_DURATION_SECONDS = 3600; // 1 hour fallback
 
 /**
  * Pad chart data with null values for missing timestamps in the requested duration
@@ -21,10 +19,10 @@ export function padChartDataWithNulls<T extends ChartData>(data: T[], duration: 
     return data;
   }
 
-  const durationSeconds = durationToSeconds(duration) ?? DEFAULT_DURATION_SECONDS;
+  const durationMs = getFleetDurationMs(duration);
   const granularitySeconds = getGranularityForDuration(duration);
   const now = Date.now();
-  const startTime = now - durationSeconds * 1000;
+  const startTime = now - durationMs;
 
   // Find the first bucket boundary at or before startTime
   const granularityMs = granularitySeconds * 1000;

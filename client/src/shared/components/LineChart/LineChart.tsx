@@ -28,7 +28,25 @@ const MAX_TIMESTAMP_X_POSITION = 52; // Padding to prevent timestamp label from 
 
 // Static objects moved to module scope to avoid creating new references on every render
 // This prevents Recharts from detecting "changes" and triggering infinite re-render loops
-const X_AXIS_PADDING = { left: 25, right: 10 };
+const X_AXIS_LEFT_PADDING = 40;
+const X_AXIS_RIGHT_PADDING = 10;
+const X_AXIS_RIGHT_PADDING_WITH_DATE = 15;
+const X_AXIS_PADDING = { left: X_AXIS_LEFT_PADDING, right: X_AXIS_RIGHT_PADDING };
+const X_AXIS_PADDING_WITH_DATE = { left: X_AXIS_LEFT_PADDING, right: X_AXIS_RIGHT_PADDING_WITH_DATE };
+
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+// Responsive X-axis tick counts by screen size
+const X_AXIS_TICK_COUNT_DESKTOP = 7;
+const X_AXIS_TICK_COUNT_LAPTOP = 6;
+const X_AXIS_TICK_COUNT_TABLET = 5;
+const X_AXIS_TICK_COUNT_PHONE = 4;
+
+// Max visible tick labels by screen size (used for data-index-based spacing)
+const MAX_TICKS_DESKTOP = 13;
+const MAX_TICKS_LAPTOP = 10;
+const MAX_TICKS_TABLET = 8;
+const MAX_TICKS_PHONE = 6;
 const X_AXIS_LINE_STYLE = {
   stroke: "#000",
   strokeWidth: 1,
@@ -103,6 +121,8 @@ export interface LineChartProps {
   chartMarginTop?: number;
   xAxisLabelCount?: number;
   tooltipXOffset?: number;
+  xAxisDomainOverride?: [number, number];
+  connectNulls?: boolean;
 }
 
 const LineChart = ({
@@ -121,6 +141,8 @@ const LineChart = ({
   chartMarginTop = 0,
   xAxisLabelCount,
   tooltipXOffset = TOOLTIP_OFFSET,
+  xAxisDomainOverride,
+  connectNulls = false,
 }: LineChartProps) => {
   const [chartRef, _, chartBoundingRect] = useMeasure<HTMLDivElement>();
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -147,32 +169,45 @@ const LineChart = ({
       return firstTimestamp + (timeRange * i) / (xAxisLabelCount - 1);
     });
 
-    // Find the closest data point index for each target timestamp
+    // Find the closest data point index for each target timestamp using binary search
+    // (chartData is sorted chronologically)
     return targetTimestamps.map((targetTime) => {
-      let closestIndex = 0;
-      let minDiff = Math.abs(chartData[0].datetime - targetTime);
+      let left = 0;
+      let right = chartData.length - 1;
 
-      for (let i = 1; i < chartData.length; i++) {
-        const diff = Math.abs(chartData[i].datetime - targetTime);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIndex = i;
+      while (left < right) {
+        const mid = (left + right) >>> 1;
+        if (chartData[mid].datetime < targetTime) {
+          left = mid + 1;
+        } else {
+          right = mid;
         }
       }
 
-      return closestIndex;
+      // left is the first index >= targetTime; check if the previous index is closer
+      const prev = left - 1;
+      if (
+        prev >= 0 &&
+        Math.abs(chartData[prev].datetime - targetTime) <= Math.abs(chartData[left].datetime - targetTime)
+      ) {
+        return prev;
+      }
+      return left;
     });
   }, [chartData, xAxisLabelCount]);
 
   // Calculate explicit X-axis domain for consistent positioning
+  // When xAxisDomainOverride is provided, use it to ensure the chart spans the
+  // full requested time range even if the data points don't cover it all.
   const xAxisDomain = useMemo(() => {
+    if (xAxisDomainOverride) return xAxisDomainOverride;
     if (!chartData?.length) return undefined;
 
     const firstTimestamp = chartData[0].datetime;
     const lastTimestamp = chartData[chartData.length - 1].datetime;
 
     return [firstTimestamp, lastTimestamp];
-  }, [chartData]);
+  }, [chartData, xAxisDomainOverride]);
 
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
 
@@ -298,24 +333,83 @@ const LineChart = ({
     return typeof datetime === "number" ? datetime : undefined;
   }, [tooltipData.payload]);
 
-  // Memoize tick components to prevent infinite re-render loops
-  // These must NOT depend on tooltipData to avoid the cycle:
-  // hover → tooltipData updates → tick re-renders → triggers more updates
-  const maxTicksToShow = isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6;
+  // Generate evenly-spaced tick timestamps across the full domain so labels
+  // are distributed across the chart instead of clustering where data exists
+  const xAxisTicks = useMemo(() => {
+    if (!xAxisDomainOverride) return undefined;
+    const [start, end] = xAxisDomainOverride;
+    const count = isDesktop
+      ? X_AXIS_TICK_COUNT_DESKTOP
+      : isLaptop
+        ? X_AXIS_TICK_COUNT_LAPTOP
+        : isTablet
+          ? X_AXIS_TICK_COUNT_TABLET
+          : X_AXIS_TICK_COUNT_PHONE;
+    return Array.from({ length: count }, (_, i) => Math.round(start + ((end - start) * i) / (count - 1)));
+  }, [xAxisDomainOverride, isDesktop, isLaptop, isTablet]);
+
+  const tooltipTickValue = useMemo(() => {
+    if (tooltipDatetime === undefined) return undefined;
+    if (!xAxisTicks?.length) return tooltipDatetime;
+
+    // Hover can land between synthetic ticks. Map it to the nearest tick so the
+    // x-axis renders exactly one hover label at a deterministic tick position.
+    return xAxisTicks.reduce((closestTick, tick) => {
+      const tickDistance = Math.abs(tick - tooltipDatetime);
+      const closestDistance = Math.abs(closestTick - tooltipDatetime);
+      return tickDistance < closestDistance ? tick : closestTick;
+    }, xAxisTicks[0]);
+  }, [tooltipDatetime, xAxisTicks]);
+
+  const showDateOnXAxis = useMemo(() => {
+    if (!xAxisDomain) return false;
+    return xAxisDomain[1] - xAxisDomain[0] >= TWENTY_FOUR_HOURS_MS;
+  }, [xAxisDomain]);
+
+  // Memoize tick components to prevent infinite re-render loops.
+  // Depends on tooltipDatetime/tooltipTickValue (primitives extracted from tooltipData)
+  // rather than the full tooltipData object, so the memo only invalidates when the
+  // hovered data point actually changes — not on every mouse-move event.
+  const maxTicksToShow = isDesktop
+    ? MAX_TICKS_DESKTOP
+    : isLaptop
+      ? MAX_TICKS_LAPTOP
+      : isTablet
+        ? MAX_TICKS_TABLET
+        : MAX_TICKS_PHONE;
+
+  // When explicit ticks are generated from xAxisDomainOverride, use the tick count
+  // as dataPointCount so all evenly-spaced ticks show labels. Also bypass
+  // labelCount/timeBasedIndices which are data-index-based and conflict with
+  // the synthetic tick indices.
+  const explicitTickCount = xAxisTicks?.length;
 
   const xAxisTick = useMemo(
     () => (
       <TimeXAxisTick
         tooltipDatetime={tooltipDatetime}
-        dataPointCount={chartData?.length || 0}
+        tooltipTickValue={tooltipTickValue}
+        hideNonTooltipTicks={tooltipTickValue !== undefined}
+        dataPointCount={explicitTickCount ?? (chartData?.length || 0)}
         maxTicksToShow={maxTicksToShow}
+        showDate={showDateOnXAxis}
         minXPosition={MIN_TIMESTAMP_X_POSITION}
         maxXPosition={maxXPosition}
-        labelCount={xAxisLabelCount}
-        timeBasedIndices={timeBasedLabelIndices}
+        labelCount={explicitTickCount ? undefined : xAxisLabelCount}
+        timeBasedIndices={explicitTickCount ? undefined : timeBasedLabelIndices}
       />
     ),
-    [tooltipDatetime, chartData?.length, maxTicksToShow, maxXPosition, xAxisLabelCount, timeBasedLabelIndices],
+    [
+      tooltipDatetime,
+      tooltipTickValue,
+      explicitTickCount,
+      chartData?.length,
+      maxTicksToShow,
+      showDateOnXAxis,
+      maxXPosition,
+      xAxisLabelCount,
+      timeBasedLabelIndices,
+    ],
   );
 
   const yAxisTick = useCallback(
@@ -370,13 +464,14 @@ const LineChart = ({
             <XAxis
               {...xAxisProps}
               tickMargin={28}
-              padding={X_AXIS_PADDING}
+              padding={showDateOnXAxis ? X_AXIS_PADDING_WITH_DATE : X_AXIS_PADDING}
               domain={xAxisDomain}
               type="number"
               axisLine={X_AXIS_LINE_STYLE}
               dataKey="datetime"
               scale="time"
               tick={xAxisTick}
+              ticks={xAxisTicks}
             />
 
             <Tooltip
@@ -391,7 +486,9 @@ const LineChart = ({
               (key, index) => {
                 const strokeColor = colorMap?.[key] ? `var(${colorMap[key]})` : "var(--color-core-primary-fill)";
 
-                return <Line {...lineProps} dataKey={key} key={index} stroke={strokeColor} />;
+                return (
+                  <Line {...lineProps} connectNulls={connectNulls} dataKey={key} key={index} stroke={strokeColor} />
+                );
               },
             )}
 

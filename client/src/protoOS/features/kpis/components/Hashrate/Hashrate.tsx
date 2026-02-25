@@ -46,7 +46,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Hashrate = () => {
-  const { chartData, chartLines } = useChartDataForMetric("hashrate");
+  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("hashrate");
   const miner = useMiner();
   const hashboards = useMinerHashboards();
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
@@ -73,7 +73,7 @@ const Hashrate = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="TH/s" />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="TH/s" xAxisDomainOverride={xAxisDomain} />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

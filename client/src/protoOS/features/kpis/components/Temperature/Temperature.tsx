@@ -52,7 +52,7 @@ const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => 
 };
 
 const Temperature = () => {
-  const { chartData, chartLines } = useChartDataForMetric("temperature");
+  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("temperature");
   const miner = useMiner();
   const hashboards = useMinerHashboards();
   const temperatureUnit = useTemperatureUnit();
@@ -80,7 +80,12 @@ const Temperature = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer }, temperatureUnit)} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units={"°" + temperatureUnit} />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            units={"°" + temperatureUnit}
+            xAxisDomainOverride={xAxisDomain}
+          />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

@@ -13,6 +13,7 @@ import { createPoolsSlice, type PoolsSlice } from "./slices/poolsSlice";
 import { createSystemInfoSlice, type SystemInfoSlice } from "./slices/systemInfoSlice";
 import { createTelemetrySlice, type TelemetrySlice } from "./slices/telemetrySlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
+import { isDuration } from "@/shared/components/DurationSelector";
 
 // Enable Map/Set support for Immer
 enableMapSet();
@@ -163,6 +164,7 @@ const useMinerStore = create<MinerStore>()(
           }),
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
+            const persistedDuration = persisted?.ui?.duration;
 
             return {
               ...currentState,
@@ -172,7 +174,7 @@ const useMinerStore = create<MinerStore>()(
               },
               ui: {
                 ...currentState.ui,
-                duration: persisted?.ui?.duration ?? currentState.ui.duration,
+                duration: isDuration(persistedDuration) ? persistedDuration : currentState.ui.duration,
                 activeChartLines: persisted?.ui?.activeChartLines ?? currentState.ui.activeChartLines,
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,

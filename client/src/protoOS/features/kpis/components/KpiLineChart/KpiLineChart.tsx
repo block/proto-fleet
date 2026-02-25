@@ -40,6 +40,7 @@ const KpiLineChart = ({
   chartLines,
   units,
   segmentsLabel = "Hashboards",
+  xAxisDomainOverride,
 }: Omit<LineChartProps, "aggregateKey" | "getSeriesColorMap"> & {
   chartLines: string[];
 }) => {
@@ -124,6 +125,7 @@ const KpiLineChart = ({
         units={units}
         segmentsLabel={segmentsLabel}
         tooltipXOffset={60}
+        xAxisDomainOverride={xAxisDomainOverride}
       />
     </>
   );

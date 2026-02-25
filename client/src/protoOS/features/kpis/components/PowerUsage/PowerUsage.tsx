@@ -34,7 +34,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const PowerUsage = () => {
-  const { chartData, chartLines } = useChartDataForMetric("power");
+  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("power");
   const miner = useMiner();
   const aggregates = miner?.power?.timeSeries?.aggregates;
 
@@ -43,7 +43,7 @@ const PowerUsage = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats(aggregates)} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" xAxisDomainOverride={xAxisDomain} />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

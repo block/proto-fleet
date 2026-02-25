@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { AsicData, FanData, HashboardData, HashboardTelemetryData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
+import { getDurationMs } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart";
 
 // =============================================================================
@@ -193,12 +194,13 @@ export const useMinerFans = (): FanData[] => {
  */
 export const useChartDataForMetric = (
   metricName: "hashrate" | "temperature" | "power" | "efficiency",
-): { chartData: ChartData[]; chartLines: string[] } => {
+): { chartData: ChartData[]; chartLines: string[]; xAxisDomain?: [number, number] } => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
   const miner = useMinerStore((state) => state.telemetry.miner);
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
   const hashboardsHardware = useMinerStore((state) => state.hardware.hashboards);
   const intervalMs = useMinerStore((state) => state.telemetry.intervalMs);
+  const duration = useMinerStore((state) => state.ui.duration);
 
   return useMemo(() => {
     if (!miner) return { chartData: [], chartLines: [] };
@@ -241,8 +243,13 @@ export const useChartDataForMetric = (
       return dataPoint;
     });
 
-    return { chartData, chartLines };
-  }, [miner, hashboardsTelemetry, hashboardsHardware, intervalMs, metricName]);
+    // Anchor the X-axis to the data's startTime and extend by the exact
+    // selected duration so the chart always spans the full user-selected range
+    const durationMs = getDurationMs(duration);
+    const xAxisDomain: [number, number] = [minerMetric.startTime, minerMetric.startTime + durationMs];
+
+    return { chartData, chartLines, xAxisDomain };
+  }, [miner, hashboardsTelemetry, hashboardsHardware, intervalMs, metricName, duration]);
 };
 
 // =============================================================================

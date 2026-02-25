@@ -5,11 +5,14 @@ import { getDayFromEpoch, getMonthFromEpoch, getShortYearFromEpoch, getTimeFromE
 interface TimeXAxisTickProps {
   chartType?: "line" | "bar";
   dataPointCount: number;
+  hideNonTooltipTicks?: boolean;
   maxTicksToShow: number;
   maxXPosition?: number;
   minXPosition?: number;
   payload?: { value: number; index: number; offset: number };
+  showDate?: boolean;
   tooltipDatetime?: number;
+  tooltipTickValue?: number;
   visibleTicksCount?: number;
   x?: number;
   y?: number;
@@ -20,11 +23,14 @@ interface TimeXAxisTickProps {
 const TimeXAxisTick = ({
   chartType,
   dataPointCount,
+  hideNonTooltipTicks,
   maxTicksToShow,
   maxXPosition,
   minXPosition,
   payload = { value: 0, index: 0, offset: 0 },
+  showDate,
   tooltipDatetime,
+  tooltipTickValue,
   visibleTicksCount = 0,
   x = 0,
   y = 0,
@@ -80,38 +86,42 @@ const TimeXAxisTick = ({
     midTick = !firstTick && !lastTick && index % showEveryNthTick === 0 && index < visibleTicksCount - showEveryNthTick;
   }
 
-  if (tooltipDatetime) {
-    if (tooltipDatetime === payload.value) {
-      const date = `${getMonthFromEpoch(tooltipDatetime)}/${getDayFromEpoch(tooltipDatetime)}/${getShortYearFromEpoch(tooltipDatetime)}`;
-      // hide seconds from showing on xAxis
-      const time = getTimeFromEpoch(tooltipDatetime).slice(0, -3);
-      const max = maxXPosition || x;
-      const min = minXPosition || x;
+  const hasTooltipDatetime = tooltipDatetime !== undefined;
+  const targetTooltipTickValue = tooltipTickValue ?? tooltipDatetime;
 
-      return (
-        <AxisTick
-          x={Math.max(Math.min(x, max), min)}
-          y={y}
-          xOffset={getAxisTickOffset({
-            chartType,
-            firstTick,
-            hasDate: true,
-            midTick: !firstTick && !lastTick,
-            lastTick,
-            payloadOffset: payload.offset,
-            x,
-          })}
-          payload={{
-            ...payload,
-            value: `${date} • ${time}`,
-          }}
-        />
-      );
-    }
+  if (hasTooltipDatetime && targetTooltipTickValue === payload.value) {
+    const date = `${getMonthFromEpoch(tooltipDatetime)}/${getDayFromEpoch(tooltipDatetime)}/${getShortYearFromEpoch(tooltipDatetime)}`;
+    // hide seconds from showing on xAxis
+    const time = getTimeFromEpoch(tooltipDatetime).slice(0, -3);
+    const max = maxXPosition || x;
+    const min = minXPosition || x;
+
+    return (
+      <AxisTick
+        x={Math.max(Math.min(x, max), min)}
+        y={y}
+        xOffset={getAxisTickOffset({
+          chartType,
+          firstTick,
+          hasDate: true,
+          midTick: !firstTick && !lastTick,
+          lastTick,
+          payloadOffset: payload.offset,
+          x,
+        })}
+        payload={{
+          ...payload,
+          value: `${date} • ${time}`,
+        }}
+      />
+    );
+  } else if (hasTooltipDatetime && hideNonTooltipTicks) {
+    return null;
   } else if (firstTick || midTick || (lastTick && !timeBasedIndices)) {
     // hide seconds from showing on xAxis
     // Note: When using timeBasedIndices, hide the last tick to leave space for current time
     const time = getTimeFromEpoch(payload.value).slice(0, -3);
+    const label = showDate ? `${getMonthFromEpoch(payload.value)}/${getDayFromEpoch(payload.value)} ${time}` : time;
     return (
       <AxisTick
         x={x}
@@ -119,17 +129,18 @@ const TimeXAxisTick = ({
         xOffset={getAxisTickOffset({
           chartType,
           firstTick,
+          hasDate: showDate,
           midTick,
           lastTick,
           payloadOffset: payload.offset,
           x,
         })}
-        payload={{ ...payload, value: time }}
+        payload={{ ...payload, value: label }}
       />
     );
   }
 
-  return <></>;
+  return null;
 };
 
 export default TimeXAxisTick;

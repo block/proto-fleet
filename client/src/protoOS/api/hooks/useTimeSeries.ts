@@ -3,28 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type TimeSeriesRequest, type TimeSeriesResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { getAsicId, useMinerStore } from "@/protoOS/store";
-import type { Duration } from "@/shared/components/DurationSelector";
+import { type Duration, getDurationMs } from "@/shared/components/DurationSelector";
 import { usePoll } from "@/shared/hooks/usePoll";
-
-/**
- * Get time range in milliseconds based on Duration selector value
- */
-function getTimeRangeMs(duration: Duration): number {
-  switch (duration) {
-    case "1h":
-      return 60 * 60 * 1000;
-    case "12h":
-      return 12 * 60 * 60 * 1000;
-    case "24h":
-      return 24 * 60 * 60 * 1000;
-    case "48h":
-      return 48 * 60 * 60 * 1000;
-    case "5d":
-      return 5 * 24 * 60 * 60 * 1000;
-    default:
-      return 24 * 60 * 60 * 1000;
-  }
-}
 
 /**
  * Get appropriate data interval based on duration
@@ -82,7 +62,7 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
       const requestDuration = duration;
 
       // Calculate time window on every fetch
-      const timeRangeMs = getTimeRangeMs(duration);
+      const timeRangeMs = getDurationMs(duration);
       const intervalMinutes = getIntervalMinutes(duration);
       const startTime = new Date(Date.now() - timeRangeMs);
 

@@ -84,6 +84,7 @@ export function HashratePanel({ duration }: HashratePanelProps) {
         activeKeys={["hashrate"]}
         heightClass="h-60"
         tickCount={5}
+        duration={duration}
       />
     </ChartWidget>
   );

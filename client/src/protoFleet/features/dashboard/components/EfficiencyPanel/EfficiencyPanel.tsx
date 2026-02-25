@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { transformEfficiencyMetricsToChartData } from "./utils";
-import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
@@ -35,19 +35,10 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
 
   // Get the latest efficiency value for the stat display
   const currentEfficiency = useMemo(() => {
-    if (metrics === undefined) return undefined; // Not loaded yet
-    if (metrics.length === 0) return null; // Loaded but no data
-
-    // Get the most recent metric
-    const latestMetric = metrics[metrics.length - 1];
-
-    // Find the AVERAGE aggregation value
-    const avgValue = latestMetric.aggregatedValues.find(
-      (agg) => agg.aggregationType === AggregationType.AVERAGE,
-    )?.value;
-
-    return avgValue ?? null;
-  }, [metrics]);
+    if (chartData === undefined) return undefined; // Not loaded yet
+    if (chartData === null || chartData.length === 0) return null; // Loaded but no data
+    return chartData[chartData.length - 1]?.efficiency ?? null;
+  }, [chartData]);
 
   // Get device count from latest metric
   const deviceCount = useMemo(() => {
@@ -104,6 +95,7 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
         activeKeys={["efficiency"]}
         heightClass="h-60"
         tickCount={5}
+        duration={duration}
       />
     </ChartWidget>
   );

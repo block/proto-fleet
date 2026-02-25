@@ -1,4 +1,5 @@
 import { AggregationType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { normalizeHashrateToTHs } from "@/protoFleet/features/dashboard/utils/metricNormalization";
 import type { ChartData } from "@/shared/components/LineChart/types";
 import { TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
 
@@ -18,10 +19,11 @@ export function transformHashrateMetricsToChartData(metrics: Metric[]): ChartDat
       metric.aggregatedValues.find((agg) => agg.aggregationType === AggregationType.AVERAGE)?.value ??
       metric.aggregatedValues[0]?.value ??
       0;
+    const normalizedHashrate = normalizeHashrateToTHs(avgValue, metric.deviceCount);
 
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000, // Convert seconds to milliseconds
-      hashrate: avgValue,
+      hashrate: normalizedHashrate,
     };
   });
 }

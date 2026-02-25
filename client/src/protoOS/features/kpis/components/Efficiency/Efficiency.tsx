@@ -46,7 +46,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 };
 
 const Efficiency = () => {
-  const { chartData, chartLines } = useChartDataForMetric("efficiency");
+  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("efficiency");
   const miner = useMiner();
   const hashboards = useMinerHashboards();
   const aggregates = miner?.efficiency?.timeSeries?.aggregates;
@@ -73,7 +73,7 @@ const Efficiency = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="J/TH" />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="J/TH" xAxisDomainOverride={xAxisDomain} />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

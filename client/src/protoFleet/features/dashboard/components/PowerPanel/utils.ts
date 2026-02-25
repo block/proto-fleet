@@ -1,4 +1,5 @@
 import { AggregationType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { normalizePowerToKW } from "@/protoFleet/features/dashboard/utils/metricNormalization";
 import type { ChartData } from "@/shared/components/LineChart/types";
 
 /**
@@ -17,10 +18,11 @@ export function transformPowerMetricsToChartData(metrics: Metric[]): ChartData[]
       metric.aggregatedValues.find((agg) => agg.aggregationType === AggregationType.AVERAGE)?.value ??
       metric.aggregatedValues[0]?.value ??
       0;
+    const normalizedPower = normalizePowerToKW(avgValue, metric.deviceCount);
 
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000, // Convert seconds to milliseconds
-      power: avgValue,
+      power: normalizedPower,
     };
   });
 }
