@@ -14,6 +14,10 @@ import {
   CheckCommandCapabilitiesResponse,
   CommandType,
   DeviceSelector,
+  DownloadLogsRequest,
+  DownloadLogsResponse,
+  GetCommandBatchLogBundleRequest,
+  GetCommandBatchLogBundleResponse,
   PerformanceMode,
   type PoolSlotConfig,
   PoolSlotConfigSchema,
@@ -120,6 +124,18 @@ interface UpdateMinerPasswordProps {
   userUsername: string;
   userPassword: string;
   onSuccess: (value: UpdateMinerPasswordResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface DownloadLogsProps {
+  downloadLogsRequest: DownloadLogsRequest;
+  onSuccess: (value: DownloadLogsResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface GetCommandBatchLogBundleProps {
+  request: GetCommandBatchLogBundleRequest;
+  onSuccess: (value: GetCommandBatchLogBundleResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -383,6 +399,40 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const downloadLogs = useCallback(
+    async ({ downloadLogsRequest, onSuccess, onError }: DownloadLogsProps) => {
+      await minerCommandClient
+        .downloadLogs(downloadLogsRequest)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
+  const getCommandBatchLogBundle = useCallback(
+    async ({ request, onSuccess, onError }: GetCommandBatchLogBundleProps) => {
+      await minerCommandClient
+        .getCommandBatchLogBundle(request)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   return useMemo(
     () => ({
       blinkLED,
@@ -396,6 +446,8 @@ const useMinerCommand = () => {
       setCoolingMode,
       checkCommandCapabilities,
       updateMinerPassword,
+      downloadLogs,
+      getCommandBatchLogBundle,
     }),
     [
       blinkLED,
@@ -409,6 +461,8 @@ const useMinerCommand = () => {
       setCoolingMode,
       checkCommandCapabilities,
       updateMinerPassword,
+      downloadLogs,
+      getCommandBatchLogBundle,
     ],
   );
 };

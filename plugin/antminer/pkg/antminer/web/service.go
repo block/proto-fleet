@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,9 +29,13 @@ const (
 	endpointBlink        = "/cgi-bin/blink.cgi"
 	endpointStats        = "/cgi-bin/stats.cgi"
 	endpointKernelLog    = "/cgi-bin/get_kernel_log.cgi"
+	endpointLegacyLog    = "/cgi-bin/log.cgi"
 	//#nosec G101 -- API endpoint path, not credentials
 	endpointPassword = "/cgi-bin/passwd.cgi"
 )
+
+// errEndpointNotFound is returned when a CGI endpoint returns HTTP 404.
+var errEndpointNotFound = errors.New("endpoint not found")
 
 // BitmainWorkMode represents the operating mode of an Antminer device
 type BitmainWorkMode string
@@ -311,6 +316,9 @@ func (s *Service) requestRaw(ctx context.Context, connInfo *AntminerConnectionIn
 		if resp.StatusCode == http.StatusUnauthorized {
 			return "", sdk.NewErrorAuthenticationFailed(connInfo.GetURL().String())
 		}
+		if resp.StatusCode == http.StatusNotFound {
+			return "", errEndpointNotFound
+		}
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
@@ -423,9 +431,20 @@ func (s *Service) setBlink(ctx context.Context, connInfo *AntminerConnectionInfo
 }
 
 func (s *Service) GetKernelLog(ctx context.Context, connInfo *AntminerConnectionInfo) (string, error) {
-	return s.requestRaw(ctx, connInfo, RequestOptions{
+	logs, err := s.requestRaw(ctx, connInfo, RequestOptions{
 		Method:   http.MethodGet,
 		Endpoint: endpointKernelLog,
+	})
+	if err == nil {
+		return logs, nil
+	}
+	if !errors.Is(err, errEndpointNotFound) {
+		return "", err
+	}
+	// Older Antminer firmware (e.g., S19) uses /cgi-bin/log.cgi instead.
+	return s.requestRaw(ctx, connInfo, RequestOptions{
+		Method:   http.MethodGet,
+		Endpoint: endpointLegacyLog,
 	})
 }
 

@@ -9,25 +9,57 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
 
 const logsDir = "logs"
 const tempDir = logsDir + string(filepath.Separator) + "tmp"
 const grpcSizeLimit = 4 * 1024 * 1024
+const unknownMACPlaceholder = "unknown"
+
+// macSafeCharsRe matches characters that are NOT lowercase hex digits.
+// Used to whitelist-sanitize MAC addresses for use in filenames.
+var macSafeCharsRe = regexp.MustCompile(`[^0-9a-f]`)
+
+// sanitizeMACForFilename strips separators from a MAC address and retains only lowercase
+// hex characters. If the result is empty (malformed input), it falls back to a safe placeholder.
+func sanitizeMACForFilename(mac string) string {
+	normalized := macSafeCharsRe.ReplaceAllString(strings.ToLower(mac), "")
+	if normalized == "" {
+		return unknownMACPlaceholder
+	}
+	return normalized
+}
 
 type FSFile struct {
 	Filename string
 	Data     []byte
 }
 
-// zip containing all the logs for batch
 func getBatchLogsZipFilePath(batchLogUUID string) string {
-	zipFilename := fmt.Sprintf("logs_batch_%s.zip", batchLogUUID)
-	return filepath.Join(tempDir, zipFilename)
+	return filepath.Join(tempDir, fmt.Sprintf("logs_batch_%s.zip", batchLogUUID))
+}
+
+func getBatchLogsSingleFilePath(batchLogUUID string) string {
+	return filepath.Join(tempDir, fmt.Sprintf("logs_batch_%s.csv", batchLogUUID))
+}
+
+// findBatchBundlePath returns the path of the ready bundle (zip or single csv) for a batch.
+// Returns "" if neither exists.
+func findBatchBundlePath(batchLogUUID string) string {
+	zipPath := getBatchLogsZipFilePath(batchLogUUID)
+	if _, err := os.Stat(zipPath); err == nil {
+		return zipPath
+	}
+	csvPath := getBatchLogsSingleFilePath(batchLogUUID)
+	if _, err := os.Stat(csvPath); err == nil {
+		return csvPath
+	}
+	return ""
 }
 
 // dir where all the logs for batch reside
@@ -58,14 +90,15 @@ func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error)
 	return batchDir, nil
 }
 
-func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceIdentifier, logLines []string) (string, error) {
+func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {
 	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
 	if err != nil {
 		return "", err
 	}
 
-	timestamp := time.Now().Format("20060102-150405")
-	filename := fmt.Sprintf("%s_%s.log", deviceIdentifier, timestamp)
+	normalizedMAC := sanitizeMACForFilename(macAddress)
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
 	filePath := filepath.Join(batchDir, filename)
 
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
@@ -94,13 +127,40 @@ func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceId
 	return filePath, nil
 }
 
-func (s *Service) bundleLogsIntoZIP(batchLogUUID string) (string, error) {
+func (s *Service) bundleLogs(batchLogUUID string) (string, error) {
+	batchDir := getBatchLogsDirPath(batchLogUUID)
+	logFiles, err := os.ReadDir(batchDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("no log files to bundle — all devices may have failed", "batch_uuid", batchLogUUID)
+			return "", nil
+		}
+		return "", fleeterror.NewInternalErrorf("failed to read batch directory: %v", err)
+	}
+
+	if len(logFiles) == 0 {
+		slog.Warn("batch directory exists but contains no log files — all devices may have failed", "batch_uuid", batchLogUUID)
+		return "", nil
+	}
+
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to create temp directory: %v", err)
 	}
 
-	finalZipPath := getBatchLogsZipFilePath(batchLogUUID)
+	if len(logFiles) == 1 && !logFiles[0].IsDir() {
+		srcPath := filepath.Join(batchDir, logFiles[0].Name())
+		destPath := getBatchLogsSingleFilePath(batchLogUUID)
+		if err := os.Rename(srcPath, destPath); err != nil {
+			return "", fleeterror.NewInternalErrorf("failed to move single log file: %v", err)
+		}
+		// Store the original per-device filename so it can be used as the download name.
+		if writeErr := os.WriteFile(destPath+".name", []byte(logFiles[0].Name()), 0600); writeErr != nil {
+			slog.Warn("failed to write filename sidecar", "error", writeErr)
+		}
+		return destPath, nil
+	}
 
+	finalZipPath := getBatchLogsZipFilePath(batchLogUUID)
 	tempZipPath := finalZipPath + ".tmp"
 
 	zipFile, err := os.Create(tempZipPath)
@@ -112,13 +172,7 @@ func (s *Service) bundleLogsIntoZIP(batchLogUUID string) (string, error) {
 	zipWriter := zip.NewWriter(zipFile)
 	defer zipWriter.Close()
 
-	batchDir := getBatchLogsDirPath(batchLogUUID)
-	files, err := os.ReadDir(batchDir)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to read batch directory: %v", err)
-	}
-
-	for _, file := range files {
+	for _, file := range logFiles {
 		if file.IsDir() {
 			return "", fleeterror.NewInternalErrorf("dir found in the logs dir of batchLogUUID: %s", batchLogUUID)
 		}
@@ -145,6 +199,11 @@ func (s *Service) bundleLogsIntoZIP(batchLogUUID string) (string, error) {
 
 	if err := os.Rename(tempZipPath, finalZipPath); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to finalize zip file: %v", err)
+	}
+
+	zipName := fmt.Sprintf("miner-logs-%s.zip", time.Now().Format("2006-01-02_15-04-05"))
+	if writeErr := os.WriteFile(finalZipPath+".name", []byte(zipName), 0600); writeErr != nil {
+		slog.Warn("failed to write zip filename sidecar", "error", writeErr)
 	}
 
 	return finalZipPath, nil
@@ -183,17 +242,17 @@ func addFileToZIP(zipWrite *zip.Writer, filename string) error {
 }
 
 func (s *Service) getCommandBatchLogBundle(batchLogUUID string) (string, error) {
-	zipPath := getBatchLogsZipFilePath(batchLogUUID)
-	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
+	bundlePath := findBatchBundlePath(batchLogUUID)
+	if bundlePath == "" {
 		return "", fleeterror.NewInternalErrorf("log bundle is not available yet, please try again later")
 	}
 
-	return zipPath, nil
+	return bundlePath, nil
 }
 
 func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
-	downloadableFilePath := getBatchLogsZipFilePath(batchLogUUID)
-	if _, err := os.Stat(downloadableFilePath); os.IsNotExist(err) {
+	downloadableFilePath := findBatchBundlePath(batchLogUUID)
+	if downloadableFilePath == "" {
 		return nil, fleeterror.NewInternalErrorf("log bundle is not available yet, please try again later")
 	}
 
@@ -219,6 +278,9 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	}
 
 	filename := filepath.Base(downloadableFilePath)
+	if origName, readErr := os.ReadFile(downloadableFilePath + ".name"); readErr == nil {
+		filename = strings.TrimSpace(string(origName))
+	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
@@ -231,9 +293,9 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 
 func (s *Service) DownloadLogsOnFinishedCallback(batchLogUUID string) func() error {
 	return func() error {
-		_, err := s.bundleLogsIntoZIP(batchLogUUID)
+		_, err := s.bundleLogs(batchLogUUID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error bundling logs into ZIP: %v", err)
+			return fleeterror.NewInternalErrorf("error bundling logs: %v", err)
 		}
 
 		s.ScheduleBatchLogCleanup(batchLogUUID, 24*time.Hour)
@@ -258,15 +320,15 @@ func (s *Service) ScheduleBatchLogCleanup(batchLogUUID string, delay time.Durati
 func (s *Service) batchLogCleanup(batchLogUUID string) error {
 	batchLogsDir := getBatchLogsDirPath(batchLogUUID)
 
-	zipPath := getBatchLogsZipFilePath(batchLogUUID)
-
 	if err := os.RemoveAll(batchLogsDir); err != nil {
 		return fleeterror.NewInternalErrorf("failed to remove batch directory: %v", err)
 	}
 
-	if err := os.Remove(zipPath); err != nil {
-		if !os.IsNotExist(err) {
-			return fleeterror.NewInternalErrorf("failed to remove batch ZIP file: %v", err)
+	zipPath := getBatchLogsZipFilePath(batchLogUUID)
+	singleCSVPath := getBatchLogsSingleFilePath(batchLogUUID)
+	for _, bundlePath := range []string{zipPath, zipPath + ".name", singleCSVPath, singleCSVPath + ".name"} {
+		if err := os.Remove(bundlePath); err != nil && !os.IsNotExist(err) {
+			return fleeterror.NewInternalErrorf("failed to remove bundle file %s: %v", bundlePath, err)
 		}
 	}
 

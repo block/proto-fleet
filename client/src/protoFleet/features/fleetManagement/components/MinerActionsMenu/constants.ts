@@ -41,6 +41,7 @@ export const minersMessage = "miners";
 
 export const loadingMessages: Record<string, string> = {
   [deviceActions.blinkLEDs]: "Blinking LEDs",
+  [deviceActions.downloadLogs]: "Downloading logs",
   [deviceActions.factoryReset]: "Resetting",
   [deviceActions.reboot]: "Rebooting",
   [deviceActions.shutdown]: "Putting to sleep",
@@ -68,6 +69,7 @@ export const statusColumnLoadingMessages: Record<string, string> = {
 
 export const successMessages: Record<string, string> = {
   [deviceActions.blinkLEDs]: "Blinked LEDs",
+  [deviceActions.downloadLogs]: "Downloaded logs",
   [deviceActions.factoryReset]: "Reset",
   [deviceActions.reboot]: "Rebooted",
   [deviceActions.shutdown]: "Put to sleep",

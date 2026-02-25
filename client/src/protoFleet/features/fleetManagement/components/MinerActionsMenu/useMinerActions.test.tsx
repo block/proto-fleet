@@ -31,6 +31,8 @@ const mockSetPowerTarget = vi.fn();
 const mockSetCoolingMode = vi.fn();
 const mockUpdateMinerPassword = vi.fn();
 const mockGetMinerModelGroups = vi.fn();
+const mockDownloadLogs = vi.fn();
+const mockGetCommandBatchLogBundle = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -57,6 +59,8 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     setCoolingMode: mockSetCoolingMode,
     checkCommandCapabilities: mockCheckCommandCapabilities,
     updateMinerPassword: mockUpdateMinerPassword,
+    downloadLogs: mockDownloadLogs,
+    getCommandBatchLogBundle: mockGetCommandBatchLogBundle,
   }),
 }));
 
@@ -2365,6 +2369,481 @@ describe("useMinerActions", () => {
       const callArgs = mockUpdateMinerPassword.mock.calls[0][0];
       expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
       expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
+    });
+  });
+
+  describe("Download Logs action", () => {
+    beforeEach(() => {
+      // Reset stream mock to its default behavior in case a test overrode it
+      mockStreamCommandBatchUpdates.mockImplementation((_params: any) => Promise.resolve());
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("should include downloadLogs in popoverActions", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const actions = result.current.popoverActions.map((a) => a.action);
+      expect(actions).toContain(deviceActions.downloadLogs);
+    });
+
+    it("should call onActionStart to close the menu when triggered", () => {
+      const onActionStart = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionStart,
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(onActionStart).toHaveBeenCalled();
+    });
+
+    it("should show loading toast when download begins", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(toaster.pushToast).toHaveBeenCalledWith({
+        message: "Downloading logs",
+        status: toaster.STATUSES.loading,
+        longRunning: true,
+      });
+    });
+
+    it("should call downloadLogs API with the correct deviceSelector", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(mockDownloadLogs).toHaveBeenCalled();
+      const request = mockDownloadLogs.mock.calls[0][0].downloadLogsRequest;
+      expect(request.deviceSelector.selectionType.case).toBe("includeDevices");
+      expect(request.deviceSelector.selectionType.value.deviceIdentifiers).toEqual(["device-1"]);
+    });
+
+    it("should stream batch updates then fetch log bundle after downloadLogs succeeds", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
+        return Promise.resolve();
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
+      vi.spyOn(document, "createElement").mockReturnValueOnce({
+        href: "",
+        download: "",
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockStreamCommandBatchUpdates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          streamRequest: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
+        }),
+      );
+      expect(mockGetCommandBatchLogBundle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
+        }),
+      );
+    });
+
+    it("should trigger browser file download with the correct filename on success", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
+        return Promise.resolve();
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "miner-logs.zip" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
+      const mockAnchorClick = vi.fn();
+      const mockAnchor = { href: "", download: "", click: mockAnchorClick };
+      vi.spyOn(document, "createElement").mockReturnValueOnce(mockAnchor as unknown as HTMLElement);
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockAnchor.download).toBe("miner-logs.zip");
+      expect(mockAnchor.href).toBe("blob:mock-url");
+      expect(mockAnchorClick).toHaveBeenCalled();
+    });
+
+    it("should show success toast after the file is downloaded", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
+        return Promise.resolve();
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
+      vi.spyOn(document, "createElement").mockReturnValueOnce({
+        href: "",
+        download: "",
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Downloaded logs",
+          status: toaster.STATUSES.success,
+        }),
+      );
+    });
+
+    it("should show error toast when downloadLogs API call fails", () => {
+      mockDownloadLogs.mockImplementation(({ onError }: any) => {
+        onError("Connection failed");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Connection failed",
+          status: toaster.STATUSES.error,
+        }),
+      );
+    });
+
+    it("should show error toast when getCommandBatchLogBundle fails after streaming", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
+        return Promise.resolve();
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onError }: any) => {
+        onError("Logs too large to download");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Logs too large to download",
+          status: toaster.STATUSES.error,
+        }),
+      );
+    });
+
+    it("should abort the stream when the batch reports FINISHED status", async () => {
+      let capturedOnStreamData: ((resp: any) => void) | undefined;
+      let capturedAbortController: AbortController | undefined;
+
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData, streamAbortController }: any) => {
+        capturedOnStreamData = onStreamData;
+        capturedAbortController = streamAbortController;
+        return new Promise<void>((resolve) => {
+          streamAbortController.signal.addEventListener("abort", () => resolve());
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(capturedAbortController?.signal.aborted).toBe(false);
+
+      // PROCESSING update should not abort
+      act(() => {
+        capturedOnStreamData?.({
+          status: { commandBatchUpdateStatus: 2 }, // PROCESSING
+        });
+      });
+      expect(capturedAbortController?.signal.aborted).toBe(false);
+
+      // FINISHED update should abort
+      act(() => {
+        capturedOnStreamData?.({
+          status: { commandBatchUpdateStatus: 3 }, // FINISHED
+        });
+      });
+      expect(capturedAbortController?.signal.aborted).toBe(true);
+    });
+
+    it("should show error toast and not fetch bundle when all devices fail", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 0, failure: 2 } } });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({ message: "Failed to download logs", status: toaster.STATUSES.error }),
+      );
+      expect(mockGetCommandBatchLogBundle).not.toHaveBeenCalled();
+    });
+
+    it("should show partial failure toast alongside success when some devices fail", async () => {
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 1 } } });
+        return Promise.resolve();
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      vi.spyOn(document, "createElement").mockReturnValueOnce({
+        href: "",
+        download: "",
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({ message: "Downloaded logs", status: toaster.STATUSES.success }),
+      );
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Failed to retrieve logs from 1 miner",
+          status: toaster.STATUSES.error,
+        }),
+      );
+    });
+
+    it("should call onActionComplete after the file is downloaded successfully", async () => {
+      const onActionComplete = vi.fn();
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      vi.spyOn(document, "createElement").mockReturnValueOnce({
+        href: "",
+        download: "",
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should call onActionComplete when getCommandBatchLogBundle fails", async () => {
+      const onActionComplete = vi.fn();
+      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-logs-123" });
+      });
+      mockGetCommandBatchLogBundle.mockImplementation(({ onError }: any) => {
+        onError("Logs too large to download");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      await act(async () => {
+        downloadLogsAction?.actionHandler();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should call onActionComplete when the downloadLogs API call fails", () => {
+      const onActionComplete = vi.fn();
+      mockDownloadLogs.mockImplementation(({ onError }: any) => {
+        onError("Connection failed");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
+      act(() => {
+        downloadLogsAction?.actionHandler();
+      });
+
+      expect(onActionComplete).toHaveBeenCalled();
     });
   });
 });

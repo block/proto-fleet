@@ -196,9 +196,186 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	return pm, mockDevice
+}
+
+// mockLogSaver captures the rows passed to SaveLogs for assertion in tests.
+type mockLogSaver struct {
+	savedLines []string
+	err        error
+}
+
+func (m *mockLogSaver) SaveLogs(_ string, _ string, logLines []string) (string, error) {
+	m.savedLines = logLines
+	return "", m.err
+}
+
+func TestPluginMiner_DownloadLogs_Success(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	pm.deviceType = models.TypeProto
+	saver := &mockLogSaver{}
+	pm.filesService = saver
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "Jun 1 00:00:01 miner mcdd[1]: 2024-06-01 00:00:01.000000 | INFO  | module:1 | started", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.NoError(t, err)
+	require.Len(t, saver.savedLines, 2) // header + 1 data row
+	assert.Equal(t, "Time,Type,Message", saver.savedLines[0])
+	assert.Equal(t, `"2024-06-01 00:00:01","INFO","module:1 | started"`, saver.savedLines[1])
+}
+
+func TestPluginMiner_DownloadLogs_TrailingNewlineTrimmed(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	saver := &mockLogSaver{}
+	pm.filesService = saver
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		// Log data with a trailing newline — should not produce a spurious empty row.
+		return "[2026-01-01T00:00:00Z] line one\n[2026-01-01T00:00:01Z] line two\n", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.NoError(t, err)
+	require.Len(t, saver.savedLines, 3) // header + 2 data rows, no empty row
+	assert.Equal(t, "Time,Message", saver.savedLines[0])
+	assert.Equal(t, `"2026-01-01T00:00:00Z","line one"`, saver.savedLines[1])
+	assert.Equal(t, `"2026-01-01T00:00:01Z","line two"`, saver.savedLines[2])
+}
+
+func TestPluginMiner_DownloadLogs_SDKError(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	pm.filesService = &mockLogSaver{}
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "", false, errors.New("connection refused")
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to download logs")
+}
+
+func TestPluginMiner_DownloadLogs_SaveError(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	pm.filesService = &mockLogSaver{err: errors.New("disk full")}
+
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, _ string) (string, bool, error) {
+		return "[2026-01-01T00:00:00Z] hello\n", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to save logs")
+}
+
+func TestFormatLogLineToCSVRow(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string
+		includeType bool
+		expected    string
+	}{
+		{
+			name:        "Proto miner INFO log",
+			includeType: true,
+			line:        "Jun 14 16:01:58 proto-miner-001D mcdd[716]: 2024-06-14 16:01:58.470952 | INFO  | mcdd::temp::temp_control:322 | [TempCtrl] Control temps",
+			expected:    `"2024-06-14 16:01:58","INFO","mcdd::temp::temp_control:322 | [TempCtrl] Control temps"`,
+		},
+		{
+			name:        "Proto miner WARN log",
+			includeType: true,
+			line:        "Jun 14 16:02:04 proto-miner-001D mcdd[716]: 2024-06-14 16:02:04.512536 | WARN  | mcdd::pool_interface:379 | Share rejected",
+			expected:    `"2024-06-14 16:02:04","WARN","mcdd::pool_interface:379 | Share rejected"`,
+		},
+		{
+			name:        "Proto miner ERROR log",
+			includeType: true,
+			line:        "Jun 14 16:02:06 proto-miner-001D mcdd[716]: 2024-06-14 16:02:06.575555 | ERROR | mcdd::hashboard:649 | Error during SetWork",
+			expected:    `"2024-06-14 16:02:06","ERROR","mcdd::hashboard:649 | Error during SetWork"`,
+		},
+		{
+			name:        "Proto miner DEBUG log",
+			includeType: true,
+			line:        "Jun 14 16:00:01 proto-miner-001D mcdd[716]: 2024-06-14 16:00:01.123456 | DEBUG | mcdd::debug:10 | debug info",
+			expected:    `"2024-06-14 16:00:01","DEBUG","mcdd::debug:10 | debug info"`,
+		},
+		{
+			name:        "Proto miner BX firmware log (syslog prefix, no mcdd timestamp)",
+			includeType: true,
+			line:        "Feb 23 12:33:24 proto-miner-D202 mcdd[664]: | INFO  | mcdd::hashboard::bx::hashboard:1213 | [b3a 3] Board energy - voltage: 18.78V",
+			expected:    `"Feb 23 12:33:24","INFO","mcdd::hashboard::bx::hashboard:1213 | [b3a 3] Board energy - voltage: 18.78V"`,
+		},
+		{
+			name:        "Proto miner log without syslog prefix",
+			includeType: true,
+			line:        "2024-06-14 16:01:58.470952 | INFO  | mcdd::hashboard::bx::hashboard:1227 | [b3a 9] ASIC frequencies - AVG: 360.00MHz",
+			expected:    `"2024-06-14 16:01:58","INFO","mcdd::hashboard::bx::hashboard:1227 | [b3a 9] ASIC frequencies - AVG: 360.00MHz"`,
+		},
+		{
+			name:        "Antminer ISO timestamp log",
+			includeType: false,
+			line:        "[2026-02-20T17:35:18Z] Mining operation normal - hashrate: 140.0 TH/s",
+			expected:    `"2026-02-20T17:35:18Z","Mining operation normal - hashrate: 140.0 TH/s"`,
+		},
+		{
+			name:        "Antminer kernel seconds-since-boot falls through to raw message",
+			includeType: false,
+			line:        "[    0.000000] Booting Linux on physical CPU 0x0",
+			expected:    `"","[    0.000000] Booting Linux on physical CPU 0x0"`,
+		},
+		{
+			name:        "Antminer kernel log with CPU core indicator falls through to raw message",
+			includeType: false,
+			line:        "[  258.894452@1] NET: Registered protocol family 10",
+			expected:    `"","[  258.894452@1] NET: Registered protocol family 10"`,
+		},
+		{
+			name:        "Antminer application log YYYY-MM-DD HH:MM:SS",
+			includeType: false,
+			line:        "2026-02-24 07:52:12 30m avg rate is 84933.16 in 30 mins",
+			expected:    `"2026-02-24 07:52:12","30m avg rate is 84933.16 in 30 mins"`,
+		},
+		{
+			name:        "Bracketed keyword without digits falls through to raw message",
+			includeType: false,
+			line:        "[INFO] Proto Miner Simulator started",
+			expected:    `"","[INFO] Proto Miner Simulator started"`,
+		},
+		{
+			name:        "Message with double quotes is escaped",
+			includeType: false,
+			line:        "[2026-01-01T00:00:00Z] error: \"disk full\"",
+			expected:    `"2026-01-01T00:00:00Z","error: ""disk full"""`,
+		},
+		{
+			name:        "Unrecognised format falls through to raw message",
+			includeType: false,
+			line:        "some unstructured log line",
+			expected:    `"","some unstructured log line"`,
+		},
+		{
+			name:        "Empty line",
+			includeType: false,
+			line:        "",
+			expected:    `"",""`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatLogLineToCSVRow(tt.line, tt.includeType)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestPluginMiner_GetOrgID(t *testing.T) {
@@ -709,6 +886,7 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	status, err := pluginMiner.GetDeviceStatus(context.Background())
@@ -751,6 +929,7 @@ func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *tes
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
+		nil,
 	)
 
 	status, err := pluginMiner.GetDeviceStatus(context.Background())

@@ -18,6 +18,7 @@ SELECT
     dd.model,
     d.org_id,
     d.serial_number,
+    d.mac_address,
     mc.username_enc,
     mc.password_enc,
     dd.ip_address,
@@ -40,6 +41,7 @@ type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	Model            sql.NullString
 	OrgID            int64
 	SerialNumber     sql.NullString
+	MacAddress       string
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
 	IpAddress        string
@@ -57,6 +59,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.Model,
 		&i.OrgID,
 		&i.SerialNumber,
+		&i.MacAddress,
 		&i.UsernameEnc,
 		&i.PasswordEnc,
 		&i.IpAddress,
@@ -74,6 +77,7 @@ SELECT
     dd.model,
     d.org_id,
     d.serial_number,
+    d.mac_address,
     mc.username_enc,
     mc.password_enc,
     dd.ip_address,
@@ -96,6 +100,7 @@ type GetDeviceWithCredentialsAndIPByIDRow struct {
 	Model            sql.NullString
 	OrgID            int64
 	SerialNumber     sql.NullString
+	MacAddress       string
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
 	IpAddress        string
@@ -113,6 +118,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int6
 		&i.Model,
 		&i.OrgID,
 		&i.SerialNumber,
+		&i.MacAddress,
 		&i.UsernameEnc,
 		&i.PasswordEnc,
 		&i.IpAddress,

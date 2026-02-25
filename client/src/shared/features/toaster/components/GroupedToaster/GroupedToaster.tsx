@@ -125,10 +125,10 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
                 <div className="text-emphasis-300 text-text-primary">
                   {allCompleted
                     ? toasts.length === 1
-                      ? "Update complete"
+                      ? toasts[0].message
                       : `${toasts.length} updates complete`
                     : toasts.length === 1
-                      ? "Update in progress"
+                      ? toasts[0].message
                       : `${toasts.length} updates in progress`}
                 </div>
               </div>

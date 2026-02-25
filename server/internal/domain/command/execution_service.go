@@ -263,8 +263,11 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	}
 
 	if err != nil {
-		err = es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
-		return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v", err)
+		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
+		if markErr := es.messageQueue.MarkFailed(ctx, message.ID, err.Error()); markErr != nil {
+			return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v (original error: %v)", markErr, err)
+		}
+		return err
 	}
 	err = es.messageQueue.MarkSuccess(ctx, message.ID)
 	if err != nil {

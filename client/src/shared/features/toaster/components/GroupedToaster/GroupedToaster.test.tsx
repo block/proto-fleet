@@ -38,14 +38,14 @@ describe("Grouped toaster", () => {
   it("renders loading toast correctly", () => {
     const toasts = [{ id: 1, message: "Loading action", status: STATUSES.loading }];
 
-    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
+    const { getAllByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     let progress = getByTestId(headerProgress);
     expect(progress).toBeInTheDocument();
     expect(progress).toHaveClass("animate-spin");
     fireEvent.click(headerElement);
 
-    expect(getByText(toasts[0].message)).toBeInTheDocument();
+    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
     progress = getByTestId(loadingProgress);
     expect(progress).toBeInTheDocument();
     expect(progress).toHaveClass("animate-spin");
@@ -61,12 +61,12 @@ describe("Grouped toaster", () => {
       },
     ];
 
-    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
+    const { getAllByText, getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);
 
-    expect(getByText(toasts[0].message)).toBeInTheDocument();
+    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
     expect(getByText("50% complete")).toBeInTheDocument();
     expect(getByTestId(progressingProgress)).toBeInTheDocument();
   });
@@ -80,12 +80,12 @@ describe("Grouped toaster", () => {
       },
     ];
 
-    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
+    const { getAllByText, getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);
 
-    expect(getByText(toasts[0].message)).toBeInTheDocument();
+    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
     expect(getByText("Queued")).toBeInTheDocument();
     expect(getByTestId(queuedProgress)).toBeInTheDocument();
   });

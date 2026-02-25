@@ -11,6 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -29,6 +30,7 @@ type PluginMinerConfig struct {
 	DevicePort         string
 	DeviceScheme       string
 	DeviceSerialNumber string
+	MacAddress         string
 
 	// Credentials (encrypted)
 	DeviceUsername string // May be empty for Proto
@@ -38,6 +40,7 @@ type PluginMinerConfig struct {
 	// Services and dependencies
 	EncryptService   *encrypt.Service
 	TokenService     *token.Service // Required for Proto miners to generate JWT tokens
+	FilesService     *files.Service
 	GetOrgPrivateKey func(ctx context.Context, orgID int64) ([]byte, error)
 	DriverGetter     PluginDriverGetter
 }
@@ -79,6 +82,7 @@ func NewPluginMinerWithCredentials(
 		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,
 		SerialNumber: config.DeviceSerialNumber,
+		MacAddress:   config.MacAddress,
 		Type:         mappers.FleetTypeToSDKType(config.MinerType),
 	}
 
@@ -136,6 +140,10 @@ func NewPluginMinerWithCredentials(
 		}
 	}
 
+	if config.FilesService == nil {
+		return nil, fmt.Errorf("FilesService is required but was nil")
+	}
+
 	// Create the SDK device using the plugin driver
 	result, err := driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
 	if err != nil {
@@ -162,5 +170,6 @@ func NewPluginMinerWithCredentials(
 		*connectionInfo,
 		result.Device,
 		sdkDeviceInfo,
+		config.FilesService,
 	), nil
 }

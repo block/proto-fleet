@@ -81,6 +81,7 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 		deviceData.IpAddress,
 		deviceData.UrlScheme,
 		deviceData.SerialNumber.String,
+		deviceData.MacAddress,
 	)
 }
 
@@ -109,6 +110,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.IpAddress,
 		deviceData.UrlScheme,
 		deviceData.SerialNumber.String,
+		deviceData.MacAddress,
 	)
 }
 
@@ -126,7 +128,7 @@ func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) 
 	return privateKey, nil
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
 	// Parse device type using both type and model for disambiguation
 	minerType, err := models.TypeFromDeviceInfo(deviceType, deviceModel)
 	if err != nil {
@@ -135,14 +137,14 @@ func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgI
 
 	// Check if a plugin supports this miner type
 	if s.pluginManager != nil && s.pluginManager.HasPluginForMinerType(minerType) {
-		return s.createPluginMiner(ctx, deviceIdentifier, orgID, minerType, devicePort, deviceUsername, devicePassword, deviceIPAddress, deviceScheme, deviceSerialNumber)
+		return s.createPluginMiner(ctx, deviceIdentifier, orgID, minerType, devicePort, deviceUsername, devicePassword, deviceIPAddress, deviceScheme, deviceSerialNumber, macAddress)
 	}
 
 	// No built-in implementations available for this miner type
 	return nil, fmt.Errorf("no plugin available for miner type %s - please ensure the appropriate plugin is installed and loaded", minerType)
 }
 
-func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
 	// Use the plugin factory to create the miner - this encapsulates all SDK logic
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		DeviceIdentifier:   deviceIdentifier,
@@ -153,9 +155,11 @@ func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string
 		DeviceSerialNumber: deviceSerialNumber,
 		DeviceUsername:     deviceUsername,
 		DevicePassword:     devicePassword,
+		MacAddress:         macAddress,
 		OrgID:              orgID,
 		EncryptService:     s.encryptService,
 		TokenService:       s.tokenService,
+		FilesService:       s.filesService,
 		GetOrgPrivateKey:   s.getProtoMinerAuthPrivateKey,
 		DriverGetter:       s.pluginManager,
 	})

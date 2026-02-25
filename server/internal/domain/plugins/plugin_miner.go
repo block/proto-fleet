@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"net/url"
@@ -37,6 +38,12 @@ var _ interfaces.MinerInfo = &PluginMiner{}
 //   - Option 1: Add Close() to interfaces.Miner interface (breaking change)
 //   - Option 2: Track SDK devices in plugin manager and close them during shutdown
 //   - Option 3: Document that plugin processes handle cleanup on exit
+//
+// logSaver is the subset of files.Service used by PluginMiner.
+type logSaver interface {
+	SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error)
+}
+
 type PluginMiner struct {
 	orgID          int64
 	deviceID       models.DeviceIdentifier
@@ -45,6 +52,7 @@ type PluginMiner struct {
 	connectionInfo networking.ConnectionInfo
 	sdkDevice      sdk.Device
 	deviceInfo     sdk.DeviceInfo
+	filesService   logSaver
 }
 
 // NewPluginMiner creates a new PluginMiner wrapper around an SDK Device
@@ -56,6 +64,7 @@ func NewPluginMiner(
 	connectionInfo networking.ConnectionInfo,
 	sdkDevice sdk.Device,
 	deviceInfo sdk.DeviceInfo,
+	filesService logSaver,
 ) *PluginMiner {
 	return &PluginMiner{
 		orgID:          orgID,
@@ -65,6 +74,7 @@ func NewPluginMiner(
 		connectionInfo: connectionInfo,
 		sdkDevice:      sdkDevice,
 		deviceInfo:     deviceInfo,
+		filesService:   filesService,
 	}
 }
 
@@ -281,11 +291,127 @@ func (p *PluginMiner) BlinkLED(ctx context.Context) error {
 
 // DownloadLogs implements interfaces.Miner
 func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	_, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
+	logData, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
 	}
+	logLines := strings.Split(strings.TrimRight(logData, "\n"), "\n")
+
+	csvRows := formatLogsToCSV(logLines, p.deviceType == models.TypeProto)
+	if _, err := p.filesService.SaveLogs(batchLogUUID, p.deviceInfo.MacAddress, csvRows); err != nil {
+		return fleeterror.NewInternalErrorf("failed to save logs: %v", err)
+	}
 	return nil
+}
+
+const csvLogHeaderWithType = "Time,Type,Message"
+const csvLogHeaderNoType = "Time,Message"
+
+// logLevelSeparators maps the separator strings used in Proto miner log lines to their display label.
+// Format: "{prefix}: {timestamp} | LEVEL | {message}"
+var logLevelSeparators = []struct {
+	separator string
+	label     string
+}{
+	{" | ERROR | ", "ERROR"},
+	{" | WARN  | ", "WARN"},
+	{" | INFO  | ", "INFO"},
+	{" | DEBUG | ", "DEBUG"},
+}
+
+// formatLogsToCSV converts raw log lines into CSV rows.
+// When includeType is true, the header is "Time,Type,Message" (used for Proto miners that emit log levels).
+// When false, the header is "Time,Message" (used for Antminer logs that have no log level field).
+func formatLogsToCSV(logLines []string, includeType bool) []string {
+	header := csvLogHeaderWithType
+	if !includeType {
+		header = csvLogHeaderNoType
+	}
+	rows := make([]string, 0, len(logLines)+1)
+	rows = append(rows, header)
+	for _, line := range logLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		rows = append(rows, formatLogLineToCSVRow(line, includeType))
+	}
+	return rows
+}
+
+// formatLogLineToCSVRow parses a single log line into a CSV row.
+// Handles three formats:
+//   - Proto miner syslog with mcdd timestamp: "{syslog_prefix}: {mcdd_timestamp} | LEVEL | {message}"
+//   - Proto miner syslog without mcdd timestamp (BX firmware): "{syslog_prefix}: | LEVEL | {message}"
+//   - Proto miner bare timestamp: "{mcdd_timestamp} | LEVEL | {message}"
+//   - Antminer calendar timestamp: "[2026-01-01T00:00:00Z] message"
+//   - Antminer application log: "YYYY-MM-DD HH:MM:SS message"
+//   - Antminer kernel boot log: "[seconds_since_boot] message" — no wall-clock time, falls through
+//
+// Matches the parsing logic in the ProtoOS frontend utility.ts formatLog function.
+func formatLogLineToCSVRow(line string, includeType bool) string {
+	csvRow := func(ts, logType, message string) string {
+		esc := func(s string) string { return strings.ReplaceAll(s, `"`, `""`) }
+		if includeType {
+			return fmt.Sprintf(`"%s","%s","%s"`, esc(ts), esc(logType), esc(message))
+		}
+		return fmt.Sprintf(`"%s","%s"`, esc(ts), esc(message))
+	}
+
+	for _, level := range logLevelSeparators {
+		idx := strings.Index(line, level.separator)
+		if idx < 0 {
+			continue
+		}
+		prefix := line[:idx]
+		message := line[idx+len(level.separator):]
+
+		// Extract timestamp from the prefix.
+		// The level separator ` | LEVEL | ` includes a leading space, so the prefix ends just
+		// before that space (e.g. "...mcdd[664]:" with no trailing space).
+		//
+		// Three prefix shapes:
+		//   1. Syslog + mcdd timestamp: "Jun 14 16:01:58 miner mcdd[716]: 2024-06-14 16:01:58.470952"
+		//      → SplitN on ": " → parts[1] = "2024-06-14 16:01:58.470952"
+		//   2. Syslog only (BX firmware): "Feb 23 12:33:24 proto-miner-D202 mcdd[664]:"
+		//      → no ": " match → extract first 3 space-separated fields as syslog date/time
+		//   3. Bare mcdd timestamp: "2024-06-14 16:01:58.470952"
+		//      → no ": " match, < 3 fields → use full prefix
+		ts := prefix
+		if parts := strings.SplitN(prefix, ": ", 2); len(parts) == 2 {
+			ts = parts[1]
+		} else if fields := strings.Fields(prefix); len(fields) >= 3 {
+			ts = fields[0] + " " + fields[1] + " " + fields[2]
+		}
+		ts = strings.TrimSpace(ts)
+		if dotIdx := strings.Index(ts, "."); dotIdx >= 0 {
+			ts = ts[:dotIdx]
+		}
+
+		return csvRow(ts, level.label, message)
+	}
+
+	// Try [timestamp] message format used by Antminer kernel logs.
+	// Only treat bracketed content as a real calendar timestamp when it contains date
+	// separators ('T', '-', '/'). Bare numbers like "[258.894452@1]" are seconds-since-boot
+	// counters with no wall-clock date, so they fall through to the raw message catch-all.
+	if strings.HasPrefix(line, "[") {
+		if closeBracket := strings.Index(line, "]"); closeBracket > 0 {
+			potentialTS := strings.TrimSpace(line[1:closeBracket])
+			if strings.ContainsAny(potentialTS, "0123456789") && strings.ContainsAny(potentialTS, "T-/") {
+				message := strings.TrimPrefix(line[closeBracket+1:], " ")
+				return csvRow(potentialTS, "", message)
+			}
+		}
+	}
+
+	// Try "YYYY-MM-DD HH:MM:SS message" format used by Antminer application logs.
+	if len(line) > 19 && line[4] == '-' && line[7] == '-' && line[10] == ' ' && line[13] == ':' && line[16] == ':' {
+		timestamp := line[:19]
+		message := strings.TrimPrefix(line[19:], " ")
+		return csvRow(timestamp, "", message)
+	}
+
+	return csvRow("", "", line)
 }
 
 // FirmwareUpdate implements interfaces.Miner
