@@ -70,7 +70,7 @@ services:
     volumes:
       - timescaledb-data:/home/postgres/pgdata/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]
+      test: ["CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12

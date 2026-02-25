@@ -16,6 +16,13 @@ import (
 	"github.com/btc-mining/proto-fleet/server/migrations"
 )
 
+const (
+	connectionRetryMaxAttempts       = 10
+	connectionRetryInitialBackoff    = 500 * time.Millisecond
+	connectionRetryMaxBackoff        = 5 * time.Second
+	connectionRetryBackoffMultiplier = 2.0
+)
+
 // ConnectToDatabase establishes a connection to the database using the provided config.
 // Returns a sql.DB connection with configured connection pooling settings.
 func ConnectToDatabase(config *Config) (*sql.DB, error) {
@@ -31,16 +38,45 @@ func ConnectToDatabase(config *Config) (*sql.DB, error) {
 	return conn, nil
 }
 
-// verifyConnectionEstablished waits for the database connection to be established.
-func verifyConnectionEstablished(conn *sql.DB, config *Config) error {
-	ctx, cancel := context.WithTimeout(context.Background(), config.InitialConnectionTimeout)
-	defer cancel()
+// verifyConnectionEstablished retries pinging the database with exponential backoff
+// until a connection is established or max attempts are exhausted. This handles the
+// case where the application starts before the database is fully ready.
+func verifyConnectionEstablished(ctx context.Context, conn *sql.DB, config *Config) error {
+	var lastErr error
+	backoff := connectionRetryInitialBackoff
 
-	if err := conn.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+	for attempt := 1; attempt <= connectionRetryMaxAttempts; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, config.InitialConnectionTimeout)
+		lastErr = conn.PingContext(pingCtx)
+		cancel()
+
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt == connectionRetryMaxAttempts {
+			break
+		}
+
+		slog.Warn("database not ready, retrying",
+			"attempt", attempt,
+			"max_attempts", connectionRetryMaxAttempts,
+			"retry_in", backoff,
+			"error", lastErr)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("cancelled while waiting for database: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+
+		backoff = time.Duration(float64(backoff) * connectionRetryBackoffMultiplier)
+		if backoff > connectionRetryMaxBackoff {
+			backoff = connectionRetryMaxBackoff
+		}
 	}
 
-	return nil
+	return fmt.Errorf("failed to ping database after %d attempts: %w", connectionRetryMaxAttempts, lastErr)
 }
 
 // ConnectAndMigrate connects to the database and runs all pending migrations.
@@ -61,7 +97,7 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 		}
 	}()
 
-	err = verifyConnectionEstablished(connection, config)
+	err = verifyConnectionEstablished(context.Background(), connection, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify database connection: %w", err)
 	}

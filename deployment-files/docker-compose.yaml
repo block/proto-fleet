@@ -64,7 +64,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet}",
+          "psql -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet} -c 'SELECT 1' > /dev/null 2>&1",
         ]
       interval: 10s
       timeout: 10s
