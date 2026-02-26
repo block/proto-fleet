@@ -28,6 +28,8 @@ const (
 	// Queries between 1 day and 10 days use hourly aggregates
 	hourlyMaxDuration = 10 * 24 * time.Hour
 	// Queries > 10 days use daily aggregates
+	hourlyBucketDuration = time.Hour
+	dailyBucketDuration  = 24 * time.Hour
 )
 
 // dataSource represents which table to query from based on time range
@@ -65,6 +67,17 @@ func selectDataSource(startTime, endTime *time.Time) dataSource {
 		return dataSourceHourly
 	}
 	return dataSourceDaily
+}
+
+// normalizeCompleteBucketRange returns a query range that only includes complete buckets.
+// The SQL queries filter using `bucket <= end`, where `bucket` is the bucket start time.
+// To exclude an in-progress last bucket, shift the end time back by one full bucket.
+func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration time.Duration) (time.Time, time.Time, bool) {
+	completeEndTime := endTime.Add(-bucketDuration)
+	if completeEndTime.Before(startTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	return startTime, completeEndTime, true
 }
 
 // statusData holds temperature histogram and uptime data extracted from aggregate rows.
@@ -560,6 +573,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	defer cancel()
 
 	startTime, endTime := s.getTimeRange(query.TimeRange)
+	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
+	if !hasCompleteBucket {
+		return models.CombinedMetric{}, nil
+	}
 
 	var rows []sqlc.DeviceMetricsHourly
 	var err error
@@ -604,6 +621,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	defer cancel()
 
 	startTime, endTime := s.getTimeRange(query.TimeRange)
+	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
+	if !hasCompleteBucket {
+		return models.CombinedMetric{}, nil
+	}
 
 	var rows []sqlc.DeviceMetricsDaily
 	var err error
