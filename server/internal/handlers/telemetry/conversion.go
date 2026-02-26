@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -238,6 +239,19 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 	}, nil
 }
 
+// TODO(briano): implement long-term solution to prevent NaN (see DASH-1316)
+
+// sanitizeFloat64 replaces NaN and Inf with zero at the protobuf serialization boundary.
+// PostgreSQL can store NaN as DOUBLE PRECISION, and COALESCE(NaN, 0) returns NaN (NaN is
+// not NULL). A single NaN in device_metrics poisons the entire CAGG bucket via AVG(), and
+// flows unchecked through the Go aggregation layer to the protobuf response.
+func sanitizeFloat64(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
+}
+
 func convertMetricsToProto(domainMetrics []models.Metric) ([]*telemetryv1.Metric, error) {
 	metrics := make([]*telemetryv1.Metric, len(domainMetrics))
 
@@ -255,7 +269,7 @@ func convertMetricsToProto(domainMetrics []models.Metric) ([]*telemetryv1.Metric
 			}
 
 			// Convert raw storage units to display units (H/s → TH/s, W → kW, J/H → J/TH)
-			displayValue := models.ConvertToDisplayUnits(aggValue.Value, metric.MeasurementType)
+			displayValue := sanitizeFloat64(models.ConvertToDisplayUnits(aggValue.Value, metric.MeasurementType))
 
 			aggregatedValues[j] = &telemetryv1.AggregatedValue{
 				AggregationType: aggregationType,
