@@ -31,6 +31,7 @@ import FleetWordmark from "./FleetWordmark";
 import Globe from "./Globe";
 import Graph from "./Graph";
 import Grip from "./Grip";
+import Groups from "./Groups";
 import Hashboard from "./Hashboard";
 import HashboardIndicator from "./HashboardIndicator";
 import HashboardIndicatorV2 from "./HashboardIndicatorV2";
@@ -110,6 +111,7 @@ export {
   Globe,
   Graph,
   Grip,
+  Groups,
   Hashboard,
   HashboardIndicator,
   HashboardIndicatorV2,
