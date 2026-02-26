@@ -8,7 +8,6 @@ export const Dialog = () => {
     <DialogComponent
       title="Title"
       subtitle="Description"
-      show
       buttons={[
         {
           text: "Secondary",
@@ -26,11 +25,11 @@ export const Dialog = () => {
 };
 
 export const LoadingDialog = () => {
-  return <DialogComponent title="Connecting to your mining pool" subtitle="This may take a few seconds" loading show />;
+  return <DialogComponent title="Connecting to your mining pool" subtitle="This may take a few seconds" loading />;
 };
 
 export const IconDialog = () => {
-  return <DialogComponent title="Title" subtitle="Description" show icon={<SettingsSolid />} />;
+  return <DialogComponent title="Title" subtitle="Description" icon={<SettingsSolid />} />;
 };
 
 export default {

@@ -3,21 +3,21 @@ import { groupVariants } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 
 interface NoFansDetectedDialogProps {
-  show: boolean;
   onUseAirCooling: () => void;
   onConfirmImmersionCooling: () => void;
   loading?: boolean;
+  open?: boolean;
 }
 
 const NoFansDetectedDialog = ({
-  show,
   onUseAirCooling,
   onConfirmImmersionCooling,
   loading,
+  open,
 }: NoFansDetectedDialogProps) => {
   return (
     <Dialog
-      show={show}
+      open={open}
       title="No fans detected"
       subtitle="No fans are detected for this miner, will it be configured to use immersion cooling?"
       titleSize="text-heading-300"

@@ -3,6 +3,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MiningPoolPage from "./MiningPool";
 
+vi.mock("motion/react", () => ({
+  motion: {
+    div: ({ children, ...props }: React.ComponentProps<"div">) => <div {...props}>{children}</div>,
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 // Mock the navigate function
 const mockNavigate = vi.fn();
 vi.mock("@/shared/hooks/useNavigate", () => ({
@@ -66,8 +73,8 @@ vi.mock("@/protoOS/components/OnboardingSettingUp", () => ({
 }));
 
 vi.mock("@/shared/components/MiningPools/WarnBackupPoolDialog", () => ({
-  WarnBackupPoolDialog: ({ show }: { show: boolean }) =>
-    show ? <div data-testid="warn-backup-pool-dialog">Warn Backup Pool Dialog</div> : null,
+  WarnBackupPoolDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="warn-backup-pool-dialog">Warn Backup Pool Dialog</div> : null,
 }));
 
 vi.mock("@/shared/components/MiningPools/WarnDefaultPoolCallout", () => ({
@@ -77,15 +84,15 @@ vi.mock("@/shared/components/MiningPools/WarnDefaultPoolCallout", () => ({
 
 vi.mock("@/protoOS/features/onboarding/components/NoFansDetectedDialog", () => ({
   default: ({
-    show,
+    open,
     onUseAirCooling,
     onConfirmImmersionCooling,
   }: {
-    show: boolean;
+    open: boolean;
     onUseAirCooling: () => void;
     onConfirmImmersionCooling: () => void;
   }) =>
-    show ? (
+    open ? (
       <div data-testid="no-fans-dialog">
         <button onClick={onUseAirCooling}>Use air cooling</button>
         <button onClick={onConfirmImmersionCooling}>Confirm immersion cooling</button>

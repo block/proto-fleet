@@ -649,7 +649,7 @@ describe("useMinerActions", () => {
       });
 
       // Unsupported miners modal should be shown
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
 
       // Continue with supported miners only
@@ -1278,7 +1278,7 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.totalUnsupportedCount).toBe(2);
       expect(result.current.unsupportedMinersInfo.noneSupported).toBe(false);
       expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
@@ -1314,7 +1314,7 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.noneSupported).toBe(true);
       expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual([]);
       expect(result.current.currentAction).toBeNull();
@@ -1349,7 +1349,7 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.currentAction).toBeNull();
     });
 
@@ -1386,14 +1386,14 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
 
       await act(async () => {
         result.current.handleUnsupportedMinersContinue();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
       // Verify reboot was called
       expect(mockReboot).toHaveBeenCalled();
       // Verify batch operation was started with only the supported device identifier
@@ -1436,13 +1436,13 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
 
       act(() => {
         result.current.handleUnsupportedMinersDismiss();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
       expect(result.current.currentAction).toBeNull();
       expect(onActionComplete).toHaveBeenCalled();
     });
@@ -1476,7 +1476,7 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
       expect(result.current.currentAction).toBe(deviceActions.reboot);
     });
 
@@ -1501,7 +1501,7 @@ describe("useMinerActions", () => {
         await rebootAction?.actionHandler();
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
       expect(result.current.currentAction).toBe(deviceActions.reboot);
     });
   });
@@ -1792,7 +1792,7 @@ describe("useMinerActions", () => {
       });
 
       // Unsupported miners modal should be shown
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
 
       // Continue with supported miners only
@@ -1870,7 +1870,7 @@ describe("useMinerActions", () => {
       });
 
       // Should show auth modal directly (no unsupported miners modal)
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
       expect(result.current.showAuthenticateFleetModal).toBe(true);
       expect(result.current.poolFilteredDeviceIds).toBeUndefined();
     });
@@ -2247,13 +2247,13 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.unsupportedMinersInfo.show).toBe(false);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
 
       await act(async () => {
         await result.current.handleFleetAuthenticated("testuser", "testpass");
       });
 
-      expect(result.current.unsupportedMinersInfo.show).toBe(true);
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
       expect(result.current.unsupportedMinersInfo.totalUnsupportedCount).toBe(1);
       expect(result.current.unsupportedMinersInfo.noneSupported).toBe(false);
       expect(result.current.showManageSecurityModal).toBe(false);

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import { Copy, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -8,19 +8,34 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
 interface AddTeamMemberModalProps {
+  open?: boolean;
   onDismiss: () => void;
   onSuccess: () => void;
 }
 
 type ModalStep = "enterUsername" | "displayPassword";
 
-const AddTeamMemberModal = ({ onDismiss, onSuccess }: AddTeamMemberModalProps) => {
+const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalProps) => {
+  const isVisible = open ?? true;
   const { createUser } = useUserManagement();
   const [step, setStep] = useState<ModalStep>("enterUsername");
   const [username, setUsername] = useState("");
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (isVisible) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
+    setStep("enterUsername");
+    setUsername("");
+    setTemporaryPassword("");
+    setIsSubmitting(false);
+    setErrorMsg("");
+  }, [isVisible]);
 
   const handleCreateUser = useCallback(() => {
     if (!username.trim()) {
@@ -74,6 +89,7 @@ const AddTeamMemberModal = ({ onDismiss, onSuccess }: AddTeamMemberModalProps) =
   if (step === "enterUsername") {
     return (
       <Modal
+        open={isVisible}
         onDismiss={onDismiss}
         size="small"
         contentHeader="Add team member"
@@ -114,7 +130,7 @@ const AddTeamMemberModal = ({ onDismiss, onSuccess }: AddTeamMemberModalProps) =
   }
 
   return (
-    <Modal onDismiss={handleDone} size="small" showHeader={false}>
+    <Modal open={isVisible} onDismiss={handleDone} size="small" showHeader={false}>
       <div className="flex flex-col gap-6 py-6">
         <div className="flex items-start">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-intent-success-10">

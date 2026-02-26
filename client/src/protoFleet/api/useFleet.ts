@@ -13,6 +13,12 @@ import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/pro
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type UseFleetOptions = {
+  /**
+   * Enables data fetching and streaming.
+   * When false, this hook stays idle.
+   * @default true
+   */
+  enabled?: boolean;
   filter?: MinerListFilter;
   /**
    * Sort configuration for ordering miners.
@@ -72,6 +78,7 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
  */
 const useFleet = (options: UseFleetOptions = {}) => {
   const {
+    enabled = true,
     filter,
     sort,
     pageSize = 20,
@@ -114,6 +121,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
       fetchedPage?: number,
       isRefresh: boolean = false,
     ) => {
+      if (!enabled) {
+        return;
+      }
+
       setIsLoading(true);
 
       // Reset initial load flag when fetching page 0 (but not for polling refreshes)
@@ -197,7 +208,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         }
       }
     },
-    [pairingStatuses, pageSize, scope, handleAuthErrors],
+    [enabled, pairingStatuses, pageSize, scope, handleAuthErrors],
   );
 
   // Store fetchMinerList in a ref to avoid dependency issues
@@ -251,18 +262,25 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Stable loadMore callback - uses refs to avoid recreating on state changes
   const loadMore = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
+
     if (hasMoreRef.current && !isLoadingRef.current) {
       // Fetch next page - use refs to get current values
       fetchMinerListRef.current(filterRef.current, sortRef.current, cursorRef.current);
     }
-  }, []);
+  }, [enabled]);
 
-  const goToPage = useCallback((targetPage: number) => {
-    if (isLoadingRef.current) return;
-    const cursor = cursorHistoryRef.current[targetPage];
-    setCurrentPage(targetPage);
-    fetchMinerListRef.current(filterRef.current, sortRef.current, cursor, targetPage);
-  }, []);
+  const goToPage = useCallback(
+    (targetPage: number) => {
+      if (!enabled || isLoadingRef.current) return;
+      const cursor = cursorHistoryRef.current[targetPage];
+      setCurrentPage(targetPage);
+      fetchMinerListRef.current(filterRef.current, sortRef.current, cursor, targetPage);
+    },
+    [enabled],
+  );
 
   const goToNextPage = useCallback(() => {
     if (!hasMoreRef.current) return;
@@ -277,13 +295,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
   // Stable refetch callback - uses refs to avoid recreating on state changes
   // This resets to page 0 - use for filter/sort changes
   const refetch = useCallback(() => {
-    if (!isLoadingRef.current) {
-      // Reset pagination and start fresh
-      setCurrentPage(0);
-      setCursorHistory([undefined]);
-      fetchMinerListRef.current(filterRef.current, sortRef.current, undefined, 0);
+    if (!enabled || isLoadingRef.current) {
+      return;
     }
-  }, []);
+
+    // Reset pagination and start fresh
+    setCurrentPage(0);
+    setCursorHistory([undefined]);
+    fetchMinerListRef.current(filterRef.current, sortRef.current, undefined, 0);
+  }, [enabled]);
 
   // Refresh current page without resetting pagination - use for polling
   const refreshCurrentPage = useCallback(() => {
@@ -295,7 +315,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Set up refetch callback for the store (only for global scope)
   useEffect(() => {
-    if (scope !== "global") {
+    if (scope !== "global" || !enabled) {
       return;
     }
 
@@ -304,15 +324,23 @@ const useFleet = (options: UseFleetOptions = {}) => {
     return () => {
       useFleetStore.getState().fleet.setRefetchCallback(undefined);
     };
-  }, [refetch, scope]);
+  }, [enabled, refetch, scope]);
 
   // Track if this is the initial load and previous filter/sort
   const hasLoadedRef = useRef(false);
+  const wasEnabledRef = useRef(enabled);
   const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
   const previousSortRef = useRef<MinerSortConfig | undefined>(undefined);
 
   // Fetch data when filter or sort changes
   useEffect(() => {
+    if (!enabled) {
+      wasEnabledRef.current = false;
+      return;
+    }
+
+    const wasDisabled = !wasEnabledRef.current;
+
     // Check if filter actually changed using protobuf deep equality
     const filtersEqual =
       previousFilterRef.current === filter || // Both undefined or same reference
@@ -330,7 +358,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     const filterChanged = !filtersEqual;
     const sortChanged = !sortsEqual;
 
-    if (hasLoadedRef.current && !filterChanged && !sortChanged) {
+    if (hasLoadedRef.current && !filterChanged && !sortChanged && !wasDisabled) {
       return; // Skip if not first load and neither filter nor sort has changed
     }
 
@@ -338,6 +366,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     previousFilterRef.current = filter;
     previousSortRef.current = sort;
     hasLoadedRef.current = true;
+    wasEnabledRef.current = true;
 
     // Reset cursor and pagination for new filter or sort
     if (filterChanged || sortChanged) {
@@ -348,7 +377,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
     // Fetch with filter and sort
     void fetchMinerListRef.current(filter, sort, undefined, 0);
-  }, [filter, sort]);
+  }, [enabled, filter, sort]);
 
   return {
     minerIds,

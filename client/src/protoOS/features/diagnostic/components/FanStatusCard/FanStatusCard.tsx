@@ -42,17 +42,15 @@ function FanStatusCard({ slot }: FanStatusCardProps) {
           <FanValue value={pwm} type="pwm" />
         </div>
       </div>
-      {showComponentStatusModal && (
-        <StatusModal
-          show={showComponentStatusModal}
-          onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "FAN",
-            slot: slot,
-          }}
-          showBackButton={false}
-        />
-      )}
+      <StatusModal
+        open={showComponentStatusModal}
+        onClose={() => setShowComponentStatusModal(false)}
+        componentAddress={{
+          source: "FAN",
+          slot: slot,
+        }}
+        showBackButton={false}
+      />
     </Card>
   );
 }

@@ -77,8 +77,6 @@ const BulkActionsWidget = <ActionType extends Key>({
     onUnsupportedMinersContinue?.();
   }, [onUnsupportedMinersContinue]);
 
-  const showUnsupportedMinersModal = unsupportedMinersInfo && onUnsupportedMinersContinue && onUnsupportedMinersDismiss;
-
   return (
     <div className="relative" ref={triggerRef}>
       <Button
@@ -103,25 +101,25 @@ const BulkActionsWidget = <ActionType extends Key>({
         {buttonTitle}
       </Button>
       {isOpen && renderPopover(handleAction)}
-      {/* Unsupported miners modal - shown when some or all miners don't support the action */}
-      {showUnsupportedMinersModal && (
-        <UnsupportedMinersModal
-          {...unsupportedMinersInfo}
-          onContinue={handleUnsupportedMinersContinue}
-          onDismiss={onUnsupportedMinersDismiss}
-        />
-      )}
+      <UnsupportedMinersModal
+        open={!!onUnsupportedMinersDismiss && (unsupportedMinersInfo?.visible ?? false)}
+        unsupportedGroups={unsupportedMinersInfo?.unsupportedGroups ?? []}
+        totalUnsupportedCount={unsupportedMinersInfo?.totalUnsupportedCount ?? 0}
+        noneSupported={unsupportedMinersInfo?.noneSupported ?? false}
+        onContinue={handleUnsupportedMinersContinue}
+        onDismiss={onUnsupportedMinersDismiss ?? onCancel}
+      />
       {/* Confirmation dialog - shown when all miners support the action */}
       {actions
         .filter((action) => action.requiresConfirmation)
         .map((action) => {
           if (action.confirmation === undefined) return null;
-          const showDialog = currentAction === action.action && showWarnDialog && !unsupportedMinersInfo?.show;
+          const showDialog = currentAction === action.action && showWarnDialog && !unsupportedMinersInfo?.visible;
           return (
             <BulkActionConfirmDialog
               key={action.action}
+              open={showDialog}
               actionConfirmation={action.confirmation}
-              show={showDialog}
               onConfirmation={handleConfirmation}
               onCancel={handleCancel}
               testId={testId + "-dialog"}

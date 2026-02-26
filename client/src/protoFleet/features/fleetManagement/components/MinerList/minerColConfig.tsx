@@ -13,9 +13,17 @@ import MinerTemperature from "./MinerTemperature";
 import { type DeviceListItem } from "./types";
 import { type ColConfig } from "@/shared/components/List/types";
 
-const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
+type CreateMinerColConfigParams = {
+  onOpenStatusFlow: (deviceIdentifier: string) => void;
+};
+
+const createMinerColConfig = ({
+  onOpenStatusFlow,
+}: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
-    component: (device: DeviceListItem) => <MinerName deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => (
+      <MinerName deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
+    ),
     width: "min-w-20",
   },
   [minerCols.model]: {
@@ -32,12 +40,18 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
   },
   [minerCols.status]: {
     component: (device: DeviceListItem, selectedItems: string[]) => (
-      <MinerStatusCell deviceIdentifier={device.deviceIdentifier} selectedItems={selectedItems} />
+      <MinerStatusCell
+        deviceIdentifier={device.deviceIdentifier}
+        selectedItems={selectedItems}
+        onOpenStatusFlow={onOpenStatusFlow}
+      />
     ),
     width: "min-w-48",
   },
   [minerCols.issues]: {
-    component: (device: DeviceListItem) => <MinerIssuesCell deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => (
+      <MinerIssuesCell deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
+    ),
     width: "min-w-48",
   },
   [minerCols.hashrate]: {
@@ -60,6 +74,6 @@ const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
     component: (device: DeviceListItem) => <MinerFirmware deviceIdentifier={device.deviceIdentifier} />,
     width: "min-w-28",
   },
-};
+});
 
-export default minerColConfig;
+export default createMinerColConfig;

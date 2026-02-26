@@ -71,13 +71,13 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
           />
         </div>
       )}
-      <WakingDialog show={shouldWake} />
+      <WakingDialog open={shouldWake} />
 
       <FansDetectedDialog
+        open={showFansDetectedDialog}
         onContinue={handleContinue}
         onSwitchToAirCooled={handleSwitchToAirCooled}
         isLoading={isUpdatingCooling}
-        show={showFansDetectedDialog}
       />
     </>
   );

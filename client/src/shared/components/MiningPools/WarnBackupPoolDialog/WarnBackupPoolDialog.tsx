@@ -5,13 +5,13 @@ import Dialog from "@/shared/components/Dialog";
 interface WarnBackupPoolDialogProps {
   onAddBackupPool: () => void;
   onContinueWithoutBackup: () => void;
-  show: boolean;
+  open?: boolean;
 }
 
-const WarnBackupPoolDialog = ({ onAddBackupPool, onContinueWithoutBackup, show }: WarnBackupPoolDialogProps) => {
+const WarnBackupPoolDialog = ({ onAddBackupPool, onContinueWithoutBackup, open }: WarnBackupPoolDialogProps) => {
   return (
     <Dialog
-      show={show}
+      open={open}
       title="Continue without a backup pool?"
       subtitle="Adding a backup pool will help this miner keep mining if your default pool fails."
       titleSize="text-heading-200"

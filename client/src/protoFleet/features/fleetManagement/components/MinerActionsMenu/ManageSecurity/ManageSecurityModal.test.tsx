@@ -46,7 +46,7 @@ vi.mock("@/shared/components/Header", () => ({
 }));
 
 vi.mock("@/shared/components/PageOverlay", () => ({
-  default: vi.fn(({ show, children }) => (show ? <div data-testid="page-overlay">{children}</div> : null)),
+  default: vi.fn(({ open, children }) => (open ? <div data-testid="page-overlay">{children}</div> : null)),
 }));
 
 vi.mock("@/shared/components/Row", () => ({
@@ -79,10 +79,10 @@ describe("ManageSecurityModal", () => {
   });
 
   describe("Visibility", () => {
-    it("renders when show is true", () => {
+    it("renders when open is true", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({})]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -92,10 +92,10 @@ describe("ManageSecurityModal", () => {
       expect(screen.getByTestId("page-overlay")).toBeInTheDocument();
     });
 
-    it("does not render when show is false", () => {
+    it("does not render when open is false", () => {
       render(
         <ManageSecurityModal
-          show={false}
+          open={false}
           minerGroups={[makeGroup({})]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -114,7 +114,7 @@ describe("ManageSecurityModal", () => {
       ];
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={groups}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -134,7 +134,7 @@ describe("ManageSecurityModal", () => {
       ];
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={groups}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -152,7 +152,7 @@ describe("ManageSecurityModal", () => {
     it("shows LogoAlt icon for proto rig with pending status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ manufacturer: "proto", status: "pending" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -165,7 +165,7 @@ describe("ManageSecurityModal", () => {
     it("shows Fleet icon for non-proto miner with pending status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ manufacturer: "bitmain", status: "pending" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -178,7 +178,7 @@ describe("ManageSecurityModal", () => {
     it("shows Success icon when status is updated, regardless of manufacturer", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ manufacturer: "bitmain", status: "updated" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -192,7 +192,7 @@ describe("ManageSecurityModal", () => {
     it("shows Success icon for proto rig when status is updated", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ manufacturer: "proto", status: "updated" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -208,7 +208,7 @@ describe("ManageSecurityModal", () => {
     it("shows Update button for pending status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ status: "pending" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -221,7 +221,7 @@ describe("ManageSecurityModal", () => {
     it("shows Update button for failed status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ status: "failed" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -234,7 +234,7 @@ describe("ManageSecurityModal", () => {
     it("shows Update button in loading state for loading status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ status: "loading" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -248,7 +248,7 @@ describe("ManageSecurityModal", () => {
     it("shows no action button for updated status", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ status: "updated" })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -264,7 +264,7 @@ describe("ManageSecurityModal", () => {
       const group = makeGroup({ status: "pending", name: "Antminer S19", manufacturer: "bitmain" });
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[group]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -278,7 +278,7 @@ describe("ManageSecurityModal", () => {
     it("calls onDone when the Done header button is clicked", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({})]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -292,7 +292,7 @@ describe("ManageSecurityModal", () => {
     it("calls onDismiss when the dismiss icon is clicked", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({})]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -308,7 +308,7 @@ describe("ManageSecurityModal", () => {
     it("shows plural 'miners' for count greater than 1", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ count: 5 })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -321,7 +321,7 @@ describe("ManageSecurityModal", () => {
     it("shows singular 'miner' for count of 1", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[makeGroup({ count: 1 })]}
           onUpdateGroup={mockOnUpdateGroup}
           onDismiss={mockOnDismiss}
@@ -336,7 +336,7 @@ describe("ManageSecurityModal", () => {
     it("renders dividers between groups but not after the last one", () => {
       render(
         <ManageSecurityModal
-          show={true}
+          open={true}
           minerGroups={[
             makeGroup({ model: "Proto Rig", manufacturer: "proto" }),
             makeGroup({ name: "Antminer S19", model: "S19", manufacturer: "bitmain" }),

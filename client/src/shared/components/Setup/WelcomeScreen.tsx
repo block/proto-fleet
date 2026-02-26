@@ -139,33 +139,32 @@ const WelcomeFlow = ({
           </div>
         </div>
       )}
-      {noMinersFound && (
-        <Modal
-          title="No Proto miners found"
-          description="Ensure that your miner is plugged in with blinking LEDs and that
-              it is connected to the network shown below."
-          showHeader={false}
-          size="small"
-        >
-          <div className="py-4">
-            {/*TODO we dont have network name*/}
-            <NetworkInfo ipAddress={ipAddress ?? ""} networkName={networkName ?? ""} />
-          </div>
-          <div className="flex flex-col gap-3">
-            <Button onClick={handleRetry} variant="primary" size="base" className="w-full">
-              Retry search
-            </Button>
-            <Button
-              // TODO: Add support contact functionality
-              variant="secondary"
-              size="base"
-              className="w-full"
-            >
-              Contact support
-            </Button>
-          </div>
-        </Modal>
-      )}
+      <Modal
+        open={noMinersFound}
+        title="No Proto miners found"
+        description="Ensure that your miner is plugged in with blinking LEDs and that
+                it is connected to the network shown below."
+        showHeader={false}
+        size="small"
+      >
+        <div className="py-4">
+          {/*TODO we dont have network name*/}
+          <NetworkInfo ipAddress={ipAddress ?? ""} networkName={networkName ?? ""} />
+        </div>
+        <div className="flex flex-col gap-3">
+          <Button onClick={handleRetry} variant="primary" size="base" className="w-full">
+            Retry search
+          </Button>
+          <Button
+            // TODO: Add support contact functionality
+            variant="secondary"
+            size="base"
+            className="w-full"
+          >
+            Contact support
+          </Button>
+        </div>
+      </Modal>
     </>
   );
 };

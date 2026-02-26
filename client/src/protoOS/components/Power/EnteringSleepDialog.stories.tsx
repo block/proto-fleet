@@ -1,7 +1,7 @@
 import EnteringSleepDialog from "./EnteringSleepDialog";
 
 export const Default = () => {
-  return <EnteringSleepDialog show={true} />;
+  return <EnteringSleepDialog />;
 };
 
 export default {

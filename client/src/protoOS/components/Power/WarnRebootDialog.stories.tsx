@@ -2,7 +2,7 @@ import { action } from "storybook/actions";
 import WarnRebootDialogComponent from "./WarnRebootDialog";
 
 export const WarnRebootDialog = () => {
-  return <WarnRebootDialogComponent show={true} onClose={action("close dialog")} onSubmit={action("submit dialog")} />;
+  return <WarnRebootDialogComponent onClose={action("close dialog")} onSubmit={action("submit dialog")} />;
 };
 
 export default {

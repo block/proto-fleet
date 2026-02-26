@@ -152,7 +152,7 @@ const Miners = ({
 
   return (
     <div className="h-[calc(100vh-theme(spacing.1)*15)] p-6 sm:p-10">
-      <Dialog title="Pairing the found miners" subtitle="This may take a few seconds" loading show={pairingPending} />
+      <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
 
       {mode === "onboarding" && (
         <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20 dark:bg-core-primary-5">
@@ -174,214 +174,204 @@ const Miners = ({
         </div>
       )}
 
-      {(mode === "pairing" || showModal) && (
-        <PageOverlay show zIndex="z-50">
-          <div className="h-full w-full overflow-auto bg-surface-base p-6">
-            <Header
-              className="sticky top-0 z-10 pb-14"
-              title="Add miners"
-              titleSize="text-heading-200"
-              icon={<Dismiss />}
-              iconOnClick={
-                pairingPending
-                  ? undefined
-                  : () => {
-                      handleScanCancel();
-                      setActiveStep("findMiners");
-                      setShowModal(false);
-                    }
-              }
-              inline
-              buttonSize={sizes.base}
-              buttons={
-                showLoadingSkeleton
-                  ? []
-                  : [
-                      {
-                        variant: variants.secondary,
-                        onClick: () => {
-                          setDeselectedMiners([]);
-                          onRescan();
-                        },
-                        text: discoveryPending ? "Scanning" : "Rescan network",
-                        disabled: pairingPending || discoveryPending,
-                        loading: discoveryPending,
-                        className: clsx({
-                          hidden: activeStep !== "pairing",
-                        }),
-                      },
-                      {
-                        variant: variants.secondary,
-                        onClick: () => {
-                          setShowFoundMinersModal(true);
-                        },
-                        text: "Choose miners",
-                        disabled: pairingPending,
-                        className: clsx({
-                          hidden: activeStep !== "pairing" || foundMiners.length <= 1,
-                        }),
-                      },
-                      {
-                        variant: variants.primary,
-                        loading: pairingPending,
-                        onClick: () => {
-                          const selectedMinerIdentifiers = foundMiners
-                            .filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier))
-                            .map((miner) => miner.deviceIdentifier);
-                          onContinue(selectedMinerIdentifiers);
-                        },
-                        disabled: pairingPending || foundMiners.length === deselectedMiners.length,
-                        text: pairingPending
-                          ? `Adding ${foundMiners.length - deselectedMiners.length} miners...`
-                          : `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
-                        className: clsx({
-                          hidden: activeStep !== "pairing" || foundMiners.length === 0,
-                        }),
-                      },
-                    ]
-              }
-            />
-            {activeStep === "findMiners" && (
-              <div className="mx-auto max-w-4xl">
-                <Header
-                  title="Miners"
-                  description={
-                    <>
-                      <p>
-                        Scan your network or provide miner IP addresses and hostnames to find miners to add to your
-                        fleet.
-                      </p>
-                      <p>Note that you can add more miners and adjust security settings after setup.</p>
-                    </>
+      <PageOverlay open={mode === "pairing" || showModal} zIndex="z-50">
+        <div className="h-full w-full overflow-auto bg-surface-base p-6">
+          <Header
+            className="sticky top-0 z-10 pb-14"
+            title="Add miners"
+            titleSize="text-heading-200"
+            icon={<Dismiss />}
+            iconOnClick={
+              pairingPending
+                ? undefined
+                : () => {
+                    handleScanCancel();
+                    setActiveStep("findMiners");
+                    setShowModal(false);
                   }
-                  titleSize="text-heading-300"
-                  inline
-                />
-
-                <div
-                  className="my-6 flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
-                  data-testid="section-scan-network"
-                >
-                  <Header
-                    inline
-                    title="Scan your network"
-                    titleSize="text-heading-200"
-                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
-                  />
-                  <div>
-                    <Button
-                      variant={variants.primary}
-                      onClick={() => {
+            }
+            inline
+            buttonSize={sizes.base}
+            buttons={
+              showLoadingSkeleton
+                ? []
+                : [
+                    {
+                      variant: variants.secondary,
+                      onClick: () => {
                         setDeselectedMiners([]);
-                        setActiveStep("pairing");
                         onRescan();
-                      }}
-                      size={sizes.base}
-                      loading={scanDiscoveryPending || !networkInfoReady}
-                      disabled={!networkInfoReady}
-                    >
-                      Find miners
-                    </Button>
-                  </div>
-                </div>
+                      },
+                      text: discoveryPending ? "Scanning" : "Rescan network",
+                      disabled: pairingPending || discoveryPending,
+                      loading: discoveryPending,
+                      className: clsx({
+                        hidden: activeStep !== "pairing",
+                      }),
+                    },
+                    {
+                      variant: variants.secondary,
+                      onClick: () => {
+                        setShowFoundMinersModal(true);
+                      },
+                      text: "Choose miners",
+                      disabled: pairingPending,
+                      className: clsx({
+                        hidden: activeStep !== "pairing" || foundMiners.length <= 1,
+                      }),
+                    },
+                    {
+                      variant: variants.primary,
+                      loading: pairingPending,
+                      onClick: () => {
+                        const selectedMinerIdentifiers = foundMiners
+                          .filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier))
+                          .map((miner) => miner.deviceIdentifier);
+                        onContinue(selectedMinerIdentifiers);
+                      },
+                      disabled: pairingPending || foundMiners.length === deselectedMiners.length,
+                      text: pairingPending
+                        ? `Adding ${foundMiners.length - deselectedMiners.length} miners...`
+                        : `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
+                      className: clsx({
+                        hidden: activeStep !== "pairing" || foundMiners.length === 0,
+                      }),
+                    },
+                  ]
+            }
+          />
+          {activeStep === "findMiners" && (
+            <div className="mx-auto max-w-4xl">
+              <Header
+                title="Miners"
+                description={
+                  <>
+                    <p>
+                      Scan your network or provide miner IP addresses and hostnames to find miners to add to your fleet.
+                    </p>
+                    <p>Note that you can add more miners and adjust security settings after setup.</p>
+                  </>
+                }
+                titleSize="text-heading-300"
+                inline
+              />
 
-                <div
-                  className="flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
-                  data-testid="section-search-by-ip"
-                >
-                  <Header
-                    inline
-                    title="Enter network info manually"
-                    titleSize="text-heading-200"
-                    description="Add your IP addresses and/or hostnames, IP ranges, or subnets. Separate entries with commas or line breaks. Examples: 10.32.1.100, 192.168.1.0/24, 10.32.1.100 - 10.32.1.150"
-                  />
-                  <div>
-                    <div className="space-y-4">
-                      <Textarea
-                        onChange={(value) => handleIpAddressChange(value)}
-                        initValue={textareaValue}
-                        id="ipAddresses"
-                        testId="ipAddresses"
-                        label="IP Addresses"
-                        error={ipListError}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Button
-                      variant={variants.secondary}
-                      size={sizes.base}
-                      loading={ipListDiscoveryPending}
-                      onClick={() => {
-                        const shouldProceed = handleManualDiscovery();
-                        if (shouldProceed) {
-                          setActiveStep("pairing");
-                          setShowModal(true);
-                        }
-                      }}
-                      disabled={!textareaValue.trim()}
-                    >
-                      Find miners
-                    </Button>
-                  </div>
+              <div
+                className="my-6 flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
+                data-testid="section-scan-network"
+              >
+                <Header
+                  inline
+                  title="Scan your network"
+                  titleSize="text-heading-200"
+                  description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
+                />
+                <div>
+                  <Button
+                    variant={variants.primary}
+                    onClick={() => {
+                      setDeselectedMiners([]);
+                      setActiveStep("pairing");
+                      onRescan();
+                    }}
+                    size={sizes.base}
+                    loading={scanDiscoveryPending || !networkInfoReady}
+                    disabled={!networkInfoReady}
+                  >
+                    Find miners
+                  </Button>
                 </div>
               </div>
-            )}
-            {activeStep === "pairing" && (
-              <div className="mx-auto max-w-4xl">
-                {showLoadingSkeleton ? (
-                  <>
-                    <Header
-                      title="Finding miners on your network"
-                      titleSize="text-heading-300"
-                      inline
-                      className="mb-6"
+
+              <div
+                className="flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
+                data-testid="section-search-by-ip"
+              >
+                <Header
+                  inline
+                  title="Enter network info manually"
+                  titleSize="text-heading-200"
+                  description="Add your IP addresses and/or hostnames, IP ranges, or subnets. Separate entries with commas or line breaks. Examples: 10.32.1.100, 192.168.1.0/24, 10.32.1.100 - 10.32.1.150"
+                />
+                <div>
+                  <div className="space-y-4">
+                    <Textarea
+                      onChange={(value) => handleIpAddressChange(value)}
+                      initValue={textareaValue}
+                      id="ipAddresses"
+                      testId="ipAddresses"
+                      label="IP Addresses"
+                      error={ipListError}
                     />
-                    <div className="flex flex-col gap-5">
-                      {Array.from({ length: 3 }).map((_, index) => (
-                        <div key={index} className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="size-5 animate-pulse rounded-full bg-core-primary-20"></div>
-                            <div className="flex flex-col gap-3">
-                              <div className="h-3 w-24 animate-pulse rounded-sm bg-core-primary-20"></div>
-                              <div className="h-3 w-60 animate-pulse rounded-sm bg-core-primary-20"></div>
-                            </div>
-                          </div>
-                          <div className="h-3 w-12 animate-pulse rounded-sm bg-core-primary-20"></div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <FoundMiners miners={foundMiners} deselectedMiners={deselectedMiners} className="" />
-                    {showFoundMinersModal && (
-                      <FoundMinersModal
-                        setDeselectedMiners={setDeselectedMiners}
-                        miners={foundMiners.map((miner) => ({
-                          ...miner,
-                          selected: !deselectedMiners.includes(miner.deviceIdentifier),
-                        }))}
-                        models={Array.from(new Set(foundMiners.map((miner) => miner.model)))}
-                        onDismiss={() => setShowFoundMinersModal(false)}
-                      />
-                    )}
-                  </>
-                )}
+                  </div>
+                </div>
+                <div>
+                  <Button
+                    variant={variants.secondary}
+                    size={sizes.base}
+                    loading={ipListDiscoveryPending}
+                    onClick={() => {
+                      const shouldProceed = handleManualDiscovery();
+                      if (shouldProceed) {
+                        setActiveStep("pairing");
+                        setShowModal(true);
+                      }
+                    }}
+                    disabled={!textareaValue.trim()}
+                  >
+                    Find miners
+                  </Button>
+                </div>
               </div>
-            )}
-          </div>
-        </PageOverlay>
-      )}
+            </div>
+          )}
+          {activeStep === "pairing" && (
+            <div className="mx-auto max-w-4xl">
+              {showLoadingSkeleton ? (
+                <>
+                  <Header title="Finding miners on your network" titleSize="text-heading-300" inline className="mb-6" />
+                  <div className="flex flex-col gap-5">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="size-5 animate-pulse rounded-full bg-core-primary-20"></div>
+                          <div className="flex flex-col gap-3">
+                            <div className="h-3 w-24 animate-pulse rounded-sm bg-core-primary-20"></div>
+                            <div className="h-3 w-60 animate-pulse rounded-sm bg-core-primary-20"></div>
+                          </div>
+                        </div>
+                        <div className="h-3 w-12 animate-pulse rounded-sm bg-core-primary-20"></div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <FoundMiners miners={foundMiners} deselectedMiners={deselectedMiners} className="" />
+                  <FoundMinersModal
+                    open={showFoundMinersModal}
+                    setDeselectedMiners={setDeselectedMiners}
+                    miners={foundMiners.map((miner) => ({
+                      ...miner,
+                      selected: !deselectedMiners.includes(miner.deviceIdentifier),
+                    }))}
+                    models={Array.from(new Set(foundMiners.map((miner) => miner.model)))}
+                    onDismiss={() => setShowFoundMinersModal(false)}
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </PageOverlay>
 
-      {showValidationErrorDialog && categorizedInvalidEntries && (
-        <ValidationErrorDialog
-          invalidEntries={categorizedInvalidEntries}
-          hasValidEntries={pendingValidTargets !== null}
-          onBackToEditing={handleBackToEditing}
-          onContinueAnyway={handleContinueAnyway}
-        />
-      )}
+      <ValidationErrorDialog
+        open={showValidationErrorDialog && !!categorizedInvalidEntries}
+        invalidEntries={categorizedInvalidEntries ?? { ipAddresses: [], ipRanges: [], subnets: [] }}
+        hasValidEntries={pendingValidTargets !== null}
+        onBackToEditing={handleBackToEditing}
+        onContinueAnyway={handleContinueAnyway}
+      />
     </div>
   );
 };

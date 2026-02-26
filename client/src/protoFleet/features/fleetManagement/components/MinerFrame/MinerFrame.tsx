@@ -1,9 +1,11 @@
-import { useCallback, useState } from "react";
+import { motion } from "motion/react";
+import { useCallback } from "react";
 import clsx from "clsx";
 
 import { Dismiss } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import PageOverlay, { animationDuration } from "@/shared/components/PageOverlay";
+import PageOverlay from "@/shared/components/PageOverlay";
+import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
 interface MinerFrameHeaderProps {
   title?: string;
@@ -27,36 +29,25 @@ const MinerFrameHeader = ({ title, onDismiss }: MinerFrameHeaderProps) => {
 };
 
 interface MinerFrameProps {
+  open?: boolean;
   src: string;
   title?: string;
   className?: string;
-  show?: boolean;
   onDismiss?: () => void;
 }
 
-const MinerFrame = ({ src, title = "", className = "", show = true, onDismiss }: MinerFrameProps) => {
-  const [showFrame, setShowFrame] = useState(show);
+const MinerFrame = ({ open, src, title = "", className = "", onDismiss }: MinerFrameProps) => {
+  const slideUpAnimation = useSlideUpAnimation();
 
   const closeFrame = useCallback(() => {
-    setShowFrame(false);
-    if (onDismiss) {
-      setTimeout(() => {
-        onDismiss();
-      }, animationDuration);
-    }
+    onDismiss?.();
   }, [onDismiss]);
 
   return (
-    <PageOverlay show={showFrame} shouldPreventScroll>
-      <div
-        className={clsx(
-          "h-full w-full max-w-full overflow-y-auto rounded-none bg-surface-elevated-base",
-          {
-            "animate-sliding-up": showFrame,
-            "animate-sliding-down": !showFrame,
-          },
-          className,
-        )}
+    <PageOverlay open={open} shouldPreventScroll>
+      <motion.div
+        {...slideUpAnimation}
+        className={clsx("h-full w-full max-w-full overflow-y-auto rounded-none bg-surface-elevated-base", className)}
         data-testid="miner-frame"
       >
         <MinerFrameHeader title={title} onDismiss={closeFrame} />
@@ -69,7 +60,7 @@ const MinerFrame = ({ src, title = "", className = "", show = true, onDismiss }:
             allowFullScreen
           />
         </div>
-      </div>
+      </motion.div>
     </PageOverlay>
   );
 };

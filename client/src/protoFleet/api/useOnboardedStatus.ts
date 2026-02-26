@@ -11,7 +11,7 @@ import {
   useSetOnboardingStatus,
 } from "@/protoFleet/store";
 
-const useOnboardedStatus = () => {
+const useOnboardedStatus = ({ enabled = true }: { enabled?: boolean } = {}) => {
   const isAuthenticated = useIsAuthenticated();
   const poolConfigured = usePoolConfigured();
   const devicePaired = useDevicePaired();
@@ -39,13 +39,17 @@ const useOnboardedStatus = () => {
   }, [setStatus, handleAuthErrors]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     if (!isAuthenticated) {
       resetStatus();
       return;
     }
 
     fetchStatus();
-  }, [fetchStatus, isAuthenticated, resetStatus]);
+  }, [enabled, fetchStatus, isAuthenticated, resetStatus]);
 
   return {
     poolConfigured,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -11,7 +11,7 @@ import {
   type MinerColumn,
   MINERS_PAGE_SIZE,
 } from "./constants";
-import minerColConfig from "./minerColConfig";
+import createMinerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -21,6 +21,10 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
+import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import {
@@ -39,6 +43,20 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+
+type FleetCredentials = { username: string; password: string };
+
+type MinerModalFlow =
+  | { kind: "closed" }
+  | { kind: "authenticate-miners"; deviceIdentifier: string }
+  | { kind: "authenticate-fleet"; deviceIdentifier: string; deviceStatus?: DeviceStatus }
+  | {
+      kind: "pool-selection";
+      deviceIdentifier: string;
+      deviceStatus?: DeviceStatus;
+      credentials: FleetCredentials;
+    }
+  | { kind: "status-modal"; deviceIdentifier: string };
 
 type MinerListProps = {
   title: string;
@@ -154,6 +172,7 @@ const MinerList = ({
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
   const showPhoneWidgets = isPhone && dismissedSetup;
+  const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
 
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -173,18 +192,61 @@ const MinerList = ({
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
-  const miners = useFleetStore((state) => state.fleet.miners);
-
-  const isRowDisabled = useCallback(
-    (item: DeviceListItem) => {
-      const miner = miners[item.deviceIdentifier];
-      return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-    },
-    [miners],
-  );
+  const isRowDisabled = useCallback((item: DeviceListItem) => {
+    const miner = useFleetStore.getState().fleet.miners[item.deviceIdentifier];
+    return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  }, []);
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
+
+  const closeModalFlow = useCallback(() => {
+    setModalFlow({ kind: "closed" });
+  }, []);
+
+  const handleOpenStatusFlow = useCallback((deviceIdentifier: string) => {
+    const miner = useFleetStore.getState().fleet.miners[deviceIdentifier];
+    if (!miner) return;
+
+    const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+    const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
+
+    if (needsAuthentication) {
+      setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
+      return;
+    }
+
+    if (needsMiningPool) {
+      setModalFlow({
+        kind: "authenticate-fleet",
+        deviceIdentifier,
+        deviceStatus: miner.deviceStatus,
+      });
+      return;
+    }
+
+    setModalFlow({ kind: "status-modal", deviceIdentifier });
+  }, []);
+
+  const handleFleetAuthenticated = useCallback((username: string, password: string) => {
+    setModalFlow((current) => {
+      if (current.kind !== "authenticate-fleet") {
+        return current;
+      }
+
+      return {
+        kind: "pool-selection",
+        deviceIdentifier: current.deviceIdentifier,
+        deviceStatus: current.deviceStatus,
+        credentials: { username, password },
+      };
+    });
+  }, []);
+
+  const minerColConfig = useMemo(
+    () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow }),
+    [handleOpenStatusFlow],
+  );
 
   const hasActiveFilters = useMemo(() => {
     return searchParams.has("status") || searchParams.has("issues") || searchParams.has("model");
@@ -417,6 +479,39 @@ const MinerList = ({
             />
           </div>
         </div>
+      )}
+
+      {modalFlow.kind === "authenticate-miners" && <AuthenticateMiners open onClose={closeModalFlow} />}
+
+      {modalFlow.kind === "authenticate-fleet" && (
+        <AuthenticateFleetModal
+          open
+          purpose="pool"
+          onAuthenticated={handleFleetAuthenticated}
+          onDismiss={closeModalFlow}
+        />
+      )}
+
+      {modalFlow.kind === "pool-selection" && (
+        <PoolSelectionPageWrapper
+          open
+          selectedMiners={[
+            {
+              deviceIdentifier: modalFlow.deviceIdentifier,
+              deviceStatus: modalFlow.deviceStatus,
+            },
+          ]}
+          selectionMode="subset"
+          userUsername={modalFlow.credentials.username}
+          userPassword={modalFlow.credentials.password}
+          onSuccess={closeModalFlow}
+          onError={closeModalFlow}
+          onDismiss={closeModalFlow}
+        />
+      )}
+
+      {modalFlow.kind === "status-modal" && (
+        <ProtoFleetStatusModal open onClose={closeModalFlow} deviceId={modalFlow.deviceIdentifier} />
       )}
     </>
   );

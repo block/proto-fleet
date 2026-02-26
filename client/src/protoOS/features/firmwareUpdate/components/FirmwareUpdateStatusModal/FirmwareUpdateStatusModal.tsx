@@ -12,9 +12,9 @@ interface FirmwareUpdateStatusModalProps {
   onUpdate?: () => void;
   onContinue?: () => void;
   onDismiss?: () => void;
-  show: boolean;
   rebootPending?: boolean;
   updatePending?: boolean;
+  open?: boolean;
 }
 
 type StatusConfig = {
@@ -192,9 +192,9 @@ const FirmwareUpdateStatusModal = ({
   onContinue,
   onUpdate,
   onDismiss,
-  show,
   rebootPending,
   updatePending,
+  open,
 }: FirmwareUpdateStatusModalProps) => {
   const getStatusConfig = (): StatusConfig => {
     let status: string = updateStatus?.status || "unknown";
@@ -210,7 +210,7 @@ const FirmwareUpdateStatusModal = ({
 
   return (
     <Dialog
-      show={show}
+      open={open}
       icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
       title={statusConfig.title}
       titleSize="text-heading-300"

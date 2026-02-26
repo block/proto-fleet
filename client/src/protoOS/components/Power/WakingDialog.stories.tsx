@@ -1,7 +1,7 @@
 import WakingDialog from "./WakingDialog";
 
 export const Default = () => {
-  return <WakingDialog show={true} />;
+  return <WakingDialog />;
 };
 
 export default {

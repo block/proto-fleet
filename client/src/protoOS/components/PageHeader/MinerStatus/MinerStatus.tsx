@@ -17,7 +17,7 @@ const MinerStatus = () => {
 
       {/* ProtoOS StatusModal handles both WakingDialog and StatusModal internally */}
 
-      {isModalOpen && <ProtoOSStatusModal show={isModalOpen} onClose={() => setModalOpen(false)} />}
+      <ProtoOSStatusModal open={isModalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 };

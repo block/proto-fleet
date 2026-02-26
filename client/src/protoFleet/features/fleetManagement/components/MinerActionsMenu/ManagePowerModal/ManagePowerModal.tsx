@@ -7,7 +7,7 @@ import SelectRow from "@/shared/components/SelectRow";
 import { selectTypes } from "@/shared/constants";
 
 interface ManagePowerModalProps {
-  show: boolean;
+  open?: boolean;
   onConfirm: (performanceMode: PerformanceMode) => void;
   onDismiss: () => void;
 }
@@ -31,7 +31,7 @@ const POWER_MODES = {
 
 type PowerMode = (typeof POWER_MODES)[keyof typeof POWER_MODES];
 
-const ManagePowerModal = ({ show, onConfirm, onDismiss }: ManagePowerModalProps) => {
+const ManagePowerModal = ({ open, onConfirm, onDismiss }: ManagePowerModalProps) => {
   const [selectedOption, setSelectedOption] = useState<PowerMode | undefined>(undefined);
 
   const handleConfirm = () => {
@@ -56,7 +56,7 @@ const ManagePowerModal = ({ show, onConfirm, onDismiss }: ManagePowerModalProps)
 
   return (
     <Modal
-      show={show}
+      open={open}
       contentHeader="Manage power"
       onDismiss={handleDismiss}
       buttons={[

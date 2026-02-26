@@ -24,7 +24,7 @@ export type ActionWarnDialogOptions = {
 };
 
 export type UnsupportedMinersInfo = {
-  show: boolean;
+  visible: boolean;
   unsupportedGroups: UnsupportedMinerGroup[];
   totalUnsupportedCount: number;
   noneSupported: boolean;

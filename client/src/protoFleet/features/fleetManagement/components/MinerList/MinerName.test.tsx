@@ -14,124 +14,64 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/Singl
   default: () => <div data-testid="actions-menu">Actions Menu</div>,
 }));
 
-vi.mock("@/protoFleet/components/StatusModal", () => ({
-  ProtoFleetStatusModal: () => <div data-testid="status-modal">Status Modal</div>,
-}));
-
-vi.mock("../ActionBar/SettingsWidget/PoolSelectionPage", () => ({
-  default: () => <div data-testid="pool-selection">Pool Selection</div>,
-}));
-
-vi.mock("@/protoFleet/features/fleetManagement/components/MinerFrame", () => ({
-  default: () => <div data-testid="miner-frame">Miner Frame</div>,
-}));
-
-vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
-  default: ({ onAuthenticated }: { onAuthenticated: (username: string, password: string) => void }) => (
-    <div data-testid="authenticate-fleet-modal">
-      <button onClick={() => onAuthenticated("testuser", "testpass")} data-testid="authenticate-button">
-        Authenticate
-      </button>
-    </div>
-  ),
-}));
-
 describe("MinerName", () => {
-  const mockWindowOpen = vi.fn();
   const deviceIdentifier = "test-device-id";
-  const mockUrl = "http://192.168.1.100";
-  const mockName = "Test Miner";
+  const minerName = "Test Miner";
 
   beforeEach(() => {
     vi.clearAllMocks();
-    window.open = mockWindowOpen;
 
-    // Default mocks
     vi.mocked(storeModule.useMiner).mockReturnValue({
       deviceIdentifier,
-      name: mockName,
+      name: minerName,
       pairingStatus: PairingStatus.PAIRED,
     } as any);
     vi.mocked(storeModule.useMinerDeviceStatus).mockReturnValue(DeviceStatus.ONLINE);
-    vi.mocked(storeModule.useMinerName).mockReturnValue(mockName);
-    vi.mocked(storeModule.useMinerUrl).mockReturnValue(mockUrl);
+    vi.mocked(storeModule.useMinerName).mockReturnValue(minerName);
     vi.mocked(storeModule.useFleetStore).mockImplementation((selector: any) => {
       if (typeof selector === "function") {
-        return () => ({});
+        return selector({
+          fleet: {
+            selectErrorsByDevice: () => [],
+          },
+        });
       }
       return {};
     });
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
   });
 
-  describe("Alert Icon Visibility with Authentication Required", () => {
-    it("should not show alert icon when authentication required (disabled row)", () => {
-      // Mock authentication needed and needs attention
-      vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
-      vi.mocked(storeModule.useMiner).mockReturnValue({
-        deviceIdentifier,
-        name: mockName,
-        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
-      } as any);
+  it("hides alert icon when authentication is required", () => {
+    vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
+    vi.mocked(storeModule.useMiner).mockReturnValue({
+      deviceIdentifier,
+      name: minerName,
+      pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+    } as any);
 
-      render(<MinerName deviceIdentifier={deviceIdentifier} />);
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
 
-      const alertButton = screen.queryByRole("button", { name: /view issues/i });
-      expect(alertButton).not.toBeInTheDocument();
-    });
+    expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
-  describe("Alert Icon Click without Authentication Required", () => {
-    it("should show status modal when clicking alert icon for other issues", async () => {
-      const user = userEvent.setup();
+  it("calls onOpenStatusFlow when alert icon is clicked", async () => {
+    const user = userEvent.setup();
+    const onOpenStatusFlow = vi.fn();
+    vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
 
-      // Mock needs attention but not authentication
-      vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />);
 
-      render(<MinerName deviceIdentifier={deviceIdentifier} />);
+    await user.click(screen.getByRole("button", { name: /view issues/i }));
 
-      const alertButton = screen.getByRole("button", { name: /view issues/i });
-      await user.click(alertButton);
-
-      expect(mockWindowOpen).not.toHaveBeenCalled();
-      expect(screen.getByTestId("status-modal")).toBeInTheDocument();
-    });
-
-    it("should show Fleet auth modal then pool selection when clicking alert icon for mining pool needed", async () => {
-      const user = userEvent.setup();
-
-      // Mock needs mining pool
-      vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
-      vi.mocked(storeModule.useMinerDeviceStatus).mockReturnValue(DeviceStatus.NEEDS_MINING_POOL);
-
-      render(<MinerName deviceIdentifier={deviceIdentifier} />);
-
-      const alertButton = screen.getByRole("button", { name: /view issues/i });
-      await user.click(alertButton);
-
-      expect(mockWindowOpen).not.toHaveBeenCalled();
-
-      // First should show Fleet auth modal
-      expect(screen.getByTestId("authenticate-fleet-modal")).toBeInTheDocument();
-
-      // After authenticating, should show pool selection
-      const authenticateButton = screen.getByTestId("authenticate-button");
-      await user.click(authenticateButton);
-
-      expect(screen.getByTestId("pool-selection")).toBeInTheDocument();
-      expect(screen.queryByTestId("authenticate-fleet-modal")).not.toBeInTheDocument();
-    });
+    expect(onOpenStatusFlow).toHaveBeenCalledTimes(1);
+    expect(onOpenStatusFlow).toHaveBeenCalledWith(deviceIdentifier);
   });
 
-  describe("Alert Icon Visibility", () => {
-    it("should not show alert icon when no issues", () => {
-      // Mock no needs attention
-      vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
+  it("hides alert icon when no attention is needed", () => {
+    vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
 
-      render(<MinerName deviceIdentifier={deviceIdentifier} />);
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
 
-      const alertButton = screen.queryByRole("button", { name: /view issues/i });
-      expect(alertButton).not.toBeInTheDocument();
-    });
+    expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 });

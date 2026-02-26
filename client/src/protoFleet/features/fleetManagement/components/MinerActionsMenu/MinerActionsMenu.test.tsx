@@ -8,6 +8,7 @@ import MinerActionsMenu from "./MinerActionsMenu";
 const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => ({
   mockPoolSelectionPageWrapper: vi.fn(
     (_props: {
+      open?: boolean;
       selectedMiners: Array<{ deviceIdentifier: string }>;
       selectionMode: string;
       poolNeededCount?: number;
@@ -38,6 +39,7 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCoolingModeConfirm: ReturnType<typeof vi.fn>;
       handleCoolingModeDismiss: ReturnType<typeof vi.fn>;
       showAuthenticateFleetModal: boolean;
+      authenticationPurpose: string | null;
       showUpdatePasswordModal: boolean;
       hasThirdPartyMiners: boolean;
       handleFleetAuthenticated: ReturnType<typeof vi.fn>;
@@ -47,6 +49,10 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       unsupportedMinersInfo: unknown;
       handleUnsupportedMinersContinue: ReturnType<typeof vi.fn>;
       handleUnsupportedMinersDismiss: ReturnType<typeof vi.fn>;
+      showManageSecurityModal: boolean;
+      minerGroups: unknown[];
+      handleUpdateGroup: ReturnType<typeof vi.fn>;
+      handleSecurityModalClose: ReturnType<typeof vi.fn>;
     } => ({
       currentAction: null,
       popoverActions: [],
@@ -66,6 +72,7 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       handleCoolingModeConfirm: vi.fn(),
       handleCoolingModeDismiss: vi.fn(),
       showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
       showUpdatePasswordModal: false,
       hasThirdPartyMiners: false,
       handleFleetAuthenticated: vi.fn(),
@@ -75,6 +82,10 @@ const { mockPoolSelectionPageWrapper, mockUseMinerActions } = vi.hoisted(() => (
       unsupportedMinersInfo: undefined,
       handleUnsupportedMinersContinue: vi.fn(),
       handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
     }),
   ),
 }));
@@ -96,6 +107,17 @@ vi.mock("./CoolingModeModal", () => ({
 
 // Mock ManagePowerModal
 vi.mock("./ManagePowerModal", () => ({
+  default: vi.fn(() => null),
+}));
+
+// Mock ManageSecurity
+vi.mock("./ManageSecurity", () => ({
+  ManageSecurityModal: vi.fn(() => null),
+  UpdateMinerPasswordModal: vi.fn(() => null),
+}));
+
+// Mock AuthenticateFleetModal
+vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
   default: vi.fn(() => null),
 }));
 
@@ -132,6 +154,7 @@ const createMockMinerActionsReturn = (
   handleCoolingModeConfirm: vi.fn(),
   handleCoolingModeDismiss: vi.fn(),
   showAuthenticateFleetModal: false,
+  authenticationPurpose: null,
   showUpdatePasswordModal: false,
   hasThirdPartyMiners: false,
   handleFleetAuthenticated: vi.fn(),
@@ -141,6 +164,10 @@ const createMockMinerActionsReturn = (
   unsupportedMinersInfo: undefined,
   handleUnsupportedMinersContinue: vi.fn(),
   handleUnsupportedMinersDismiss: vi.fn(),
+  showManageSecurityModal: false,
+  minerGroups: [],
+  handleUpdateGroup: vi.fn(),
+  handleSecurityModalClose: vi.fn(),
 });
 
 describe("MinerActionsMenu", () => {
@@ -181,7 +208,7 @@ describe("MinerActionsMenu", () => {
     expect(props.userPassword).toBe("testpass");
   });
 
-  test("does not render PoolSelectionPageWrapper when currentAction is not miningPool", () => {
+  test("renders PoolSelectionPageWrapper with open=false when currentAction is not miningPool", () => {
     mockUseMinerActions.mockReturnValueOnce(createMockMinerActionsReturn(null));
 
     mockPoolSelectionPageWrapper.mockClear();
@@ -196,6 +223,8 @@ describe("MinerActionsMenu", () => {
       />,
     );
 
-    expect(mockPoolSelectionPageWrapper).not.toHaveBeenCalled();
+    expect(mockPoolSelectionPageWrapper).toHaveBeenCalled();
+    const props = mockPoolSelectionPageWrapper.mock.calls[0][0];
+    expect(props.open).toBe(false);
   });
 });

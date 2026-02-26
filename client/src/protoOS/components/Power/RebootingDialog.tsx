@@ -1,18 +1,18 @@
 import Dialog from "@/shared/components/Dialog";
 
 interface RebootingDialogProps {
-  show: boolean;
+  open?: boolean;
 }
 
-const RebootingDialog = ({ show }: RebootingDialogProps) => {
+const RebootingDialog = ({ open }: RebootingDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Rebooting miner"
       preventScroll
       subtitle="Your miner is rebooting. This may take a few minutes."
       subtitleSize="text-300"
       loading
-      show={show}
       testId="rebooting-dialog"
     />
   );

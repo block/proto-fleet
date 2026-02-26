@@ -383,7 +383,7 @@ const App = ({
       {showLoginModal && <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />}
 
       {/* Wake Dialog - Layout agnostic */}
-      <WarnWakeDialog onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} show={wakeDialog.show} />
+      <WarnWakeDialog open={wakeDialog.show} onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} />
 
       {fullscreen ? (
         // Fullscreen mode: Just render children without AppLayout chrome

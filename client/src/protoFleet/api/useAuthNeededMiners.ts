@@ -5,6 +5,7 @@ import { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/f
 type UseAuthNeededMinersOptions = {
   pageSize?: number;
   filter?: MinerListFilter;
+  enabled?: boolean;
 };
 
 type UseAuthNeededMinersReturn = {
@@ -63,9 +64,10 @@ type UseAuthNeededMinersReturn = {
  * ```
  */
 const useAuthNeededMiners = (options: UseAuthNeededMinersOptions = {}): UseAuthNeededMinersReturn => {
-  const { pageSize = 100, filter } = options;
+  const { pageSize = 100, filter, enabled = true } = options;
 
   return useFleet({
+    enabled,
     scope: "local", // Use local state to avoid conflicts with global fleet view
     pageSize,
     filter,

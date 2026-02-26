@@ -28,13 +28,14 @@ const colConfig = {
 };
 
 type FoundMinersModalProps = {
+  open?: boolean;
   miners: MinerWithSelected[];
   models: string[];
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   onDismiss: () => void;
 };
 
-const FoundMinersModal = ({ miners, models, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
+const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
     dropdownFilters: {},
@@ -66,6 +67,7 @@ const FoundMinersModal = ({ miners, models, setDeselectedMiners, onDismiss }: Fo
 
   return (
     <Modal
+      open={open}
       onDismiss={onDismiss}
       size="large"
       divider={false}

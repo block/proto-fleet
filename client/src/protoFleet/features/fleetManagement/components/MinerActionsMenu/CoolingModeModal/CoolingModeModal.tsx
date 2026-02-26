@@ -10,7 +10,7 @@ import { selectTypes } from "@/shared/constants";
 import { COOLING_MODES, type CoolingModeOption } from "@/shared/constants/cooling";
 
 interface CoolingModeModalProps {
-  show: boolean;
+  open?: boolean;
   minerCount: number;
   initialCoolingMode?: CoolingMode;
   onConfirm: (coolingMode: CoolingMode) => void;
@@ -82,7 +82,7 @@ const coolingModeToOption = (mode: CoolingMode | undefined): CoolingModeOption |
   }
 };
 
-const CoolingModeModal = ({ show, minerCount, initialCoolingMode, onConfirm, onDismiss }: CoolingModeModalProps) => {
+const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onDismiss }: CoolingModeModalProps) => {
   const [selectedOption, setSelectedOption] = useState<CoolingModeOption | undefined>(
     coolingModeToOption(initialCoolingMode),
   );
@@ -116,7 +116,7 @@ const CoolingModeModal = ({ show, minerCount, initialCoolingMode, onConfirm, onD
 
   return (
     <Modal
-      show={show}
+      open={open}
       contentHeader="Set cooling mode"
       onDismiss={handleDismiss}
       buttons={[

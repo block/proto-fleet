@@ -13,7 +13,7 @@ describe("PoolModal", () => {
     onDismiss: mockOnDismiss,
     poolIndex: 0 as PoolIndex,
     pools: [{ name: "", url: "", username: "", password: "", priority: 0 }],
-    show: true,
+    open: true,
     isTestingConnection: false,
     testConnection: mockTestConnection,
   };

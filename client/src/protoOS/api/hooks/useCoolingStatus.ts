@@ -14,6 +14,7 @@ export type CoolingStatusWithNullableFans = Omit<CoolingStatusCoolingstatus, "fa
 
 interface UseCoolingStatusProps {
   poll?: boolean;
+  enabled?: boolean;
 }
 
 interface SetCoolingProps {
@@ -22,7 +23,7 @@ interface SetCoolingProps {
   onError?: (error: ErrorProps) => void;
 }
 
-const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
+const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<CoolingStatusWithNullableFans>();
   const [error, setError] = useState<string>();
@@ -74,6 +75,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
 
   usePoll({
     fetchData,
+    enabled,
     poll,
   });
 

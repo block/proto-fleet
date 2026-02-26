@@ -20,8 +20,8 @@ export interface ComponentAddress {
  * and provides a simple API for consumers.
  */
 export interface ProtoOSStatusModalProps {
-  /** Controls modal visibility */
-  show: boolean;
+  /** Whether the modal is open */
+  open?: boolean;
 
   /** Callback when modal should be closed */
   onClose: () => void;

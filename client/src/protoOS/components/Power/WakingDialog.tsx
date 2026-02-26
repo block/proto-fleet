@@ -1,19 +1,19 @@
 import Dialog from "@/shared/components/Dialog";
 
 interface WakingDialogProps {
-  show: boolean;
+  open?: boolean;
 }
 
-const WakingDialog = ({ show }: WakingDialogProps) => {
+const WakingDialog = ({ open }: WakingDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Waking up miner"
       titleSize="text-heading-300"
       preventScroll
       subtitle="This may take a few seconds."
       subtitleSize="text-300"
       loading
-      show={show}
       testId="waking-dialog"
     />
   );

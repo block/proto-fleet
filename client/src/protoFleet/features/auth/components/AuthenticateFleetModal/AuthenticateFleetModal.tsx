@@ -7,13 +7,13 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 
 interface AuthenticateFleetModalProps {
-  show: boolean;
+  open: boolean;
   purpose?: "security" | "pool";
   onAuthenticated: (username: string, password: string) => void;
   onDismiss: () => void;
 }
 
-const AuthenticateFleetModal = ({ show, purpose, onAuthenticated, onDismiss }: AuthenticateFleetModalProps) => {
+const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: AuthenticateFleetModalProps) => {
   const title = purpose ? `Log in to update your ${purpose} settings` : "Log in to update settings";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,13 +22,13 @@ const AuthenticateFleetModal = ({ show, purpose, onAuthenticated, onDismiss }: A
 
   // Reset form when modal is dismissed
   useEffect(() => {
-    if (!show) {
+    if (!open) {
       setUsername("");
       setPassword("");
       setErrorMessage("");
       setIsVerifying(false);
     }
-  }, [show]);
+  }, [open]);
 
   const canContinue = username && password && !isVerifying;
 
@@ -69,7 +69,7 @@ const AuthenticateFleetModal = ({ show, purpose, onAuthenticated, onDismiss }: A
 
   return (
     <Modal
-      show={show}
+      open={open}
       title={title}
       description="Contact your system administrator if you need access to edit settings."
       onDismiss={onDismiss}

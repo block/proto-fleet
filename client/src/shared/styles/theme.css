@@ -278,9 +278,6 @@ WOuld be best to switch over to mobile first stying  */
   /* Animation */
   --ease-gentle: cubic-bezier(0.47, 0, 0.23, 1.38);
 
-  --animate-slide-down: slide-down 0.3s var(--ease-gentle);
-  --animate-slide-up: slide-up 0.3s var(--ease-gentle);
-
   @keyframes shimmer {
     0% {
       transform: translateX(-100%);
@@ -309,22 +306,6 @@ WOuld be best to switch over to mobile first stying  */
       opacity: 0;
     }
   }
-  @keyframes slide-down {
-    100% {
-      transform: translateY(24px) scale(0.98);
-    }
-  }
-
-  @keyframes slide-up {
-    0% {
-      transform: translateY(24px) scale(0.98);
-    }
-
-    100% {
-      transform: translateY(0) scale(1);
-    }
-  }
-
   @keyframes slide-right-nav {
     0% {
       transform: translateX(-240px);

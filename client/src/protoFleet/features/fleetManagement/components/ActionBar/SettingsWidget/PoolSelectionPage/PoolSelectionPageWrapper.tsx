@@ -9,6 +9,7 @@ import {
 import { type SelectionMode } from "@/shared/components/List";
 
 interface PoolSelectionPageWrapperProps {
+  open?: boolean;
   selectionMode: SelectionMode;
   poolNeededCount?: number; // For "all" mode with filter
   filterCriteria?: DeviceFilterCriteria; // For "all" mode with filter
@@ -21,6 +22,7 @@ interface PoolSelectionPageWrapperProps {
 }
 
 const PoolSelectionPageWrapper = ({
+  open,
   selectionMode,
   poolNeededCount,
   filterCriteria,
@@ -65,6 +67,7 @@ const PoolSelectionPageWrapper = ({
 
   return (
     <PoolSelectionPage
+      open={open}
       deviceIdentifiers={deviceIdentifiers}
       numberOfMiners={selectionMode === "all" ? poolNeededCount : deviceIdentifiers.length}
       currentDevice={deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null}

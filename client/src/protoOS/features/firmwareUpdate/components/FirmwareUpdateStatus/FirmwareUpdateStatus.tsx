@@ -43,17 +43,15 @@ const FirmwareUpdateStatus = ({
         loading={loading}
         onClick={() => setShowModal(true)}
       />
-      {showModal && (
-        <FirmwareUpdateStatusModal
-          updateStatus={updateStatus}
-          onReboot={onReboot}
-          rebootPending={rebootPending}
-          onDismiss={() => setShowModal(false)}
-          show={showModal}
-          onUpdate={onUpdate}
-          updatePending={updatePending}
-        />
-      )}
+      <FirmwareUpdateStatusModal
+        open={showModal}
+        updateStatus={updateStatus}
+        onReboot={onReboot}
+        rebootPending={rebootPending}
+        onDismiss={() => setShowModal(false)}
+        onUpdate={onUpdate}
+        updatePending={updatePending}
+      />
     </div>
   );
 };

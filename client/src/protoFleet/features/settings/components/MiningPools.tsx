@@ -426,11 +426,11 @@ const MiningPools = () => {
           </div>
         </div>
         <PoolModal
+          open={showAddPoolModal}
           onChangePools={setPoolsInfo}
           onDismiss={() => setShowAddPoolModal(false)}
           poolIndex={0}
           pools={poolsInfo}
-          show={showAddPoolModal}
           isTestingConnection={validatePoolPending}
           testConnection={validatePool}
           onSave={handleSavePool}
@@ -495,17 +495,18 @@ const MiningPools = () => {
       </div>
 
       <PoolModal
+        open={showAddPoolModal}
         onChangePools={setPoolsInfo}
         onDismiss={() => setShowAddPoolModal(false)}
         poolIndex={0}
         pools={poolsInfo}
-        show={showAddPoolModal}
         isTestingConnection={validatePoolPending}
         testConnection={validatePool}
         onSave={handleSavePool}
       />
 
       <PoolModal
+        open={showEditPoolModal}
         onChangePools={setPoolsInfo}
         onDismiss={() => {
           setShowEditPoolModal(false);
@@ -514,7 +515,6 @@ const MiningPools = () => {
         }}
         poolIndex={0}
         pools={poolsInfo}
-        show={showEditPoolModal}
         isTestingConnection={validatePoolPending}
         testConnection={(args) => {
           validatePool({

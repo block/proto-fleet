@@ -212,22 +212,17 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
           );
         })}
 
-        {[...Array(3)].map((_, index) => {
-          const poolIndex = index as BackupPoolIndex;
-          return (
-            <PoolModal
-              key={poolIndex}
-              onChangePools={onChangePools}
-              onDismiss={() => setCurrentPoolIndex(null)}
-              poolIndex={poolIndex}
-              pools={pools}
-              show={currentPoolIndex === poolIndex}
-              isTestingConnection={validatePoolPending}
-              testConnection={validatePool}
-              onSave={savePool}
-            />
-          );
-        })}
+        <PoolModal
+          open={currentPoolIndex !== null}
+          key={currentPoolIndex}
+          onChangePools={onChangePools}
+          onDismiss={() => setCurrentPoolIndex(null)}
+          poolIndex={(currentPoolIndex ?? 0) as BackupPoolIndex}
+          pools={pools}
+          isTestingConnection={validatePoolPending}
+          testConnection={validatePool}
+          onSave={savePool}
+        />
       </div>
 
       <Button variant="primary" className="mt-6 ml-auto" loading={loading} onClick={handleContinue}>

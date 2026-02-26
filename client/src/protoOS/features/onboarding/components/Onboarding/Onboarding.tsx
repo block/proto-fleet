@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-
 import clsx from "clsx";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
@@ -132,9 +131,9 @@ const Onboarding = () => {
       ContentLayout={SettingsContentLayout}
     >
       <WarnBackupPoolDialog
+        open={warnBackupPool}
         onAddBackupPool={() => setWarnBackupPool(false)}
         onContinueWithoutBackup={onContinueWithoutBackup}
-        show={warnBackupPool}
       />
       <MiningPools title="Add your mining pool" onChange={onChangePools} pools={pools}>
         <WarnDefaultPoolCallout onDismiss={() => setWarnDefaultPool(false)} show={warnDefaultPool} />

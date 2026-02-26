@@ -24,7 +24,7 @@ export interface ComponentAddress {
  */
 export interface ProtoFleetStatusModalProps {
   /** Controls modal visibility */
-  show: boolean;
+  open?: boolean;
 
   /** Callback when modal should be closed */
   onClose: () => void;

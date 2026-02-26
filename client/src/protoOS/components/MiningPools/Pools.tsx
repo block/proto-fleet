@@ -361,11 +361,11 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
           </div>
         </div>
         <BackupPoolModalWrapper
+          open={currentPoolIndex !== null}
           onChangePools={handleModalSave}
           onDismiss={handleModalDismiss}
           poolIndex={currentPoolIndex ?? 0}
           pools={localPools}
-          show={currentPoolIndex !== null}
           mode="add"
         />
       </>
@@ -407,12 +407,12 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       )}
 
       <BackupPoolModalWrapper
+        open={currentPoolIndex !== null}
         onChangePools={handleModalSave}
         onDismiss={handleModalDismiss}
         onDelete={isEditMode && canDelete ? () => handleDeletePool(currentPoolIndex!) : undefined}
         poolIndex={currentPoolIndex ?? 0}
         pools={localPools}
-        show={currentPoolIndex !== null}
         mode={isEditMode ? "edit" : "add"}
       />
     </div>

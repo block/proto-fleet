@@ -10,35 +10,33 @@ import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
 
 interface UnsupportedMinersModalProps {
-  show: boolean;
+  open?: boolean;
   unsupportedGroups: UnsupportedMinerGroup[];
   totalUnsupportedCount: number;
-  /** When true, indicates no miners support this action (show "Action not supported" UI) */
   noneSupported: boolean;
   onContinue: () => void;
   onDismiss: () => void;
 }
 
 const UnsupportedMinersModal = ({
-  show,
+  open,
   unsupportedGroups,
   totalUnsupportedCount,
   noneSupported,
   onContinue,
   onDismiss,
 }: UnsupportedMinersModalProps) => {
-  if (!show) return null;
+  const minerText = totalUnsupportedCount === 1 ? "miner's" : "miners'";
 
-  // When all miners are unsupported, show "Action not supported" dialog with only Dismiss button
-  if (noneSupported) {
-    const minerText = totalUnsupportedCount === 1 ? "miner's" : "miners'";
-    return (
+  return (
+    <>
       <Dialog
-        show={show}
+        open={open && noneSupported}
         title="Action not supported"
         subtitle={`This action isn't supported by the connected ${minerText} firmware.`}
         subtitleSize="text-300"
         buttonGroupVariant={groupVariants.leftAligned}
+        onDismiss={onDismiss}
         buttons={[
           {
             text: "Dismiss",
@@ -49,49 +47,47 @@ const UnsupportedMinersModal = ({
         ]}
         testId="action-not-supported-dialog"
       />
-    );
-  }
-
-  // When some miners are unsupported, show grouped list with Continue button
-  return (
-    <Modal
-      show={show}
-      onDismiss={onDismiss}
-      buttons={[
-        {
-          text: "Continue",
-          variant: variants.primary,
-          onClick: onContinue,
-          dismissModalOnClick: false,
-          testId: "continue-button",
-        },
-      ]}
-      buttonSize={buttonSizes.base}
-      size="large"
-      divider={false}
-    >
-      <div className="mb-6">
-        <h1 className="text-heading-300 text-text-primary">Some miners don't support this action.</h1>
-        <p className="text-300 text-text-primary-70">This action will be skipped for {totalUnsupportedCount} miners.</p>
-      </div>
-      {unsupportedGroups.map((group, index) => (
-        <Fragment key={`${group.firmwareVersion}-${group.model}`}>
-          <Row divider={false} className="flex items-center justify-between">
-            <div className="flex gap-4">
-              <Fleet width={iconSizes.medium} />
-              <div>
-                <div className="text-emphasis-300">Firmware {group.firmwareVersion}</div>
-                <div className="text-200 text-text-primary-70">{group.model}</div>
+      <Modal
+        open={open && !noneSupported}
+        onDismiss={onDismiss}
+        buttons={[
+          {
+            text: "Continue",
+            variant: variants.primary,
+            onClick: onContinue,
+            dismissModalOnClick: false,
+            testId: "continue-button",
+          },
+        ]}
+        buttonSize={buttonSizes.base}
+        size="large"
+        divider={false}
+      >
+        <div className="mb-6">
+          <h1 className="text-heading-300 text-text-primary">Some miners don't support this action.</h1>
+          <p className="text-300 text-text-primary-70">
+            This action will be skipped for {totalUnsupportedCount} miners.
+          </p>
+        </div>
+        {unsupportedGroups.map((group, index) => (
+          <Fragment key={`${group.firmwareVersion}-${group.model}`}>
+            <Row divider={false} className="flex items-center justify-between">
+              <div className="flex gap-4">
+                <Fleet width={iconSizes.medium} />
+                <div>
+                  <div className="text-emphasis-300">Firmware {group.firmwareVersion}</div>
+                  <div className="text-200 text-text-primary-70">{group.model}</div>
+                </div>
               </div>
-            </div>
-            <div className="text-emphasis-300">
-              {group.count} {group.count === 1 ? "miner" : "miners"}
-            </div>
-          </Row>
-          {index < unsupportedGroups.length - 1 && <Divider />}
-        </Fragment>
-      ))}
-    </Modal>
+              <div className="text-emphasis-300">
+                {group.count} {group.count === 1 ? "miner" : "miners"}
+              </div>
+            </Row>
+            {index < unsupportedGroups.length - 1 && <Divider />}
+          </Fragment>
+        ))}
+      </Modal>
+    </>
   );
 };
 

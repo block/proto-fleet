@@ -159,12 +159,12 @@ const MiningPoolPage = () => {
   return (
     <OnboardingLayout>
       <WarnBackupPoolDialog
+        open={warnBackupPool}
         onAddBackupPool={() => setWarnBackupPool(false)}
         onContinueWithoutBackup={onContinueWithoutBackup}
-        show={warnBackupPool}
       />
       <NoFansDetectedDialog
-        show={showNoFansDialog}
+        open={showNoFansDialog}
         onUseAirCooling={handleUseAirCooling}
         onConfirmImmersionCooling={handleConfirmImmersionCooling}
         loading={coolingPending}

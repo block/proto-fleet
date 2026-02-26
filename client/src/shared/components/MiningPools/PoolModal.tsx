@@ -19,7 +19,7 @@ interface PoolModalProps {
   onDismiss: () => void;
   poolIndex: PoolIndex;
   pools: PoolInfo[];
-  show: boolean;
+  open?: boolean;
   isTestingConnection: boolean;
   testConnection: (args: PoolConnectionTestProps) => void;
   onSave?: (pool: PoolInfo, isPasswordSet: boolean) => Promise<void>;
@@ -35,7 +35,7 @@ const PoolModal = ({
   onDismiss,
   poolIndex,
   pools,
-  show,
+  open,
   isTestingConnection,
   testConnection,
   onSave,
@@ -81,7 +81,7 @@ const PoolModal = ({
   }, [pools]);
 
   useEffect(() => {
-    if (show) {
+    if (open) {
       setPoolNameError(undefined);
       setUrlError(undefined);
       setUsernameError(undefined);
@@ -91,7 +91,7 @@ const PoolModal = ({
       setIsPasswordSet(false);
       setSaveError(false);
     }
-  }, [show]);
+  }, [open]);
 
   const onPoolChange = useCallback(
     (value: string, id: string) => {
@@ -199,10 +199,6 @@ const PoolModal = ({
     });
   }, [draftPoolInfo, poolIndex, testConnection]);
 
-  if (!show) {
-    return null;
-  }
-
   const modalButtons = [
     ...(mode === "edit" && onDelete
       ? [
@@ -234,6 +230,7 @@ const PoolModal = ({
 
   return (
     <Modal
+      open={open}
       buttons={modalButtons}
       contentHeader={mode === "add" ? "Add pool" : "Edit pool"}
       onDismiss={onDismiss}

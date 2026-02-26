@@ -29,7 +29,7 @@ const meta = {
     ),
   ],
   argTypes: {
-    show: {
+    open: {
       description: "Controls modal visibility",
       control: { type: "boolean" },
     },
@@ -56,7 +56,7 @@ type Story = StoryObj<typeof meta>;
  */
 export const Default: Story = {
   args: {
-    show: false,
+    open: false,
     onClose: () => {},
   },
 };
@@ -67,7 +67,7 @@ export const Default: Story = {
  */
 export const OpenNormal: Story = {
   args: {
-    show: true,
+    open: true,
     onClose: () => {},
   },
   parameters: {
@@ -85,7 +85,7 @@ export const OpenNormal: Story = {
  */
 export const WithoutBackButton: Story = {
   args: {
-    show: true,
+    open: true,
     onClose: () => {},
     showBackButton: false,
   },
@@ -113,7 +113,7 @@ export const Interactive: Story = {
 
         <ProtoOSStatusModal
           {...args}
-          show={isOpen}
+          open={isOpen}
           onClose={() => {
             setIsOpen(false);
             args.onClose();
@@ -123,7 +123,7 @@ export const Interactive: Story = {
     );
   },
   args: {
-    show: false, // This will be controlled by the component's internal state
+    open: false,
     onClose: () => {},
   },
   parameters: {
@@ -143,7 +143,7 @@ export const Interactive: Story = {
  */
 export const WithMockedErrors: Story = {
   args: {
-    show: true,
+    open: true,
     onClose: () => {},
   },
   parameters: {
@@ -167,7 +167,7 @@ export const WithMockedErrors: Story = {
  */
 export const UsageExample: Story = {
   args: {
-    show: false,
+    open: false,
     onClose: () => {},
   },
   render: () => (
@@ -187,7 +187,7 @@ function MyComponent() {
       </button>
 
       <ProtoOSStatusModal
-        show={isModalOpen}
+        open={isModalOpen}
         onClose={() => setModalOpen(false)}
       />
     </>

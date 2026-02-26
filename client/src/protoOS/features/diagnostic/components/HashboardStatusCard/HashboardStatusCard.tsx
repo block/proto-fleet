@@ -72,17 +72,15 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
         </div>
         <AsicTablePreview asics={asicData} />
       </div>
-      {showComponentStatusModal && (
-        <StatusModal
-          show={showComponentStatusModal}
-          onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "HASHBOARD",
-            slot: slot ?? 1,
-          }}
-          showBackButton={false}
-        />
-      )}
+      <StatusModal
+        open={showComponentStatusModal}
+        onClose={() => setShowComponentStatusModal(false)}
+        componentAddress={{
+          source: "HASHBOARD",
+          slot: slot ?? 1,
+        }}
+        showBackButton={false}
+      />
     </Card>
   );
 }

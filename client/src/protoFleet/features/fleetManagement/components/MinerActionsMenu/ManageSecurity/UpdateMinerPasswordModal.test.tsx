@@ -25,8 +25,8 @@ vi.mock("@/shared/components/Setup", () => ({
 
 // Mock Modal component
 vi.mock("@/shared/components/Modal/Modal", () => ({
-  default: vi.fn(({ show, children, buttons, onDismiss }) => {
-    if (!show) return null;
+  default: vi.fn(({ open, children, buttons, onDismiss }) => {
+    if (!open) return null;
     return (
       <div data-testid="update-password-modal">
         {children}
@@ -69,10 +69,10 @@ describe("UpdateMinerPasswordModal", () => {
   });
 
   describe("Rendering", () => {
-    test("renders modal when show is true", () => {
+    test("renders modal when open is true", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -85,10 +85,10 @@ describe("UpdateMinerPasswordModal", () => {
       expect(screen.getByTestId("confirmPassword")).toBeInTheDocument();
     });
 
-    test("does not render modal when show is false", () => {
+    test("does not render modal when open is false", () => {
       render(
         <UpdateMinerPasswordModal
-          show={false}
+          open={false}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -101,7 +101,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("renders password strength meter for Proto rigs", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -117,7 +117,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("does not render password strength meter for third-party miners", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -130,7 +130,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("autofocuses the current password input", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -146,7 +146,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("button is disabled when current password is empty", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -167,7 +167,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("button is disabled when new password is empty", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -188,7 +188,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("button is disabled when confirm password is empty", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -209,7 +209,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("shows validation error when passwords do not match", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -233,7 +233,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("shows validation error when password is too short (Proto rigs only)", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -257,7 +257,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("shows weak password warning for Proto rigs with weak password", async () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -286,7 +286,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("calls onConfirm when user continues with weak password", async () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -318,7 +318,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("returns to main modal when user clicks 'Create a stronger password'", async () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -353,7 +353,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("does not validate password length for third-party miners", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -376,7 +376,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("does not show weak password warning for third-party miners", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={true}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -402,7 +402,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("calls onConfirm with correct parameters for Proto rigs with strong password", async () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -432,7 +432,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("submits form when Enter key is pressed with valid inputs", async () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -459,7 +459,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("does not submit form when Enter key is pressed with empty fields", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -478,7 +478,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("resets form when modal is dismissed and reopened", async () => {
       const { rerender } = render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -497,7 +497,7 @@ describe("UpdateMinerPasswordModal", () => {
       // Close modal
       rerender(
         <UpdateMinerPasswordModal
-          show={false}
+          open={false}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -507,7 +507,7 @@ describe("UpdateMinerPasswordModal", () => {
       // Reopen modal
       rerender(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -528,7 +528,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("calls onDismiss when dismiss button is clicked", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -546,7 +546,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("disables Continue button when fields are empty", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
@@ -560,7 +560,7 @@ describe("UpdateMinerPasswordModal", () => {
     test("enables Continue button when all fields are filled", () => {
       render(
         <UpdateMinerPasswordModal
-          show={true}
+          open={true}
           hasThirdPartyMiners={false}
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}

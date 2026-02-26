@@ -28,12 +28,13 @@ import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/c
  * const [isModalOpen, setModalOpen] = useState(false);
  *
  * <ProtoOSStatusModal
- *   show={isModalOpen}
+ *   open={isModalOpen}
  *   onClose={() => setModalOpen(false)}
  * />
  * ```
  */
-const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
+const ProtoOSStatusModal = ({ open, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
+  const isVisible = open ?? true;
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
@@ -50,14 +51,21 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
   // This ensures data is immediately available when navigating to any component
   useTelemetry({
     level: ["miner", "hashboard", "psu"],
-    poll: true,
+    enabled: isVisible,
+    poll: isVisible,
     pollIntervalMs: 15 * 1000,
   });
 
   // Also fetch cooling status for fan data
   useCoolingStatus({
-    poll: true,
+    enabled: isVisible,
+    poll: isVisible,
   });
+
+  const handleClose = useCallback(() => {
+    setComponent(componentAddress);
+    onClose();
+  }, [componentAddress, onClose]);
 
   // Stabilize component values to prevent unnecessary re-renders
   const componentSource = component?.source || "RIG";
@@ -90,7 +98,7 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
         text: "Wake miner",
         variant: variants.secondary,
         onClick: () => {
-          onClose();
+          handleClose();
           wakeMiner();
         },
       });
@@ -98,7 +106,7 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
     buttons.push({
       text: "Done",
       variant: variants.primary,
-      onClick: onClose,
+      onClick: handleClose,
     });
 
     return {
@@ -110,9 +118,9 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
       },
       title: "Miner status",
       buttons,
-      onDismiss: onClose,
+      onDismiss: handleClose,
     };
-  }, [groupedErrors, title, subtitle, isSleeping, onClose, wakeMiner]);
+  }, [groupedErrors, title, subtitle, isSleeping, handleClose, wakeMiner]);
 
   // getComponentStatus function - returns complete data including config
   const getComponentStatus = useCallback(
@@ -135,19 +143,19 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
           {
             text: "Done",
             variant: variants.primary,
-            onClick: onClose,
+            onClick: handleClose,
           },
         ],
-        onDismiss: onClose,
+        onDismiss: handleClose,
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [errors, componentTelemetry, componentHardware, onClose],
+    [errors, componentTelemetry, componentHardware, handleClose],
   );
 
   // If miner is waking, show the waking dialog instead
   if (shouldWake) {
-    return <WakingDialog show={shouldWake} />;
+    return <WakingDialog open={shouldWake} />;
   }
 
   // Render the shared StatusModal with integration data
@@ -156,7 +164,7 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
       componentAddress={component}
       getMinerStatus={getMinerStatus}
       getComponentStatus={getComponentStatus}
-      show={show}
+      open={isVisible}
       showBackButton={showBackButton}
     />
   );

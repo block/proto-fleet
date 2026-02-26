@@ -303,7 +303,7 @@ const InteractiveStatusModal = ({
         componentAddress={component}
         getMinerStatus={enhancedGetMinerStatus}
         getComponentStatus={enhancedGetComponentStatus}
-        show={show}
+        open={show}
         showBackButton={showBackButton}
       />
     </div>
@@ -317,7 +317,7 @@ export const MinerStatusNormal: Story = {
     componentAddress: undefined,
     getMinerStatus: () => mockMinerStatusData,
     getComponentStatus: () => mockHashboardStatus,
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: () => (
@@ -335,7 +335,7 @@ export const MinerStatusWithErrors: Story = {
       }
       return mockHashboardStatus;
     },
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: () => (
@@ -357,7 +357,7 @@ export const MinerStatusSleeping: Story = {
     componentAddress: undefined,
     getMinerStatus: () => mockSleepingMinerStatus,
     getComponentStatus: () => mockHashboardStatus,
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: () => (
@@ -373,7 +373,7 @@ export const ComponentStatusHashboard: Story = {
     componentAddress: { source: "HASHBOARD" as const, componentIndex: 0 },
     getMinerStatus: () => mockMinerStatusWithErrors,
     getComponentStatus: () => mockHashboardStatus,
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: () => (
@@ -390,7 +390,7 @@ export const ComponentStatusFan: Story = {
     componentAddress: { source: "FAN" as const, componentIndex: 2 },
     getMinerStatus: () => mockMinerStatusWithErrors,
     getComponentStatus: () => mockFanStatus,
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: () => (
@@ -407,7 +407,7 @@ export const ComponentStatusNoBackButton: Story = {
     componentAddress: { source: "HASHBOARD" as const, componentIndex: 0 },
     getMinerStatus: () => mockMinerStatusWithErrors,
     getComponentStatus: () => mockHashboardStatus,
-    show: true,
+    open: true,
     showBackButton: false,
   },
   render: () => (
@@ -425,7 +425,7 @@ const PlaygroundComponent = (args: any) => {
   const [component, setComponent] = useState<ComponentAddress | undefined>(
     args.componentAddress as ComponentAddress | undefined,
   );
-  const [show, setShow] = useState(args.show);
+  const [show, setShow] = useState(args.open);
 
   // Enhance getMinerStatus to add navigation
   const enhancedGetMinerStatus = (): MinerStatusData => {
@@ -504,7 +504,7 @@ const PlaygroundComponent = (args: any) => {
         componentAddress={component}
         getMinerStatus={enhancedGetMinerStatus}
         getComponentStatus={enhancedGetComponentStatus}
-        show={show}
+        open={show}
         showBackButton={args.showBackButton}
       />
     </div>
@@ -517,7 +517,7 @@ export const Playground: Story = {
     componentAddress: undefined,
     getMinerStatus: () => mockMinerStatusWithErrors,
     getComponentStatus: () => mockHashboardStatus,
-    show: true,
+    open: true,
     showBackButton: true,
   },
   render: PlaygroundComponent,

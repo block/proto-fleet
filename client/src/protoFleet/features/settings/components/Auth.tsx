@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
@@ -78,6 +78,29 @@ const AuthenticationSettings = () => {
   const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<string | null>(null);
   const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<string | null>(null);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
+
+  // Reset form state when modal closes
+  /* eslint-disable react-hooks/set-state-in-effect -- reset modal state on close */
+  useEffect(() => {
+    if (showModal) {
+      return;
+    }
+
+    setStep("authenticate");
+    setIsSubmitting(false);
+    setPassword("");
+    setScore(0);
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordErrorMsg("");
+    setNewUsername("");
+    setUsernameErrorMsg("");
+    setAuthApiError(null);
+    setPasswordUpdateApiError(null);
+    setUsernameUpdateApiError(null);
+    setShowWeakPasswordWarning(false);
+  }, [showModal]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Clear errors when user starts typing
   const handlePasswordChange = (value: string) => {
@@ -272,129 +295,127 @@ const AuthenticationSettings = () => {
             </div>
           </div>
 
-          {showModal && (
-            <Modal
-              buttons={[
-                {
-                  text: "Confirm",
-                  variant: "primary",
-                  dismissModalOnClick: false,
-                  loading: isSubmitting,
-                  disabled: false,
-                  onClick: () => {
-                    if (step === "authenticate") {
-                      authenticate();
-                      return;
-                    }
+          <Modal
+            open={showModal}
+            buttons={[
+              {
+                text: "Confirm",
+                variant: "primary",
+                dismissModalOnClick: false,
+                loading: isSubmitting,
+                disabled: false,
+                onClick: () => {
+                  if (step === "authenticate") {
+                    authenticate();
+                    return;
+                  }
 
-                    if (step === "updatePassword") {
-                      submitPasswordUpdate(false);
-                      return;
-                    }
+                  if (step === "updatePassword") {
+                    submitPasswordUpdate(false);
+                    return;
+                  }
 
-                    if (step === "updateUsername") {
-                      submitUsernameUpdate();
-                    }
-                  },
+                  if (step === "updateUsername") {
+                    submitUsernameUpdate();
+                  }
                 },
-              ]}
-              buttonSize="base"
-              divider={false}
-              show
-              size="large"
-              onDismiss={() => setShowModal(false)}
-            >
-              {step === "authenticate" && <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />}
-              {step === "updatePassword" && (
-                <div className="flex flex-col gap-6">
-                  <Header
-                    title="Update password"
-                    titleSize="text-heading-300"
-                    description="Your password will be used to log into Fleet."
-                  />
+              },
+            ]}
+            buttonSize="base"
+            divider={false}
+            size="large"
+            onDismiss={() => setShowModal(false)}
+          >
+            {step === "authenticate" && <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />}
+            {step === "updatePassword" && (
+              <div className="flex flex-col gap-6">
+                <Header
+                  title="Update password"
+                  titleSize="text-heading-300"
+                  description="Your password will be used to log into Fleet."
+                />
 
-                  <div>
-                    <div
-                      className={clsx("transition-[max-height,margin] ease-in-out", {
-                        "max-h-0 overflow-hidden duration-300": !passwordUpdateApiError,
-                        "max-h-96 duration-500": passwordUpdateApiError,
-                      })}
-                      data-testid="password-error"
-                    >
-                      <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                        {passwordUpdateApiError}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-4">
-                      <div className="flex flex-col gap-2">
-                        <Input
-                          id="newPassword"
-                          label="New password"
-                          type="password"
-                          onChange={handleNewPasswordChange}
-                          error={passwordErrorMsg}
-                          autoFocus
-                        />
-                        <div className="flex items-center justify-between gap-5">
-                          <div>
-                            <div className="text-200 text-text-primary-50">Password strength</div>
-                          </div>
-                          <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />
-                        </div>
-                      </div>
-                      <Input
-                        id="confirmPassword"
-                        label="Confirm password"
-                        type="password"
-                        onChange={handleConfirmPasswordChange}
-                      />
+                <div>
+                  <div
+                    className={clsx("transition-[max-height,margin] ease-in-out", {
+                      "max-h-0 overflow-hidden duration-300": !passwordUpdateApiError,
+                      "max-h-96 duration-500": passwordUpdateApiError,
+                    })}
+                    data-testid="password-error"
+                  >
+                    <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+                      {passwordUpdateApiError}
                     </div>
                   </div>
-                  {showWeakPasswordWarning && !isSubmitting && (
-                    <WeakPasswordWarning
-                      onReturn={() => setShowWeakPasswordWarning(false)}
-                      onContinue={() => submitPasswordUpdate(true)}
-                    />
-                  )}
-                </div>
-              )}
-              {step === "updateUsername" && (
-                <div className="flex flex-col gap-6">
-                  <Header
-                    title="Update username"
-                    titleSize="text-heading-300"
-                    description="Your username will be used to log into Fleet."
-                  />
 
-                  <div>
-                    <div
-                      className={clsx("transition-[max-height,margin] ease-in-out", {
-                        "max-h-0 overflow-hidden duration-300": !usernameUpdateApiError,
-                        "max-h-96 duration-500": usernameUpdateApiError,
-                      })}
-                      data-testid="username-error"
-                    >
-                      <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                        {usernameUpdateApiError}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-4">
-                      <Input id="username" label="Username" type="text" disabled initValue={username} />
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2">
                       <Input
-                        id="newUsername"
-                        label="New username"
-                        type="text"
-                        onChange={handleNewUsernameChange}
-                        error={usernameErrorMsg}
+                        id="newPassword"
+                        label="New password"
+                        type="password"
+                        onChange={handleNewPasswordChange}
+                        error={passwordErrorMsg}
                         autoFocus
                       />
+                      <div className="flex items-center justify-between gap-5">
+                        <div>
+                          <div className="text-200 text-text-primary-50">Password strength</div>
+                        </div>
+                        <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />
+                      </div>
                     </div>
+                    <Input
+                      id="confirmPassword"
+                      label="Confirm password"
+                      type="password"
+                      onChange={handleConfirmPasswordChange}
+                    />
                   </div>
                 </div>
-              )}
-            </Modal>
-          )}
+                {showWeakPasswordWarning && !isSubmitting && (
+                  <WeakPasswordWarning
+                    onReturn={() => setShowWeakPasswordWarning(false)}
+                    onContinue={() => submitPasswordUpdate(true)}
+                  />
+                )}
+              </div>
+            )}
+            {step === "updateUsername" && (
+              <div className="flex flex-col gap-6">
+                <Header
+                  title="Update username"
+                  titleSize="text-heading-300"
+                  description="Your username will be used to log into Fleet."
+                />
+
+                <div>
+                  <div
+                    className={clsx("transition-[max-height,margin] ease-in-out", {
+                      "max-h-0 overflow-hidden duration-300": !usernameUpdateApiError,
+                      "max-h-96 duration-500": usernameUpdateApiError,
+                    })}
+                    data-testid="username-error"
+                  >
+                    <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+                      {usernameUpdateApiError}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-4">
+                    <Input id="username" label="Username" type="text" disabled initValue={username} />
+                    <Input
+                      id="newUsername"
+                      label="New username"
+                      type="text"
+                      onChange={handleNewUsernameChange}
+                      error={usernameErrorMsg}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </Modal>
         </div>
       </div>
     </>

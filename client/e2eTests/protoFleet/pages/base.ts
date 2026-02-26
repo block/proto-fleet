@@ -53,10 +53,24 @@ export class BasePage {
   }
 
   async validateTextInToast(text: string) {
-    const toastLocator = this.page.locator(
-      `//*[@data-testid='toast' or @data-testid='grouped-toaster-header']//*[contains(text(),"${text}")]`,
-    );
-    await expect(toastLocator).toBeVisible();
+    const toastContainer = this.page.locator("[data-testid='toast'], [data-testid='grouped-toaster-header']");
+
+    const expectedPatterns = [new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")];
+    if (/^update complete$/i.test(text)) {
+      // Pool assignment now reports action-specific completion text.
+      expectedPatterns.push(/updates?\s+complete/i);
+      expectedPatterns.push(/assigned pools to/i);
+    }
+
+    await expect(async () => {
+      for (const pattern of expectedPatterns) {
+        const locator = toastContainer.getByText(pattern).first();
+        if (await locator.isVisible().catch(() => false)) {
+          return;
+        }
+      }
+      throw new Error(`Expected toast text not visible: ${text}`);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async validateTextInModal(text: string) {

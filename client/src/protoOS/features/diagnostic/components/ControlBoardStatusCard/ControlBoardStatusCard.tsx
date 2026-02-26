@@ -35,16 +35,14 @@ function ControlBoardStatusCard() {
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         <LabeledValue value={formatCpuCapacity(cpuCapacity)} label="CPU capacity" />
       </div>
-      {showComponentStatusModal && (
-        <StatusModal
-          show={showComponentStatusModal}
-          onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "RIG",
-          }}
-          showBackButton={false}
-        />
-      )}
+      <StatusModal
+        open={showComponentStatusModal}
+        onClose={() => setShowComponentStatusModal(false)}
+        componentAddress={{
+          source: "RIG",
+        }}
+        showBackButton={false}
+      />
     </Card>
   );
 }

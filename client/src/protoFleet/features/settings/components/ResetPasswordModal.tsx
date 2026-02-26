@@ -7,6 +7,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
 interface ResetPasswordModalProps {
+  open?: boolean;
   username: string;
   temporaryPassword: string | null;
   onConfirm: () => void;
@@ -15,6 +16,7 @@ interface ResetPasswordModalProps {
 }
 
 const ResetPasswordModal = ({
+  open,
   username,
   temporaryPassword,
   onConfirm,
@@ -43,9 +45,10 @@ const ResetPasswordModal = ({
   if (!temporaryPassword) {
     return (
       <Dialog
-        show
+        open={open}
         title="Reset member password?"
         titleSize="text-heading-300"
+        onDismiss={onDismiss}
         icon={
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-elevated-base">
             <Lock />
@@ -74,7 +77,7 @@ const ResetPasswordModal = ({
 
   // Step 2: Show temporary password
   return (
-    <Modal onDismiss={onDismiss} size="small" showHeader={false}>
+    <Modal open={open} onDismiss={onDismiss} size="small" showHeader={false}>
       <div className="flex flex-col gap-6 py-6">
         <div className="flex items-start">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-intent-success-10">

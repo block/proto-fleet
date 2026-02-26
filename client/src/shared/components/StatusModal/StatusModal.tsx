@@ -13,10 +13,10 @@ import Modal from "@/shared/components/Modal";
  * const [componentAddress, setComponentAddress] = useState<ComponentAddress>();
  *
  * <StatusModal
+ *   open={isModalOpen}
  *   componentAddress={componentAddress}
  *   getMinerStatus={getMinerStatus}
  *   getComponentStatus={getComponentStatus}
- *   show={isModalOpen}
  *   showBackButton={true}
  * />
  * ```
@@ -25,7 +25,7 @@ export function StatusModal<TComponentAddress = any>({
   componentAddress,
   getMinerStatus,
   getComponentStatus,
-  show,
+  open,
   showBackButton = true,
 }: StatusModalProps<TComponentAddress>) {
   // Try to get component data if componentAddress is provided
@@ -37,12 +37,12 @@ export function StatusModal<TComponentAddress = any>({
 
     return (
       <Modal
-        show={show}
         title={componentData.title}
         buttons={componentData.buttons}
         icon={showBack ? <ArrowRight className="rotate-180" /> : undefined}
         onIconClick={showBack ? componentData.onNavigateBack : undefined}
         onDismiss={componentData.onDismiss}
+        open={open}
       >
         <ComponentStatusModalContent {...componentData.props} />
       </Modal>
@@ -52,7 +52,7 @@ export function StatusModal<TComponentAddress = any>({
   // Fall back to miner status view
   const minerData = getMinerStatus();
   return (
-    <Modal show={show} title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss}>
+    <Modal title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss} open={open}>
       <MinerStatusModalContent {...minerData.props} />
     </Modal>
   );

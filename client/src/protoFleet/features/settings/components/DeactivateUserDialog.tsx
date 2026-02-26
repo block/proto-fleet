@@ -3,18 +3,20 @@ import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 interface DeactivateUserDialogProps {
+  open?: boolean;
   username: string;
   onConfirm: () => void;
   onDismiss: () => void;
   isSubmitting: boolean;
 }
 
-const DeactivateUserDialog = ({ username, onConfirm, onDismiss, isSubmitting }: DeactivateUserDialogProps) => {
+const DeactivateUserDialog = ({ open, username, onConfirm, onDismiss, isSubmitting }: DeactivateUserDialogProps) => {
   return (
     <Dialog
-      show
+      open={open}
       title="Deactivate member?"
       titleSize="text-heading-300"
+      onDismiss={onDismiss}
       icon={
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-intent-critical-10">
           <Alert />

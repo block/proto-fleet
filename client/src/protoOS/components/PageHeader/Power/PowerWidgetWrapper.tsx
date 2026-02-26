@@ -89,7 +89,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
         afterWake={handleClear}
         shouldShowPopover={shouldShowPopover}
       />
-      <WakingDialog show={shouldWake} />
+      <WakingDialog open={shouldWake} />
     </PopoverProvider>
   );
 };

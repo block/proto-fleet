@@ -3,13 +3,7 @@ import { action } from "storybook/actions";
 import FansDetectedDialog from "./FansDetectedDialog";
 
 export const Default = () => {
-  return (
-    <FansDetectedDialog
-      onContinue={action("onContinue")}
-      onSwitchToAirCooled={action("onSwitchToAirCooled")}
-      show={true}
-    />
-  );
+  return <FansDetectedDialog onContinue={action("onContinue")} onSwitchToAirCooled={action("onSwitchToAirCooled")} />;
 };
 
 export const Loading = () => {
@@ -18,7 +12,6 @@ export const Loading = () => {
       onContinue={action("onContinue")}
       onSwitchToAirCooled={action("onSwitchToAirCooled")}
       isLoading={true}
-      show={true}
     />
   );
 };

@@ -123,7 +123,7 @@ interface UnsupportedMinersState extends UnsupportedMinersInfo {
 }
 
 const initialUnsupportedMinersState: UnsupportedMinersState = {
-  show: false,
+  visible: false,
   unsupportedGroups: [],
   totalUnsupportedCount: 0,
   noneSupported: false,
@@ -320,7 +320,7 @@ export const useMinerActions = ({
             }
 
             setUnsupportedMinersInfo({
-              show: true,
+              visible: true,
               unsupportedGroups: result.unsupportedGroups,
               totalUnsupportedCount: result.unsupportedCount,
               noneSupported: result.noneSupported,

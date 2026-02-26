@@ -6,14 +6,14 @@ import Dialog from "@/shared/components/Dialog";
 interface FansDetectedDialogProps {
   onContinue: () => void;
   onSwitchToAirCooled: () => void;
-  show: boolean;
   isLoading?: boolean;
+  open?: boolean;
 }
 
-const FansDetectedDialog = ({ onContinue, onSwitchToAirCooled, show, isLoading = false }: FansDetectedDialogProps) => {
+const FansDetectedDialog = ({ onContinue, onSwitchToAirCooled, isLoading = false, open }: FansDetectedDialogProps) => {
   return (
     <Dialog
-      show={show}
+      open={open}
       title="Fans are disabled"
       titleSize="text-heading-300"
       subtitle="While in immersion mode, fans and fan errors will be disabled. To use fans to cool this miner, switch to air cooling mode."

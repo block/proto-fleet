@@ -107,59 +107,48 @@ const MinerActionsMenu = ({
         onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
         onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
       />
-      {showPoolSelectionPage && fleetCredentials && (
-        <PoolSelectionPageWrapper
-          selectedMiners={poolMiners}
-          selectionMode={selectionMode}
-          poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
-          userUsername={fleetCredentials.username}
-          userPassword={fleetCredentials.password}
-          onSuccess={handleMiningPoolSuccess}
-          onError={handleMiningPoolError}
-          onDismiss={handleCancel}
-        />
-      )}
-      {currentAction === performanceActions.managePower && (
-        <ManagePowerModal
-          show={showManagePowerModal}
-          onConfirm={handleManagePowerConfirm}
-          onDismiss={handleManagePowerDismiss}
-        />
-      )}
-      {currentAction === settingsActions.coolingMode && (
-        <CoolingModeModal
-          show={showCoolingModeModal}
-          minerCount={coolingModeCount}
-          initialCoolingMode={currentCoolingMode}
-          onConfirm={handleCoolingModeConfirm}
-          onDismiss={handleCoolingModeDismiss}
-        />
-      )}
-      {showAuthenticateFleetModal && (
-        <AuthenticateFleetModal
-          show={showAuthenticateFleetModal}
-          purpose={authenticationPurpose ?? undefined}
-          onAuthenticated={handleFleetAuthenticated}
-          onDismiss={handleAuthDismiss}
-        />
-      )}
-      {showManageSecurityModal && (
-        <ManageSecurityModal
-          show={showManageSecurityModal}
-          minerGroups={minerGroups}
-          onUpdateGroup={handleUpdateGroup}
-          onDismiss={handleSecurityModalClose}
-          onDone={handleSecurityModalClose}
-        />
-      )}
-      {showUpdatePasswordModal && (
-        <UpdateMinerPasswordModal
-          show={showUpdatePasswordModal}
-          hasThirdPartyMiners={hasThirdPartyMiners}
-          onConfirm={handlePasswordConfirm}
-          onDismiss={handlePasswordDismiss}
-        />
-      )}
+      <PoolSelectionPageWrapper
+        open={showPoolSelectionPage && !!fleetCredentials}
+        selectedMiners={poolMiners}
+        selectionMode={selectionMode}
+        poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
+        userUsername={fleetCredentials?.username}
+        userPassword={fleetCredentials?.password}
+        onSuccess={handleMiningPoolSuccess}
+        onError={handleMiningPoolError}
+        onDismiss={handleCancel}
+      />
+      <ManagePowerModal
+        open={currentAction === performanceActions.managePower && showManagePowerModal}
+        onConfirm={handleManagePowerConfirm}
+        onDismiss={handleManagePowerDismiss}
+      />
+      <CoolingModeModal
+        open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
+        minerCount={coolingModeCount}
+        initialCoolingMode={currentCoolingMode}
+        onConfirm={handleCoolingModeConfirm}
+        onDismiss={handleCoolingModeDismiss}
+      />
+      <AuthenticateFleetModal
+        open={showAuthenticateFleetModal}
+        purpose={authenticationPurpose ?? undefined}
+        onAuthenticated={handleFleetAuthenticated}
+        onDismiss={handleAuthDismiss}
+      />
+      <ManageSecurityModal
+        open={showManageSecurityModal}
+        minerGroups={minerGroups}
+        onUpdateGroup={handleUpdateGroup}
+        onDismiss={handleSecurityModalClose}
+        onDone={handleSecurityModalClose}
+      />
+      <UpdateMinerPasswordModal
+        open={showUpdatePasswordModal}
+        hasThirdPartyMiners={hasThirdPartyMiners}
+        onConfirm={handlePasswordConfirm}
+        onDismiss={handlePasswordDismiss}
+      />
     </PopoverProvider>
   );
 };

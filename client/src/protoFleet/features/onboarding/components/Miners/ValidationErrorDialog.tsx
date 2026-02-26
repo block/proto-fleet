@@ -3,6 +3,7 @@ import Dialog from "@/shared/components/Dialog";
 import { CategorizedInvalidEntries } from "@/shared/utils/networkDiscovery";
 
 interface ValidationErrorDialogProps {
+  open?: boolean;
   invalidEntries: CategorizedInvalidEntries;
   hasValidEntries: boolean;
   onBackToEditing: () => void;
@@ -10,6 +11,7 @@ interface ValidationErrorDialogProps {
 }
 
 const ValidationErrorDialog = ({
+  open,
   invalidEntries,
   hasValidEntries,
   onBackToEditing,
@@ -21,9 +23,10 @@ const ValidationErrorDialog = ({
 
   return (
     <Dialog
-      show
+      open={open}
       testId="validation-error-dialog"
       title="Some entries not recognized"
+      onDismiss={onBackToEditing}
       subtitle={
         hasValidEntries
           ? "Review and fix these entries or continue without them."

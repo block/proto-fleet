@@ -9,12 +9,14 @@ interface UseTelemetryProps {
   level?: GetCurrentTelemetryParams["level"];
   poll?: boolean;
   pollIntervalMs?: number;
+  enabled?: boolean;
 }
 
 const useTelemetry = ({
   level = ["miner", "hashboard"],
   poll = true,
   pollIntervalMs = 15 * 1000,
+  enabled = true,
 }: UseTelemetryProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<TelemetryData>();
@@ -100,6 +102,7 @@ const useTelemetry = ({
 
   usePoll({
     fetchData,
+    enabled,
     poll,
     pollIntervalMs,
   });

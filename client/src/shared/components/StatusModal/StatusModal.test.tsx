@@ -15,8 +15,8 @@ type ComponentAddress = {
 
 // Mock the Modal component
 vi.mock("@/shared/components/Modal", () => ({
-  default: vi.fn(({ children, title, show, buttons, icon, onIconClick, onDismiss }) => {
-    if (!show) return null;
+  default: vi.fn(({ children, title, open, buttons, icon, onIconClick, onDismiss }) => {
+    if (open === false) return null;
     return (
       <div data-testid="modal">
         <div data-testid="modal-title">{title}</div>
@@ -103,7 +103,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -119,7 +118,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
           showBackButton={true}
         />,
       );
@@ -134,7 +132,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -148,7 +145,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -170,7 +166,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -186,7 +181,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
           showBackButton={true}
         />,
       );
@@ -200,7 +194,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
           showBackButton={false}
         />,
       );
@@ -215,7 +208,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
           showBackButton={true}
         />,
       );
@@ -230,7 +222,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -256,7 +247,6 @@ describe("StatusModal", () => {
           componentAddress={componentAddress}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatusNotFound}
-          show={true}
         />,
       );
 
@@ -267,13 +257,13 @@ describe("StatusModal", () => {
   });
 
   describe("Modal Visibility", () => {
-    it("should not render when show is false", () => {
+    it("should not render when open is false", () => {
       render(
         <StatusModal
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={false}
+          open={false}
         />,
       );
 
@@ -282,13 +272,13 @@ describe("StatusModal", () => {
       expect(getMinerStatus).toHaveBeenCalledTimes(1);
     });
 
-    it("should render when show is true", () => {
+    it("should render when open is true", () => {
       render(
         <StatusModal
           componentAddress={undefined}
           getMinerStatus={getMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
+          open={true}
         />,
       );
 
@@ -319,7 +309,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={() => multiButtonMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 
@@ -355,7 +344,6 @@ describe("StatusModal", () => {
           componentAddress={undefined}
           getMinerStatus={() => sleepingMinerStatus}
           getComponentStatus={getComponentStatus}
-          show={true}
         />,
       );
 

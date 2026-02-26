@@ -24,14 +24,14 @@ const getGroupStatusFlags = (status: MinerGroup["status"]) => ({
 });
 
 interface ManageSecurityModalProps {
-  show: boolean;
+  open: boolean;
   minerGroups: MinerGroup[];
   onUpdateGroup: (group: MinerGroup) => void;
   onDismiss: () => void;
   onDone: () => void;
 }
 
-const ManageSecurityModal = ({ show, minerGroups, onUpdateGroup, onDismiss, onDone }: ManageSecurityModalProps) => {
+const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDone }: ManageSecurityModalProps) => {
   const sortedGroups = useMemo(() => {
     return [...minerGroups].sort((a, b) => {
       // Proto rigs always come first
@@ -70,7 +70,7 @@ const ManageSecurityModal = ({ show, minerGroups, onUpdateGroup, onDismiss, onDo
   };
 
   return (
-    <PageOverlay show={show}>
+    <PageOverlay open={open}>
       <div className="h-full w-full overflow-auto bg-surface-base px-6 pt-4 pb-6">
         <Header
           className="sticky top-0 z-10 pb-14"

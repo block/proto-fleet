@@ -36,21 +36,27 @@ describe("useAuthNeededMiners", () => {
   it("calls useFleet with default options", () => {
     renderHook(() => useAuthNeededMiners());
 
-    expect(useFleet).toHaveBeenCalledWith({
-      scope: "local",
-      pageSize: 100,
-      pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
-    });
+    expect(useFleet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        scope: "local",
+        pageSize: 100,
+        pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
+      }),
+    );
   });
 
   it("calls useFleet with custom pageSize", () => {
     renderHook(() => useAuthNeededMiners({ pageSize: 50 }));
 
-    expect(useFleet).toHaveBeenCalledWith({
-      scope: "local",
-      pageSize: 50,
-      pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
-    });
+    expect(useFleet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        scope: "local",
+        pageSize: 50,
+        pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
+      }),
+    );
   });
 
   it("returns the same result as useFleet", () => {

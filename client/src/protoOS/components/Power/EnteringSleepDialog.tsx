@@ -1,19 +1,19 @@
 import Dialog from "@/shared/components/Dialog";
 
 interface EnteringSleepDialogProps {
-  show: boolean;
+  open?: boolean;
 }
 
-const EnteringSleepDialog = ({ show }: EnteringSleepDialogProps) => {
+const EnteringSleepDialog = ({ open }: EnteringSleepDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Entering sleep mode"
       titleSize="text-heading-300"
       preventScroll
       subtitle="Your miner is entering sleep mode. This may take a few seconds."
       subtitleSize="text-300"
       loading
-      show={show}
       testId="entering-sleep-dialog"
     />
   );

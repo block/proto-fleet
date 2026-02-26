@@ -9,7 +9,6 @@ const meta: Meta<typeof NoFansDetectedDialog> = {
     layout: "centered",
   },
   args: {
-    show: true,
     onUseAirCooling: action("onUseAirCooling"),
     onConfirmImmersionCooling: action("onConfirmImmersionCooling"),
   },

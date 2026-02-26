@@ -4,19 +4,20 @@ import Dialog from "@/shared/components/Dialog";
 interface WarnSleepDialogProps {
   onClose: () => void;
   onSubmit: () => void;
-  show: boolean;
+  open?: boolean;
 }
 
-const WarnSleepDialog = ({ onClose, onSubmit, show }: WarnSleepDialogProps) => {
+const WarnSleepDialog = ({ onClose, onSubmit, open }: WarnSleepDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Enter sleep mode?"
       preventScroll
       titleSize="text-heading-200"
-      subtitle="Your miner will stop hashing when in sleep mode but will still be powered on. Do not repair a miner when it’s in sleep mode."
+      subtitle="Your miner will stop hashing when in sleep mode but will still be powered on. Do not repair a miner when it's in sleep mode."
       subtitleSize="text-300"
-      show={show}
       testId="warn-sleep-dialog"
+      onDismiss={onClose}
       buttons={[
         {
           text: "Cancel",

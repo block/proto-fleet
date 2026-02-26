@@ -224,32 +224,30 @@ const Team = () => {
         />
       )}
 
-      {showAddMemberModal && (
-        <AddTeamMemberModal onDismiss={() => setShowAddMemberModal(false)} onSuccess={handleAddMemberSuccess} />
-      )}
-
-      {resetPasswordUser && (
-        <ResetPasswordModal
-          username={resetPasswordUser.username}
-          temporaryPassword={resetPasswordTemp}
-          onConfirm={handleResetPasswordConfirm}
-          onDismiss={() => {
-            setResetPasswordUser(null);
-            setResetPasswordTemp(null);
-            fetchUsers();
-          }}
-          isResetting={isResettingPassword}
-        />
-      )}
-
-      {deactivateUserData && (
-        <DeactivateUserDialog
-          username={deactivateUserData.username}
-          onConfirm={handleDeactivateConfirm}
-          onDismiss={() => setDeactivateUserData(null)}
-          isSubmitting={isDeactivating}
-        />
-      )}
+      <AddTeamMemberModal
+        open={showAddMemberModal}
+        onDismiss={() => setShowAddMemberModal(false)}
+        onSuccess={handleAddMemberSuccess}
+      />
+      <ResetPasswordModal
+        open={!!resetPasswordUser}
+        username={resetPasswordUser?.username ?? ""}
+        temporaryPassword={resetPasswordTemp}
+        onConfirm={handleResetPasswordConfirm}
+        onDismiss={() => {
+          setResetPasswordUser(null);
+          setResetPasswordTemp(null);
+          fetchUsers();
+        }}
+        isResetting={isResettingPassword}
+      />
+      <DeactivateUserDialog
+        open={!!deactivateUserData}
+        username={deactivateUserData?.username ?? ""}
+        onConfirm={handleDeactivateConfirm}
+        onDismiss={() => setDeactivateUserData(null)}
+        isSubmitting={isDeactivating}
+      />
     </div>
   );
 };

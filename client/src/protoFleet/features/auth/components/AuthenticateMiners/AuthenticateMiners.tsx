@@ -38,15 +38,23 @@ const colTitles = {
 };
 
 type AuthenticateMinersProps = {
+  open?: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 };
 
-const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => {
+const AuthenticateMiners = ({ open, onClose, onSuccess }: AuthenticateMinersProps) => {
+  const isVisible = open ?? true;
   // Component fetches its own data
-  const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners, totalMiners } = useAuthNeededMiners();
+  const {
+    miners: minersByIdentifier,
+    refetch: refetchAuthNeededMiners,
+    totalMiners,
+  } = useAuthNeededMiners({
+    enabled: isVisible,
+  });
   const { pair } = useMinerPairing();
-  const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
+  const { refetch: refetchOnboardingStatus } = useOnboardedStatus({ enabled: isVisible });
   const notifyPairingCompleted = useNotifyPairingCompleted();
 
   // Track if component is mounted to prevent state updates after unmount
@@ -68,6 +76,19 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isVisible) {
+      setBulkCredentials({ username: "", password: "" });
+      setCredentials({});
+      setHasMissingCredentials(false);
+      setMinerErrors([]);
+      setAuthenticateLoading(false);
+      setShowMiners(false);
+      setShowPasswords(false);
+      hasInitializedSelectionRef.current = false;
+    }
+  }, [isVisible]);
 
   const [bulkCredentials, setBulkCredentials] = useState<Credentials>({
     username: "",
@@ -417,9 +438,9 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
 
   return (
     <Modal
+      open={isVisible}
       divider={showMiners}
       onDismiss={onClose}
-      show
       buttons={[
         {
           variant: variants.textOnly,

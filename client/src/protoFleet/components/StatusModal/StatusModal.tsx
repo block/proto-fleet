@@ -40,19 +40,21 @@ const EMPTY_DEVICE_IDS: string[] = [];
  * const [isModalOpen, setModalOpen] = useState(false);
  *
  * <ProtoFleetStatusModal
- *   show={isModalOpen}
+ *   open={isModalOpen}
  *   onClose={() => setModalOpen(false)}
  *   deviceId={minerId}
  * />
  * ```
  */
 const ProtoFleetStatusModal = ({
-  show,
+  open,
   onClose,
   deviceId,
   componentAddress,
   showBackButton = true,
 }: ProtoFleetStatusModalProps) => {
+  const isVisible = open ?? true;
+
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
@@ -63,15 +65,20 @@ const ProtoFleetStatusModal = ({
   const fetchedForDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (show && deviceId && fetchedForDeviceRef.current !== deviceId) {
+    if (isVisible && deviceId && fetchedForDeviceRef.current !== deviceId) {
       fetchedForDeviceRef.current = deviceId;
       fetchErrors([deviceId]);
     }
     // Reset when modal closes so we re-fetch if opened again
-    if (!show) {
+    if (!isVisible) {
       fetchedForDeviceRef.current = null;
     }
-  }, [show, deviceId, fetchErrors]);
+  }, [isVisible, deviceId, fetchErrors]);
+
+  const handleClose = useCallback(() => {
+    setComponent(componentAddress);
+    onClose();
+  }, [componentAddress, onClose]);
 
   // ProtoFleet store hooks
   const miner = useMinerData(deviceId);
@@ -163,7 +170,7 @@ const ProtoFleetStatusModal = ({
         text: "Wake miner",
         variant: variants.secondary,
         onClick: () => {
-          onClose();
+          handleClose();
           handleWakeMiner();
         },
       });
@@ -172,7 +179,7 @@ const ProtoFleetStatusModal = ({
     buttons.push({
       text: "Done",
       variant: variants.primary,
-      onClick: onClose,
+      onClick: handleClose,
     });
 
     return {
@@ -187,15 +194,15 @@ const ProtoFleetStatusModal = ({
       },
       title: `${miner?.name || deviceId} status`,
       buttons,
-      onDismiss: onClose,
+      onDismiss: handleClose,
     };
   }, [
     groupedErrors,
     summary,
     miner,
     deviceId,
-    onClose,
     handleWakeMiner,
+    handleClose,
     isOffline,
     needsAuthentication,
     needsMiningPool,
@@ -224,14 +231,14 @@ const ProtoFleetStatusModal = ({
           {
             text: "Done",
             variant: variants.primary,
-            onClick: onClose,
+            onClick: handleClose,
           },
         ],
-        onDismiss: onClose,
+        onDismiss: handleClose,
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [miner, onClose, allErrors],
+    [miner, handleClose, allErrors],
   );
 
   // Don't render if no miner data
@@ -242,10 +249,10 @@ const ProtoFleetStatusModal = ({
   // Render the shared StatusModal with integration data
   return (
     <SharedStatusModal
+      open={isVisible}
       componentAddress={component}
       getMinerStatus={getMinerStatus}
       getComponentStatus={getComponentStatus}
-      show={show}
       showBackButton={showBackButton}
     />
   );

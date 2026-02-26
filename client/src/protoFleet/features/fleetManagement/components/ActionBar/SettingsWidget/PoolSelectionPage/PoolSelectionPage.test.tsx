@@ -29,6 +29,7 @@ const mockValidatePool = vi.fn(({ onSuccess, onFinally }) => {
   onSuccess?.();
   onFinally?.();
 });
+const mockFetchPoolAssignments = vi.fn().mockResolvedValue([]);
 
 vi.mock("@/protoFleet/api/usePools", () => ({
   default: () => ({
@@ -49,7 +50,7 @@ vi.mock("@/protoFleet/api/usePools", () => ({
 
 vi.mock("@/protoFleet/api/useMinerPoolAssignments", () => ({
   default: () => ({
-    fetchPoolAssignments: vi.fn().mockResolvedValue(null),
+    fetchPoolAssignments: mockFetchPoolAssignments,
     isLoading: false,
   }),
 }));
@@ -121,6 +122,49 @@ describe("Pool selection page", () => {
     fireEvent.click(closeModalButton);
     await waitFor(() => {
       expect(onCancel).toHaveBeenCalled();
+    });
+  });
+
+  test("does not handle Escape when page is hidden", () => {
+    render(
+      <PoolSelectionPage
+        open={false}
+        deviceIdentifiers={deviceIdentifiers}
+        onAssignPools={onAssignPools}
+        onDismiss={onCancel}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  test("loads assignments only after page becomes visible", async () => {
+    const singleDevice = ["device-1"];
+
+    const { rerender } = render(
+      <PoolSelectionPage
+        open={false}
+        deviceIdentifiers={singleDevice}
+        onAssignPools={onAssignPools}
+        onDismiss={onCancel}
+      />,
+    );
+
+    expect(mockFetchPoolAssignments).not.toHaveBeenCalled();
+
+    rerender(
+      <PoolSelectionPage
+        open={true}
+        deviceIdentifiers={singleDevice}
+        onAssignPools={onAssignPools}
+        onDismiss={onCancel}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchPoolAssignments).toHaveBeenCalledWith("device-1");
     });
   });
 

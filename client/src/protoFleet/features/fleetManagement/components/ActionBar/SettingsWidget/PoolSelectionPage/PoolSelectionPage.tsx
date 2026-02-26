@@ -38,6 +38,7 @@ interface AssignedPoolData {
 }
 
 interface PoolSelectionPageProps {
+  open?: boolean;
   deviceIdentifiers: string[];
   numberOfMiners?: number; // Optional explicit count (for "all" mode with filters)
   currentDevice?: string | null; // Optional single device identifier (for single miner edit)
@@ -46,12 +47,14 @@ interface PoolSelectionPageProps {
 }
 
 const PoolSelectionPage = ({
+  open,
   deviceIdentifiers,
   numberOfMiners: numberOfMinersOverride,
   currentDevice,
   onAssignPools,
   onDismiss: onCancel,
 }: PoolSelectionPageProps) => {
+  const isVisible = open ?? true;
   const [assignedPoolData, setAssignedPoolData] = useState<AssignedPoolData[]>([]);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [editingPoolIndex, setEditingPoolIndex] = useState<number | null>(null);
@@ -70,7 +73,7 @@ const PoolSelectionPage = ({
   );
 
   const { fetchPoolAssignments, isLoading: isLoadingAssignments } = useMinerPoolAssignments();
-  const { miningPools, validatePool } = usePools();
+  const { miningPools, validatePool } = usePools(isVisible);
   const [isAssigning, setIsAssigning] = useState(false);
 
   const loadedDeviceRef = useRef<string | null>(null);
@@ -84,6 +87,10 @@ const PoolSelectionPage = ({
 
   // Handle ESC key to dismiss the page (only when modal is not open)
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !showSelectionModal) {
         onCancel();
@@ -92,9 +99,28 @@ const PoolSelectionPage = ({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel, showSelectionModal]);
+  }, [isVisible, onCancel, showSelectionModal]);
+
+  // Reset internal state when hidden to mirror prior conditional-mount behavior.
+  useEffect(() => {
+    if (isVisible) {
+      return;
+    }
+
+    loadedDeviceRef.current = null;
+    setAssignedPoolData([]);
+    setShowSelectionModal(false);
+    setEditingPoolIndex(null);
+    setTestingPoolId(null);
+    setShowConnectionCallout(false);
+    setConnectionError(false);
+  }, [isVisible]);
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
     const deviceToLoad = currentDevice ?? (deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null);
 
     if (loadedDeviceRef.current === deviceToLoad) {
@@ -132,7 +158,7 @@ const PoolSelectionPage = ({
     return () => {
       isMounted = false;
     };
-  }, [deviceIdentifiers, currentDevice, fetchPoolAssignments]);
+  }, [isVisible, deviceIdentifiers, currentDevice, fetchPoolAssignments]);
 
   // Create a stable ID for each pool (either real poolId or synthetic for unknown pools)
   const getPoolDisplayId = useCallback((data: AssignedPoolData, index: number): string => {
@@ -332,7 +358,7 @@ const PoolSelectionPage = ({
   }, [assignedPoolData]);
 
   return (
-    <PageOverlay show>
+    <PageOverlay open={open}>
       <div className="h-full w-full overflow-auto bg-surface-base px-6 pt-4 pb-6">
         <Header
           className="sticky top-0 z-10 pb-14"
@@ -448,17 +474,16 @@ const PoolSelectionPage = ({
         </div>
       </div>
 
-      {showSelectionModal && (
-        <PoolSelectionModal
-          onDismiss={() => {
-            setShowSelectionModal(false);
-            setEditingPoolIndex(null);
-          }}
-          onSave={handlePoolSelected}
-          excludedPoolIds={excludedPoolIds}
-          unknownPools={unknownPoolsForModal}
-        />
-      )}
+      <PoolSelectionModal
+        open={isVisible && showSelectionModal}
+        onDismiss={() => {
+          setShowSelectionModal(false);
+          setEditingPoolIndex(null);
+        }}
+        onSave={handlePoolSelected}
+        excludedPoolIds={excludedPoolIds}
+        unknownPools={unknownPoolsForModal}
+      />
     </PageOverlay>
   );
 };

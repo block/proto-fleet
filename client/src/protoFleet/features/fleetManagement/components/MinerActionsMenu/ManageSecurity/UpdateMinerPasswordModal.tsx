@@ -6,14 +6,14 @@ import { PasswordStrengthMeter, WeakPasswordWarning } from "@/shared/components/
 import { isPasswordTooShort, isWeakPassword, passwordErrors } from "@/shared/components/Setup/authentication.constants";
 
 interface UpdateMinerPasswordModalProps {
-  show: boolean;
+  open: boolean;
   hasThirdPartyMiners: boolean;
   onConfirm: (currentPassword: string, newPassword: string) => void;
   onDismiss: () => void;
 }
 
 const UpdateMinerPasswordModal = ({
-  show,
+  open,
   hasThirdPartyMiners,
   onConfirm,
   onDismiss,
@@ -27,7 +27,7 @@ const UpdateMinerPasswordModal = ({
 
   // Reset form when modal is dismissed
   useEffect(() => {
-    if (!show) {
+    if (!open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Form reset on modal close is intentional
       setCurrentPassword("");
       setNewPassword("");
@@ -36,7 +36,7 @@ const UpdateMinerPasswordModal = ({
       setValidationError("");
       setShowWeakPasswordWarning(false);
     }
-  }, [show]);
+  }, [open]);
 
   const handleConfirm = useCallback(
     (forceWeakPassword: boolean) => {
@@ -107,7 +107,7 @@ const UpdateMinerPasswordModal = ({
 
   return (
     <Modal
-      show={show}
+      open={open}
       contentHeader="Update the admin login for your miners"
       onDismiss={handleDismiss}
       buttons={[

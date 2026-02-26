@@ -3,30 +3,31 @@ import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 interface BulkActionConfirmDialogProps {
+  open?: boolean;
   actionConfirmation: ActionWarnDialogOptions;
-  show: boolean;
   onConfirmation: () => void;
   onCancel: () => void;
   testId: string;
 }
 
 const BulkActionConfirmDialog = ({
+  open,
   actionConfirmation,
-  show,
   onConfirmation,
   onCancel,
   testId,
 }: BulkActionConfirmDialogProps) => {
   return (
     <Dialog
+      open={open}
       className="visible"
       title={actionConfirmation.title}
       preventScroll
       titleSize="text-heading-200"
       subtitle={actionConfirmation.subtitle}
       subtitleSize="text-300"
-      show={show}
       testId={testId}
+      onDismiss={onCancel}
       buttons={[
         {
           text: "Cancel",

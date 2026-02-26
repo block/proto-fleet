@@ -58,17 +58,15 @@ function PsuStatusCard({ slot }: PsuStatusCardProps) {
         <LabeledValue value={<TemperatureValue value={avgTemp} />} label="Avg temp" />
         <LabeledValue value={<TemperatureValue value={maxTemp} />} label="High temp" />
       </div>
-      {showComponentStatusModal && (
-        <StatusModal
-          show={showComponentStatusModal}
-          onClose={() => setShowComponentStatusModal(false)}
-          componentAddress={{
-            source: "PSU",
-            slot: slot,
-          }}
-          showBackButton={false}
-        />
-      )}
+      <StatusModal
+        open={showComponentStatusModal}
+        onClose={() => setShowComponentStatusModal(false)}
+        componentAddress={{
+          source: "PSU",
+          slot: slot,
+        }}
+        showBackButton={false}
+      />
     </Card>
   );
 }

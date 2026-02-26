@@ -4,19 +4,20 @@ import Dialog from "@/shared/components/Dialog";
 interface WarnRebootDialogProps {
   onClose: () => void;
   onSubmit: () => void;
-  show: boolean;
+  open?: boolean;
 }
 
-const WarnRebootDialog = ({ onClose, onSubmit, show }: WarnRebootDialogProps) => {
+const WarnRebootDialog = ({ onClose, onSubmit, open }: WarnRebootDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Reboot miner?"
       preventScroll
       titleSize="text-heading-200"
-      subtitle="Rebooting your miner will take a few minutes. Do not repair or unplug the miner while it’s rebooting."
+      subtitle="Rebooting your miner will take a few minutes. Do not repair or unplug the miner while it's rebooting."
       subtitleSize="text-300"
-      show={show}
       testId="warn-reboot-dialog"
+      onDismiss={onClose}
       buttons={[
         {
           text: "Cancel",

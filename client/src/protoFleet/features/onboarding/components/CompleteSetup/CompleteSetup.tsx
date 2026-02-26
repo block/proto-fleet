@@ -83,9 +83,11 @@ const AuthenticateMinersCard = ({
         actionText="Authenticate"
         onActionClick={() => setShowAuthMinersModal(true)}
       />
-      {showAuthMinersModal && (
-        <AuthenticateMiners onClose={() => setShowAuthMinersModal(false)} onSuccess={onAuthenticationSuccess} />
-      )}
+      <AuthenticateMiners
+        open={showAuthMinersModal}
+        onClose={() => setShowAuthMinersModal(false)}
+        onSuccess={onAuthenticationSuccess}
+      />
     </>
   );
 };
@@ -426,29 +428,26 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
           </div>
         </div>
       )}
-      {showAuthModal && (
-        <AuthenticateFleetModal
-          show={showAuthModal}
-          purpose="pool"
-          onAuthenticated={handleAuthSuccess}
-          onDismiss={handleAuthDismiss}
-        />
-      )}
-      {showPoolSelectionModal && poolFleetCredentials && (
-        <PoolSelectionPageWrapper
-          selectionMode="all"
-          poolNeededCount={poolNeededCount}
-          filterCriteria={{
-            deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
-            pairingStatus: PairingStatus.PAIRED,
-          }}
-          userUsername={poolFleetCredentials.username}
-          userPassword={poolFleetCredentials.password}
-          onSuccess={handlePoolAssignmentSuccess}
-          onError={handlePoolAssignmentError}
-          onDismiss={handlePoolDismiss}
-        />
-      )}
+      <AuthenticateFleetModal
+        open={showAuthModal}
+        purpose="pool"
+        onAuthenticated={handleAuthSuccess}
+        onDismiss={handleAuthDismiss}
+      />
+      <PoolSelectionPageWrapper
+        open={showPoolSelectionModal && !!poolFleetCredentials}
+        selectionMode="all"
+        poolNeededCount={poolNeededCount}
+        filterCriteria={{
+          deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+          pairingStatus: PairingStatus.PAIRED,
+        }}
+        userUsername={poolFleetCredentials?.username}
+        userPassword={poolFleetCredentials?.password}
+        onSuccess={handlePoolAssignmentSuccess}
+        onError={handlePoolAssignmentError}
+        onDismiss={handlePoolDismiss}
+      />
     </>
   );
 };

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { MiningPool } from "../types";
 import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
@@ -57,6 +57,7 @@ const PoolSelectableRow = ({ pool, isSelected, isDisabled, onSelect, testId }: P
 );
 
 interface PoolSelectionModalProps {
+  open?: boolean;
   onDismiss: () => void;
   onSave: (selectedPoolId: string, poolData?: MiningPool) => void;
   excludedPoolIds?: (string | undefined)[];
@@ -64,11 +65,13 @@ interface PoolSelectionModalProps {
 }
 
 const PoolSelectionModal = ({
+  open,
   onDismiss,
   onSave,
   excludedPoolIds = [],
   unknownPools = [],
 }: PoolSelectionModalProps) => {
+  const isVisible = open ?? true;
   const [selectedPoolId, setSelectedPoolId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPoolModal, setShowAddPoolModal] = useState(false);
@@ -77,7 +80,24 @@ const PoolSelectionModal = ({
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
 
-  const { validatePool, createPool, miningPools } = usePools();
+  const { validatePool, createPool, miningPools } = usePools(isVisible);
+
+  // Reset internal state when hidden to mirror prior conditional-mount behavior.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (isVisible) {
+      return;
+    }
+
+    setSelectedPoolId(undefined);
+    setSearchQuery("");
+    setShowAddPoolModal(false);
+    setNewPoolInfo([emptyPoolInfo]);
+    setIsTestingConnection(false);
+    setShowConnectionCallout(false);
+    setConnectionError(false);
+  }, [isVisible]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const showSuccessCallout = useMemo(
     () => showConnectionCallout && !isTestingConnection && !connectionError,
@@ -197,11 +217,11 @@ const PoolSelectionModal = ({
   if (showAddPoolModal) {
     return (
       <PoolModal
+        open={open}
         onChangePools={setNewPoolInfo}
         onDismiss={handlePoolModalDismiss}
         poolIndex={0}
         pools={newPoolInfo}
-        show={true}
         isTestingConnection={isTestingConnection}
         testConnection={handleTestConnection}
         onSave={handleNewPoolSave}
@@ -211,6 +231,7 @@ const PoolSelectionModal = ({
 
   return (
     <Modal
+      open={open}
       title="Select pool"
       showHeader
       divider

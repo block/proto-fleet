@@ -31,21 +31,20 @@ const GlobalActionsWidgetWrapper = () => {
   return (
     <PopoverProvider>
       <GlobalActionsWidget onBlinkLEDs={handleBlinkLEDs} onDownloadLogs={handleDownloadLogs} />
-      {error && (
-        <Dialog
-          icon={<Alert className="text-text-critical" />}
-          title="Error"
-          subtitle={error.error?.message || "An error occurred"}
-          show={!!error}
-          buttons={[
-            {
-              text: "Close",
-              onClick: () => setError(null),
-              variant: variants.primary,
-            },
-          ]}
-        />
-      )}
+      <Dialog
+        open={!!error}
+        icon={<Alert className="text-text-critical" />}
+        title="Error"
+        subtitle={error?.error?.message || "An error occurred"}
+        onDismiss={() => setError(null)}
+        buttons={[
+          {
+            text: "Close",
+            onClick: () => setError(null),
+            variant: variants.primary,
+          },
+        ]}
+      />
     </PopoverProvider>
   );
 };

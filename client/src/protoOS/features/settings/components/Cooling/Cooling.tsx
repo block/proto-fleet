@@ -254,7 +254,7 @@ const Cooling = () => {
 
       {showLearnMoreModal && <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />}
 
-      <EnteringSleepDialog show={showSleepDialog} />
+      <EnteringSleepDialog open={showSleepDialog} />
     </>
   );
 };

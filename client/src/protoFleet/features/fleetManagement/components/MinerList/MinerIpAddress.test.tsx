@@ -8,11 +8,12 @@ import * as storeModule from "@/protoFleet/store";
 vi.mock("@/protoFleet/store");
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerFrame", () => ({
-  default: ({ title, src }: { title: string; src: string }) => (
-    <div data-testid="miner-frame" data-title={title} data-src={src}>
-      Miner Frame
-    </div>
-  ),
+  default: ({ open, title, src }: { open?: boolean; title: string; src: string }) =>
+    open ? (
+      <div data-testid="miner-frame" data-title={title} data-src={src}>
+        Miner Frame
+      </div>
+    ) : null,
 }));
 
 describe("MinerIpAddress", () => {

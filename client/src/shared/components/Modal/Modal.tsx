@@ -1,4 +1,5 @@
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
+import { ReactNode, useCallback, useRef } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -8,9 +9,10 @@ import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
-import PageOverlay, { animationDuration } from "@/shared/components/PageOverlay";
+import PageOverlay from "@/shared/components/PageOverlay";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
 // optional prop to delay close modal on clicking button and allow animations to finish
 interface ModalButtonProps extends ButtonProps {
@@ -28,7 +30,7 @@ interface ModalProps {
   buttons?: ModalButtonProps[];
   icon?: ReactNode | null;
   onIconClick?: () => void;
-  show?: boolean;
+  open?: boolean;
   showHeader?: boolean;
   title?: string;
   description?: string;
@@ -48,7 +50,7 @@ const Modal = ({
   onDismiss,
   buttonSize,
   buttons,
-  show = true,
+  open,
   showHeader = true,
   title,
   description,
@@ -56,62 +58,48 @@ const Modal = ({
   size = sizes.large,
   zIndex,
 }: ModalProps) => {
-  const [showModal, setShowModal] = useState(show);
   const ModalRef = useRef<HTMLDivElement>(null);
+  const slideUpAnimation = useSlideUpAnimation();
 
-  const closeModal = useCallback(
-    (buttonClicked?: boolean) => {
-      if (onDismiss === undefined) {
-        return;
+  const dismissModal = useCallback(() => {
+    onDismiss?.();
+  }, [onDismiss]);
+
+  const onButtonClick = useCallback(
+    (button?: ModalButtonProps) => () => {
+      button?.onClick?.();
+      if (button?.variant === variants.primary && button?.dismissModalOnClick !== false) {
+        onDismiss?.(true);
       }
-      setShowModal(false);
-      setTimeout(() => {
-        onDismiss(buttonClicked);
-      }, animationDuration);
     },
     [onDismiss],
   );
 
-  useEffect(() => {
-    if (!show) {
-      closeModal();
+  const handleEscape = useCallback(() => {
+    if (open !== false) {
+      dismissModal();
     }
-  }, [closeModal, show]);
+  }, [open, dismissModal]);
+  useKeyDown({ key: "Escape", onKeyDown: handleEscape });
 
-  // if button is supposed to dismiss modal, animate closing it
-  const onButtonClick = useCallback(
-    (button?: ModalButtonProps) => () => {
-      if (button?.variant === variants.primary && button?.dismissModalOnClick !== false) {
-        closeModal(true);
-      }
-      button?.onClick?.();
-    },
-    [closeModal],
-  );
-
-  const dismissModal = useCallback(() => {
-    closeModal();
-  }, [closeModal]);
-
-  useKeyDown({ key: "Escape", onKeyDown: dismissModal });
-
+  const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
   useClickOutside({
     ref: ModalRef,
     onClickOutside: dismissModal,
     ignoreSelectors: [".popover-content"],
+    shouldIgnore: shouldIgnoreClickOutside,
   });
 
   return (
-    <PageOverlay show={showModal} position="top" {...(zIndex && { zIndex })}>
-      <div
+    <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
+      <motion.div
+        {...slideUpAnimation}
         className={clsx(
           "relative h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
             "min-w-[min(calc(100vw-(--spacing(4))),360px)]": size === sizes.small,
             "min-w-[min(calc(100vw-(--spacing(4))),640px)]": size === sizes.large,
             "min-w-[min(calc(100vw-(--spacing(4))),1024px)]": size === sizes.extraLarge,
-            "animate-sliding-up": showModal,
-            "animate-sliding-down": !showModal,
             "max-w-[640px]": size === sizes.small,
             "max-w-[1024px]": size === sizes.large,
             "max-w-[1280px]": size === sizes.extraLarge,
@@ -147,7 +135,7 @@ const Modal = ({
           <div className={clsx("mb-1 text-heading-200 text-text-primary", contentHeaderClassName)}>{contentHeader}</div>
         )}
         <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
-      </div>
+      </motion.div>
     </PageOverlay>
   );
 };

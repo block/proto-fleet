@@ -17,8 +17,8 @@ vi.mock("@/shared/components/ButtonGroup", () => ({
 }));
 
 vi.mock("@/shared/components/Dialog", () => ({
-  default: vi.fn(({ show, title, subtitle, buttons, testId }) =>
-    show ? (
+  default: vi.fn(({ open, title, subtitle, buttons, testId }) =>
+    open ? (
       <div data-testid={testId ?? "dialog"}>
         <div data-testid="dialog-title">{title}</div>
         <div data-testid="dialog-subtitle">{subtitle}</div>
@@ -37,8 +37,8 @@ vi.mock("@/shared/components/Divider", () => ({
 }));
 
 vi.mock("@/shared/components/Modal", () => ({
-  default: vi.fn(({ show, buttons, children }) =>
-    show ? (
+  default: vi.fn(({ open, buttons, children }) =>
+    open ? (
       <div data-testid="modal">
         <div data-testid="modal-content">{children}</div>
         {buttons?.map((b: { text: string; onClick: () => void; testId?: string }, i: number) => (
@@ -74,10 +74,10 @@ describe("UnsupportedMinersModal", () => {
   });
 
   describe("noneSupported=true — Dialog", () => {
-    it("renders Dialog when show is true", () => {
+    it("renders Dialog when open is true", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={true}
@@ -89,10 +89,10 @@ describe("UnsupportedMinersModal", () => {
       expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
     });
 
-    it("does not render when show is false", () => {
+    it("does not render when open is false", () => {
       render(
         <UnsupportedMinersModal
-          show={false}
+          open={false}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={true}
@@ -106,7 +106,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows 'Action not supported' title", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={true}
@@ -120,7 +120,7 @@ describe("UnsupportedMinersModal", () => {
     it("uses plural 'miners'' in subtitle when count > 1", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={true}
@@ -134,7 +134,7 @@ describe("UnsupportedMinersModal", () => {
     it("uses singular 'miner's' in subtitle when count is 1", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={1}
           noneSupported={true}
@@ -148,7 +148,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows Dismiss button and calls onDismiss when clicked", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={true}
@@ -163,10 +163,10 @@ describe("UnsupportedMinersModal", () => {
   });
 
   describe("noneSupported=false — Modal with rows", () => {
-    it("renders Modal when show is true", () => {
+    it("renders Modal when open is true", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={false}
@@ -178,10 +178,10 @@ describe("UnsupportedMinersModal", () => {
       expect(screen.queryByTestId("action-not-supported-dialog")).not.toBeInTheDocument();
     });
 
-    it("does not render when show is false", () => {
+    it("does not render when open is false", () => {
       render(
         <UnsupportedMinersModal
-          show={false}
+          open={false}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={false}
@@ -195,7 +195,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows correct title and description in body", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={12}
           noneSupported={false}
@@ -210,7 +210,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows Continue button and calls onContinue when clicked", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={false}
@@ -231,7 +231,7 @@ describe("UnsupportedMinersModal", () => {
       ];
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={groups}
           totalUnsupportedCount={12}
           noneSupported={false}
@@ -245,7 +245,7 @@ describe("UnsupportedMinersModal", () => {
     it("displays firmware version and model for each group", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({ firmwareVersion: "v20240702", model: "Antminer S21" })]}
           totalUnsupportedCount={4}
           noneSupported={false}
@@ -260,7 +260,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows plural 'miners' for count greater than 1", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({ count: 5 })]}
           totalUnsupportedCount={5}
           noneSupported={false}
@@ -274,7 +274,7 @@ describe("UnsupportedMinersModal", () => {
     it("shows singular 'miner' for count of 1", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({ count: 1 })]}
           totalUnsupportedCount={1}
           noneSupported={false}
@@ -293,7 +293,7 @@ describe("UnsupportedMinersModal", () => {
       ];
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={groups}
           totalUnsupportedCount={12}
           noneSupported={false}
@@ -308,7 +308,7 @@ describe("UnsupportedMinersModal", () => {
     it("renders no dividers for a single group", () => {
       render(
         <UnsupportedMinersModal
-          show={true}
+          open={true}
           unsupportedGroups={[makeGroup({})]}
           totalUnsupportedCount={4}
           noneSupported={false}

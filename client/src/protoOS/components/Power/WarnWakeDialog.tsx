@@ -4,19 +4,20 @@ import Dialog from "@/shared/components/Dialog";
 interface WarnWakeDialogProps {
   onClose: () => void;
   onSubmit: () => void;
-  show: boolean;
+  open?: boolean;
 }
 
-const WarnWakeDialog = ({ onClose, onSubmit, show }: WarnWakeDialogProps) => {
+const WarnWakeDialog = ({ onClose, onSubmit, open }: WarnWakeDialogProps) => {
   return (
     <Dialog
+      open={open}
       title="Wake up miner?"
       preventScroll
       titleSize="text-heading-200"
       subtitle="This miner is asleep and not hashing. Waking it up will resume normal hashing activity."
       subtitleSize="text-300"
-      show={show}
       testId="warn-wake-up-dialog"
+      onDismiss={onClose}
       buttons={[
         {
           text: "Cancel",

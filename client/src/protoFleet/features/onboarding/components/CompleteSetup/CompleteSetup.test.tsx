@@ -26,11 +26,22 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
 vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
-  default: ({ onAuthenticated }: { onAuthenticated: (username: string, password: string) => void }) => (
-    <div data-testid="auth-fleet-modal">
-      <button onClick={() => onAuthenticated("testuser", "testpass")}>Submit Auth</button>
-    </div>
-  ),
+  default: ({
+    open,
+    onAuthenticated,
+  }: {
+    open: boolean;
+    onAuthenticated: (username: string, password: string) => void;
+  }) =>
+    open ? (
+      <div data-testid="auth-fleet-modal">
+        <button onClick={() => onAuthenticated("testuser", "testpass")}>Submit Auth</button>
+      </div>
+    ) : null,
+}));
+vi.mock("@/protoFleet/features/auth/components/AuthenticateMiners", () => ({
+  AuthenticateMiners: ({ open }: { open?: boolean }) =>
+    open ? <div data-testid="auth-miners-modal">Authenticate Miners Modal</div> : null,
 }));
 vi.mock("@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage", () => ({
   default: () => <div data-testid="pool-selection-modal">Pool Selection Modal</div>,

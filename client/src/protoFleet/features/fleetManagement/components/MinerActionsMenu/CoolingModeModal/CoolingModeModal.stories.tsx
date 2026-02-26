@@ -27,7 +27,6 @@ const StoryWrapper = ({ infoMessage, minerCount = 1 }: { infoMessage?: string; m
         <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">{infoMessage}</div>
       )}
       <CoolingModeModal
-        show={show}
         minerCount={minerCount}
         onConfirm={(coolingMode) => {
           action("onConfirm")(coolingMode);

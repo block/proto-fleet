@@ -40,7 +40,7 @@ const MinerIpAddress = ({ deviceIdentifier }: MinerIpAddressProps) => {
       <a href={url} target="_blank" rel="noopener noreferrer" onClick={handleClick}>
         {ipAddress}
       </a>
-      {isMinerFrameOpen ? <MinerFrame title={name} src={url} onDismiss={() => setIsMinerFrameOpen(false)} /> : null}
+      <MinerFrame open={isMinerFrameOpen} title={name} src={url} onDismiss={() => setIsMinerFrameOpen(false)} />
     </>
   );
 };

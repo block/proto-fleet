@@ -31,7 +31,7 @@ const TemperatureUnitsSwitcher = ({
 
   // TODO should be modal instead of Popover
   return (
-    <PageOverlay show>
+    <PageOverlay>
       <PopoverContent
         closePopover={onClickDone}
         title="Temperature"

@@ -165,10 +165,10 @@ const PowerWidget = ({
         <Power width={iconSizes.small} className="m-1 -translate-y-0.25" />
       </WidgetWrapper>
       {isOpen && <PowerPopover onReboot={handleRebootButton} onSleep={handleSleepButton} onWake={handleWakeButton} />}
-      <WarnRebootDialog onClose={() => setWarnReboot(false)} onSubmit={handleRebootConfirm} show={warnReboot} />
-      <RebootingDialog show={shouldReboot} />
-      <WarnSleepDialog onClose={() => setWarnSleep(false)} onSubmit={handleSleepConfirm} show={warnSleep} />
-      <EnteringSleepDialog show={shouldSleep} />
+      <WarnRebootDialog open={warnReboot} onClose={() => setWarnReboot(false)} onSubmit={handleRebootConfirm} />
+      <RebootingDialog open={shouldReboot} />
+      <WarnSleepDialog open={warnSleep} onClose={() => setWarnSleep(false)} onSubmit={handleSleepConfirm} />
+      <EnteringSleepDialog open={shouldSleep} />
     </div>
   );
 };

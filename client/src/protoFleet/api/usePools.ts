@@ -35,7 +35,7 @@ export interface ValidatePoolProps {
   onFinally?: () => void;
 }
 
-const usePools = () => {
+const usePools = (enabled = true) => {
   const { handleAuthErrors } = useAuthErrors();
 
   const [pools, setPools] = useState<ListPoolsResponse["pools"]>([]);
@@ -68,8 +68,13 @@ const usePools = () => {
   );
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+
     fetchPools();
-  }, [fetchPools]);
+  }, [enabled, fetchPools]);
 
   const createPool = useCallback(
     async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
