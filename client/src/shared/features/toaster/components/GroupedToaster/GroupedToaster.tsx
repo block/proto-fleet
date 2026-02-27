@@ -89,6 +89,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
         },
       )}
       onClick={() => !isExpanded && setIsExpanded(true)}
+      data-testid="toaster-container"
     >
       <div
         className={clsx("cursor-pointer", {

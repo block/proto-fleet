@@ -31,7 +31,7 @@ const GroupedToast = ({ message, onClose, status, progress, ttl = defaultTtl }: 
   else if (status === STATUSES.queued) icon = <ProgressCircular dataTestId="queued-progress-circular" />;
 
   return (
-    <div className="space-x-4 bg-surface-elevated-base py-2">
+    <div className="space-x-4 bg-surface-elevated-base py-2" data-testid="toast">
       <div className="flex grow items-center space-x-4">
         {icon}
         <div className="flex flex-col">

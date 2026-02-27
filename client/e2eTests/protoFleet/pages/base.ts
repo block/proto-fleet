@@ -53,24 +53,22 @@ export class BasePage {
   }
 
   async validateTextInToast(text: string) {
-    const toastContainer = this.page.locator("[data-testid='toast'], [data-testid='grouped-toaster-header']");
+    const toast = this.page.getByTestId("toast").getByText(text);
+    await expect(toast).toBeVisible();
+  }
 
-    const expectedPatterns = [new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")];
-    if (/^update complete$/i.test(text)) {
-      // Pool assignment now reports action-specific completion text.
-      expectedPatterns.push(/updates?\s+complete/i);
-      expectedPatterns.push(/assigned pools to/i);
+  async validateTextInToastGroup(text: string) {
+    const toast = this.page.getByTestId("grouped-toaster-header").getByText(text);
+    await expect(toast).toBeVisible();
+  }
+
+  async dismissToast() {
+    const toast = this.page.getByTestId("toaster-container");
+    const dismissButton = this.page.getByRole("button", { name: "Dismiss" });
+    if (!(await dismissButton.isVisible())) {
+      await toast.click();
     }
-
-    await expect(async () => {
-      for (const pattern of expectedPatterns) {
-        const locator = toastContainer.getByText(pattern).first();
-        if (await locator.isVisible().catch(() => false)) {
-          return;
-        }
-      }
-      throw new Error(`Expected toast text not visible: ${text}`);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
+    await toast.getByRole("button", { name: "Dismiss" }).click();
   }
 
   async validateTextInModal(text: string) {

@@ -29,8 +29,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Putting to sleep");
+      await minersPage.validateTextInToastGroup("Put to sleep");
     });
 
     await test.step("Validate miner is sleeping", async () => {
@@ -55,8 +55,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Waking up");
+      await minersPage.validateTextInToast("Woke up");
     });
 
     await test.step("Validate none of the miners are sleeping", async () => {
@@ -80,8 +80,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Rebooting");
+      await minersPage.validateTextInToastGroup("Rebooted");
     });
 
     await test.step("Validate reboot API request", async () => {
@@ -122,8 +122,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Rebooting");
+      await minersPage.validateTextInToastGroup("Rebooted");
     });
 
     await test.step("Validate reboot API request", async () => {
@@ -160,8 +160,9 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Updating power settings");
+      await minersPage.validateTextInToastGroup("Updated power settings");
+      await minersPage.dismissToast();
     });
 
     await test.step("Validate 'SetPowerTarget' API request", async () => {
@@ -190,8 +191,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Updating power settings");
+      await minersPage.validateTextInToastGroup("Updated power settings");
     });
 
     await test.step("Validate 'SetPowerTarget' API request", async () => {
@@ -240,8 +241,9 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Updating power settings");
+      await minersPage.validateTextInToastGroup("Updated power settings");
+      await minersPage.dismissToast();
     });
 
     await test.step("Validate 'SetPowerTarget' API request", async () => {
@@ -269,8 +271,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Updating power settings");
+      await minersPage.validateTextInToastGroup("Updated power settings");
     });
 
     await test.step("Validate 'SetPowerTarget' API request", async () => {
@@ -309,8 +311,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Setting cooling mode");
+      await minersPage.validateTextInToastGroup("Updated cooling mode");
     });
 
     await test.step("Validate 'SetCoolingMode' API request", async () => {
@@ -349,8 +351,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Setting cooling mode");
+      await minersPage.validateTextInToastGroup("Updated cooling mode");
     });
 
     await test.step("Validate 'SetCoolingMode' API request", async () => {
@@ -399,8 +401,8 @@ test.describe("Miners", () => {
     });
 
     await test.step("Validate update process", async () => {
-      await minersPage.validateUpdateInProgress();
-      await minersPage.validateUpdateCompleted();
+      await minersPage.validateTextInToastGroup("Setting cooling mode");
+      await minersPage.validateTextInToastGroup("Updated cooling mode");
     });
 
     await test.step("Validate 'SetCoolingMode' API request", async () => {

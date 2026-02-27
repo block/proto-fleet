@@ -91,7 +91,7 @@ test.describe("Mining Pools", () => {
       await editPoolPage.validateModalIsClosed();
       await editPoolPage.validatePoolByIndex(0, poolName, validPoolUrl);
       await editPoolPage.clickAssignToXMiners(amountOfMiners);
-      await editPoolPage.validateTextInToast("Update complete");
+      await editPoolPage.validateTextInToastGroup("Assigned pools");
     });
 
     await test.step("Validate the pool has been assigned", async () => {
@@ -174,7 +174,7 @@ test.describe("Mining Pools", () => {
 
     await test.step("Save pool changes", async () => {
       await editPoolPage.clickAssignToXMiners(1);
-      await editPoolPage.validateTextInToast("Update complete");
+      await editPoolPage.validateTextInToastGroup("Assigned pools");
     });
 
     await test.step("Validate miner's status did not change", async () => {

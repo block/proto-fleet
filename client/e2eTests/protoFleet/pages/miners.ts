@@ -181,61 +181,11 @@ export class MinersPage extends BasePage {
   }
 
   async validateUpdateInProgress() {
-    const groupedHeader = this.page.getByTestId("grouped-toaster-header");
-    const loadingIcon = this.page.getByTestId("header-progress-circular");
-    const successIcon = this.page.getByTestId("header-success-icon");
-
-    const loadingText = groupedHeader.getByText(
-      /updates?\s+in\s+progress|rebooting|waking up|putting to sleep|updating power settings|setting cooling mode|assigning pools|updating security/i,
-    );
-    const completedText = groupedHeader.getByText(
-      /updates?\s+complete|rebooted|woke up|put to sleep|updated power settings for|updated cooling mode for|assigned pools to|updated security for/i,
-    );
-
-    await expect(async () => {
-      const headerVisible = await groupedHeader.isVisible().catch(() => false);
-      expect(headerVisible).toBe(true);
-
-      const isLoading =
-        (await loadingIcon.isVisible().catch(() => false)) ||
-        (await loadingText
-          .first()
-          .isVisible()
-          .catch(() => false));
-
-      // Some actions can complete very quickly in CI, so accept immediate completed state too.
-      const isCompleted =
-        (await successIcon.isVisible().catch(() => false)) ||
-        (await completedText
-          .first()
-          .isVisible()
-          .catch(() => false));
-
-      expect(isLoading || isCompleted).toBe(true);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeVisible();
   }
 
   async validateUpdateCompleted() {
-    const groupedHeader = this.page.getByTestId("grouped-toaster-header");
-    const loadingIcon = this.page.getByTestId("header-progress-circular");
-    const loadingText = groupedHeader.getByText(
-      /updates?\s+in\s+progress|rebooting|waking up|putting to sleep|updating power settings|setting cooling mode|assigning pools|updating security/i,
-    );
-
-    await expect(async () => {
-      const headerVisible = await groupedHeader.isVisible().catch(() => false);
-      if (!headerVisible) {
-        return;
-      }
-
-      const stillLoading =
-        (await loadingIcon.isVisible().catch(() => false)) ||
-        (await loadingText
-          .first()
-          .isVisible()
-          .catch(() => false));
-      expect(stillLoading).toBe(false);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeHidden();
   }
 
   async waitForMinersListToLoad() {
