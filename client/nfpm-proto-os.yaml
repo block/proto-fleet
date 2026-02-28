@@ -1,0 +1,13 @@
+name: proto-os
+arch: all
+version: "${VERSION}"
+maintainer: "Block Inc."
+description: "ProtoOS web dashboard"
+contents:
+  - src: dist/protoOS/
+    dst: /var/www/
+    type: tree
+    file_info:
+      mode: 0755
+  - src: dist/web_dashboard_version
+    dst: /etc/web_dashboard_version

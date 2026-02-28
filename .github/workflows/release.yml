@@ -227,10 +227,23 @@ jobs:
         run: |
           tar -czf proto-os-${{ github.event.release.tag_name }}.tar.gz dist/protoOS
 
+      - name: Create version file for control board package .ipk
+        working-directory: ./client
+        run: echo "${{ github.event.release.tag_name }}" > dist/web_dashboard_version
+
+      - name: Build ProtoOS .ipk package
+        working-directory: ./client
+        run: |
+          nfpm package --config nfpm-proto-os.yaml --packager ipk
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+
       - name: Upload ProtoOS artifact
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          files: ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
+          files: |
+            ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
+            ./client/proto-os_*.ipk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -245,6 +258,16 @@ jobs:
           aws s3 cp \
             ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz \
             s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
+            --acl public-read
+
+      - name: Upload ProtoOS .ipk to S3
+        run: |
+          aws s3 cp \
+            ./client/ \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
+            --recursive \
+            --exclude "*" \
+            --include "proto-os_*.ipk" \
             --acl public-read
 
   build-timescaledb-image:
