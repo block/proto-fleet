@@ -53,6 +53,15 @@ type OfflineDeviceInfo struct {
 	DiscoveredDeviceIdentifier string
 }
 
+// DeviceRenameProperties holds the device attributes needed for name generation.
+type DeviceRenameProperties struct {
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     string
+	Model            string
+	Manufacturer     string
+}
+
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
 	InsertDevice(ctx context.Context, device *pb.Device, orgID int64, discoveredDeviceIdentifier string) error
@@ -78,4 +87,6 @@ type DeviceStore interface {
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
+	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]DeviceRenameProperties, error)
+	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error
 }

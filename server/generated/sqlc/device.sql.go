@@ -265,7 +265,7 @@ func (q *Queries) GetAvailableModels(ctx context.Context, orgID int64) ([]sql.Nu
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name
 FROM device
 WHERE device_identifier = $1
   AND org_id = $2
@@ -291,12 +291,13 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.CustomName,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name
 FROM device
 WHERE id = $1
   AND org_id = $2
@@ -322,6 +323,7 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.CustomName,
 	)
 	return i, err
 }
@@ -498,6 +500,63 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 	var pairing_status PairingStatusEnum
 	err := row.Scan(&pairing_status)
 	return pairing_status, err
+}
+
+const getDevicePropertiesForRename = `-- name: GetDevicePropertiesForRename :many
+SELECT
+    d.device_identifier,
+    COALESCE(d.mac_address, '') as mac_address,
+    d.serial_number,
+    dd.model,
+    dd.manufacturer
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.device_identifier = ANY($1::text[])
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+`
+
+type GetDevicePropertiesForRenameParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetDevicePropertiesForRenameRow struct {
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     sql.NullString
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+}
+
+// Returns the device properties needed for name generation during a rename operation.
+func (q *Queries) GetDevicePropertiesForRename(ctx context.Context, arg GetDevicePropertiesForRenameParams) ([]GetDevicePropertiesForRenameRow, error) {
+	rows, err := q.query(ctx, q.getDevicePropertiesForRenameStmt, getDevicePropertiesForRename, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDevicePropertiesForRenameRow
+	for rows.Next() {
+		var i GetDevicePropertiesForRenameRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.Model,
+			&i.Manufacturer,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getDeviceStatus = `-- name: GetDeviceStatus :one
@@ -974,7 +1033,8 @@ SELECT
     dd.url_scheme,
     CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END as pairing_status,
     dd.id as cursor_id,
-    COALESCE(d.id, 0) as device_id
+    COALESCE(d.id, 0) as device_id,
+    d.custom_name
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -999,6 +1059,7 @@ type ListMinerStateSnapshotsRow struct {
 	PairingStatus    string
 	CursorID         int64
 	DeviceID         int64
+	CustomName       sql.NullString
 }
 
 // TYPE GENERATION STUB - This query is never executed.
@@ -1031,6 +1092,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.PairingStatus,
 			&i.CursorID,
 			&i.DeviceID,
+			&i.CustomName,
 		); err != nil {
 			return nil, err
 		}

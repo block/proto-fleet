@@ -44,7 +44,7 @@ Duplicate names are permitted — renaming is advisory, not a unique identifier.
 
 ### Patterns
 
-- **Display name resolution**: The name returned in miner list responses is `custom_name` when set, falling back to `manufacturer + model` (from `discovered_device`) when `NULL`. This fallback is applied at the query level.
+- **Display name resolution**: The name returned in miner list responses is `custom_name` when set, falling back to `manufacturer + model` (from `discovered_device`) when `NULL`. This fallback is applied in the domain layer after the query returns the raw nullable `custom_name`. The sort expression for the name field does use SQL-level `COALESCE` so ordering is consistent.
 - **Single endpoint for single and bulk**: `RenameMiners` uses `DeviceSelector`, which handles both a specific set of miner IDs and all devices in the fleet.
 - **Non-unique names**: Custom names are not enforced as unique at the database level.
 - **Atomic writes**: Bulk rename is applied in a single database transaction — all names are persisted or none are.
@@ -157,7 +157,7 @@ ALTER TABLE device ADD COLUMN custom_name TEXT;
 
 ### Query Updates
 
-The display name fallback (`COALESCE(d.custom_name, dd.manufacturer || ' ' || dd.model)`) must be applied in all sqlc queries that return the miner display name to the client. The primary query to update is in `sqlc/queries/fleet_management.sql` — the miners list query that joins `device` and `discovered_device`. Any other query returning a miner's display name to a handler must apply the same fallback.
+The sqlc query selects `device.custom_name` as a raw nullable column. The display name fallback (`custom_name` when non-null, otherwise `manufacturer + ' ' + model`) is applied in the domain layer (`service.go`) after reading the query result. The name sort expression does use SQL-level `COALESCE` so ordering matches the resolved display name. Any future query returning a miner display name to a handler should apply the same fallback in the domain layer.
 
 ### Performance
 
@@ -195,3 +195,4 @@ Unit tests for name generation logic. Integration tests against the database for
 | Date | Author | Change | Reason |
 |------|--------|--------|--------|
 | 2026-02-26 | Negar | Initial draft | Initial feature development |
+| 2026-02-27 | Negar | Correct display name fallback location | Fallback is applied in domain layer, not SQL query; sort expression still uses SQL COALESCE |

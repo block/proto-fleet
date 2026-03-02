@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -773,6 +775,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.PairingStatus,
 			&row.CursorID,
 			&row.DeviceID,
+			&row.CustomName,
 			&row.SortValue,
 		)
 		if err != nil {
@@ -949,5 +952,93 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
 	}
+	return nil
+}
+
+// GetDevicePropertiesForRename fetches device attributes needed for name generation.
+func (s *SQLDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]stores.DeviceRenameProperties, error) {
+	if len(deviceIdentifiers) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.getQueries(ctx).GetDevicePropertiesForRename(ctx, sqlc.GetDevicePropertiesForRenameParams{
+		DeviceIdentifiers: deviceIdentifiers,
+		OrgID:             orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get device properties for rename: %v", err)
+	}
+
+	result := make([]stores.DeviceRenameProperties, 0, len(rows))
+	for _, row := range rows {
+		props := stores.DeviceRenameProperties{
+			DeviceIdentifier: row.DeviceIdentifier,
+			MacAddress:       row.MacAddress,
+		}
+		if row.SerialNumber.Valid {
+			props.SerialNumber = row.SerialNumber.String
+		}
+		if row.Model.Valid {
+			props.Model = row.Model.String
+		}
+		if row.Manufacturer.Valid {
+			props.Manufacturer = row.Manufacturer.String
+		}
+		result = append(result, props)
+	}
+
+	return result, nil
+}
+
+// UpdateDeviceCustomNames sets the custom_name column on multiple devices atomically.
+// The names map is keyed by device_identifier. Device ownership is validated by the
+// caller (RenameMiners) before this method is invoked.
+//
+// The UPDATE and the row-count check run in a single transaction so that a short write
+// (e.g. a concurrent soft-delete between selection and write) is rolled back rather than
+// partially committed. This preserves all-or-nothing rename semantics.
+func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error {
+	if len(names) == 0 {
+		return nil
+	}
+
+	identifiers := make([]string, 0, len(names))
+	customNames := make([]string, 0, len(names))
+	for id, name := range names {
+		identifiers = append(identifiers, id)
+		customNames = append(customNames, name)
+	}
+
+	tx, err := s.conn.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to begin rename transaction: %v", err)
+	}
+	//goland:noinspection GoUnhandledErrorResult
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE device SET custom_name = updates.name
+		FROM unnest($1::text[], $2::text[]) AS updates(identifier, name)
+		WHERE device.device_identifier = updates.identifier
+		  AND device.org_id = $3
+		  AND device.deleted_at IS NULL`,
+		pq.Array(identifiers), pq.Array(customNames), orgID,
+	)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update device custom names: %v", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to read rows affected for custom name update: %v", err)
+	}
+	if int(affected) != len(names) {
+		return fleeterror.NewNotFoundErrorf("one or more devices not found during rename: expected %d updates, got %d", len(names), affected)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fleeterror.NewInternalErrorf("failed to commit rename transaction: %v", err)
+	}
+
 	return nil
 }

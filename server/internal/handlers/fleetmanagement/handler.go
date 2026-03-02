@@ -75,3 +75,12 @@ func (h *Handler) GetMinerModelGroups(ctx context.Context, r *connect.Request[pb
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) RenameMiners(ctx context.Context, r *connect.Request[pb.RenameMinersRequest]) (*connect.Response[pb.RenameMinersResponse], error) {
+	result, err := h.fleetMgmtSvc.RenameMiners(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

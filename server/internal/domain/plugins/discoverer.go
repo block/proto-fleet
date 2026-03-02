@@ -104,7 +104,14 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 				return nil, fleeterror.NewInternalErrorf("all plugin discovery attempts failed, last error: %v", lastErr)
 			}
 		case <-ctx.Done():
-			return nil, fleeterror.NewInternalErrorf("discovery canceled: %v", ctx.Err())
+			// A successful result may have been sent just before cancel() was called.
+			// Prefer it over the cancellation error.
+			select {
+			case r := <-resultChan:
+				return r.device, nil
+			default:
+				return nil, fleeterror.NewInternalErrorf("discovery canceled: %v", ctx.Err())
+			}
 		}
 	}
 }

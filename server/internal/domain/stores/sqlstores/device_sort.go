@@ -92,6 +92,9 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 
 	switch field {
 	case stores.SortFieldUnspecified, stores.SortFieldName:
+		if row.CustomName.Valid && row.CustomName.String != "" {
+			return strings.TrimSpace(row.CustomName.String)
+		}
 		manufacturer := ""
 		if row.Manufacturer.Valid {
 			manufacturer = row.Manufacturer.String

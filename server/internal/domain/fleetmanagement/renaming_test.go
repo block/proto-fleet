@@ -1,0 +1,505 @@
+package fleetmanagement
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+func int32Ptr(v int32) *int32 { return &v }
+
+func sectionPtr(v pb.CharacterSection) *pb.CharacterSection { return &v }
+
+func baseProps() interfaces.DeviceRenameProperties {
+	return interfaces.DeviceRenameProperties{
+		DeviceIdentifier: "dev-1",
+		MacAddress:       "AA:BB:CC:DD:EE:FF",
+		SerialNumber:     "SN1234567",
+		Model:            "S19Pro",
+		Manufacturer:     "Bitmain",
+	}
+}
+
+// TestFormatCounter verifies zero-padding across different scales.
+func TestFormatCounter(t *testing.T) {
+	tests := []struct {
+		value    int
+		scale    int
+		expected string
+	}{
+		{0, 1, "0"},
+		{1, 1, "1"},
+		{9, 1, "9"},
+		{10, 1, "10"},
+		{0, 3, "000"},
+		{1, 3, "001"},
+		{42, 3, "042"},
+		{1000, 3, "1000"},
+		{0, 6, "000000"},
+		{999999, 6, "999999"},
+	}
+
+	for _, tc := range tests {
+		result := formatCounter(tc.value, tc.scale)
+		assert.Equal(t, tc.expected, result, "formatCounter(%d, %d)", tc.value, tc.scale)
+	}
+}
+
+// TestRequiresWorkerName verifies detection of WORKER_NAME in properties.
+func TestRequiresWorkerName(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *pb.MinerNameConfig
+		expected bool
+	}{
+		{
+			name:     "nil config",
+			config:   nil,
+			expected: false,
+		},
+		{
+			name: "no properties",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{},
+			},
+			expected: false,
+		},
+		{
+			name: "only counter property",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_Counter{Counter: &pb.CounterProperty{CounterStart: 1, CounterScale: 3}}},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "fixed value MAC address",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS}}},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "fixed value WORKER_NAME",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME}}},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "WORKER_NAME mixed with other properties",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig"}}},
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME}}},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, requiresWorkerName(tc.config))
+		})
+	}
+}
+
+// TestGenerateName_Counter verifies that counters increment per device index.
+func TestGenerateName_Counter(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_Counter{Counter: &pb.CounterProperty{CounterStart: 1, CounterScale: 3}}},
+		},
+		Separator: "-",
+	}
+	props := baseProps()
+
+	name0, err := generateName(cfg, props, "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "001", name0)
+
+	name2, err := generateName(cfg, props, "", 2)
+	require.NoError(t, err)
+	assert.Equal(t, "003", name2)
+}
+
+// TestGenerateName_StringAndCounter verifies prefix+counter+suffix combining.
+func TestGenerateName_StringAndCounter(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringAndCounter{StringAndCounter: &pb.StringAndCounterProperty{
+				Prefix:       "rig-",
+				Suffix:       "-prod",
+				CounterStart: 10,
+				CounterScale: 2,
+			}}},
+		},
+		Separator: "",
+	}
+	props := baseProps()
+
+	name, err := generateName(cfg, props, "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "rig-10-prod", name)
+
+	name, err = generateName(cfg, props, "", 3)
+	require.NoError(t, err)
+	assert.Equal(t, "rig-13-prod", name)
+}
+
+// TestGenerateName_StringOnly verifies a static string is returned as-is.
+func TestGenerateName_StringOnly(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "warehouse-A"}}},
+		},
+		Separator: "-",
+	}
+
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "warehouse-A", name)
+}
+
+// TestGenerateName_FixedValues verifies each FixedValueType returns the correct device attribute.
+func TestGenerateName_FixedValues(t *testing.T) {
+	props := baseProps()
+
+	tests := []struct {
+		name     string
+		fvType   pb.FixedValueType
+		expected string
+	}{
+		{"mac address", pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS, props.MacAddress},
+		{"serial number", pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER, props.SerialNumber},
+		{"model", pb.FixedValueType_FIXED_VALUE_TYPE_MODEL, props.Model},
+		{"manufacturer", pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER, props.Manufacturer},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: tc.fvType}}},
+				},
+				Separator: "-",
+			}
+			name, err := generateName(cfg, props, "", 0)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, name)
+		})
+	}
+}
+
+// TestGenerateName_WorkerName_Present verifies worker name is used when provided.
+func TestGenerateName_WorkerName_Present(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME}}},
+		},
+		Separator: "",
+	}
+
+	name, err := generateName(cfg, baseProps(), "my-worker", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "my-worker", name)
+}
+
+// TestGenerateName_WorkerName_Missing verifies the segment is omitted when worker name is empty.
+// With no other properties producing a non-blank result, this should fail with a blank name error.
+func TestGenerateName_WorkerName_MissingWithOtherSegment(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig"}}},
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME}}},
+		},
+		Separator: "-",
+	}
+
+	// Worker name empty → segment omitted, only "rig" remains.
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "rig", name)
+}
+
+// TestGenerateName_Separator verifies the separator is placed between segments.
+func TestGenerateName_Separator(t *testing.T) {
+	tests := []struct {
+		sep      string
+		expected string
+	}{
+		{"-", "Bitmain-001"},
+		{"_", "Bitmain_001"},
+		{".", "Bitmain.001"},
+		{"", "Bitmain001"},
+	}
+
+	for _, tc := range tests {
+		t.Run("sep="+tc.sep, func(t *testing.T) {
+			cfg := &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER}}},
+					{Kind: &pb.NameProperty_Counter{Counter: &pb.CounterProperty{CounterStart: 1, CounterScale: 3}}},
+				},
+				Separator: tc.sep,
+			}
+			name, err := generateName(cfg, baseProps(), "", 0)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, name)
+		})
+	}
+}
+
+// TestGenerateName_CharacterCount_First verifies taking the first N characters.
+func TestGenerateName_CharacterCount_First(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{
+				Type:           pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
+				CharacterCount: int32Ptr(4),
+				Section:        sectionPtr(pb.CharacterSection_CHARACTER_SECTION_FIRST),
+			}}},
+		},
+		Separator: "",
+	}
+	// MAC = "AA:BB:CC:DD:EE:FF", first 4 chars = "AA:B"
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "AA:B", name)
+}
+
+// TestGenerateName_CharacterCount_Last verifies taking the last N characters.
+func TestGenerateName_CharacterCount_Last(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{
+				Type:           pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
+				CharacterCount: int32Ptr(5),
+				Section:        sectionPtr(pb.CharacterSection_CHARACTER_SECTION_LAST),
+			}}},
+		},
+		Separator: "",
+	}
+	// MAC = "AA:BB:CC:DD:EE:FF", last 5 chars = "EE:FF"
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "EE:FF", name)
+}
+
+// TestGenerateName_CharacterCount_Unspecified verifies that CHARACTER_SECTION_UNSPECIFIED
+// falls back to taking from the front, matching FIRST behaviour.
+func TestGenerateName_CharacterCount_Unspecified(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{
+				Type:           pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
+				CharacterCount: int32Ptr(4),
+				Section:        sectionPtr(pb.CharacterSection_CHARACTER_SECTION_UNSPECIFIED),
+			}}},
+		},
+		Separator: "",
+	}
+	// UNSPECIFIED should behave the same as FIRST: "AA:B"
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "AA:B", name)
+}
+
+// TestGenerateName_CharacterCount_LongerThanValue verifies no truncation when count >= value length.
+func TestGenerateName_CharacterCount_LongerThanValue(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{
+				Type:           pb.FixedValueType_FIXED_VALUE_TYPE_MODEL,
+				CharacterCount: int32Ptr(6),
+				Section:        sectionPtr(pb.CharacterSection_CHARACTER_SECTION_FIRST),
+			}}},
+		},
+		Separator: "",
+	}
+	// Model = "S19Pro" (6 chars) — count == length, returns the full value.
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "S19Pro", name)
+}
+
+// TestGenerateName_BlankResult verifies a blank name after trim returns an error.
+func TestGenerateName_BlankResult(t *testing.T) {
+	// LOCATION is reserved/unimplemented — produces empty segment.
+	// With only that property, the joined name is blank.
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION}}},
+		},
+		Separator: "",
+	}
+	_, err := generateName(cfg, baseProps(), "", 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blank")
+}
+
+// TestGenerateName_TooLong verifies names exceeding 100 characters return an error.
+func TestGenerateName_TooLong(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: strings.Repeat("a", 101)}}},
+		},
+		Separator: "",
+	}
+	_, err := generateName(cfg, baseProps(), "", 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds")
+}
+
+// TestGenerateName_ExactlyMaxLength verifies a 100-character name is accepted.
+func TestGenerateName_ExactlyMaxLength(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: strings.Repeat("a", 100)}}},
+		},
+		Separator: "",
+	}
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Len(t, name, 100)
+}
+
+// TestGenerateName_MultipleProperties verifies all segments are joined with the separator.
+func TestGenerateName_MultipleProperties(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER}}},
+			{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_MODEL}}},
+			{Kind: &pb.NameProperty_Counter{Counter: &pb.CounterProperty{CounterStart: 1, CounterScale: 2}}},
+		},
+		Separator: "-",
+	}
+
+	name, err := generateName(cfg, baseProps(), "", 4)
+	require.NoError(t, err)
+	assert.Equal(t, "Bitmain-S19Pro-05", name)
+}
+
+// TestGenerateName_QualifierReserved verifies qualifier properties produce empty segments
+// (BUILDING, RACK, RACK_POSITION are reserved and not yet implemented).
+func TestGenerateName_QualifierReserved(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig"}}},
+			{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{
+				Type:   pb.QualifierType_QUALIFIER_TYPE_RACK,
+				Prefix: "R",
+			}}},
+		},
+		Separator: "-",
+	}
+	// Qualifier is reserved → empty segment omitted → only "rig".
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "rig", name)
+}
+
+// --- fetchWorkerName tests ---
+
+// TestFetchWorkerName_ReturnsUsernameForPriorityZeroPool verifies the happy path:
+// a pool at priority 0 produces its username.
+func TestFetchWorkerName_ReturnsUsernameForPriorityZeroPool(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMiner := mocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetMiningPools(gomock.Any()).Return([]minerInterfaces.MinerConfiguredPool{
+		{Priority: 0, Username: "my-worker"},
+	}, nil)
+
+	result := fetchWorkerName(context.Background(), mockMiner)
+	assert.Equal(t, "my-worker", result)
+}
+
+// TestFetchWorkerName_ReturnsEmptyWhenGetMiningPoolsErrors verifies that a network
+// failure is silently ignored and returns an empty string.
+func TestFetchWorkerName_ReturnsEmptyWhenGetMiningPoolsErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMiner := mocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetMiningPools(gomock.Any()).Return(nil, errors.New("connection refused"))
+
+	result := fetchWorkerName(context.Background(), mockMiner)
+	assert.Equal(t, "", result)
+}
+
+// TestFetchWorkerName_ReturnsEmptyWhenNoPools verifies that an empty pool list
+// returns an empty string.
+func TestFetchWorkerName_ReturnsEmptyWhenNoPools(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMiner := mocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetMiningPools(gomock.Any()).Return([]minerInterfaces.MinerConfiguredPool{}, nil)
+
+	result := fetchWorkerName(context.Background(), mockMiner)
+	assert.Equal(t, "", result)
+}
+
+// TestFetchWorkerName_ReturnsEmptyWhenLowestPriorityIsNotZero verifies that a miner
+// whose lowest-numbered pool is not priority 0 returns an empty string.
+func TestFetchWorkerName_ReturnsEmptyWhenLowestPriorityIsNotZero(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMiner := mocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetMiningPools(gomock.Any()).Return([]minerInterfaces.MinerConfiguredPool{
+		{Priority: 1, Username: "worker-1"},
+		{Priority: 2, Username: "worker-2"},
+	}, nil)
+
+	result := fetchWorkerName(context.Background(), mockMiner)
+	assert.Equal(t, "", result)
+}
+
+// TestFetchWorkerName_SelectsPriorityZeroAmongMultiplePools verifies that when several
+// pools are returned in arbitrary order, the one with priority 0 is selected.
+func TestFetchWorkerName_SelectsPriorityZeroAmongMultiplePools(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMiner := mocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetMiningPools(gomock.Any()).Return([]minerInterfaces.MinerConfiguredPool{
+		{Priority: 2, Username: "backup"},
+		{Priority: 0, Username: "primary"},
+		{Priority: 1, Username: "secondary"},
+	}, nil)
+
+	result := fetchWorkerName(context.Background(), mockMiner)
+	assert.Equal(t, "primary", result)
+}
+
+// --- collectWorkerNames tests ---
+
+// TestCollectWorkerNames_EmptyInputReturnsImmediately verifies that an empty device
+// list returns an empty map without spawning any goroutines.
+func TestCollectWorkerNames_EmptyInputReturnsImmediately(t *testing.T) {
+	s := &Service{}
+	result := s.collectWorkerNames(context.Background(), nil)
+	assert.Empty(t, result)
+
+	result = s.collectWorkerNames(context.Background(), []string{})
+	assert.Empty(t, result)
+}

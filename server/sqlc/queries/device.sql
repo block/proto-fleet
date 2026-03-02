@@ -349,12 +349,27 @@ SELECT
     dd.url_scheme,
     CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END as pairing_status,
     dd.id as cursor_id,
-    COALESCE(d.id, 0) as device_id
+    COALESCE(d.id, 0) as device_id,
+    d.custom_name
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE FALSE;
+
+-- name: GetDevicePropertiesForRename :many
+-- Returns the device properties needed for name generation during a rename operation.
+SELECT
+    d.device_identifier,
+    COALESCE(d.mac_address, '') as mac_address,
+    d.serial_number,
+    dd.model,
+    dd.manufacturer
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL;
 
 
 -- name: GetTotalMinerStateSnapshots :one

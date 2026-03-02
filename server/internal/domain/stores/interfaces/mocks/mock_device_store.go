@@ -117,6 +117,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceIdentifiersByOrgWithFilter(ctx, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceIdentifiersByOrgWithFilter", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceIdentifiersByOrgWithFilter), ctx, orgID, filter)
 }
 
+// GetDevicePropertiesForRename mocks base method.
+func (m *MockDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]interfaces.DeviceRenameProperties, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicePropertiesForRename", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]interfaces.DeviceRenameProperties)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicePropertiesForRename indicates an expected call of GetDevicePropertiesForRename.
+func (mr *MockDeviceStoreMockRecorder) GetDevicePropertiesForRename(ctx, orgID, deviceIdentifiers interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePropertiesForRename", reflect.TypeOf((*MockDeviceStore)(nil).GetDevicePropertiesForRename), ctx, orgID, deviceIdentifiers)
+}
+
 // GetDeviceStatusForDeviceIdentifiers mocks base method.
 func (m *MockDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models1.DeviceIdentifier) (map[models1.DeviceIdentifier]models.MinerStatus, error) {
 	m.ctrl.T.Helper()
@@ -281,6 +296,20 @@ func (m *MockDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifie
 func (mr *MockDeviceStoreMockRecorder) SoftDeleteDevices(ctx, deviceIdentifiers, orgID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteDevices", reflect.TypeOf((*MockDeviceStore)(nil).SoftDeleteDevices), ctx, deviceIdentifiers, orgID)
+}
+
+// UpdateDeviceCustomNames mocks base method.
+func (m *MockDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDeviceCustomNames", ctx, orgID, names)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDeviceCustomNames indicates an expected call of UpdateDeviceCustomNames.
+func (mr *MockDeviceStoreMockRecorder) UpdateDeviceCustomNames(ctx, orgID, names interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeviceCustomNames", reflect.TypeOf((*MockDeviceStore)(nil).UpdateDeviceCustomNames), ctx, orgID, names)
 }
 
 // UpdateDeviceInfo mocks base method.

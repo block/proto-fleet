@@ -40,6 +40,11 @@ service FleetManagementService {
   // Get miner model groups with counts, optionally filtered by the current fleet filter
   // Used for bulk password update to show accurate model groups across the full fleet
   rpc GetMinerModelGroups(GetMinerModelGroupsRequest) returns (GetMinerModelGroupsResponse);
+
+  // Rename miners by applying a name config to all selected devices.
+  // Supports both single-miner and bulk rename via DeviceSelector.
+  // Persists all names atomically in a single transaction.
+  rpc RenameMiners(RenameMinersRequest) returns (RenameMinersResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -414,4 +419,124 @@ message DeleteMinersRequest {
 message DeleteMinersResponse {
   // Number of devices successfully deleted
   int32 deleted_count = 1;
+}
+
+// Request to rename miners using a configurable name pattern.
+message RenameMinersRequest {
+  // Selects which miners to rename (specific IDs or all devices).
+  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
+
+  // Naming pattern applied to all selected miners.
+  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+}
+
+// Response from renaming miners (empty — all errors are returned as RPC errors).
+message RenameMinersResponse {}
+
+// Configures how names are generated for a batch of miners.
+message MinerNameConfig {
+  // Ordered list of properties that form the name. At least one is required.
+  repeated NameProperty properties = 1 [(buf.validate.field).repeated.min_items = 1];
+
+  // Separator placed between properties. Must be "-", "_", ".", or "" (no separator).
+  string separator = 2 [(buf.validate.field).string = {in: ["-", "_", ".", ""]}];
+}
+
+// A single named segment in a MinerNameConfig.
+message NameProperty {
+  oneof kind {
+    StringAndCounterProperty string_and_counter = 1;
+    CounterProperty          counter            = 2;
+    StringProperty           string_value       = 3;
+    FixedValueProperty       fixed_value        = 4;
+    QualifierProperty        qualifier          = 5;
+  }
+}
+
+// Generates a segment combining an optional prefix/suffix with a zero-padded counter.
+message StringAndCounterProperty {
+  // Optional prefix prepended to the counter.
+  string prefix = 1;
+  // Optional suffix appended to the counter.
+  string suffix = 2;
+  // Starting value for the counter. Must be >= 0.
+  int32 counter_start = 3 [(buf.validate.field).int32.gte = 0];
+  // Number of digits in the counter (e.g. 3 → 001, 002, 003). Must be 1–6.
+  int32 counter_scale = 4 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+}
+
+// Generates a zero-padded counter segment with no surrounding text.
+message CounterProperty {
+  // Starting value for the counter. Must be >= 0.
+  int32 counter_start = 1 [(buf.validate.field).int32.gte = 0];
+  // Number of digits in the counter (e.g. 3 → 001, 002, 003). Must be 1–6.
+  int32 counter_scale = 2 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+}
+
+// Generates a static string segment.
+message StringProperty {
+  // The string to insert. Must be non-empty.
+  string value = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// Generates a segment from a device's fixed attribute value.
+message FixedValueProperty {
+  option (buf.validate.message).cel = {
+    id: "section_required_with_character_count"
+    message: "section is required when character_count is set"
+    expression: "!has(this.character_count) || has(this.section)"
+  };
+
+  // The device attribute to use.
+  FixedValueType type = 1 [(buf.validate.field).enum.defined_only = true];
+
+  // Maximum number of characters to take from the attribute value.
+  // When set, section is required. Must be 1–6.
+  optional int32 character_count = 2 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+
+  // Which end to take characters from. Required when character_count is set.
+  optional CharacterSection section = 3 [(buf.validate.field).enum.defined_only = true];
+}
+
+// Device attribute used as a name segment.
+enum FixedValueType {
+  FIXED_VALUE_TYPE_UNSPECIFIED  = 0;
+  FIXED_VALUE_TYPE_MAC_ADDRESS  = 1;
+  FIXED_VALUE_TYPE_SERIAL_NUMBER = 2;
+  // Resolves to the worker name of the priority-0 pool configured on the miner.
+  // Omitted from the generated name when no priority-0 pool is configured.
+  FIXED_VALUE_TYPE_WORKER_NAME  = 3;
+  FIXED_VALUE_TYPE_MODEL        = 4;
+  FIXED_VALUE_TYPE_MANUFACTURER = 5;
+  // Reserved — not yet implemented.
+  FIXED_VALUE_TYPE_LOCATION     = 6;
+}
+
+// Selects which end of a string to take characters from.
+enum CharacterSection {
+  CHARACTER_SECTION_UNSPECIFIED = 0;
+  CHARACTER_SECTION_FIRST       = 1;
+  CHARACTER_SECTION_LAST        = 2;
+}
+
+// Generates a segment from a device's physical location qualifier.
+message QualifierProperty {
+  // The location qualifier to use.
+  QualifierType type = 1 [(buf.validate.field).enum.defined_only = true];
+  // Optional prefix prepended to the qualifier value.
+  string prefix = 2;
+  // Optional suffix appended to the qualifier value.
+  string suffix = 3;
+}
+
+// Physical location qualifier used as a name segment.
+// All values are reserved and not yet implemented in the data model.
+enum QualifierType {
+  QUALIFIER_TYPE_UNSPECIFIED    = 0;
+  // Reserved — not yet implemented.
+  QUALIFIER_TYPE_BUILDING       = 1;
+  // Reserved — not yet implemented.
+  QUALIFIER_TYPE_RACK           = 2;
+  // Reserved — not yet implemented.
+  QUALIFIER_TYPE_RACK_POSITION  = 3;
 }

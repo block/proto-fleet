@@ -331,12 +331,17 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 		isPaired := row.PairingStatus == "PAIRED"
 
+		if row.CustomName.Valid && row.CustomName.String != "" {
+			snapshot.Name = row.CustomName.String
+		} else {
+			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
+		}
+
 		if isPaired {
 			snapshot.MacAddress = row.MacAddress
 			if row.SerialNumber.Valid {
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
-			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
 			snapshot.IpAddress = row.IpAddress
 			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 
@@ -344,7 +349,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {
-			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
 			snapshot.IpAddress = row.IpAddress
 
 			url := row.UrlScheme + "://" + row.IpAddress

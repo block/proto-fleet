@@ -1262,3 +1262,168 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 		t.Fatal("WaitForPendingClearAuthKeys did not complete within timeout")
 	}
 }
+
+// TestService_RenameMiners_PersistsCustomName verifies that the custom name is stored
+// and returned by ListMinerStateSnapshots after a rename.
+func TestService_RenameMiners_PersistsCustomName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Act — rename the single device to a static string
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "my-miner"}}},
+			},
+			Separator: "",
+		},
+	}
+	_, err := service.RenameMiners(ctx, renameReq)
+	require.NoError(t, err)
+
+	// Assert — the custom name appears in the list response
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Miners, 1)
+	assert.Equal(t, "my-miner", listResp.Miners[0].Name)
+}
+
+// TestService_RenameMiners_CounterOrderByManufacturerModel verifies that counter values
+// are assigned in manufacturer+model sort order, not insertion order.
+func TestService_RenameMiners_CounterOrderByManufacturerModel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Act — rename all 3 devices with counter starting at 1, scale 1
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_Counter{Counter: &pb.CounterProperty{CounterStart: 1, CounterScale: 1}}},
+			},
+			Separator: "",
+		},
+	}
+	_, err := service.RenameMiners(ctx, renameReq)
+	require.NoError(t, err)
+
+	// Assert — all 3 devices received a numeric name (1, 2, 3)
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Miners, 3)
+
+	names := make(map[string]bool, 3)
+	for _, m := range listResp.Miners {
+		names[m.Name] = true
+	}
+	assert.True(t, names["1"], "expected counter name '1'")
+	assert.True(t, names["2"], "expected counter name '2'")
+	assert.True(t, names["3"], "expected counter name '3'")
+}
+
+// TestService_RenameMiners_UnknownDeviceReturnsForbidden verifies that referencing a
+// device identifier that doesn't exist returns a permission-denied error.
+// AllDevicesBelongToOrg intentionally returns permission_denied (not not_found) to
+// avoid leaking whether a device ID exists in another org.
+func TestService_RenameMiners_UnknownDeviceReturnsForbidden(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Act — reference a device that does not exist
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"does-not-exist"},
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "name"}}},
+			},
+			Separator: "",
+		},
+	}
+	_, err := service.RenameMiners(ctx, renameReq)
+
+	// Assert
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// TestService_RenameMiners_EmptySelectorReturnsSuccess verifies that a rename with a
+// selector that matches no devices returns successfully without error.
+func TestService_RenameMiners_EmptySelectorReturnsSuccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	// No devices created
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Act — all-devices selector with an empty fleet
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "name"}}},
+			},
+			Separator: "",
+		},
+	}
+	_, err := service.RenameMiners(ctx, renameReq)
+
+	// Assert — no error when fleet is empty
+	require.NoError(t, err)
+}

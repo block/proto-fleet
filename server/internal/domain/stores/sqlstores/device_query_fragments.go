@@ -35,7 +35,8 @@ const minerSelectColumns = `SELECT
     discovered_device.url_scheme,
     ` + pairingStatusExpr + ` as pairing_status,
     discovered_device.id as cursor_id,
-    COALESCE(device.id, 0) as device_id`
+    COALESCE(device.id, 0) as device_id,
+    device.custom_name`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
@@ -86,7 +87,7 @@ const telemetryFreshnessWindow = "10 minutes"
 // These expressions are used in ORDER BY clauses and keyset pagination conditions.
 // SAFETY: All expressions come from this fixed map; user input only selects the map key.
 var sortExpressions = map[stores.SortField]string{
-	stores.SortFieldName:        "TRIM(COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))",
+	stores.SortFieldName:        "TRIM(COALESCE(NULLIF(device.custom_name, ''), COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, '')))",
 	stores.SortFieldIPAddress:   "INET(COALESCE(NULLIF(discovered_device.ip_address, ''), '0.0.0.0'))",
 	stores.SortFieldMACAddress:  "COALESCE(device.mac_address, '')",
 	stores.SortFieldModel:       "discovered_device.model",

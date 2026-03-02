@@ -52,6 +52,9 @@ const (
 	// FleetManagementServiceGetMinerModelGroupsProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerModelGroups RPC.
 	FleetManagementServiceGetMinerModelGroupsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups"
+	// FleetManagementServiceRenameMinersProcedure is the fully-qualified name of the
+	// FleetManagementService's RenameMiners RPC.
+	FleetManagementServiceRenameMinersProcedure = "/fleetmanagement.v1.FleetManagementService/RenameMiners"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -79,6 +82,10 @@ type FleetManagementServiceClient interface {
 	// Get miner model groups with counts, optionally filtered by the current fleet filter
 	// Used for bulk password update to show accurate model groups across the full fleet
 	GetMinerModelGroups(context.Context, *connect.Request[v1.GetMinerModelGroupsRequest]) (*connect.Response[v1.GetMinerModelGroupsResponse], error)
+	// Rename miners by applying a name config to all selected devices.
+	// Supports both single-miner and bulk rename via DeviceSelector.
+	// Persists all names atomically in a single transaction.
+	RenameMiners(context.Context, *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -121,6 +128,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceGetMinerModelGroupsProcedure,
 			opts...,
 		),
+		renameMiners: connect.NewClient[v1.RenameMinersRequest, v1.RenameMinersResponse](
+			httpClient,
+			baseURL+FleetManagementServiceRenameMinersProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -132,6 +144,7 @@ type fleetManagementServiceClient struct {
 	getMinerCoolingMode     *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
 	deleteMiners            *connect.Client[v1.DeleteMinersRequest, v1.DeleteMinersResponse]
 	getMinerModelGroups     *connect.Client[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse]
+	renameMiners            *connect.Client[v1.RenameMinersRequest, v1.RenameMinersResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -164,6 +177,11 @@ func (c *fleetManagementServiceClient) GetMinerModelGroups(ctx context.Context, 
 	return c.getMinerModelGroups.CallUnary(ctx, req)
 }
 
+// RenameMiners calls fleetmanagement.v1.FleetManagementService.RenameMiners.
+func (c *fleetManagementServiceClient) RenameMiners(ctx context.Context, req *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error) {
+	return c.renameMiners.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -189,6 +207,10 @@ type FleetManagementServiceHandler interface {
 	// Get miner model groups with counts, optionally filtered by the current fleet filter
 	// Used for bulk password update to show accurate model groups across the full fleet
 	GetMinerModelGroups(context.Context, *connect.Request[v1.GetMinerModelGroupsRequest]) (*connect.Response[v1.GetMinerModelGroupsResponse], error)
+	// Rename miners by applying a name config to all selected devices.
+	// Supports both single-miner and bulk rename via DeviceSelector.
+	// Persists all names atomically in a single transaction.
+	RenameMiners(context.Context, *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -227,6 +249,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.GetMinerModelGroups,
 		opts...,
 	)
+	fleetManagementServiceRenameMinersHandler := connect.NewUnaryHandler(
+		FleetManagementServiceRenameMinersProcedure,
+		svc.RenameMiners,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
@@ -241,6 +268,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceDeleteMinersHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerModelGroupsProcedure:
 			fleetManagementServiceGetMinerModelGroupsHandler.ServeHTTP(w, r)
+		case FleetManagementServiceRenameMinersProcedure:
+			fleetManagementServiceRenameMinersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -272,4 +301,8 @@ func (UnimplementedFleetManagementServiceHandler) DeleteMiners(context.Context, 
 
 func (UnimplementedFleetManagementServiceHandler) GetMinerModelGroups(context.Context, *connect.Request[v1.GetMinerModelGroupsRequest]) (*connect.Response[v1.GetMinerModelGroupsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerModelGroups is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) RenameMiners(context.Context, *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.RenameMiners is not implemented"))
 }

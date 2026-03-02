@@ -1,9 +1,11 @@
 package sqlstores
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 
+	sqlc "github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
@@ -14,7 +16,7 @@ func TestGetSortExpression(t *testing.T) {
 		field    stores.SortField
 		expected string
 	}{
-		{"name field", stores.SortFieldName, "TRIM(COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, ''))"},
+		{"name field", stores.SortFieldName, "TRIM(COALESCE(NULLIF(device.custom_name, ''), COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, '')))"},
 		{"ip address field", stores.SortFieldIPAddress, "INET(COALESCE(NULLIF(discovered_device.ip_address, ''), '0.0.0.0'))"},
 		{"mac address field", stores.SortFieldMACAddress, "COALESCE(device.mac_address, '')"},
 		{"model field", stores.SortFieldModel, "discovered_device.model"},
@@ -264,4 +266,50 @@ func TestBuildKeysetSQL_TelemetrySortNullHandling(t *testing.T) {
 			assert.Equal(t, []any{"123.45", int64(100)}, args)
 		})
 	}
+}
+
+func TestExtractSortValueForCursorFromRow_NameField(t *testing.T) {
+	t.Run("custom name takes precedence over manufacturer+model", func(t *testing.T) {
+		row := minerStateRow{
+			ListMinerStateSnapshotsRow: sqlc.ListMinerStateSnapshotsRow{
+				CustomName:   sql.NullString{String: "My Miner", Valid: true},
+				Manufacturer: sql.NullString{String: "Bitmain", Valid: true},
+				Model:        sql.NullString{String: "S21", Valid: true},
+			},
+		}
+		config := &stores.SortConfig{Field: stores.SortFieldName, Direction: stores.SortDirectionAsc}
+
+		result := extractSortValueForCursorFromRow(row, config)
+
+		assert.Equal(t, "My Miner", result)
+	})
+
+	t.Run("falls back to manufacturer+model when no custom name", func(t *testing.T) {
+		row := minerStateRow{
+			ListMinerStateSnapshotsRow: sqlc.ListMinerStateSnapshotsRow{
+				CustomName:   sql.NullString{Valid: false},
+				Manufacturer: sql.NullString{String: "Bitmain", Valid: true},
+				Model:        sql.NullString{String: "S21", Valid: true},
+			},
+		}
+		config := &stores.SortConfig{Field: stores.SortFieldName, Direction: stores.SortDirectionAsc}
+
+		result := extractSortValueForCursorFromRow(row, config)
+
+		assert.Equal(t, "Bitmain S21", result)
+	})
+
+	t.Run("nil sort config defaults to name field and respects custom name", func(t *testing.T) {
+		row := minerStateRow{
+			ListMinerStateSnapshotsRow: sqlc.ListMinerStateSnapshotsRow{
+				CustomName:   sql.NullString{String: "Renamed Miner", Valid: true},
+				Manufacturer: sql.NullString{String: "MicroBT", Valid: true},
+				Model:        sql.NullString{String: "M60", Valid: true},
+			},
+		}
+
+		result := extractSortValueForCursorFromRow(row, nil)
+
+		assert.Equal(t, "Renamed Miner", result)
+	})
 }
