@@ -11,6 +11,7 @@ server/influx_config/.env
 # Binary files
 server/cmd/fleetd/fleetd
 server/fake-antminer/fake-antminer
+server/fake-proto-rig/fake-proto-rig
 server/miner-debug-cli
 
 # Plugin binaries (built artifacts should not be committed)
