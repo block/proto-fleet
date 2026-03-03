@@ -406,7 +406,7 @@ const MiningPools = () => {
     return (
       <>
         <div
-          className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20 dark:bg-core-primary-5", {
+          className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20", {
             "h-full": !isPhone && !isTablet,
             "flex-1": isPhone || isTablet,
           })}

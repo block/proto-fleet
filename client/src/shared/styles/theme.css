@@ -16,7 +16,6 @@
   --base_red_100: 250 43 55; /* #FA2B37 */
   --base_white_100: 255 255 255; /* #FFFFFF */
   --base_yellow_100: 253 138 0; /* #FD8A00 */
-  --base_beige_100: 201 201 186; /* #C9C9BA */
   --base_sky_100: 38 147 255; /* #2693FF */
   --base_taupe_100: 166 124 83; /* #A67C53 */
   --base_dark_red_100: 204 0 35; /* #CC0023 */
@@ -182,7 +181,7 @@ WOuld be best to switch over to mobile first stying  */
   --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
   --color-grayscale-gray-15: rgb(var(--base_black_100) / 15%);
   --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
-  --color-landing-page: rgb(var(--base_beige_100) / 50%);
+  --color-landing-page: rgb(var(--base_black_100) / 5%);
 
   /* Typography */
   --font-*: initial;
@@ -365,6 +364,7 @@ WOuld be best to switch over to mobile first stying  */
     --color-core-primary-10: rgb(var(--base_white_100) / 10%);
     --color-core-primary-5: rgb(var(--base_white_100) / 5%);
     --color-core-primary-2: rgb(var(--base_white_100) / 2%);
+    --color-landing-page: rgb(var(--base_white_100) / 5%);
   }
 
   /* breaking changes from tailwind 3 to 4 */

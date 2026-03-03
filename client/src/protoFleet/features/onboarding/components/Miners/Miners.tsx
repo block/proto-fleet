@@ -155,7 +155,7 @@ const Miners = ({
       <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
 
       {mode === "onboarding" && (
-        <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20 dark:bg-core-primary-5">
+        <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20">
           <div className="flex flex-col gap-12">
             <div className="flex flex-col gap-4">
               <LogoAlt width="w-[48px]" />
