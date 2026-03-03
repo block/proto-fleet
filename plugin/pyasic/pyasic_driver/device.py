@@ -362,7 +362,30 @@ class PyAsicDevice:
         raise UnsupportedCapabilityError("get_cooling_mode", device_id=self._id)
 
     async def set_power_target(self, ctx: grpc.ServicerContext, performance_mode: PerformanceMode) -> None:
-        raise UnsupportedCapabilityError("set_power_target", device_id=self._id)
+        _require_cap(self._caps, "set_power_target", self._id)
+
+        from pyasic.config import MinerConfig as PyasicMinerConfig
+        from pyasic.config.mining import MiningModeHPM, MiningModeLPM, MiningModeNormal
+
+        mode_map = {
+            PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE: MiningModeHPM(),
+            PerformanceMode.PERFORMANCE_MODE_EFFICIENCY: MiningModeLPM(),
+        }
+        mining_mode = mode_map.get(performance_mode)
+        if mining_mode is None:
+            logger.warning(
+                "Unrecognized performance mode %s for %s, using normal", performance_mode, self._id,
+            )
+            mining_mode = MiningModeNormal()
+
+        config = await self._miner.get_config()
+        if config is None:
+            config = PyasicMinerConfig()
+
+        config_dict = config.as_dict()
+        config_dict["mining_mode"] = {"mode": mining_mode.mode}
+        new_config = PyasicMinerConfig.from_dict(config_dict)
+        await self._miner.send_config(new_config)
 
     async def update_miner_password(
         self, ctx: grpc.ServicerContext, current_password: str, new_password: str

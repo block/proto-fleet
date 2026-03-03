@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from proto_fleet_sdk.enums import ComponentStatus, HealthStatus, MetricKind
+from proto_fleet_sdk.enums import ComponentStatus, HealthStatus, MetricKind, PerformanceMode
 from proto_fleet_sdk.error_codes import ComponentType, MinerError, Severity
 from proto_fleet_sdk.errors import UnsupportedCapabilityError
 from proto_fleet_sdk.telemetry import ths_to_hs
@@ -34,7 +34,7 @@ DEVICE_INFO = DeviceInfo(
 ALL_CAPS = {
     "mining_start": True, "mining_stop": True, "reboot": True, "led_blink": True,
     "get_mining_pools": True, "update_mining_pools": True, "firmware": True,
-    "device_status": True, "get_errors": True,
+    "device_status": True, "get_errors": True, "set_power_target": True,
 }
 
 NO_CONTROL_CAPS = {
@@ -280,6 +280,58 @@ class TestControl:
 
         # Assert
         miner.fault_light_on.assert_called_once()
+
+
+class TestSetPowerTarget:
+    async def test_maximum_hashrate_sends_hpm(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+
+        # Assert
+        miner.send_config.assert_called_once()
+        sent_config = miner.send_config.call_args[0][0]
+        assert sent_config.mining_mode.mode == "high"
+
+    async def test_efficiency_sends_lpm(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+
+        # Assert
+        miner.send_config.assert_called_once()
+        sent_config = miner.send_config.call_args[0][0]
+        assert sent_config.mining_mode.mode == "low"
+
+    async def test_unspecified_sends_normal(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_UNSPECIFIED)
+
+        # Assert
+        miner.send_config.assert_called_once()
+        sent_config = miner.send_config.call_args[0][0]
+        assert sent_config.mining_mode.mode == "normal"
+
+    async def test_blocked_without_capability(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        device = _make_device(make_mock_miner(), caps=NO_CONTROL_CAPS)
+
+        # Act & Assert
+        with pytest.raises(UnsupportedCapabilityError):
+            await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
 
 class TestCapabilityGating:
