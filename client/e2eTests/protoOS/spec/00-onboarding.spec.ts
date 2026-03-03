@@ -40,7 +40,7 @@ test.describe("Onboarding", () => {
       await welcomePage.validateMiningPoolUrl();
       await welcomePage.validateTitle("Pools");
       await welcomePage.validateTextIsVisible("Add up to 3 pools for your miner.");
-      await welcomePage.click("Continue");
+      await welcomePage.clickButton("Continue");
       await welcomePage.validateDefaultPoolWarningVisible();
       await welcomePage.validateDefaultPoolWarningText();
       await welcomePage.closeDefaultPoolWarning();
@@ -60,20 +60,20 @@ test.describe("Onboarding", () => {
     });
 
     await test.step("Submit one pool", async () => {
-      await welcomePage.click("Continue");
+      await welcomePage.clickButton("Continue");
     });
 
     await test.step("Confirm continue without backup pool", async () => {
       await welcomePage.validateTitle("Continue without a backup pool?");
       await welcomePage.validateButtonIsVisible("Add a backup pool");
-      await welcomePage.click("Continue without backup");
+      await welcomePage.clickButton("Continue without backup");
     });
 
     await test.step("Your miner is ready", async () => {
       await welcomePage.validateTitle("Configuring your miner");
       await welcomePage.validateTitle("Your miner is ready");
       await welcomePage.validateTextIsVisible("Testing your mining pool connections");
-      await welcomePage.click("Continue");
+      await welcomePage.clickButton("Continue");
     });
 
     await test.step("Validate user is logged in to dashboard", async () => {

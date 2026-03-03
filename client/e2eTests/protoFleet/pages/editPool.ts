@@ -33,7 +33,7 @@ export class EditPoolPage extends BasePage {
   async clickAssignToXMiners(count: number | Promise<number>) {
     const minerCount = await Promise.resolve(count);
     const buttonText = `Assign to ${minerCount} miner${minerCount === 1 ? "" : "s"}`;
-    await this.click(buttonText);
+    await this.clickButton(buttonText);
   }
 
   async getPoolNameByIndex(index: number): Promise<string> {

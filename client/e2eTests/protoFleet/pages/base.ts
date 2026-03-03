@@ -149,7 +149,7 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
-  async click(text: string) {
+  async clickButton(text: string) {
     await this.page.getByRole("button", { name: text, disabled: false }).click();
   }
 

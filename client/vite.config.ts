@@ -103,8 +103,8 @@ export default defineConfig(({ mode, command }) => {
     throw new Error("Build must be run with supported mode (eg. vite build --mode protoFleet)");
   }
 
-  let proxies = {};
   const env = loadEnv(mode, process.cwd(), "");
+  let proxies;
   if (mode === "protoFleet") {
     const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
     proxies = {

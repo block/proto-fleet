@@ -7,7 +7,7 @@ export class SettingsPoolsPage extends BasePage {
   }
 
   async clickAddPool() {
-    await this.click("Add pool");
+    await this.clickButton("Add pool");
   }
 
   async validatePoolEntryByUniqueName(expectedName: string, expectedUrl: string, expectedUsername: string) {

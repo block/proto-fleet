@@ -3,19 +3,19 @@ import { BasePage } from "./base";
 
 export class GeneralPage extends BasePage {
   async clickTemperatureButton() {
-    await this.page.click('[data-testid="temperature-button"]');
+    await this.page.locator('[data-testid="temperature-button"]').click();
   }
 
   async selectFahrenheit() {
-    await this.page.click('//*[@data-testid="fahrenheit-option"]//input');
+    await this.page.locator('//*[@data-testid="fahrenheit-option"]//input').click();
   }
 
   async selectCelsius() {
-    await this.page.click('//*[@data-testid="celsius-option"]//input');
+    await this.page.locator('//*[@data-testid="celsius-option"]//input').click();
   }
 
   async clickDoneButton() {
-    await this.click("Done");
+    await this.clickButton("Done");
   }
 
   private async validateTemperatureFormat(format: string) {

@@ -40,7 +40,7 @@ const TimeXAxisTick = ({
   const { index } = payload;
   let firstTick = index === 0;
   let lastTick = index === visibleTicksCount - 1;
-  let midTick = false;
+  let midTick: boolean;
 
   // Calculate which ticks to show based on mode
   if (timeBasedIndices && timeBasedIndices.length > 0) {

@@ -194,6 +194,7 @@ export class MinersPage extends BasePage {
     await expect(async () => {
       const detectedRowCount = await rows.count();
       await new Promise((resolve) => setTimeout(resolve, 1000));
+      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(await rows.count()).toBe(detectedRowCount);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
@@ -268,7 +269,7 @@ export class MinersPage extends BasePage {
       // Get temperature text
       const temperatureText = await temperatureLocator.innerText();
       const parts = temperatureText.split(" ");
-      expect(parts.length, `Expected temperature text to value and unit, but got: "${temperatureText}"`).toBe(2);
+      expect(parts, `Expected temperature text to value and unit, but got: "${temperatureText}"`).toHaveLength(2);
 
       // Validate unit - C/F
       const unit = parts[1];
@@ -315,7 +316,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickAddMinersButton() {
-    await this.click("Add miners");
+    await this.clickButton("Add miners");
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {

@@ -12,7 +12,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickAddTeamMember() {
-    await this.click("Add team member");
+    await this.clickButton("Add team member");
   }
 
   async inputMemberUsername(username: string) {
@@ -20,7 +20,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickSaveTeamMember() {
-    await this.click("Save");
+    await this.clickButton("Save");
   }
 
   async validateMemberAdded() {
@@ -32,7 +32,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickDone() {
-    await this.click("Done");
+    await this.clickButton("Done");
   }
 
   async validateMemberRole(username: string, role: string) {
@@ -78,11 +78,11 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickResetPassword() {
-    await this.click("Reset Password");
+    await this.clickButton("Reset Password");
   }
 
   async clickResetMemberPasswordConfirm() {
-    await this.click("Reset member password");
+    await this.clickButton("Reset member password");
   }
 
   async validatePasswordReset() {
@@ -90,11 +90,11 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickDeactivate() {
-    await this.click("Deactivate");
+    await this.clickButton("Deactivate");
   }
 
   async clickConfirmDeactivation() {
-    await this.click("Confirm deactivation");
+    await this.clickButton("Confirm deactivation");
   }
 
   async validateMemberDeactivatedMessage(username: string) {

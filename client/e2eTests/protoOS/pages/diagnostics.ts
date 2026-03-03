@@ -12,11 +12,8 @@ export class DiagnosticsPage extends BasePage {
     const textFields = page.locator("div[class*='text-primary']");
 
     await expect(async () => {
-      const matchingTemps = await textFields.filter({ hasText: temperaturePattern }).count();
-      const oppositeTemps = await textFields.filter({ hasText: oppositePattern }).count();
-
-      expect(matchingTemps).toBe(expectedCount);
-      expect(oppositeTemps).toBe(0);
+      await expect(textFields.filter({ hasText: temperaturePattern })).toHaveCount(expectedCount);
+      await expect(textFields.filter({ hasText: oppositePattern })).toHaveCount(0);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 }

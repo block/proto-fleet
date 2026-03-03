@@ -27,11 +27,11 @@ export class AuthPage extends BasePage {
   }
 
   async clickContinue() {
-    await this.click("Continue");
+    await this.clickButton("Continue");
   }
 
   async clickLoginButton() {
-    await this.click("Login");
+    await this.clickButton("Login");
   }
 
   async clickPasswordVisibilityToggle() {
@@ -51,7 +51,7 @@ export class AuthPage extends BasePage {
   }
 
   async clickCreateAccount() {
-    await this.click("Create an account");
+    await this.clickButton("Create an account");
   }
 
   async validateCreateCredentialsPrompt() {
@@ -59,7 +59,7 @@ export class AuthPage extends BasePage {
   }
 
   async clickGetStarted() {
-    await this.click("Get started");
+    await this.clickButton("Get started");
   }
 
   async clickFindMiners() {

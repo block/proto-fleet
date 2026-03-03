@@ -23,7 +23,7 @@ export class WelcomePage extends BasePage {
   }
 
   async clickContinue() {
-    await this.click("Continue");
+    await this.clickButton("Continue");
   }
 
   async validateUsernameFieldDisabledWithValue(expectedValue: string) {
@@ -33,11 +33,11 @@ export class WelcomePage extends BasePage {
   }
 
   async clickGetStartedButton() {
-    await this.click("Get Started");
+    await this.clickButton("Get Started");
   }
 
   async clickContinueSetup() {
-    await this.click("Continue setup");
+    await this.clickButton("Continue setup");
   }
 
   async validateMiningPoolUrl() {

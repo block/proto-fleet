@@ -10,6 +10,49 @@ test.describe("Miners", () => {
     await page.goto("/");
   });
 
+  // Cleanup - re-added Antminers might need authentication again
+  test.afterAll("CLEANUP: Re-authenticate added miners", async ({ browser }, testInfo) => {
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto("/");
+
+    try {
+      const homePage = new HomePage(page, isMobile);
+      const authPage = new AuthPage(page, isMobile);
+      const minersPage = new MinersPage(page, isMobile);
+      const commonSteps = new CommonSteps(authPage, minersPage);
+
+      await commonSteps.loginAsAdmin();
+
+      await homePage.clickAuthenticateMinersButton();
+      await homePage.validateAuthenticateMinersModalTitle();
+      await homePage.clickShowMinersButton();
+      const miners = await homePage.getListOfMinersToAuthenticate();
+
+      if (miners.some((miner) => miner.includes("S17 XP"))) {
+        await homePage.inputMinerAuthUsername("root17");
+        await homePage.inputMinerAuthPassword("root17");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      if (miners.some((miner) => miner.includes("S19 XP"))) {
+        await homePage.inputMinerAuthUsername("root19");
+        await homePage.inputMinerAuthPassword("root19");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      if (miners.some((miner) => miner.includes("S21 XP"))) {
+        await homePage.inputMinerAuthUsername("root21");
+        await homePage.inputMinerAuthPassword("root21");
+        await homePage.clickAuthenticateMinersConfirmButton();
+      }
+      await homePage.validateModalClosed();
+    } catch {
+      console.warn("Cleanup cancelled, most likely no need for authentication");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("Put miners to SLEEP", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
@@ -547,48 +590,5 @@ test.describe("Miners", () => {
       await minersPage.validateMinerInList(minerIp2);
       await minersPage.validateAmountOfMiners(minerCount + 2);
     });
-  });
-
-  // Cleanup - re-added Antminers might need authentication again
-  test.afterAll("CLEANUP: Re-authenticate added miners", async ({ browser }, testInfo) => {
-    const isMobile = testInfo.project.use?.isMobile ?? false;
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.goto("/");
-
-    try {
-      const homePage = new HomePage(page, isMobile);
-      const authPage = new AuthPage(page, isMobile);
-      const minersPage = new MinersPage(page, isMobile);
-      const commonSteps = new CommonSteps(authPage, minersPage);
-
-      await commonSteps.loginAsAdmin();
-
-      await homePage.clickAuthenticateMinersButton();
-      await homePage.validateAuthenticateMinersModalTitle();
-      await homePage.clickShowMinersButton();
-      const miners = await homePage.getListOfMinersToAuthenticate();
-
-      if (miners.some((miner) => miner.includes("S17 XP"))) {
-        await homePage.inputMinerAuthUsername("root17");
-        await homePage.inputMinerAuthPassword("root17");
-        await homePage.clickAuthenticateMinersConfirmButton();
-      }
-      if (miners.some((miner) => miner.includes("S19 XP"))) {
-        await homePage.inputMinerAuthUsername("root19");
-        await homePage.inputMinerAuthPassword("root19");
-        await homePage.clickAuthenticateMinersConfirmButton();
-      }
-      if (miners.some((miner) => miner.includes("S21 XP"))) {
-        await homePage.inputMinerAuthUsername("root21");
-        await homePage.inputMinerAuthPassword("root21");
-        await homePage.clickAuthenticateMinersConfirmButton();
-      }
-      await homePage.validateModalClosed();
-    } catch {
-      console.warn("Cleanup cancelled, most likely no need for authentication");
-    } finally {
-      await context.close();
-    }
   });
 });

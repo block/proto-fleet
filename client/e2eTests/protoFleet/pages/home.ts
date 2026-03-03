@@ -11,7 +11,7 @@ export class HomePage extends BasePage {
   }
 
   async clickAuthenticateMinersButton() {
-    await this.click("Authenticate");
+    await this.clickButton("Authenticate");
   }
 
   async validateAuthenticateMinersModalTitle() {

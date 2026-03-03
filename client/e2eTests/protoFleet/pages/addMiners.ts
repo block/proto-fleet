@@ -11,15 +11,15 @@ export class AddMinersPage extends BasePage {
   }
 
   async inputMinerIp(ipAddresses: string) {
-    await this.page.fill('//textarea[@id="ipAddresses"]', ipAddresses);
+    await this.page.locator('//textarea[@id="ipAddresses"]').fill(ipAddresses);
   }
 
   async clickChooseMiners() {
-    await this.click("Choose miners");
+    await this.clickButton("Choose miners");
   }
 
   async clickSelectNone() {
-    await this.click("Select none");
+    await this.clickButton("Select none");
   }
 
   async getMinerIpAddressByIndex(index: number): Promise<string> {
@@ -40,7 +40,7 @@ export class AddMinersPage extends BasePage {
   }
 
   async clickDone() {
-    await this.click("Done");
+    await this.clickButton("Done");
   }
 
   async clickContinueWithXMiners(minerCount: number) {

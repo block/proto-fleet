@@ -78,10 +78,10 @@ test.describe("Proto Fleet - Onboarding", () => {
       await homePage.validateTextInModal("Bulk authenticate");
       await homePage.validateTextInModal("4 miners remaining");
       const miners = await homePage.getListOfMinersToAuthenticate();
-      expect(miners.length).toBe(4);
+      expect(miners).toHaveLength(4);
       expect(miners).toContain("Antminer S21 XP");
       expect(miners).toContain("Antminer S17 XP");
-      expect(miners.filter((model) => model === "Antminer S19 XP").length).toBe(2);
+      expect(miners.filter((model) => model === "Antminer S19 XP")).toHaveLength(2);
     });
 
     await test.step("Bulk authenticate all miners with S19 credentials", async () => {
@@ -95,7 +95,7 @@ test.describe("Proto Fleet - Onboarding", () => {
       await homePage.validateCalloutInModal("Try your username and password again.");
       await homePage.clickCalloutButton();
       const miners = await homePage.getListOfMinersToAuthenticate();
-      expect(miners.length).toBe(2);
+      expect(miners).toHaveLength(2);
       expect(miners).toContain("Antminer S21 XP");
       expect(miners).toContain("Antminer S17 XP");
     });

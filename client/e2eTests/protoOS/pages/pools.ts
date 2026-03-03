@@ -33,15 +33,15 @@ export class PoolsPage extends BasePage {
   }
 
   async clickSave() {
-    await this.click("Save");
+    await this.clickButton("Save");
   }
 
   async clickAddPool() {
-    await this.click("Add pool");
+    await this.clickButton("Add pool");
   }
 
   async clickAddAnotherPool() {
-    await this.click("Add another pool");
+    await this.clickButton("Add another pool");
   }
 
   async validateUrlValidationError(poolIndex: number, message: string) {
@@ -76,7 +76,7 @@ export class PoolsPage extends BasePage {
   }
 
   async clickMiningPoolButton() {
-    await this.click("Mining Pool");
+    await this.clickButton("Mining Pool");
   }
 
   async validatePoolInfoPopoverVisible() {
