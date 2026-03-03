@@ -98,6 +98,14 @@ new-migration name:
 _run: db-up install
      ../.hermit/go/bin/fleetd
 
+# seed telemetry data for dashboard testing (always clears old synthetic rows first)
+# examples:
+#   just seed-telemetry --days 10 --devices 3
+#   just seed-telemetry --clean-up
+#   just seed-telemetry --days 30 --outliers
+seed-telemetry *args:
+    go run ./devtools/seedtelemetry {{args}}
+
 # restarts the docker compose services and wipes out all data
 clean-build: _build-plugins-docker
     docker compose down --rmi all --volumes && docker compose up --build -d

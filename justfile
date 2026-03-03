@@ -107,6 +107,10 @@ gen-server:
 fmt-server:
   goimports -w generated/grpc
 
+[working-directory: 'server']
+seed-telemetry *args:
+  just seed-telemetry {{args}}
+
 [working-directory: 'client']
 fmt-client:
   npm run format

@@ -13,6 +13,7 @@ server/cmd/fleetd/fleetd
 server/fake-antminer/fake-antminer
 server/fake-proto-rig/fake-proto-rig
 server/miner-debug-cli
+server/devtools/seedtelemetry/seedtelemetry
 
 # Plugin binaries (built artifacts should not be committed)
 plugin/proto/proto-plugin
