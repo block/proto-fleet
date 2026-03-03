@@ -200,7 +200,7 @@ func (s *Service) scanOfflineDevices(ctx context.Context) {
 			DeviceIdentifier:           device.DeviceIdentifier,
 			DiscoveredDeviceIdentifier: device.DiscoveredDeviceIdentifier,
 			DeviceMAC:                  device.MacAddress,
-			DeviceType:                 device.DeviceType,
+			DriverName:                 device.DriverName,
 			Port:                       device.LastKnownPort,
 			URLScheme:                  device.LastKnownURLScheme,
 			OrgID:                      device.OrgID,

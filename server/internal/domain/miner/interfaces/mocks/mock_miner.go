@@ -56,6 +56,20 @@ func (mr *MockMinerInfoMockRecorder) GetConnectionInfo() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMinerInfo)(nil).GetConnectionInfo))
 }
 
+// GetDriverName mocks base method.
+func (m *MockMinerInfo) GetDriverName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDriverName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetDriverName indicates an expected call of GetDriverName.
+func (mr *MockMinerInfoMockRecorder) GetDriverName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDriverName", reflect.TypeOf((*MockMinerInfo)(nil).GetDriverName))
+}
+
 // GetID mocks base method.
 func (m *MockMinerInfo) GetID() models0.DeviceIdentifier {
 	m.ctrl.T.Helper()
@@ -96,20 +110,6 @@ func (m *MockMinerInfo) GetSerialNumber() string {
 func (mr *MockMinerInfoMockRecorder) GetSerialNumber() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMinerInfo)(nil).GetSerialNumber))
-}
-
-// GetType mocks base method.
-func (m *MockMinerInfo) GetType() models0.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetType")
-	ret0, _ := ret[0].(models0.Type)
-	return ret0
-}
-
-// GetType indicates an expected call of GetType.
-func (mr *MockMinerInfoMockRecorder) GetType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetType", reflect.TypeOf((*MockMinerInfo)(nil).GetType))
 }
 
 // GetWebViewURL mocks base method.
@@ -250,6 +250,20 @@ func (mr *MockMinerMockRecorder) GetDeviceStatus(ctx interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatus", reflect.TypeOf((*MockMiner)(nil).GetDeviceStatus), ctx)
 }
 
+// GetDriverName mocks base method.
+func (m *MockMiner) GetDriverName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDriverName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetDriverName indicates an expected call of GetDriverName.
+func (mr *MockMinerMockRecorder) GetDriverName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDriverName", reflect.TypeOf((*MockMiner)(nil).GetDriverName))
+}
+
 // GetErrors mocks base method.
 func (m *MockMiner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
 	m.ctrl.T.Helper()
@@ -320,20 +334,6 @@ func (m *MockMiner) GetSerialNumber() string {
 func (mr *MockMinerMockRecorder) GetSerialNumber() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMiner)(nil).GetSerialNumber))
-}
-
-// GetType mocks base method.
-func (m *MockMiner) GetType() models0.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetType")
-	ret0, _ := ret[0].(models0.Type)
-	return ret0
-}
-
-// GetType indicates an expected call of GetType.
-func (mr *MockMinerMockRecorder) GetType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetType", reflect.TypeOf((*MockMiner)(nil).GetType))
 }
 
 // GetWebViewURL mocks base method.

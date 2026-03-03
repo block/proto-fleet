@@ -461,7 +461,6 @@ type DiscoveredDevice struct {
 	DeviceIdentifier  string
 	Model             sql.NullString
 	Manufacturer      sql.NullString
-	Type              string
 	FirmwareVersion   sql.NullString
 	IpAddress         string
 	Port              string
@@ -473,6 +472,7 @@ type DiscoveredDevice struct {
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
+	DriverName        string
 }
 
 type Error struct {

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/btc-mining/proto-fleet/server/sdk/v1/mocks"
 	"github.com/golang/mock/gomock"
@@ -39,26 +38,25 @@ func TestService_GetManager(t *testing.T) {
 	assert.Equal(t, manager, service.GetManager())
 }
 
-func TestService_IsPluginAvailableForType(t *testing.T) {
+func TestService_IsPluginAvailableByDriverName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Test with no plugins
-	assert.False(t, service.IsPluginAvailableForType(models.TypeAntminer))
+	// Act + Assert - no plugins registered
+	assert.False(t, service.GetManager().HasPluginForDriverName("antminer"))
 
-	// Add a mock plugin
+	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name: "antminer-plugin",
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 
-	// Test with plugin available
-	assert.True(t, service.IsPluginAvailableForType(models.TypeAntminer))
-	assert.False(t, service.IsPluginAvailableForType(models.TypeWhatsminer))
+	// Act + Assert
+	assert.True(t, service.GetManager().HasPluginForDriverName("antminer"))
+	assert.False(t, service.GetManager().HasPluginForDriverName("whatsminer"))
 }
 
 func TestService_GetAvailablePlugins(t *testing.T) {
@@ -68,11 +66,11 @@ func TestService_GetAvailablePlugins(t *testing.T) {
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Test with no plugins
+	// Act + Assert - no plugins
 	plugins := service.GetAvailablePlugins()
 	assert.Empty(t, plugins)
 
-	// Add mock plugins
+	// Arrange
 	mockPlugin1 := &LoadedPlugin{
 		Name: "plugin1",
 		Path: "/path/to/plugin1",
@@ -83,7 +81,6 @@ func TestService_GetAvailablePlugins(t *testing.T) {
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
 		},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 	mockPlugin2 := &LoadedPlugin{
 		Name: "plugin2",
@@ -95,17 +92,17 @@ func TestService_GetAvailablePlugins(t *testing.T) {
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
-		MinerTypes: []models.Type{models.TypeWhatsminer},
 	}
 
 	manager.plugins["plugin1"] = mockPlugin1
 	manager.plugins["plugin2"] = mockPlugin2
 
-	// Test with plugins
+	// Act
 	plugins = service.GetAvailablePlugins()
+
+	// Assert
 	assert.Len(t, plugins, 2)
 
-	// Find plugin1 in results
 	var plugin1Info *PluginInfo
 	var plugin2Info *PluginInfo
 	for i := range plugins {
@@ -122,7 +119,6 @@ func TestService_GetAvailablePlugins(t *testing.T) {
 	assert.Equal(t, "driver1", plugin1Info.DriverName)
 	assert.Equal(t, "v1", plugin1Info.APIVersion)
 	assert.True(t, plugin1Info.Capabilities[sdk.CapabilityDiscovery])
-	assert.ElementsMatch(t, []models.Type{models.TypeAntminer}, plugin1Info.MinerTypes)
 
 	require.NotNil(t, plugin2Info)
 	assert.Equal(t, "plugin2", plugin2Info.Name)
@@ -130,36 +126,34 @@ func TestService_GetAvailablePlugins(t *testing.T) {
 	assert.Equal(t, "driver2", plugin2Info.DriverName)
 	assert.Equal(t, "v2", plugin2Info.APIVersion)
 	assert.True(t, plugin2Info.Capabilities[sdk.CapabilityPairing])
-	assert.ElementsMatch(t, []models.Type{models.TypeWhatsminer}, plugin2Info.MinerTypes)
 }
 
-func TestService_GetPluginCapabilities(t *testing.T) {
+func TestService_GetPluginCapabilitiesByDriverName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Test with no plugin
-	caps, err := service.GetPluginCapabilities(models.TypeAntminer)
+	// Act + Assert - no plugin
+	caps, err := service.GetPluginCapabilitiesByDriverName("antminer")
 	assert.Nil(t, caps)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no plugin available for miner type")
+	assert.Contains(t, err.Error(), "no plugin")
 
-	// Add mock plugin
+	// Arrange
 	mockCaps := sdk.Capabilities{
 		sdk.CapabilityDiscovery: true,
 		sdk.CapabilityPairing:   true,
 	}
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Caps:       mockCaps,
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name: "antminer-plugin",
+		Caps: mockCaps,
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 
-	// Test with plugin available
-	caps, err = service.GetPluginCapabilities(models.TypeAntminer)
+	// Act + Assert
+	caps, err = service.GetPluginCapabilitiesByDriverName("antminer")
 	require.NoError(t, err)
 	assert.Equal(t, mockCaps, caps)
 }
@@ -174,7 +168,7 @@ func TestService_ValidatePluginHealth_NoPlugins(t *testing.T) {
 	ctx := t.Context()
 	err := service.ValidatePluginHealth(ctx)
 
-	assert.NoError(t, err) // Should succeed with no plugins
+	assert.NoError(t, err)
 }
 
 func TestService_ValidatePluginHealth_Success(t *testing.T) {
@@ -184,7 +178,7 @@ func TestService_ValidatePluginHealth_Success(t *testing.T) {
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Create mock driver with handshake expectation
+	// Arrange
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
 		Handshake(gomock.Any()).
@@ -193,55 +187,18 @@ func TestService_ValidatePluginHealth_Success(t *testing.T) {
 			APIVersion: "v1",
 		}, nil)
 
-	// Add mock plugin with working driver
 	mockPlugin := &LoadedPlugin{
 		Name:   "test-plugin",
 		Driver: mockDriver,
 	}
 	manager.plugins["test-plugin"] = mockPlugin
 
+	// Act
 	ctx := t.Context()
 	err := service.ValidatePluginHealth(ctx)
 
+	// Assert
 	assert.NoError(t, err)
-}
-
-func TestService_GetSupportedMinerTypes(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	// Test with no plugins
-	types := service.GetSupportedMinerTypes()
-	assert.Empty(t, types)
-
-	// Add mock plugins with different types
-	mockPlugin1 := &LoadedPlugin{
-		Name:       "plugin1",
-		MinerTypes: []models.Type{models.TypeAntminer, models.TypeWhatsminer},
-	}
-	mockPlugin2 := &LoadedPlugin{
-		Name:       "plugin2",
-		MinerTypes: []models.Type{models.TypeAvalon},
-	}
-	mockPlugin3 := &LoadedPlugin{
-		Name:       "plugin3",
-		MinerTypes: []models.Type{models.TypeAntminer}, // Duplicate type
-	}
-
-	manager.plugins["plugin1"] = mockPlugin1
-	manager.plugins["plugin2"] = mockPlugin2
-	manager.plugins["plugin3"] = mockPlugin3
-
-	// Test with plugins
-	types = service.GetSupportedMinerTypes()
-
-	// Should contain unique types only
-	expectedTypes := []models.Type{models.TypeAntminer, models.TypeWhatsminer, models.TypeAvalon}
-	assert.Len(t, types, 3)
-	assert.ElementsMatch(t, expectedTypes, types)
 }
 
 func TestService_CreateDiscoverer(t *testing.T) {
@@ -251,9 +208,10 @@ func TestService_CreateDiscoverer(t *testing.T) {
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
+	// Act
 	discoverer := service.CreateDiscoverer()
 
-	// Verify it's a MultiTypeDiscoverer
+	// Assert
 	multiDiscoverer, ok := discoverer.(*MultiTypeDiscoverer)
 	assert.True(t, ok)
 	assert.NotNil(t, multiDiscoverer)
@@ -285,7 +243,7 @@ func TestService_GetMinerCapabilitiesForDevice_NilDevice(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestService_GetMinerCapabilitiesForDevice_NoPluginForType(t *testing.T) {
+func TestService_GetMinerCapabilitiesForDevice_NoPluginForDriverName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -293,7 +251,7 @@ func TestService_GetMinerCapabilitiesForDevice_NoPluginForType(t *testing.T) {
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
 	device := &pairingpb.Device{
-		Type:         "asic",
+		DriverName:   "antminer",
 		Model:        "Antminer S19",
 		Manufacturer: "Bitmain",
 	}
@@ -304,7 +262,7 @@ func TestService_GetMinerCapabilitiesForDevice_NoPluginForType(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestService_GetMinerCapabilitiesForDevice_UnknownDeviceType(t *testing.T) {
+func TestService_GetMinerCapabilitiesForDevice_EmptyDriverName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -312,7 +270,7 @@ func TestService_GetMinerCapabilitiesForDevice_UnknownDeviceType(t *testing.T) {
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
 	device := &pairingpb.Device{
-		Type:         "",
+		DriverName:   "",
 		Model:        "Unknown Model",
 		Manufacturer: "Unknown",
 	}
@@ -330,7 +288,7 @@ func TestService_GetMinerCapabilitiesForDevice_AntminerSuccess(t *testing.T) {
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Register Antminer plugin with capabilities
+	// Arrange
 	antminerCaps := sdk.Capabilities{
 		sdk.CapabilityBasicAuth:         true,
 		sdk.CapabilityReboot:            true,
@@ -342,30 +300,29 @@ func TestService_GetMinerCapabilitiesForDevice_AntminerSuccess(t *testing.T) {
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Caps:       antminerCaps,
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name: "antminer-plugin",
+		Caps: antminerCaps,
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 	manager.plugins["antminer-plugin"] = mockPlugin
 
 	device := &pairingpb.Device{
-		Type:         "asic",
+		DriverName:   "antminer",
 		Model:        "Antminer S19",
 		Manufacturer: "Bitmain",
 	}
 
+	// Act
 	ctx := t.Context()
 	result := service.GetMinerCapabilitiesForDevice(ctx, device)
 
+	// Assert
 	require.NotNil(t, result)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
 
-	// Verify telemetry capabilities
 	require.NotNil(t, result.Telemetry)
 	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
 
-	// Verify command capabilities
 	require.NotNil(t, result.Commands)
 	assert.True(t, result.Commands.RebootSupported)
 	assert.True(t, result.Commands.LedBlinkSupported)
@@ -380,7 +337,7 @@ func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Register Proto plugin with capabilities
+	// Arrange
 	protoCaps := sdk.Capabilities{
 		sdk.CapabilityAsymmetricAuth:     true,
 		sdk.CapabilityReboot:             true,
@@ -395,32 +352,30 @@ func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "proto-plugin",
-		Caps:       protoCaps,
-		MinerTypes: []models.Type{models.TypeProto},
+		Name: "proto-plugin",
+		Caps: protoCaps,
 	}
-	manager.pluginsByType[models.TypeProto] = mockPlugin
+	manager.pluginsByDriverName["proto"] = mockPlugin
 	manager.plugins["proto-plugin"] = mockPlugin
 
-	// Model must start with "rig" to be recognized as Proto device
 	device := &pairingpb.Device{
-		Type:         "asic",
+		DriverName:   "proto",
 		Model:        "Rig 1",
 		Manufacturer: "Proto",
 	}
 
+	// Act
 	ctx := t.Context()
 	result := service.GetMinerCapabilitiesForDevice(ctx, device)
 
+	// Assert
 	require.NotNil(t, result)
 	assert.Equal(t, "Proto", result.Manufacturer)
 
-	// Verify telemetry capabilities
 	require.NotNil(t, result.Telemetry)
 	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
 	assert.True(t, result.Telemetry.HistoricalDataSupported)
 
-	// Verify command capabilities with cooling modes
 	require.NotNil(t, result.Commands)
 	assert.True(t, result.Commands.AirCoolingSupported)
 	assert.True(t, result.Commands.ImmersionCoolingSupported)
@@ -433,25 +388,22 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 	manager := NewManager(&Config{})
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
-	// Create mock driver that implements ModelCapabilitiesProvider
+	// Arrange
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockModelCapProvider := sdkMocks.NewMockModelCapabilitiesProvider(ctrl)
 
-	// Base capabilities include power mode efficiency as true
 	baseCaps := sdk.Capabilities{
 		sdk.CapabilityBasicAuth:           true,
 		sdk.CapabilityReboot:              true,
-		sdk.CapabilityPowerModeEfficiency: true, // Base capability
+		sdk.CapabilityPowerModeEfficiency: true,
 	}
 
-	// Model-specific override: S21 doesn't support efficiency mode
 	mockModelCapProvider.EXPECT().
 		GetCapabilitiesForModel(gomock.Any(), "Antminer S21").
 		Return(sdk.Capabilities{
-			sdk.CapabilityPowerModeEfficiency: false, // Override for S21
+			sdk.CapabilityPowerModeEfficiency: false,
 		})
 
-	// Create a combined mock that implements both interfaces
 	type combinedDriver struct {
 		sdk.Driver
 		sdk.ModelCapabilitiesProvider
@@ -462,27 +414,26 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Caps:       baseCaps,
-		Driver:     combined,
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name:   "antminer-plugin",
+		Caps:   baseCaps,
+		Driver: combined,
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 	manager.plugins["antminer-plugin"] = mockPlugin
 
-	// Test S21 device (should have efficiency mode disabled)
 	device := &pairingpb.Device{
-		Type:         "asic",
+		DriverName:   "antminer",
 		Model:        "Antminer S21",
 		Manufacturer: "Bitmain",
 	}
 
+	// Act
 	ctx := t.Context()
 	result := service.GetMinerCapabilitiesForDevice(ctx, device)
 
+	// Assert
 	require.NotNil(t, result)
 	require.NotNil(t, result.Commands)
-	// S21 should NOT support power mode efficiency
 	assert.False(t, result.Commands.PowerModeEfficiencySupported)
 }
 

@@ -1,4 +1,4 @@
-default: 
+default:
   just --list
 
 init: _server-init _client-init _python-gen-init

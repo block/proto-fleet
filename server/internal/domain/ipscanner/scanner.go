@@ -139,11 +139,11 @@ scanLoop:
 				if device != nil {
 					var matchedTarget *TargetDevice
 					for i := range targetDevices {
-						if device.Type != targetDevices[i].DeviceType {
+						if device.DriverName != targetDevices[i].DriverName {
 							continue
 						}
 
-						// Type matches, now check if it's the same device via API
+						// Driver name matches, now check if it's the same device via API
 						if n.deviceIDCheckService.IsSameDevice(scanCtx, device, targetDevices[i].DeviceIdentifier, targetDevices[i].OrgID) {
 							matchedTarget = &targetDevices[i]
 							n.logger.Debug("Device matched by identity check",
@@ -169,7 +169,7 @@ scanLoop:
 							n.logger.Info("Device found and verified",
 								"ip", ipAddr,
 								"port", port,
-								"type", device.Type,
+								"driver_name", device.DriverName,
 								"mac_address", device.MacAddress,
 								"device_identifier", matchedTarget.DeviceIdentifier,
 							)

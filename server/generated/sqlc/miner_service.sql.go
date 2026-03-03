@@ -14,8 +14,8 @@ const getDeviceWithCredentialsAndIPByDeviceIdentifier = `-- name: GetDeviceWithC
 SELECT
     d.id,
     d.device_identifier,
-    dd.type,
     dd.model,
+    dd.driver_name,
     d.org_id,
     d.serial_number,
     d.mac_address,
@@ -37,8 +37,8 @@ LIMIT 1
 type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	ID               int64
 	DeviceIdentifier string
-	Type             string
 	Model            sql.NullString
+	DriverName       string
 	OrgID            int64
 	SerialNumber     sql.NullString
 	MacAddress       string
@@ -55,8 +55,8 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	err := row.Scan(
 		&i.ID,
 		&i.DeviceIdentifier,
-		&i.Type,
 		&i.Model,
+		&i.DriverName,
 		&i.OrgID,
 		&i.SerialNumber,
 		&i.MacAddress,
@@ -73,8 +73,8 @@ const getDeviceWithCredentialsAndIPByID = `-- name: GetDeviceWithCredentialsAndI
 SELECT
     d.id,
     d.device_identifier,
-    dd.type,
     dd.model,
+    dd.driver_name,
     d.org_id,
     d.serial_number,
     d.mac_address,
@@ -96,8 +96,8 @@ LIMIT 1
 type GetDeviceWithCredentialsAndIPByIDRow struct {
 	ID               int64
 	DeviceIdentifier string
-	Type             string
 	Model            sql.NullString
+	DriverName       string
 	OrgID            int64
 	SerialNumber     sql.NullString
 	MacAddress       string
@@ -114,8 +114,8 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int6
 	err := row.Scan(
 		&i.ID,
 		&i.DeviceIdentifier,
-		&i.Type,
 		&i.Model,
+		&i.DriverName,
 		&i.OrgID,
 		&i.SerialNumber,
 		&i.MacAddress,

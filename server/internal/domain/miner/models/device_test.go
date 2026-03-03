@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDeviceID_String_ShouldReturnStringRepresentation(t *testing.T) {
@@ -38,48 +37,4 @@ func TestDeviceID_Equality_ShouldWorkCorrectly(t *testing.T) {
 
 	assert.Equal(t, deviceID1, deviceID2)
 	assert.NotEqual(t, deviceID1, deviceID3)
-}
-
-func TestType_String_ShouldReturnCorrectString(t *testing.T) {
-	tests := []struct {
-		input    Type
-		expected string
-	}{
-		{TypeAntminer, "antminer"},
-		{TypeProto, "proto"},
-		{TypeWhatsminer, "whatsminer"},
-		{TypeAvalon, "avalon"},
-		{TypeUnknown, "unknown"},
-	}
-
-	for _, test := range tests {
-		assert.Equal(t, test.expected, test.input.String())
-	}
-}
-
-func TestTypeFromString_ShouldParseCorrectly(t *testing.T) {
-	tests := []struct {
-		input       string
-		expected    Type
-		shouldError bool
-	}{
-		{"antminer", TypeAntminer, false},
-		{"proto", TypeProto, false},
-		{"proto_miner", TypeProto, false}, // Legacy support
-		{"whatsminer", TypeWhatsminer, false},
-		{"avalon", TypeAvalon, false},
-		{"unknown", TypeUnknown, false},
-		{"", TypeUnknown, false},
-		{"invalid", TypeUnknown, true},
-	}
-
-	for _, test := range tests {
-		result, err := TypeFromString(test.input)
-		if test.shouldError {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-			assert.Equal(t, test.expected, result)
-		}
-	}
 }

@@ -110,9 +110,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	filesService, err := files.NewService()
 	assert.NoError(t, err)
 
-	// Pass nil for plugin manager in tests (can be mocked if needed)
-	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
-
 	// Use mock proto pairer instead of legacy implementation
 	protoPairer := NewMockProtoPairer(ctrl)
 
@@ -122,6 +119,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	}
 	pluginManager := plugins.NewManager(pluginConfig)
 	pluginService := plugins.NewService(pluginManager)
+
+	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginManager)
 
 	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, discoverer, pluginService, listenerMock, protoPairer)
 

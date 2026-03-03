@@ -9,6 +9,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 
 	"github.com/stretchr/testify/assert"
@@ -18,11 +19,15 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
 
+func newTestPluginManager() *plugins.Manager {
+	return plugins.NewManager(&plugins.Config{})
+}
+
 func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 
 	assert.NotNil(t, service)
 }
@@ -32,7 +37,7 @@ func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService, nil)
+		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 	})
 }
 
@@ -41,7 +46,16 @@ func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(db, userStore, nil, filesService, tokenService, nil)
+		miner.NewMinerService(db, userStore, nil, filesService, tokenService, newTestPluginManager())
+	})
+}
+
+func TestNewMinerService_WithNilPluginManager_ShouldPanic(t *testing.T) {
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+
+	assert.Panics(t, func() {
+		miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 	})
 }
 
@@ -58,7 +72,7 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("nonexistent"))
 
@@ -71,7 +85,7 @@ func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(""))
 
@@ -86,7 +100,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t
 
 	db.Close() // Simulate database error
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("device-123"))
 
@@ -104,7 +118,7 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 	deviceID := models.DeviceIdentifier("test-device-no-creds")
 	createTestDevice(t, db, string(deviceID))
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -126,13 +140,12 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 	testContext.DatabaseService.CreateSuperAdminUser()
 
 	tests := []struct {
-		deviceType   string
-		expectedType models.Type
+		deviceType string
 	}{
-		{"antminer", models.TypeAntminer},
-		{"proto", models.TypeProto},
-		{"whatsminer", models.TypeWhatsminer},
-		{"avalon", models.TypeAvalon},
+		{"antminer"},
+		{"proto"},
+		{"whatsminer"},
+		{"avalon"},
 	}
 
 	for i, test := range tests {
@@ -179,7 +192,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 			require.Error(t, err)
 			assert.Nil(t, miner)
-			assert.Contains(t, err.Error(), "no plugin available for miner type")
+			assert.Contains(t, err.Error(), "no plugin available")
 		})
 	}
 }
@@ -228,7 +241,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	require.NoError(t, err)
 
 	userStore := sqlstores.NewSQLUserStore(testContext.DatabaseService.DB)
-	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, nil)
+	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-unpaired-device"))
 

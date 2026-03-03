@@ -12,7 +12,6 @@ from proto_fleet_sdk.auth import SecretBundle, UsernamePassword
 from proto_fleet_sdk.enums import (
     ComponentStatus,
     CoolingMode,
-    DeviceType,
     HealthStatus,
     MetricKind,
     PerformanceMode,
@@ -144,7 +143,7 @@ class StubDriver:
         return DeviceInfo(
             host=ip_address, port=port, url_scheme="http", serial_number="",
             model="Stub Miner", manufacturer="Stub Corp",
-            device_type=DeviceType.DEVICE_TYPE_ASIC, mac_address="", firmware_version="1.0.0",
+            mac_address="", firmware_version="1.0.0",
         )
 
     async def pair_device(
@@ -153,7 +152,7 @@ class StubDriver:
         return DeviceInfo(
             host=device_info.host, port=device_info.port, url_scheme=device_info.url_scheme,
             serial_number="SN123456789", model=device_info.model,
-            manufacturer=device_info.manufacturer, device_type=device_info.device_type,
+            manufacturer=device_info.manufacturer,
             mac_address="00:1A:2B:3C:4D:5E", firmware_version=device_info.firmware_version,
         )
 
@@ -176,7 +175,6 @@ def mock_device_info() -> DeviceInfo:
         serial_number="SN123456789",
         model="Test Miner",
         manufacturer="Test Corp",
-        device_type=DeviceType.DEVICE_TYPE_ASIC,
         mac_address="00:1A:2B:3C:4D:5E",
         firmware_version="1.0.0",
     )

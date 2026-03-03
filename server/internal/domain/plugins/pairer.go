@@ -27,7 +27,6 @@ var _ pairing.Pairer = &Pairer{}
 // Pairer implements the pairing.Pairer interface using plugins
 type Pairer struct {
 	manager               *Manager
-	minerType             models.Type
 	transactor            interfaces.Transactor
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	deviceStore           interfaces.DeviceStore
@@ -36,11 +35,10 @@ type Pairer struct {
 	encryptService        *encrypt.Service
 }
 
-// NewPairer creates a new plugin-based pairer for a specific miner type
-func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Transactor, discoveredDeviceStore interfaces.DiscoveredDeviceStore, deviceStore interfaces.DeviceStore, userStore interfaces.UserStore, tokenService *token.Service, encryptService *encrypt.Service) *Pairer {
+// NewPairer creates a new plugin-based pairer
+func NewPairer(manager *Manager, transactor interfaces.Transactor, discoveredDeviceStore interfaces.DiscoveredDeviceStore, deviceStore interfaces.DeviceStore, userStore interfaces.UserStore, tokenService *token.Service, encryptService *encrypt.Service) *Pairer {
 	return &Pairer{
 		manager:               manager,
-		minerType:             minerType,
 		transactor:            transactor,
 		discoveredDeviceStore: discoveredDeviceStore,
 		deviceStore:           deviceStore,
@@ -50,8 +48,16 @@ func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Tr
 	}
 }
 
+// getPluginForDevice returns the plugin that should handle this device.
+func (p *Pairer) getPluginForDevice(device *discoverymodels.DiscoveredDevice) (*LoadedPlugin, error) {
+	if device.DriverName == "" {
+		return nil, fleeterror.NewInternalErrorf("device %s has no driver_name — run backfill or re-discover", device.DeviceIdentifier)
+	}
+	return p.manager.GetPluginByDriverNameWithCapability(device.DriverName, sdk.CapabilityPairing)
+}
+
 func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error) {
-	plugin, err := p.manager.GetPluginWithCapability(p.minerType, sdk.CapabilityPairing)
+	plugin, err := p.getPluginForDevice(device)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +79,7 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 		return nil, fleeterror.NewInternalErrorf("failed to describe device: %v", err)
 	}
 
-	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port, p.minerType.String())
+	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port, plugin.Identifier.DriverName)
 
 	return updatedDevice, nil
 }
@@ -81,7 +87,7 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 // PairDevice handles the entire pairing process using the plugin
 // TODO: Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password without bespoke miner integrations.
 func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	plugin, err := p.manager.GetPluginWithCapability(p.minerType, sdk.CapabilityPairing)
+	plugin, err := p.getPluginForDevice(discoveredDevice)
 	if err != nil {
 		return err
 	}
@@ -97,7 +103,7 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		// Devices that advertise CapabilityAsymmetricAuth (e.g. Proto devices) use public key
 		// based authentication managed by the plugin/SDK instead of username/password.
 		if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
-			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
 		}
 	}
 
@@ -145,7 +151,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 	// All credential attempts failed - signal that user credentials are needed
 	slog.Debug("Default credentials not accepted, manual authentication required",
 		"device_identifier", discoveredDevice.DeviceIdentifier)
-	return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+	return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
 }
 
 // callPluginPairDevice calls the plugin's PairDevice and updates discoveredDevice with the response.
@@ -153,7 +159,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
-	secretBundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
+	secretBundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, plugin.Caps, credentials)
 	if err != nil {
 		return fmt.Errorf("failed to create secret bundle: %w", err)
 	}
@@ -228,7 +234,11 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
 // will require extending pb.Credentials.
 func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
+	plugin, pluginErr := p.getPluginForDevice(discoveredDevice)
+	if pluginErr != nil {
+		return pluginErr
+	}
+	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, plugin.Caps, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -292,29 +302,12 @@ func (p *Pairer) getOrgPrivateKey(ctx context.Context, orgID int64) ([]byte, err
 	return privateKey, nil
 }
 
-// GetMinerType returns the miner type this pairer handles
-func (p *Pairer) GetMinerType() models.Type {
-	return p.minerType
-}
-
 // convertFleetDeviceToSDKDeviceInfo converts a Fleet pb.Device to SDK DeviceInfo format
 func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 	port, err := sdk.ParsePort(device.Port)
 	if err != nil {
 		slog.Warn("Invalid port number, using 0", "port", device.Port, "error", err)
 		port = 0
-	}
-
-	var deviceType sdk.DeviceType
-	switch device.Type {
-	case "asic":
-		deviceType = sdk.DeviceTypeASIC
-	case "gpu":
-		deviceType = sdk.DeviceTypeGPU
-	case "fpga":
-		deviceType = sdk.DeviceTypeFPGA
-	default:
-		deviceType = sdk.DeviceTypeUnspecified
 	}
 
 	return sdk.DeviceInfo{
@@ -324,22 +317,17 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
 		Manufacturer:    device.Manufacturer,
-		Type:            deviceType,
 		MacAddress:      device.MacAddress,
 		FirmwareVersion: device.FirmwareVersion,
 	}
 }
 
-// createSecretBundle creates an SDK SecretBundle for device pairing.
-// If credentials are provided with a username, it creates a username/password bundle.
-// Otherwise, it fetches the organization's public key from the database and creates an API key bundle.
-func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credentials *pb.Credentials) (sdk.SecretBundle, error) {
+func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, caps sdk.Capabilities, credentials *pb.Credentials) (sdk.SecretBundle, error) {
 	bundle := sdk.SecretBundle{
 		Version: "v1",
 	}
 
-	// TODO: Make adaptive based on device info not hardcoded miner type
-	if p.minerType == models.TypeProto {
+	if caps[sdk.CapabilityAsymmetricAuth] {
 		fleetPublicKey, err := p.GetMinerPublicKey(ctx, orgID)
 		if err != nil {
 			return sdk.SecretBundle{}, fmt.Errorf("failed to get fleet public key: %w", err)
@@ -349,7 +337,10 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 		}
 	} else {
 		if credentials == nil {
-			return sdk.SecretBundle{}, fmt.Errorf("credentials required for %s secret bundle", p.minerType)
+			return sdk.SecretBundle{}, fmt.Errorf("credentials required for secret bundle")
+		}
+		if credentials.Password == nil {
+			return sdk.SecretBundle{}, fmt.Errorf("password is required for secret bundle")
 		}
 		bundle.Kind = sdk.UsernamePassword{
 			Username: credentials.Username,
@@ -361,11 +352,15 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 }
 
 // getSecretBundleForDeviceInfo builds the SecretBundle used when describing a device via plugins.
-// Proto miners expect JWT bearer tokens for runtime authentication, while other miners reuse
-// the standard credential handling implemented in createSecretBundle.
+// Devices with asymmetric auth use JWT bearer tokens, others use credential-based bundles.
 func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (sdk.SecretBundle, error) {
-	if p.minerType != models.TypeProto {
-		return p.createSecretBundle(ctx, device.OrgID, credentials)
+	plugin, err := p.getPluginForDevice(device)
+	if err != nil {
+		return sdk.SecretBundle{}, err
+	}
+
+	if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
+		return p.createSecretBundle(ctx, device.OrgID, plugin.Caps, credentials)
 	}
 
 	return p.createProtoBearerSecretBundle(ctx, device)

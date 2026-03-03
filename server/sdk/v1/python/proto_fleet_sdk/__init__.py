@@ -88,7 +88,6 @@ from proto_fleet_sdk.capabilities import (
 from proto_fleet_sdk.enums import (
     ComponentStatus,
     CoolingMode,
-    DeviceType,
     HealthStatus,
     MetricKind,
     PerformanceMode,
@@ -149,7 +148,6 @@ __all__ = [
     "HealthStatus",
     "ComponentStatus",
     "MetricKind",
-    "DeviceType",
     "CoolingMode",
     "PerformanceMode",
     # Errors

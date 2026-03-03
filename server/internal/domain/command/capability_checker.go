@@ -39,18 +39,18 @@ type deviceInfo struct {
 	DeviceIdentifier string
 	Manufacturer     string
 	Model            string
-	Type             string
 	FirmwareVersion  string
+	DriverName       string
 }
 
 // newDeviceInfo creates a deviceInfo from raw database fields.
-func newDeviceInfo(deviceIdentifier, deviceType string, manufacturer, model, firmwareVersion sql.NullString) deviceInfo {
+func newDeviceInfo(deviceIdentifier string, manufacturer, model, firmwareVersion sql.NullString, driverName string) deviceInfo {
 	return deviceInfo{
 		DeviceIdentifier: deviceIdentifier,
 		Manufacturer:     stringOrEmpty(manufacturer),
 		Model:            stringOrEmpty(model),
-		Type:             deviceType,
 		FirmwareVersion:  stringOrEmpty(firmwareVersion),
+		DriverName:       driverName,
 	}
 }
 
@@ -105,7 +105,7 @@ func (c *CapabilityChecker) getAllDeviceInfo(ctx context.Context, orgID int64) (
 
 		devices := make([]deviceInfo, len(rows))
 		for i, row := range rows {
-			devices[i] = newDeviceInfo(row.DeviceIdentifier, row.Type, row.Manufacturer, row.Model, row.FirmwareVersion)
+			devices[i] = newDeviceInfo(row.DeviceIdentifier, row.Manufacturer, row.Model, row.FirmwareVersion, row.DriverName)
 		}
 		return devices, nil
 	})
@@ -132,7 +132,7 @@ func (c *CapabilityChecker) getDeviceInfoByDeviceIdentifiers(
 
 		devices := make([]deviceInfo, len(rows))
 		for i, row := range rows {
-			devices[i] = newDeviceInfo(row.DeviceIdentifier, row.Type, row.Manufacturer, row.Model, row.FirmwareVersion)
+			devices[i] = newDeviceInfo(row.DeviceIdentifier, row.Manufacturer, row.Model, row.FirmwareVersion, row.DriverName)
 		}
 		return devices, nil
 	})
@@ -202,7 +202,7 @@ func (c *CapabilityChecker) deviceSupportsCommand(
 	capabilities := c.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, &pairingpb.Device{
 		Manufacturer: device.Manufacturer,
 		Model:        device.Model,
-		Type:         device.Type,
+		DriverName:   device.DriverName,
 	})
 
 	if capabilities == nil || capabilities.Commands == nil {

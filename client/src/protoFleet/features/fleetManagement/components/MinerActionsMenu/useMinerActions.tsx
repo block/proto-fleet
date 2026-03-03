@@ -131,7 +131,7 @@ const initialUnsupportedMinersState: UnsupportedMinersState = {
   supportedDeviceIdentifiers: [],
 };
 
-const protoMinerType = "proto";
+const protoDriverName = "proto";
 
 /**
  * Determines if a Proto rig is reachable for ClearAuthKey.
@@ -154,7 +154,7 @@ const buildDeleteConfirmationSubtitle = (
   selectedMiners: MinerSelection[],
   selectionMode: SelectionMode,
   displayCount: number,
-  miners: Record<string, { type: string; deviceStatus: number; pairingStatus: number }>,
+  miners: Record<string, { driverName: string; deviceStatus: number; pairingStatus: number }>,
   currentFilter?: MinerListFilter,
 ): string => {
   // In "all" mode we may not have full miner data loaded — use a generic message
@@ -176,7 +176,7 @@ const buildDeleteConfirmationSubtitle = (
       continue;
     }
 
-    if (miner.type === protoMinerType) {
+    if (miner.driverName === protoDriverName) {
       if (isProtoReachable(miner.deviceStatus as DeviceStatus, miner.pairingStatus as PairingStatus)) {
         protoReachableCount++;
       } else {

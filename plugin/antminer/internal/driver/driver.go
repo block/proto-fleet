@@ -223,7 +223,6 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		SerialNumber:    "",
 		Model:           model,
 		Manufacturer:    manufacturer,
-		Type:            sdk.DeviceTypeASIC,
 		MacAddress:      "",
 		FirmwareVersion: firmwareVersion,
 	}, nil

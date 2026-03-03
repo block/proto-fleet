@@ -48,7 +48,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldInsertNewDevice(t *testing.T) {
 			DeviceIdentifier: deviceIdentifier,
 			Model:            "S19 Pro",
 			Manufacturer:     "Bitmain",
-			Type:             "ANTMINER",
+			DriverName:       "ANTMINER",
 			IpAddress:        "192.168.1.100",
 			Port:             "4028",
 			UrlScheme:        "http",
@@ -65,7 +65,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldInsertNewDevice(t *testing.T) {
 	assert.Equal(t, deviceIdentifier, saved.DeviceIdentifier)
 	assert.Equal(t, "S19 Pro", saved.Model)
 	assert.Equal(t, "Bitmain", saved.Manufacturer)
-	assert.Equal(t, "ANTMINER", saved.Type)
+	assert.Equal(t, "ANTMINER", saved.DriverName)
 	assert.Equal(t, "192.168.1.100", saved.IpAddress)
 	assert.Equal(t, "4028", saved.Port)
 	assert.Equal(t, "http", saved.UrlScheme)
@@ -109,7 +109,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldUpdateExistingDevice(t *testing.T) 
 			DeviceIdentifier: deviceIdentifier,
 			Model:            "S19 Pro",
 			Manufacturer:     "Bitmain",
-			Type:             "ANTMINER",
+			DriverName:       "ANTMINER",
 			IpAddress:        "192.168.1.100",
 			Port:             "4028",
 			UrlScheme:        "http",
@@ -166,7 +166,7 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnExistingDevice(t *testin
 			DeviceIdentifier: deviceIdentifier,
 			Model:            "S21",
 			Manufacturer:     "Bitmain",
-			Type:             "ANTMINER",
+			DriverName:       "ANTMINER",
 			IpAddress:        "192.168.1.200",
 			Port:             "4028",
 			UrlScheme:        "http",
@@ -186,7 +186,7 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnExistingDevice(t *testin
 	assert.Equal(t, saved.DeviceIdentifier, retrieved.DeviceIdentifier)
 	assert.Equal(t, saved.Model, retrieved.Model)
 	assert.Equal(t, saved.Manufacturer, retrieved.Manufacturer)
-	assert.Equal(t, saved.Type, retrieved.Type)
+	assert.Equal(t, saved.DriverName, retrieved.DriverName)
 	assert.Equal(t, saved.IpAddress, retrieved.IpAddress)
 	assert.Equal(t, saved.Port, retrieved.Port)
 	assert.Equal(t, saved.UrlScheme, retrieved.UrlScheme)
@@ -227,7 +227,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldAllowSettingIsActiveToTrue(t *testi
 			DeviceIdentifier: deviceIdentifier,
 			Model:            "S19 Pro",
 			Manufacturer:     "Bitmain",
-			Type:             "ANTMINER",
+			DriverName:       "ANTMINER",
 			IpAddress:        "192.168.1.100",
 			Port:             "4028",
 			UrlScheme:        "http",
@@ -316,7 +316,7 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldReturnUnpairedD
 				DeviceIdentifier: deviceIdentifier,
 				Model:            "S19 Pro",
 				Manufacturer:     "Bitmain",
-				Type:             "ANTMINER",
+				DriverName:       "ANTMINER",
 				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
 				Port:             "4028",
 				UrlScheme:        "http",
@@ -376,7 +376,7 @@ func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldSupportPaginati
 				DeviceIdentifier: deviceIdentifier,
 				Model:            "S19 Pro",
 				Manufacturer:     "Bitmain",
-				Type:             "ANTMINER",
+				DriverName:       "ANTMINER",
 				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
 				Port:             "4028",
 				UrlScheme:        "http",
@@ -448,7 +448,7 @@ func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrect
 				DeviceIdentifier: deviceIdentifier,
 				Model:            "S19 Pro",
 				Manufacturer:     "Bitmain",
-				Type:             "ANTMINER",
+				DriverName:       "ANTMINER",
 				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
 				Port:             "4028",
 				UrlScheme:        "http",

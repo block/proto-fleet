@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
-	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +17,7 @@ func setupCollectionTestData(t *testing.T, deviceCount int) (db *sql.DB, orgID i
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	deviceIDs = make([]string, deviceCount)
 	for i := range deviceCount {
-		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, minermodels.TypeProto)
+		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
 		deviceIDs[i] = device.ID
 	}
 	return testContext.DatabaseService.DB, adminUser.OrganizationID, deviceIDs

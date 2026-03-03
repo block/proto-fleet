@@ -45,7 +45,6 @@ async def test_device_lifecycle(driver_stub):
         serial_number="TEST123",
         model="TestMiner",
         manufacturer="TestCo",
-        type=driver_pb2.DEVICE_TYPE_ASIC,
     )
 
     secret = driver_pb2.SecretBundle(

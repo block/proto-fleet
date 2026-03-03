@@ -14,7 +14,6 @@ import (
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	db2 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -174,33 +173,17 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 	return &testUser
 }
 
-func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Type) DeviceIdentification {
+func (s *DatabaseService) CreateDevice(organizationID int64, driverName string) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
-		// First create a discovered_device
 		// Use unique IP per device to prevent constraint violations on (org_id, ip_address, port)
-		// Port is stable based on device type
 		// Use atomic counter to ensure true uniqueness even in parallel tests
 		ipSuffix := atomic.AddUint64(&testDeviceIPCounter, 1)
 		ipAddress := fmt.Sprintf("127.0.%d.%d", (ipSuffix/256)%256, ipSuffix%256)
 
-		// Use standard ports for each device type
-		var port string
-		switch minerType {
-		case models.TypeProto:
+		port := "4028"
+		if driverName == "proto" {
 			port = "2121"
-		case models.TypeAntminer:
-			port = "4028"
-		case models.TypeWhatsminer:
-			port = "4028"
-		case models.TypeAvalon:
-			port = "4028"
-		case models.TypeVirtual:
-			port = "4028"
-		case models.TypeUnknown:
-			port = "4028"
-		default:
-			port = "4028"
 		}
 
 		discoveredDeviceID, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
@@ -208,11 +191,11 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 			DeviceIdentifier: uuidCurrent,
 			Model:            sql.NullString{String: "TestMiner", Valid: true},
 			Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
-			Type:             minerType.String(),
 			IpAddress:        ipAddress,
 			Port:             port,
 			UrlScheme:        "https",
 			IsActive:         true,
+			DriverName:       driverName,
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create discovered device: %v", err)
@@ -270,7 +253,7 @@ func (s *DatabaseService) GetTotalDevicePairings(orgID int64, _ int32) (int, err
 func (s *DatabaseService) CreateAndAssignDevices(count int, organizationID int64) []DeviceIdentification {
 	deviceIdentifications := make([]DeviceIdentification, 0)
 	for i := range count {
-		deviceIdentification := s.CreateDevice(organizationID, models.TypeProto)
+		deviceIdentification := s.CreateDevice(organizationID, "proto")
 		s.createDeviceIPAssignment(deviceIdentification.DatabaseID, "127.0.0.1", strconv.Itoa(i), networking.ProtocolHTTPS)
 		deviceIdentifications = append(deviceIdentifications, deviceIdentification)
 	}
@@ -289,21 +272,16 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 
 	s.t.Logf("Setting up %d test miners with host=%s, port=%s", count, host, portStr)
 
-	var minerType models.Type
-	switch portStr {
-	case "2121":
-		minerType = models.TypeProto
-	case "4028":
-		minerType = models.TypeAntminer
-	default:
-		minerType = models.TypeProto
+	driverName := "proto"
+	if portStr == "4028" {
+		driverName = "antminer"
 	}
 
 	deviceIDs := make([]string, count)
 
 	// Create miners in the database
 	for i := range count {
-		device := s.CreateDevice(orgID, minerType)
+		device := s.CreateDevice(orgID, driverName)
 		deviceIDs[i] = device.ID
 
 		// Make each device have a unique IP to avoid constraint violations

@@ -10,7 +10,6 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
-from proto_fleet_sdk.enums import DeviceType
 from proto_fleet_sdk.errors import InvalidConfigError
 
 if TYPE_CHECKING:
@@ -58,7 +57,6 @@ class DeviceInfo:
     serial_number: str
     model: str
     manufacturer: str
-    device_type: DeviceType
     mac_address: str
     firmware_version: str
 

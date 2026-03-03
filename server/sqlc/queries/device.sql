@@ -312,10 +312,10 @@ SELECT
     d.mac_address,
     d.org_id,
     dd.device_identifier AS discovered_device_identifier,
-    dd.type,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    dd.driver_name
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_status ds ON d.id = ds.device_id
@@ -339,7 +339,6 @@ SELECT
     d.serial_number,
     dd.model,
     dd.manufacturer,
-    dd.type,
     dd.firmware_version,
     ds.status as device_status,
     ds.status_timestamp,
@@ -350,6 +349,7 @@ SELECT
     CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END as pairing_status,
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
+    dd.driver_name,
     d.custom_name
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
@@ -460,8 +460,8 @@ SELECT
     d.device_identifier,
     dd.manufacturer,
     dd.model,
-    dd.type,
-    dd.firmware_version
+    dd.firmware_version,
+    dd.driver_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -478,8 +478,8 @@ SELECT
     d.device_identifier,
     dd.manufacturer,
     dd.model,
-    dd.type,
-    dd.firmware_version
+    dd.firmware_version,
+    dd.driver_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id

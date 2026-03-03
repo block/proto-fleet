@@ -353,16 +353,10 @@ message DeviceInfo {
   string serial_number = 4; // e.g., "SN123456789"
   string model = 5;         // e.g., "Antminer S19"
   string manufacturer = 6;  // e.g., "Bitmain"
-  DeviceType type = 7;          // e.g., "ASIC", "GPU"
+  reserved 7;
+  reserved "type";
   string mac_address = 8; // e.g., "00:1A:2B:3C:4D:5E"
   string firmware_version = 9; // e.g., "1.0.0", "mcdd-v1.2.3"
-}
-
-enum DeviceType {
-  DEVICE_TYPE_UNSPECIFIED = 0;
-  DEVICE_TYPE_ASIC = 1;
-  DEVICE_TYPE_GPU = 2;
-  DEVICE_TYPE_FPGA = 3;
 }
 
 message DiscoverDeviceRequest {

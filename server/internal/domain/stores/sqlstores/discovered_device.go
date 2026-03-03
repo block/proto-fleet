@@ -67,12 +67,12 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
 		Manufacturer:     sql.NullString{String: device.Manufacturer, Valid: len(device.Manufacturer) > 0},
-		Type:             device.Type,
 		FirmwareVersion:  sql.NullString{String: device.FirmwareVersion, Valid: len(device.FirmwareVersion) > 0},
 		IpAddress:        device.IpAddress,
 		Port:             device.Port,
 		UrlScheme:        device.UrlScheme,
 		IsActive:         device.IsActive,
+		DriverName:       device.Device.DriverName,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %v", err)
@@ -178,18 +178,18 @@ func (s *SQLDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context,
 	return devices, nextCursor, nil
 }
 
-// toDiscoveredDeviceFromRow converts a DiscoveredDevice to a domain DiscoveredDevice
-func toDiscoveredDeviceFromRow(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
+// toDiscoveredDeviceFromRow converts a GetActiveUnpairedDiscoveredDevicesRow to a domain DiscoveredDevice
+func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesRow) *discoverymodels.DiscoveredDevice {
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
 			Model:            dbDevice.Model.String,
 			Manufacturer:     dbDevice.Manufacturer.String,
-			Type:             dbDevice.Type,
 			FirmwareVersion:  dbDevice.FirmwareVersion.String,
 			IpAddress:        dbDevice.IpAddress,
 			Port:             dbDevice.Port,
 			UrlScheme:        dbDevice.UrlScheme,
+			DriverName:       dbDevice.DriverName,
 		},
 		IsActive:        dbDevice.IsActive,
 		OrgID:           dbDevice.OrgID,
@@ -215,11 +215,11 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
 			Model:            dbDevice.Model.String,
 			Manufacturer:     dbDevice.Manufacturer.String,
-			Type:             dbDevice.Type,
 			FirmwareVersion:  dbDevice.FirmwareVersion.String,
 			IpAddress:        dbDevice.IpAddress,
 			Port:             dbDevice.Port,
 			UrlScheme:        dbDevice.UrlScheme,
+			DriverName:       dbDevice.DriverName,
 		},
 		IsActive:        dbDevice.IsActive,
 		OrgID:           dbDevice.OrgID,

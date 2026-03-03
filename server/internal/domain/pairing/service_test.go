@@ -11,7 +11,6 @@ import (
 	commandpb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
@@ -49,7 +48,7 @@ func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port st
 
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, additionalPairers []pairing.Pairer, mockDiscoverer *MockDiscoverer) (*pairing.Service, context.Context) {
+func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, pairer pairing.Pairer, mockDiscoverer *MockDiscoverer) (*pairing.Service, context.Context) {
 	tokenService := testContext.ServiceProvider.TokenService
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
@@ -64,9 +63,9 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 
 	mockListener.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 
-	protoPairer := testutil.NewMockProtoPairer(ctrl)
-	pairers := []pairing.Pairer{protoPairer}
-	pairers = append(pairers, additionalPairers...)
+	if pairer == nil {
+		pairer = testutil.NewMockProtoPairer(ctrl)
+	}
 
 	pairingService := pairing.NewService(
 		discoveredDeviceStore,
@@ -76,7 +75,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		mockDiscoverer,
 		pluginService,
 		mockListener,
-		pairers...,
+		pairer,
 	)
 
 	return pairingService, ctx
@@ -85,10 +84,10 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.DiscoveredDevice {
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			IpAddress: ipAddress,
-			Port:      port,
-			UrlScheme: "http",
-			Type:      deviceType,
+			IpAddress:  ipAddress,
+			Port:       port,
+			UrlScheme:  "http",
+			DriverName: deviceType,
 		},
 	}
 }
@@ -134,8 +133,8 @@ func TestDiscoverWithIPList(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "antminer")
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -182,9 +181,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(3)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "proto")
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "antminer")
 
 		// Set up mock calls that signal completion through WaitGroup
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
@@ -235,9 +234,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(6)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "proto")
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "antminer")
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -306,7 +305,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, "proto")
 
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -359,7 +358,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice("192.168.1.20", "80", miner.TypeProto.String())
+		mockDevice := createMockDevice("192.168.1.20", "80", "proto")
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -409,19 +408,18 @@ func TestPairDevices(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeAntminer.String())
+		mockDevice := createMockDevice(host, portStr, "antminer")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns credentials required error
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		mockAntminerPairer := pairingMocks.NewMockPairer(ctrl)
-		mockAntminerPairer.EXPECT().GetMinerType().Return(miner.TypeAntminer).AnyTimes()
 		mockAntminerPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
 			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided"))
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockAntminerPairer}, mockDiscoverer)
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockAntminerPairer, mockDiscoverer)
 
 		// First discover the device
 		request := &pb.IPListModeRequest{
@@ -463,7 +461,7 @@ func TestPairDevices(t *testing.T) {
 		host, portStr := setUpMockMinerServer(t)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, "proto")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
@@ -527,7 +525,7 @@ func TestPairDevices(t *testing.T) {
 			mockDiscoverer,
 			pluginService,
 			nil,
-			// No pairers registered
+			nil,
 		)
 
 		// Try to pair a non-existent device (this will fail at device lookup)
@@ -561,7 +559,7 @@ func TestPairDevices(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, "proto")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
@@ -599,13 +597,13 @@ func assertDevicesEqual(t *testing.T, actual []*pb.Device, expected []*discovery
 
 	expectedDevicesMap := make(map[string]*pb.Device)
 	for _, device := range expected {
-		key := fmt.Sprintf("%s-%s", device.Type, device.IpAddress)
+		key := fmt.Sprintf("%s-%s", device.DriverName, device.IpAddress)
 		expectedDevicesMap[key] = &device.Device
 	}
 
 	actualDevicesMap := make(map[string]*pb.Device)
 	for _, device := range actual {
-		key := fmt.Sprintf("%s-%s", device.Type, device.IpAddress)
+		key := fmt.Sprintf("%s-%s", device.DriverName, device.IpAddress)
 		actualDevicesMap[key] = device
 	}
 
@@ -636,14 +634,13 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		expectedFirmwareVersion := "1.2.3"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, "proto")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns successful pairing
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
-		mockProtoPairer.EXPECT().GetMinerType().Return(miner.TypeProto).AnyTimes()
 
 		// Mock successful PairDevice call
 		mockProtoPairer.EXPECT().
@@ -660,7 +657,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 				}, nil
 			})
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockProtoPairer}, mockDiscoverer)
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockProtoPairer, mockDiscoverer)
 
 		// First discover the device
 		request := &pb.IPListModeRequest{
@@ -703,14 +700,13 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, "proto")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns successful pairing but no firmware
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
-		mockProtoPairer.EXPECT().GetMinerType().Return(miner.TypeProto).AnyTimes()
 
 		mockProtoPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
@@ -721,7 +717,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("failed to get device info"))
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockProtoPairer}, mockDiscoverer)
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockProtoPairer, mockDiscoverer)
 
 		// Discover the device
 		request := &pb.IPListModeRequest{
@@ -767,19 +763,18 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, miner.TypeAntminer.String())
+		mockDevice := createMockDevice(host, portStr, "antminer")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns credentials required error (sets AUTHENTICATION_NEEDED)
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 		mockAntminerPairer := pairingMocks.NewMockPairer(ctrl)
-		mockAntminerPairer.EXPECT().GetMinerType().Return(miner.TypeAntminer).AnyTimes()
 		mockAntminerPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
 			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided"))
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, []pairing.Pairer{mockAntminerPairer}, mockDiscoverer)
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockAntminerPairer, mockDiscoverer)
 
 		// Discover the device
 		request := &pb.IPListModeRequest{

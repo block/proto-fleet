@@ -11,7 +11,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -24,7 +23,7 @@ func setupErrorTestData(t *testing.T) (db *sql.DB, orgID int64, deviceIdentifier
 	t.Helper()
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-	device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, minermodels.TypeProto)
+	device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
 	return testContext.DatabaseService.DB, adminUser.OrganizationID, device.ID
 }
 
@@ -64,7 +63,7 @@ func setupMultiDeviceErrorData(t *testing.T, deviceCount int) (db *sql.DB, orgID
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	deviceIdentifiers = make([]string, deviceCount)
 	for i := range deviceCount {
-		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, minermodels.TypeProto)
+		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
 		deviceIdentifiers[i] = device.ID
 	}
 	return testContext.DatabaseService.DB, adminUser.OrganizationID, deviceIdentifiers

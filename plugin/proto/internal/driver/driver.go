@@ -236,7 +236,6 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 		SerialNumber:    info.SerialNumber,
 		Model:           info.Model,
 		Manufacturer:    info.Manufacturer,
-		Type:            sdk.DeviceTypeASIC,
 		MacAddress:      info.MacAddress,
 		FirmwareVersion: firmwareVersion,
 	}, nil

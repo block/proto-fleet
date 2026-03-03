@@ -6,7 +6,7 @@ type TargetDevice struct {
 	DeviceIdentifier           string
 	DiscoveredDeviceIdentifier string
 	DeviceMAC                  string
-	DeviceType                 string
+	DriverName                 string
 	Port                       string
 	URLScheme                  string
 	OrgID                      int64

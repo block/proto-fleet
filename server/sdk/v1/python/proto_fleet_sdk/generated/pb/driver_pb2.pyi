@@ -49,13 +49,6 @@ class PerformanceMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     PERFORMANCE_MODE_MAXIMUM_HASHRATE: _ClassVar[PerformanceMode]
     PERFORMANCE_MODE_EFFICIENCY: _ClassVar[PerformanceMode]
 
-class DeviceType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    DEVICE_TYPE_UNSPECIFIED: _ClassVar[DeviceType]
-    DEVICE_TYPE_ASIC: _ClassVar[DeviceType]
-    DEVICE_TYPE_GPU: _ClassVar[DeviceType]
-    DEVICE_TYPE_FPGA: _ClassVar[DeviceType]
-
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MINER_ERROR_UNSPECIFIED: _ClassVar[MinerError]
@@ -149,10 +142,6 @@ COOLING_MODE_MANUAL: CoolingMode
 PERFORMANCE_MODE_UNSPECIFIED: PerformanceMode
 PERFORMANCE_MODE_MAXIMUM_HASHRATE: PerformanceMode
 PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
-DEVICE_TYPE_UNSPECIFIED: DeviceType
-DEVICE_TYPE_ASIC: DeviceType
-DEVICE_TYPE_GPU: DeviceType
-DEVICE_TYPE_FPGA: DeviceType
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
 PSU_MODEL_MISMATCH: MinerError
@@ -603,14 +592,13 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "type", "mac_address", "firmware_version")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
     SERIAL_NUMBER_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
-    TYPE_FIELD_NUMBER: _ClassVar[int]
     MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     host: str
@@ -619,10 +607,9 @@ class DeviceInfo(_message.Message):
     serial_number: str
     model: str
     manufacturer: str
-    type: DeviceType
     mac_address: str
     firmware_version: str
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., type: _Optional[_Union[DeviceType, str]] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")

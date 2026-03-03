@@ -85,7 +85,7 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 		DeviceIdentifier: deviceIdentifier,
 		Model:            sql.NullString{String: model, Valid: true},
 		Manufacturer:     sql.NullString{String: manufacturer, Valid: true},
-		Type:             deviceType,
+		DriverName:       deviceType,
 		IpAddress:        uniqueIP,
 		Port:             port,
 		UrlScheme:        "https",

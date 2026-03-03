@@ -307,7 +307,6 @@ func TestDiscoverDevice_Success(t *testing.T) {
 	assert.Equal(t, "http", result.URLScheme)
 	assert.Equal(t, "Antminer S19j Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
-	assert.Equal(t, sdk.DeviceTypeASIC, result.Type)
 }
 
 func TestDiscoverDevice_WrongPort(t *testing.T) {
@@ -445,7 +444,6 @@ func TestPairDevice_Success(t *testing.T) {
 		URLScheme:    "http",
 		Model:        "S19j Pro",
 		Manufacturer: "Bitmain",
-		Type:         sdk.DeviceTypeASIC,
 	}
 
 	validSecret := sdk.SecretBundle{
@@ -476,7 +474,6 @@ func TestPairDevice_InvalidCredentials(t *testing.T) {
 		URLScheme:    "http",
 		Model:        "S19j Pro",
 		Manufacturer: "Bitmain",
-		Type:         sdk.DeviceTypeASIC,
 	}
 
 	invalidSecret := sdk.SecretBundle{
@@ -502,7 +499,6 @@ func TestNewDevice_InvalidCredentials(t *testing.T) {
 		URLScheme:    "http",
 		Model:        "S19j Pro",
 		Manufacturer: "Bitmain",
-		Type:         sdk.DeviceTypeASIC,
 	}
 
 	invalidSecret := sdk.SecretBundle{
@@ -528,7 +524,6 @@ func TestNewDevice_ValidCredentials(t *testing.T) {
 		URLScheme:    "http",
 		Model:        "S19j Pro",
 		Manufacturer: "Bitmain",
-		Type:         sdk.DeviceTypeASIC,
 	}
 
 	validSecret := sdk.SecretBundle{

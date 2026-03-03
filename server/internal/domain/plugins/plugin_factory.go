@@ -8,7 +8,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
@@ -16,16 +15,17 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
-// PluginDriverGetter defines the interface for getting SDK drivers for miner types
+// PluginDriverGetter defines the interface for getting SDK drivers
 type PluginDriverGetter interface {
-	GetDriverForMinerType(minerType models.Type) (sdk.Driver, error)
+	GetDriverByDriverName(driverName string) (sdk.Driver, error)
 }
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
 	// Device information
 	DeviceIdentifier   string
-	MinerType          models.Type
+	DriverName         string           // Plugin routing key (from discovered_device.driver_name)
+	Caps               sdk.Capabilities // Plugin capabilities (for auth strategy, log format)
 	DeviceIPAddress    string
 	DevicePort         string
 	DeviceScheme       string
@@ -70,61 +70,49 @@ func NewPluginMinerWithCredentials(
 		return nil, fmt.Errorf("failed to create connection info: %w", err)
 	}
 
-	// Get the plugin driver for this miner type
-	driver, err := config.DriverGetter.GetDriverForMinerType(config.MinerType)
+	// Get the plugin driver for this device's driver name
+	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
 	}
 
-	// Build SDK DeviceInfo from database info
+	// Build SDK DeviceInfo from database fields
 	sdkDeviceInfo := sdk.DeviceInfo{
 		Host:         config.DeviceIPAddress,
 		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,
 		SerialNumber: config.DeviceSerialNumber,
 		MacAddress:   config.MacAddress,
-		Type:         mappers.FleetTypeToSDKType(config.MinerType),
 	}
 
-	// Build SDK SecretBundle from stored credentials
+	// Build SDK SecretBundle from stored credentials.
+	// Asymmetric auth devices (e.g., Proto) use Ed25519-signed JWT bearer tokens,
+	// where the org's private key signs a JWT that the miner validates using the
+	// public key it received during pairing.
 	var secretBundle sdk.SecretBundle
 
-	// For Proto devices, generate JWT token for bearer authentication
-	// Proto miners use Ed25519-signed JWT tokens for authentication after pairing
-	if config.MinerType == models.TypeProto {
-		// Step 1: Validate that TokenService is available (required for JWT generation)
+	if config.Caps[sdk.CapabilityAsymmetricAuth] {
 		if config.TokenService == nil {
-			return nil, fmt.Errorf("TokenService is required for Proto miners but was nil")
+			return nil, fmt.Errorf("TokenService is required for asymmetric auth but was nil")
 		}
-		// Step 2: Validate that we have the device serial number (used as JWT subject)
 		if config.DeviceSerialNumber == "" {
-			return nil, fmt.Errorf("DeviceSerialNumber is required for Proto JWT generation")
+			return nil, fmt.Errorf("DeviceSerialNumber is required for JWT generation")
 		}
 
-		// Step 3: Retrieve the organization's private key for signing the JWT
-		// This key was generated during organization setup and pairs with the public key
-		// that was provided to the miner during the pairing process
 		privateKey, err := config.GetOrgPrivateKey(ctx, config.OrgID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get proto miner auth private key: %w", err)
+			return nil, fmt.Errorf("failed to get org private key: %w", err)
 		}
 
-		// Step 4: Generate a JWT token signed with the org's private key
-		// The miner will validate this JWT using the public key it received during pairing
 		jwtToken, _, err := config.TokenService.GenerateMinerAuthJWT(config.DeviceSerialNumber, privateKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate JWT for proto miner: %w", err)
+			return nil, fmt.Errorf("failed to generate JWT: %w", err)
 		}
 
-		// Step 5: Pass the JWT as BearerToken to the plugin
-		// Note: This is a change from the previous challenge-response authentication approach.
-		// Previously, we used TLSClientCert as a workaround due to SDK lacking PublicKeyAuth type.
-		// Now, Proto miners use JWT bearer tokens, which the plugin expects in the BearerToken field.
 		secretBundle.Kind = sdk.BearerToken{
 			Token: jwtToken,
 		}
 	} else if config.DeviceUsername != "" && config.DevicePassword != "" {
-		// For other devices with username/password credentials
 		decryptedUsername, err := config.EncryptService.Decrypt(config.DeviceUsername)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt username: %w", err)
@@ -144,7 +132,7 @@ func NewPluginMinerWithCredentials(
 		return nil, fmt.Errorf("FilesService is required but was nil")
 	}
 
-	// Create the SDK device using the plugin driver
+	// Create the SDK device via the plugin driver, which establishes the connection
 	result, err := driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
 	if err != nil {
 		// Check if this is a network error and wrap it as ConnectionError
@@ -161,11 +149,11 @@ func NewPluginMinerWithCredentials(
 		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
 	}
 
-	// Wrap the SDK device in PluginMiner
 	return NewPluginMiner(
 		config.OrgID,
 		models.DeviceIdentifier(config.DeviceIdentifier),
-		config.MinerType,
+		config.DriverName,
+		config.Caps,
 		config.DeviceSerialNumber,
 		*connectionInfo,
 		result.Device,

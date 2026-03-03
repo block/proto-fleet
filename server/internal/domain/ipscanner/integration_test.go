@@ -58,7 +58,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 					Port:       "50051",
 					UrlScheme:  "grpc",
 					MacAddress: "AA:BB:CC:DD:EE:01", // First device moved here
-					Type:       "proto",
+					DriverName: "proto",
 				},
 			},
 			"192.168.1.151:50051": {
@@ -67,7 +67,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 					Port:       "50051",
 					UrlScheme:  "grpc",
 					MacAddress: "AA:BB:CC:DD:EE:02", // Second device moved here
-					Type:       "antminer",
+					DriverName: "antminer",
 				},
 			},
 		},
@@ -141,7 +141,7 @@ func setupTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert discovered devices
 	_, err = conn.Exec(`
-		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme)
 		VALUES
 			(1, 1, 'test-miner-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
 			(2, 1, 'test-miner-002', 'antminer', 'test-manufacturer', 'antminer', '192.168.1.101', '50051', 'grpc')

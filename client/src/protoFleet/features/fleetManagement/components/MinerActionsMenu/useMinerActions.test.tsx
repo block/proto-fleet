@@ -1171,7 +1171,7 @@ describe("useMinerActions", () => {
           hashrate: [],
           efficiency: [],
           temperatureStatus: 0,
-          type: "",
+          driverName: "",
         },
       ]);
 
@@ -1508,11 +1508,11 @@ describe("useMinerActions", () => {
 
   describe("Delete confirmation contextual subtitles", () => {
     const setStoreMiners = (
-      miners: Array<{ id: string; type: string; deviceStatus: number; pairingStatus: number }>,
+      miners: Array<{ id: string; driverName: string; deviceStatus: number; pairingStatus: number }>,
     ) => {
       const minerSnapshots = miners.map((m) => ({
         deviceIdentifier: m.id,
-        type: m.type,
+        driverName: m.driverName,
         deviceStatus: m.deviceStatus,
         pairingStatus: m.pairingStatus,
         name: m.id,
@@ -1534,7 +1534,7 @@ describe("useMinerActions", () => {
 
     it("should show auth-key-cleared message for single online paired Proto rig", () => {
       setStoreMiners([
-        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
       ]);
 
       const { result } = renderHook(() =>
@@ -1552,7 +1552,12 @@ describe("useMinerActions", () => {
 
     it("should show unreachable warning for single offline Proto rig", () => {
       setStoreMiners([
-        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
+        {
+          id: "device-1",
+          driverName: "proto",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
       ]);
 
       const { result } = renderHook(() =>
@@ -1572,7 +1577,7 @@ describe("useMinerActions", () => {
       setStoreMiners([
         {
           id: "device-1",
-          type: "proto",
+          driverName: "proto",
           deviceStatus: DeviceStatus.ONLINE,
           pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
         },
@@ -1593,7 +1598,12 @@ describe("useMinerActions", () => {
 
     it("should show telemetry-stop message for single 3rd-party miner", () => {
       setStoreMiners([
-        { id: "device-1", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        {
+          id: "device-1",
+          driverName: "bitmain",
+          deviceStatus: DeviceStatus.ONLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
       ]);
 
       const { result } = renderHook(() =>
@@ -1611,8 +1621,8 @@ describe("useMinerActions", () => {
 
     it("should show auth-key-cleared message for multiple online paired Proto rigs", () => {
       setStoreMiners([
-        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
-        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-2", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
       ]);
 
       const { result } = renderHook(() =>
@@ -1633,9 +1643,19 @@ describe("useMinerActions", () => {
 
     it("should show mixed warning when bulk deleting Proto rigs with some unreachable", () => {
       setStoreMiners([
-        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
-        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
-        { id: "device-3", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        {
+          id: "device-2",
+          driverName: "proto",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
+        {
+          id: "device-3",
+          driverName: "bitmain",
+          deviceStatus: DeviceStatus.ONLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
       ]);
 
       const { result } = renderHook(() =>
@@ -1691,9 +1711,24 @@ describe("useMinerActions", () => {
 
     it("should use correct plural for multiple unreachable Proto miners in mixed batch", () => {
       setStoreMiners([
-        { id: "device-1", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
-        { id: "device-2", type: "proto", deviceStatus: DeviceStatus.OFFLINE, pairingStatus: PairingStatus.PAIRED },
-        { id: "device-3", type: "bitmain", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
+        {
+          id: "device-1",
+          driverName: "proto",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
+        {
+          id: "device-2",
+          driverName: "proto",
+          deviceStatus: DeviceStatus.OFFLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
+        {
+          id: "device-3",
+          driverName: "bitmain",
+          deviceStatus: DeviceStatus.ONLINE,
+          pairingStatus: PairingStatus.PAIRED,
+        },
       ]);
 
       const { result } = renderHook(() =>

@@ -247,17 +247,13 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 			break
 		}
 
-		// Update database with encrypted password after device succeeds
-		// Note: Only needed for Antminers - Proto devices use JWT auth and don't need stored credentials
-		if minerInfo.GetType() == models.TypeAntminer {
-			// Only Antminer credentials need to be stored (used for authentication)
+		// Store updated credentials for devices that use basic auth (not asymmetric/JWT auth)
+		if minerInfo.GetDriverName() != models.DriverNameProto {
 			if dbErr := es.updateMinerPasswordInDB(ctx, message.DeviceID, p.NewPassword); dbErr != nil {
 				slog.Error("device password updated but database sync failed",
 					"device_id", message.DeviceID, "error", dbErr)
-				// Don't fail command - device update succeeded
 			}
 		}
-		// Proto devices: skip database storage - they use JWT auth, not stored credentials
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}

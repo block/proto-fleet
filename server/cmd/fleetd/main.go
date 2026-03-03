@@ -11,7 +11,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
-	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	sessionDomain "github.com/btc-mining/proto-fleet/server/internal/domain/session"
 
@@ -177,7 +177,7 @@ func start(config *Config) error {
 	// 2. The system can gracefully handle missing plugins (disable features vs. fatal error)
 	// 3. UI can show which plugin-based features are unavailable
 	// For now, we require the proto plugin to be available for fleet functionality
-	if !pluginManager.HasPluginForMinerType(minerModels.TypeProto) {
+	if !pluginManager.HasPluginForDriverName(models.DriverNameProto) {
 		return fmt.Errorf("proto plugin is required but not loaded - ensure 'proto' plugin binary is in the plugins directory (check PLUGIN_DIR environment variable or default './plugins' directory)")
 	}
 
@@ -228,13 +228,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	var pairers []pairingDomain.Pairer
-
-	supportedTypes := pluginService.GetSupportedMinerTypes()
-	for _, minerType := range supportedTypes {
-		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
-		pairers = append(pairers, pluginPairer)
-	}
+	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
@@ -244,7 +238,7 @@ func start(config *Config) error {
 		discoverer,
 		pluginService,
 		telemetryService,
-		pairers...,
+		pluginPairer,
 	)
 
 	// Initialize IP scanner service

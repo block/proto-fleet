@@ -31,14 +31,18 @@ message Device {
   // URL scheme of the device's web interface
   string url_scheme = 8;
 
-  // Type of the device
-  string type = 9;
+  reserved 9;
+  reserved "type";
 
   // Capabilities of the device
   capabilities.v1.MinerCapabilities capabilities = 10;
 
   // Firmware version (available after discovery/pairing)
   string firmware_version = 11;
+
+  // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
+  // Used for plugin routing; distinct from type which describes hardware identity.
+  string driver_name = 12;
 }
 
 // Represents login credentials used for device pairing

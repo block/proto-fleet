@@ -49,7 +49,6 @@ func TestDeviceInfoValidation(t *testing.T) {
 				SerialNumber: "PROTO123456789",
 				Model:        "Rig",
 				Manufacturer: "Proto",
-				Type:         sdk.DeviceTypeASIC,
 				MacAddress:   "00:11:22:33:44:55",
 			},
 			wantValid: false,

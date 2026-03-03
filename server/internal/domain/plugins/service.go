@@ -10,7 +10,6 @@ import (
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -32,11 +31,6 @@ func (s *Service) GetManager() *Manager {
 	return s.manager
 }
 
-// IsPluginAvailableForType checks if a plugin is available for the given miner type
-func (s *Service) IsPluginAvailableForType(minerType models.Type) bool {
-	return s.manager.HasPluginForMinerType(minerType)
-}
-
 // GetAvailablePlugins returns information about all loaded plugins
 func (s *Service) GetAvailablePlugins() []PluginInfo {
 	plugins := s.manager.GetAllPlugins()
@@ -49,7 +43,6 @@ func (s *Service) GetAvailablePlugins() []PluginInfo {
 			DriverName:   plugin.Identifier.DriverName,
 			APIVersion:   plugin.Identifier.APIVersion,
 			Capabilities: plugin.Caps,
-			MinerTypes:   plugin.MinerTypes,
 		}
 		result = append(result, info)
 	}
@@ -64,14 +57,13 @@ type PluginInfo struct {
 	DriverName   string
 	APIVersion   string
 	Capabilities sdk.Capabilities
-	MinerTypes   []models.Type
 }
 
-// GetPluginCapabilities returns the capabilities of a plugin for a given miner type
-func (s *Service) GetPluginCapabilities(minerType models.Type) (sdk.Capabilities, error) {
-	plugin, exists := s.manager.GetPluginForMinerType(minerType)
+// GetPluginCapabilitiesByDriverName returns the capabilities of a plugin for a given driver name
+func (s *Service) GetPluginCapabilitiesByDriverName(driverName string) (sdk.Capabilities, error) {
+	plugin, exists := s.manager.GetPluginByDriverName(driverName)
 	if !exists {
-		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", minerType)
+		return nil, fleeterror.NewInternalErrorf("no plugin available for driver name %s", driverName)
 	}
 
 	return plugin.Caps, nil
@@ -87,25 +79,13 @@ func (s *Service) GetMinerCapabilitiesForDevice(ctx context.Context, device *pai
 		return nil
 	}
 
-	minerType, err := models.TypeFromDeviceInfo(device.Type, device.Model)
-	if err != nil {
-		slog.Debug("Failed to determine miner type for device",
-			"type", device.Type,
-			"model", device.Model,
-			"error", err)
+	plugin := s.resolvePluginForDevice(device)
+	if plugin == nil {
 		return nil
 	}
 
-	plugin, exists := s.manager.GetPluginForMinerType(minerType)
-	if !exists {
-		slog.Debug("No plugin available for miner type", "type", minerType)
-		return nil
-	}
-
-	// Start with base plugin capabilities
 	caps := plugin.Caps
 
-	// Check if plugin supports model-specific capabilities
 	if modelProvider, ok := plugin.Driver.(sdk.ModelCapabilitiesProvider); ok {
 		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, device.Model); modelCaps != nil {
 			caps = mergeCapabilities(caps, modelCaps)
@@ -113,6 +93,19 @@ func (s *Service) GetMinerCapabilitiesForDevice(ctx context.Context, device *pai
 	}
 
 	return ConvertToMinerCapabilities(caps, device.Manufacturer)
+}
+
+// resolvePluginForDevice finds the plugin for a device by driver name.
+func (s *Service) resolvePluginForDevice(device *pairingpb.Device) *LoadedPlugin {
+	if device.DriverName == "" {
+		return nil
+	}
+
+	plugin, exists := s.manager.GetPluginByDriverName(device.DriverName)
+	if !exists {
+		return nil
+	}
+	return plugin
 }
 
 // mergeCapabilities merges model-specific capabilities with base capabilities.
@@ -172,25 +165,6 @@ func (s *Service) ValidatePluginHealth(ctx context.Context) error {
 
 	slog.Debug("All plugin health checks passed", "count", len(plugins))
 	return nil
-}
-
-// GetSupportedMinerTypes returns all miner types that have plugin support
-func (s *Service) GetSupportedMinerTypes() []models.Type {
-	plugins := s.manager.GetAllPlugins()
-	typeSet := make(map[models.Type]bool)
-
-	for _, plugin := range plugins {
-		for _, minerType := range plugin.MinerTypes {
-			typeSet[minerType] = true
-		}
-	}
-
-	result := make([]models.Type, 0, len(typeSet))
-	for minerType := range typeSet {
-		result = append(result, minerType)
-	}
-
-	return result
 }
 
 // CreateDiscoverer creates a plugin-based discoverer that tries all available plugins.

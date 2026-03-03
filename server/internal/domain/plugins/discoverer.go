@@ -3,7 +3,6 @@ package plugins
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -12,16 +11,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
-)
-
-// Canonical device type constants
-const (
-	DeviceTypeASIC     = "asic"
-	DeviceTypeGPU      = "gpu"
-	DeviceTypeFPGA     = "fpga"
-	DeviceTypeAntminer = "antminer"
-	DeviceTypeProto    = "proto"
-	DeviceTypeUnknown  = "unknown"
 )
 
 // MultiTypeDiscoverer discovers devices by trying all available plugins.
@@ -131,12 +120,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 		return nil, err
 	}
 
-	// Use plugin's miner type for consistent type storage
-	var pluginType string
-	if len(plugin.MinerTypes) > 0 {
-		pluginType = plugin.MinerTypes[0].String()
-	}
-	fleetDevice := convertSDKDeviceInfoToFleetDevice(deviceInfo, ipAddress, port, pluginType)
+	fleetDevice := convertSDKDeviceInfoToFleetDevice(deviceInfo, ipAddress, port, plugin.Identifier.DriverName)
 
 	discoveredDevice := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
@@ -147,9 +131,9 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 			SerialNumber:     fleetDevice.SerialNumber,
 			Model:            fleetDevice.Model,
 			Manufacturer:     fleetDevice.Manufacturer,
-			Type:             fleetDevice.Type,
 			MacAddress:       fleetDevice.MacAddress,
 			Capabilities:     fleetDevice.Capabilities,
+			DriverName:       plugin.Identifier.DriverName,
 		},
 		OrgID:           0,
 		IsActive:        true,
@@ -162,15 +146,13 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 		"device", deviceInfo.SerialNumber,
 		"model", deviceInfo.Model,
 		"manufacturer", deviceInfo.Manufacturer,
-		"type", fleetDevice.Type)
+		"driver_name", plugin.Identifier.DriverName)
 
 	return discoveredDevice, nil
 }
 
 // convertSDKDeviceInfoToFleetDevice converts SDK DeviceInfo to Fleet pb.Device format.
-// The pluginType (from the plugin's MinerTypes) takes precedence over SDK device type.
-func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, pluginType string) *pb.Device {
-	deviceType := determineDeviceType(deviceInfo, pluginType)
+func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, driverName string) *pb.Device {
 
 	macAddress := deviceInfo.MacAddress
 	if macAddress != "" {
@@ -185,53 +167,8 @@ func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, por
 		SerialNumber:     deviceInfo.SerialNumber,
 		Model:            deviceInfo.Model,
 		Manufacturer:     deviceInfo.Manufacturer,
-		Type:             deviceType,
 		MacAddress:       macAddress,
 		FirmwareVersion:  deviceInfo.FirmwareVersion,
-		Capabilities:     nil,
+		DriverName:       driverName,
 	}
-}
-
-// determineDeviceType determines the device type string.
-// Priority: pluginType > manufacturer/model inference > SDK device type
-func determineDeviceType(deviceInfo sdk.DeviceInfo, pluginType string) string {
-	// Plugin's miner type takes precedence - this ensures Proto devices get "proto" type
-	if pluginType != "" {
-		return pluginType
-	}
-
-	// Try to infer from manufacturer
-	if deviceInfo.Manufacturer != "" {
-		manufacturer := strings.ToLower(deviceInfo.Manufacturer)
-		if strings.Contains(manufacturer, "bitmain") {
-			return DeviceTypeAntminer
-		}
-		if strings.Contains(manufacturer, "proto") {
-			return DeviceTypeProto
-		}
-	}
-
-	// Try to infer from model
-	if deviceInfo.Model != "" {
-		model := strings.ToLower(deviceInfo.Model)
-		if strings.HasPrefix(model, "antminer") {
-			return DeviceTypeAntminer
-		}
-	}
-
-	// Fall back to SDK device type
-	switch deviceInfo.Type {
-	case sdk.DeviceTypeASIC:
-		return DeviceTypeASIC
-	case sdk.DeviceTypeGPU:
-		return DeviceTypeGPU
-	case sdk.DeviceTypeFPGA:
-		return DeviceTypeFPGA
-	case sdk.DeviceTypeUnspecified:
-		slog.Debug("Could not determine device type, using 'unknown'",
-			"manufacturer", deviceInfo.Manufacturer,
-			"model", deviceInfo.Model)
-		return DeviceTypeUnknown
-	}
-	return DeviceTypeUnknown
 }

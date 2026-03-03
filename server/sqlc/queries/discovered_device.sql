@@ -30,12 +30,12 @@ INSERT INTO discovered_device (
     device_identifier,
     model,
     manufacturer,
-    type,
     firmware_version,
     ip_address,
     port,
     url_scheme,
-    is_active
+    is_active,
+    driver_name
 ) VALUES (
     $1,
     $2,
@@ -54,13 +54,16 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     url_scheme = EXCLUDED.url_scheme,
     firmware_version = EXCLUDED.firmware_version,
     is_active = EXCLUDED.is_active,
+    -- Keep existing driver_name if already set (prevent discovery flip-flop)
+    driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
 RETURNING id;
 
 -- name: GetActiveUnpairedDiscoveredDevices :many
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.type, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
+       dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
+       dd.driver_name,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL

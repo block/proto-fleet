@@ -131,12 +131,12 @@ func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
 }
 
 // getCachedCapabilities retrieves capabilities from cache or fetches and caches them
-func (s *Service) getCachedCapabilities(ctx context.Context, manufacturer, model, deviceType string) *capabilitiespb.MinerCapabilities {
+func (s *Service) getCachedCapabilities(ctx context.Context, manufacturer, model, driverName string) *capabilitiespb.MinerCapabilities {
 	if s.capabilitiesProvider == nil || manufacturer == "" || model == "" {
 		return nil
 	}
 
-	cacheKey := manufacturer + "|" + model + "|" + deviceType
+	cacheKey := manufacturer + "|" + model + "|" + driverName
 
 	if cached, found := s.capabilitiesCache.Load(cacheKey); found {
 		if capabilities, ok := cached.(*capabilitiespb.MinerCapabilities); ok {
@@ -148,7 +148,7 @@ func (s *Service) getCachedCapabilities(ctx context.Context, manufacturer, model
 	device := &pairingpb.Device{
 		Manufacturer: manufacturer,
 		Model:        model,
-		Type:         deviceType,
+		DriverName:   driverName,
 	}
 	capabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, device)
 
@@ -301,7 +301,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	for _, row := range rows {
 		snapshot := &pb.MinerStateSnapshot{
 			DeviceIdentifier: row.DeviceIdentifier,
-			Type:             row.Type,
+			DriverName:       row.DriverName,
 		}
 
 		if row.Model.Valid {
@@ -359,7 +359,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_INACTIVE
 		}
 
-		capabilities := s.getCachedCapabilities(ctx, snapshot.Manufacturer, snapshot.Model, snapshot.Type)
+		capabilities := s.getCachedCapabilities(ctx, snapshot.Manufacturer, snapshot.Model, row.DriverName)
 		if capabilities != nil {
 			snapshot.Capabilities = capabilities
 		}
@@ -832,7 +832,7 @@ func (s *Service) collectProtoMinersForClearAuthKey(ctx context.Context, deviceI
 			slog.Debug("skipping ClearAuthKey for device", "deviceID", id, "error", err)
 			continue
 		}
-		if m.GetType() != mm.TypeProto {
+		if m.GetDriverName() != mm.DriverNameProto {
 			continue
 		}
 		miners = append(miners, m)

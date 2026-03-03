@@ -2,8 +2,8 @@
 SELECT
     d.id,
     d.device_identifier,
-    dd.type,
     dd.model,
+    dd.driver_name,
     d.org_id,
     d.serial_number,
     d.mac_address,
@@ -25,8 +25,8 @@ LIMIT 1;
 SELECT
     d.id,
     d.device_identifier,
-    dd.type,
     dd.model,
+    dd.driver_name,
     d.org_id,
     d.serial_number,
     d.mac_address,

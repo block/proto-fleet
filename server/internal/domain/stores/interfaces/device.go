@@ -45,7 +45,7 @@ type OfflineDeviceInfo struct {
 	DeviceID                   int64
 	DeviceIdentifier           string
 	MacAddress                 string
-	DeviceType                 string
+	DriverName                 string
 	LastKnownIP                string
 	LastKnownPort              string
 	LastKnownURLScheme         string

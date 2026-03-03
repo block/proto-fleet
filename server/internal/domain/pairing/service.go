@@ -125,7 +125,7 @@ type Service struct {
 	tokenService          *tokenDomain.Service
 	discoverer            minerdiscovery.Discoverer
 	capabilitiesProvider  CapabilitiesProvider
-	pairers               map[models.Type]Pairer
+	pairer                Pairer
 	listener              Listener
 }
 
@@ -137,13 +137,8 @@ func NewService(
 	discoverer minerdiscovery.Discoverer,
 	capabilitiesProvider CapabilitiesProvider,
 	listener Listener,
-	pairers ...Pairer,
+	pairer Pairer,
 ) *Service {
-	pairersMap := make(map[models.Type]Pairer)
-	for _, pairer := range pairers {
-		pairersMap[pairer.GetMinerType()] = pairer
-	}
-
 	return &Service{
 		discoveredDeviceStore: discoveredDeviceStore,
 		deviceStore:           deviceStore,
@@ -151,7 +146,7 @@ func NewService(
 		tokenService:          tokenService,
 		discoverer:            discoverer,
 		capabilitiesProvider:  capabilitiesProvider,
-		pairers:               pairersMap,
+		pairer:                pairer,
 		listener:              listener,
 	}
 }
@@ -602,17 +597,7 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		return false
 	}
 
-	deviceType, err := models.TypeFromDeviceInfo(pairedDevice.Type, pairedDevice.Model)
-	if err != nil {
-		slog.Error("failed to get paired device type", "error", err)
-		return false
-	}
-
-	pairer, ok := s.pairers[deviceType]
-	if !ok {
-		slog.Error("failed to get pairer", "device_type", deviceType)
-		return false
-	}
+	pairer := s.pairer
 
 	pairedDeviceCredentials, err := s.deviceStore.GetMinerCredentials(ctx, pairedDevice, orgID)
 	if err != nil {
@@ -774,15 +759,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
 	}
 
-	deviceType, err := models.TypeFromDeviceInfo(discoveredDevice.Type, discoveredDevice.Model)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("invalid device type for pairing: %v", err)
-	}
-
-	pairer, ok := s.pairers[deviceType]
-	if !ok {
-		return fleeterror.NewInvalidArgumentErrorf("device type '%s' is not supported for pairing yet", discoveredDevice.Type)
-	}
+	pairer := s.pairer
 
 	discoveredDevice.IsActive = true
 	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
@@ -797,7 +774,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 			// Insert device and mark as AUTHENTICATION_NEEDED so it shows up in the UI
 			slog.Info("device requires authentication, marking as AUTHENTICATION_NEEDED",
 				"device_identifier", discoveredDevice.DeviceIdentifier,
-				"device_type", discoveredDevice.Type)
+				"driver_name", discoveredDevice.DriverName)
 
 			if txErr := s.handleAuthenticationRequiredPairing(ctx, discoveredDevice); txErr != nil {
 				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record",

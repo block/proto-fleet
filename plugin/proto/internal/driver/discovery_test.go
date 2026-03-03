@@ -119,7 +119,6 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		assert.NotEmpty(t, deviceInfo.SerialNumber, "Serial number should not be empty")
 		assert.NotEmpty(t, deviceInfo.MacAddress, "MAC address should not be empty")
 		assert.Equal(t, "Proto", deviceInfo.Manufacturer)
-		assert.Equal(t, sdk.DeviceTypeASIC, deviceInfo.Type)
 
 		// URL scheme should be http or https
 		assert.Contains(t, []string{"http", "https"}, deviceInfo.URLScheme)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from proto_fleet_sdk.enums import DeviceType
 from proto_fleet_sdk.errors import InvalidConfigError
 from proto_fleet_sdk.types import (
     Capabilities,
@@ -56,7 +55,6 @@ class TestDeviceInfo:
             serial_number="SN123",
             model="Test Miner",
             manufacturer="Test Corp",
-            device_type=DeviceType.DEVICE_TYPE_ASIC,
             mac_address="00:1A:2B:3C:4D:5E",
             firmware_version="1.0.0",
         )
@@ -73,7 +71,6 @@ class TestDeviceInfo:
                 serial_number="SN123",
                 model="Test",
                 manufacturer="Test",
-                device_type=DeviceType.DEVICE_TYPE_ASIC,
                 mac_address="00:00:00:00:00:00",
                 firmware_version="1.0.0",
             )
@@ -88,7 +85,6 @@ class TestDeviceInfo:
                 serial_number="SN123",
                 model="Test",
                 manufacturer="Test",
-                device_type=DeviceType.DEVICE_TYPE_ASIC,
                 mac_address="00:00:00:00:00:00",
                 firmware_version="1.0.0",
             )
@@ -102,7 +98,6 @@ class TestDeviceInfo:
                 serial_number="SN123",
                 model="Test",
                 manufacturer="Test",
-                device_type=DeviceType.DEVICE_TYPE_ASIC,
                 mac_address="00:00:00:00:00:00",
                 firmware_version="1.0.0",
             )
@@ -116,7 +111,6 @@ class TestDeviceInfo:
                 serial_number="SN123",
                 model="Test",
                 manufacturer="Test",
-                device_type=DeviceType.DEVICE_TYPE_ASIC,
                 mac_address="00:00:00:00:00:00",
                 firmware_version="1.0.0",
             )

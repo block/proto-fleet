@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/btc-mining/proto-fleet/server/sdk/v1/mocks"
 	"github.com/golang/mock/gomock"
@@ -41,11 +40,11 @@ func TestMultiTypeDiscoverer_Discover_NoDiscoveryCapablePlugins(t *testing.T) {
 
 	// Add mock plugin without discovery capability
 	mockPlugin := &LoadedPlugin{
-		Name: "test-plugin",
+		Name:       "test-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true, // Has pairing but not discovery
 		},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 	manager.plugins["test-plugin"] = mockPlugin
 
@@ -60,61 +59,50 @@ func TestMultiTypeDiscoverer_Discover_NoDiscoveryCapablePlugins(t *testing.T) {
 }
 
 func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
-	// Test different device types and manufacturers to ensure type determination works correctly
+	// Test different device info fields to ensure discovery works correctly
 	testCases := []struct {
-		name         string
-		deviceInfo   sdk.DeviceInfo
-		expectedType string
+		name       string
+		deviceInfo sdk.DeviceInfo
 	}{
 		{
-			// Plugin's MinerType takes precedence over SDK device type
 			name: "ASIC device discovered by Antminer plugin",
 			deviceInfo: sdk.DeviceInfo{
-				Type:         sdk.DeviceTypeASIC,
 				SerialNumber: "TEST123",
 				Model:        "S19",
 				Manufacturer: "Bitmain",
 				URLScheme:    "http",
 				MacAddress:   "00-11-22-33-44-55",
 			},
-			expectedType: DeviceTypeAntminer,
 		},
 		{
-			name: "Unspecified type with Bitmain manufacturer",
+			name: "Bitmain manufacturer",
 			deviceInfo: sdk.DeviceInfo{
-				Type:         sdk.DeviceTypeUnspecified,
 				SerialNumber: "BITMAIN123",
 				Model:        "S19 Pro",
 				Manufacturer: "Bitmain",
 				URLScheme:    "https",
 				MacAddress:   "00-11-22-33-44-66",
 			},
-			expectedType: DeviceTypeAntminer,
 		},
 		{
-			name: "Model-based detection for Antminer",
+			name: "Antminer model detection",
 			deviceInfo: sdk.DeviceInfo{
-				Type:         sdk.DeviceTypeUnspecified,
 				SerialNumber: "MODEL123",
 				Model:        "Antminer S19 Pro",
-				Manufacturer: "", // Empty manufacturer
+				Manufacturer: "",
 				URLScheme:    "http",
 				MacAddress:   "00-11-22-33-44-88",
 			},
-			expectedType: DeviceTypeAntminer,
 		},
 		{
-			// Plugin's MinerType takes precedence even when device info is unclear
-			name: "Unknown device info uses plugin MinerType",
+			name: "Unknown device info uses plugin driver name",
 			deviceInfo: sdk.DeviceInfo{
-				Type:         sdk.DeviceTypeUnspecified,
 				SerialNumber: "UNKNOWN123",
 				Model:        "Unknown Model",
 				Manufacturer: "Unknown Manufacturer",
 				URLScheme:    "http",
 				MacAddress:   "00-11-22-33-44-99",
 			},
-			expectedType: DeviceTypeAntminer,
 		},
 	}
 
@@ -134,12 +122,12 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 
 			// Add mock plugin with discovery capability
 			mockPlugin := &LoadedPlugin{
-				Name:   "test-plugin",
-				Driver: mockDriver,
+				Name:       "test-plugin",
+				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Driver:     mockDriver,
 				Caps: sdk.Capabilities{
 					sdk.CapabilityDiscovery: true,
 				},
-				MinerTypes: []models.Type{models.TypeAntminer},
 			}
 			manager.plugins["test-plugin"] = mockPlugin
 
@@ -151,8 +139,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, device)
 
-			// Verify the device type determination worked correctly
-			assert.Equal(t, tc.expectedType, device.Type)
+			assert.Equal(t, "antminer", device.DriverName)
 			assert.Equal(t, "192.168.1.100", device.IpAddress)
 			assert.Equal(t, "80", device.Port)
 			assert.Equal(t, tc.deviceInfo.SerialNumber, device.SerialNumber)
@@ -175,7 +162,6 @@ func TestMultiTypeDiscoverer_Discover_FirstPluginFails(t *testing.T) {
 
 	// Create successful mock device info
 	successDeviceInfo := sdk.DeviceInfo{
-		Type:         sdk.DeviceTypeASIC,
 		SerialNumber: "SUCCESS123",
 		Model:        "S19",
 		Manufacturer: "Bitmain",
@@ -199,23 +185,23 @@ func TestMultiTypeDiscoverer_Discover_FirstPluginFails(t *testing.T) {
 
 	// Add failing plugin
 	failingPlugin := &LoadedPlugin{
-		Name:   "failing-plugin",
-		Driver: failingDriver,
+		Name:       "failing-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "whatsminer"},
+		Driver:     failingDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
 		},
-		MinerTypes: []models.Type{models.TypeWhatsminer},
 	}
 	manager.plugins["failing-plugin"] = failingPlugin
 
 	// Add successful plugin
 	successPlugin := &LoadedPlugin{
-		Name:   "success-plugin",
-		Driver: successDriver,
+		Name:       "success-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     successDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
 		},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 	manager.plugins["success-plugin"] = successPlugin
 
@@ -252,15 +238,15 @@ func TestMultiTypeDiscoverer_Discover_AllPluginsFail(t *testing.T) {
 
 	manager.plugins["failing-plugin-1"] = &LoadedPlugin{
 		Name:       "failing-plugin-1",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
 		Driver:     failingDriver1,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 	manager.plugins["failing-plugin-2"] = &LoadedPlugin{
 		Name:       "failing-plugin-2",
+		Identifier: sdk.DriverIdentifier{DriverName: "whatsminer"},
 		Driver:     failingDriver2,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-		MinerTypes: []models.Type{models.TypeWhatsminer},
 	}
 
 	discoverer := NewMultiTypeDiscoverer(manager)
@@ -283,7 +269,6 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_FastPluginWins(t *testin
 	manager := NewManager(&Config{})
 
 	fastDeviceInfo := sdk.DeviceInfo{
-		Type:         sdk.DeviceTypeASIC,
 		SerialNumber: "FAST123",
 		Model:        "Fast Model",
 		Manufacturer: "Fast Manufacturer",
@@ -292,7 +277,6 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_FastPluginWins(t *testin
 	}
 
 	slowDeviceInfo := sdk.DeviceInfo{
-		Type:         sdk.DeviceTypeASIC,
 		SerialNumber: "SLOW123",
 		Model:        "Slow Model",
 		Manufacturer: "Slow Manufacturer",
@@ -324,15 +308,15 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_FastPluginWins(t *testin
 
 	manager.plugins["fast-plugin"] = &LoadedPlugin{
 		Name:       "fast-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
 		Driver:     fastDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 	manager.plugins["slow-plugin"] = &LoadedPlugin{
 		Name:       "slow-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "whatsminer"},
 		Driver:     slowDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-		MinerTypes: []models.Type{models.TypeWhatsminer},
 	}
 
 	discoverer := NewMultiTypeDiscoverer(manager)
@@ -371,9 +355,9 @@ func TestMultiTypeDiscoverer_Discover_ContextCancellation(t *testing.T) {
 
 	manager.plugins["blocking-plugin"] = &LoadedPlugin{
 		Name:       "blocking-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
 		Driver:     blockingDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-		MinerTypes: []models.Type{models.TypeAntminer},
 	}
 
 	discoverer := NewMultiTypeDiscoverer(manager)
@@ -404,7 +388,6 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_VerifyConcurrency(t *tes
 	var maxConcurrent atomic.Int32
 
 	deviceInfo := sdk.DeviceInfo{
-		Type:         sdk.DeviceTypeASIC,
 		SerialNumber: "TEST123",
 		Model:        "Test Model",
 		Manufacturer: "Test Manufacturer",
@@ -442,9 +425,9 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_VerifyConcurrency(t *tes
 		name := string(rune('a'+i)) + "-plugin"
 		manager.plugins[name] = &LoadedPlugin{
 			Name:       name,
+			Identifier: sdk.DriverIdentifier{DriverName: name},
 			Driver:     createConcurrencyTrackingDriver(),
 			Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
-			MinerTypes: []models.Type{models.TypeAntminer},
 		}
 	}
 

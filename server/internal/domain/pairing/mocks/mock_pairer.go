@@ -9,7 +9,6 @@ import (
 	reflect "reflect"
 
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -50,20 +49,6 @@ func (m *MockPairer) GetDeviceInfo(ctx context.Context, device *models0.Discover
 func (mr *MockPairerMockRecorder) GetDeviceInfo(ctx, device, credentials interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceInfo", reflect.TypeOf((*MockPairer)(nil).GetDeviceInfo), ctx, device, credentials)
-}
-
-// GetMinerType mocks base method.
-func (m *MockPairer) GetMinerType() models.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMinerType")
-	ret0, _ := ret[0].(models.Type)
-	return ret0
-}
-
-// GetMinerType indicates an expected call of GetMinerType.
-func (mr *MockPairerMockRecorder) GetMinerType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerType", reflect.TypeOf((*MockPairer)(nil).GetMinerType))
 }
 
 // PairDevice mocks base method.

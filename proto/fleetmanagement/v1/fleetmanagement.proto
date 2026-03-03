@@ -107,8 +107,8 @@ message MinerStateSnapshot {
   // Manufacturer name (populated for unpaired devices)
   string manufacturer = 15;
 
-  // Device type (e.g., antminer, proto)
-  string type = 16;
+  reserved 16;
+  reserved "type";
 
   // Device capabilities indicating supported features (populated for unpaired devices)
   capabilities.v1.MinerCapabilities capabilities = 17;
@@ -126,6 +126,9 @@ message MinerStateSnapshot {
   // Label of the rack this device belongs to (single value since device can only be in one rack)
   // Empty if the device is not assigned to a rack
   string rack_label = 21;
+
+  // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
+  string driver_name = 22;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -179,18 +182,6 @@ message ListMinerStateSnapshotsRequest {
   // If not specified or empty, uses default sort by name ASC (alphabetical)
   // Currently only the first element is used; multi-column sorting reserved for future
   repeated MinerSortConfig sort = 4;
-}
-
-// Type of miner
-enum MinerType {
-  // Any miner type, used when filtering is not required
-  MINER_TYPE_UNSPECIFIED = 0;
-
-  // Proto Rig miner
-  MINER_TYPE_PROTO_RIG = 1;
-
-  // Bitmain miner
-  MINER_TYPE_BITMAIN = 2;
 }
 
 // Pairing status of a device

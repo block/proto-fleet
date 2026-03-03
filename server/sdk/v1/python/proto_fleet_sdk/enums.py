@@ -12,7 +12,6 @@ __all__ = [
     "HealthStatus",
     "ComponentStatus",
     "MetricKind",
-    "DeviceType",
     "CoolingMode",
     "PerformanceMode",
 ]
@@ -81,20 +80,6 @@ class MetricKind(IntEnum):
             return cls.METRIC_KIND_UNSPECIFIED
         return None
 
-
-class DeviceType(IntEnum):
-    """Type of mining hardware."""
-
-    DEVICE_TYPE_UNSPECIFIED = 0
-    DEVICE_TYPE_ASIC = 1
-    DEVICE_TYPE_GPU = 2
-    DEVICE_TYPE_FPGA = 3
-
-    @classmethod
-    def _missing_(cls, value: object) -> DeviceType | None:
-        if isinstance(value, int):
-            return cls.DEVICE_TYPE_UNSPECIFIED
-        return None
 
 
 class CoolingMode(IntEnum):

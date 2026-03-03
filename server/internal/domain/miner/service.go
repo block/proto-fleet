@@ -19,6 +19,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
 var _ telemetry.MinerGetter = &Service{}
@@ -35,7 +36,8 @@ type Service struct {
 
 // PluginManager defines the interface for plugin manager operations needed by MinerService
 type PluginManager interface {
-	HasPluginForMinerType(minerType models.Type) bool
+	HasPluginForDriverName(driverName string) bool
+	GetCapabilitiesForDriverName(driverName string) sdk.Capabilities
 	plugins.PluginDriverGetter
 }
 
@@ -48,6 +50,9 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 	}
 	if filesService == nil {
 		panic("files service cannot be nil")
+	}
+	if pluginManager == nil {
+		panic("plugin manager cannot be nil")
 	}
 
 	return &Service{
@@ -74,8 +79,7 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 		deviceData.DeviceIdentifier,
 		deviceData.OrgID,
 		deviceData.Port,
-		deviceData.Type,
-		deviceData.Model.String,
+		deviceData.DriverName,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
@@ -103,8 +107,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.DeviceIdentifier,
 		deviceData.OrgID,
 		deviceData.Port,
-		deviceData.Type,
-		deviceData.Model.String,
+		deviceData.DriverName,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
@@ -128,27 +131,14 @@ func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) 
 	return privateKey, nil
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
-	// Parse device type using both type and model for disambiguation
-	minerType, err := models.TypeFromDeviceInfo(deviceType, deviceModel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse device type: %w", err)
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, driverName string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
+	if !s.pluginManager.HasPluginForDriverName(driverName) {
+		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
 	}
-
-	// Check if a plugin supports this miner type
-	if s.pluginManager != nil && s.pluginManager.HasPluginForMinerType(minerType) {
-		return s.createPluginMiner(ctx, deviceIdentifier, orgID, minerType, devicePort, deviceUsername, devicePassword, deviceIPAddress, deviceScheme, deviceSerialNumber, macAddress)
-	}
-
-	// No built-in implementations available for this miner type
-	return nil, fmt.Errorf("no plugin available for miner type %s - please ensure the appropriate plugin is installed and loaded", minerType)
-}
-
-func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
-	// Use the plugin factory to create the miner - this encapsulates all SDK logic
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		DeviceIdentifier:   deviceIdentifier,
-		MinerType:          minerType,
+		DriverName:         driverName,
+		Caps:               s.pluginManager.GetCapabilitiesForDriverName(driverName),
 		DeviceIPAddress:    deviceIPAddress,
 		DevicePort:         devicePort,
 		DeviceScheme:       deviceScheme,

@@ -129,7 +129,6 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		IpAddress:        discoveredDevice.IpAddress,
 		Port:             discoveredDevice.Port,
 		UrlScheme:        discoveredDevice.UrlScheme,
-		Type:             discoveredDevice.Type,
 	}
 
 	return result, nil
@@ -285,7 +284,6 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			IpAddress:        discoveredDevice.IpAddress,
 			Port:             discoveredDevice.Port,
 			UrlScheme:        discoveredDevice.UrlScheme,
-			Type:             discoveredDevice.Type,
 		},
 		OrgID: orgID,
 	}, nil
@@ -657,7 +655,7 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 			DeviceID:                   row.ID,
 			DeviceIdentifier:           row.DeviceIdentifier,
 			MacAddress:                 row.MacAddress,
-			DeviceType:                 row.Type,
+			DriverName:                 row.DriverName,
 			OrgID:                      row.OrgID,
 			DiscoveredDeviceIdentifier: row.DiscoveredDeviceIdentifier,
 			LastKnownIP:                row.IpAddress,
@@ -764,7 +762,6 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SerialNumber,
 			&row.Model,
 			&row.Manufacturer,
-			&row.Type,
 			&row.FirmwareVersion,
 			&row.DeviceStatus,
 			&row.StatusTimestamp,
@@ -775,6 +772,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.PairingStatus,
 			&row.CursorID,
 			&row.DeviceID,
+			&row.DriverName,
 			&row.CustomName,
 			&row.SortValue,
 		)

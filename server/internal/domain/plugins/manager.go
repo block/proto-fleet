@@ -8,12 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
@@ -31,23 +29,22 @@ type LoadedPlugin struct {
 	Driver     sdk.Driver
 	Identifier sdk.DriverIdentifier
 	Caps       sdk.Capabilities
-	MinerTypes []models.Type // Supported miner types
 }
 
 // Manager handles loading and managing plugins
 type Manager struct {
-	config        *Config
-	plugins       map[string]*LoadedPlugin
-	pluginsByType map[models.Type]*LoadedPlugin
-	mu            sync.RWMutex
+	config              *Config
+	plugins             map[string]*LoadedPlugin
+	pluginsByDriverName map[string]*LoadedPlugin
+	mu                  sync.RWMutex
 }
 
 // NewManager creates a new plugin manager
 func NewManager(config *Config) *Manager {
 	return &Manager{
-		config:        config,
-		plugins:       make(map[string]*LoadedPlugin),
-		pluginsByType: make(map[models.Type]*LoadedPlugin),
+		config:              config,
+		plugins:             make(map[string]*LoadedPlugin),
+		pluginsByDriverName: make(map[string]*LoadedPlugin),
 	}
 }
 
@@ -206,12 +203,6 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		return fmt.Errorf("failed to get driver capabilities: %w", err)
 	}
 
-	minerTypes := determineMinerTypes(name, caps)
-	if len(minerTypes) == 0 {
-		slog.Warn("Plugin does not specify supported miner types, will not be used for discovery/pairing",
-			"plugin", name)
-	}
-
 	loadedPlugin := &LoadedPlugin{
 		Name:       name,
 		Path:       path,
@@ -219,58 +210,32 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		Driver:     driver,
 		Identifier: identifier,
 		Caps:       caps,
-		MinerTypes: minerTypes,
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if identifier.DriverName == "" {
+		client.Kill()
+		return fmt.Errorf("plugin %s returned empty driver name — all plugins must declare a DriverName via Handshake", name)
+	}
+
 	m.plugins[name] = loadedPlugin
 
-	for _, minerType := range minerTypes {
-		if existing, exists := m.pluginsByType[minerType]; exists {
-			slog.Warn("Multiple plugins support the same miner type, using first loaded",
-				"type", minerType,
-				"existing", existing.Name,
-				"new", name)
-			continue
-		}
-		m.pluginsByType[minerType] = loadedPlugin
+	if existing, exists := m.pluginsByDriverName[identifier.DriverName]; exists {
+		delete(m.plugins, name)
+		client.Kill()
+		return fmt.Errorf("driver name %q already claimed by plugin %s", identifier.DriverName, existing.Name)
 	}
+	m.pluginsByDriverName[identifier.DriverName] = loadedPlugin
 
 	slog.Debug("Plugin loaded successfully",
 		"name", name,
 		"driver", identifier.DriverName,
 		"version", identifier.APIVersion,
-		"types", minerTypes,
 		"capabilities", caps)
 
 	return nil
-}
-
-// determineMinerTypes determines which miner types a plugin supports, this is to support legacy miner integrations
-// TODO: Remove this logic once minimal miner plugins have been thoroughly validated in lab.
-func determineMinerTypes(pluginName string, caps sdk.Capabilities) []models.Type {
-	var types []models.Type
-
-	pluginNameLower := strings.ToLower(pluginName)
-
-	if strings.Contains(pluginNameLower, "antminer") {
-		types = append(types, models.TypeAntminer)
-	}
-	if strings.Contains(pluginNameLower, "proto") {
-		types = append(types, models.TypeProto)
-	}
-	if strings.Contains(pluginNameLower, "virtual") {
-		types = append(types, models.TypeVirtual)
-	}
-
-	if len(types) == 0 && caps[sdk.CapabilityDiscovery] {
-		slog.Debug("Plugin has discovery capability but no specific type determined from name",
-			"plugin", pluginName)
-	}
-
-	return types
 }
 
 // isExecutable checks if a file has executable permissions.
@@ -297,13 +262,62 @@ func (m *Manager) GetPlugin(name string) (*LoadedPlugin, bool) {
 	return plugin, exists
 }
 
-// GetPluginForMinerType returns a plugin that supports the given miner type
-func (m *Manager) GetPluginForMinerType(minerType models.Type) (*LoadedPlugin, bool) {
+// GetPluginByDriverName returns a plugin registered under the given driver name
+func (m *Manager) GetPluginByDriverName(driverName string) (*LoadedPlugin, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	plugin, exists := m.pluginsByType[minerType]
+	plugin, exists := m.pluginsByDriverName[driverName]
 	return plugin, exists
+}
+
+// HasPluginForDriverName checks if there's a plugin registered under the given driver name
+func (m *Manager) HasPluginForDriverName(driverName string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.pluginsByDriverName[driverName]
+	return exists
+}
+
+// GetCapabilitiesForDriverName returns the capabilities of a plugin by driver name.
+// Returns nil if no plugin is registered for the given driver name.
+func (m *Manager) GetCapabilitiesForDriverName(driverName string) sdk.Capabilities {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	plugin, exists := m.pluginsByDriverName[driverName]
+	if !exists {
+		return nil
+	}
+	return plugin.Caps
+}
+
+// GetDriverByDriverName returns the SDK driver for a given driver name
+func (m *Manager) GetDriverByDriverName(driverName string) (sdk.Driver, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	plugin, exists := m.pluginsByDriverName[driverName]
+	if !exists {
+		return nil, fleeterror.NewInternalErrorf("no plugin found for driver name: %s", driverName)
+	}
+
+	return plugin.Driver, nil
+}
+
+// GetPluginByDriverNameWithCapability retrieves a plugin by driver name and verifies it has the required capability.
+func (m *Manager) GetPluginByDriverNameWithCapability(driverName string, capability string) (*LoadedPlugin, error) {
+	plugin, exists := m.GetPluginByDriverName(driverName)
+	if !exists {
+		return nil, fleeterror.NewInternalErrorf("no plugin available for driver name %s", driverName)
+	}
+
+	if !plugin.Caps[capability] {
+		return nil, fleeterror.NewInternalErrorf("plugin %s does not support capability %s", plugin.Name, capability)
+	}
+
+	return plugin, nil
 }
 
 // GetAllPlugins returns all loaded plugins
@@ -316,43 +330,6 @@ func (m *Manager) GetAllPlugins() map[string]*LoadedPlugin {
 		result[name] = plugin
 	}
 	return result
-}
-
-// HasPluginForMinerType checks if there's a plugin available for the given miner type
-func (m *Manager) HasPluginForMinerType(minerType models.Type) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	_, exists := m.pluginsByType[minerType]
-	return exists
-}
-
-// GetDriverForMinerType returns the SDK driver for a given miner type
-func (m *Manager) GetDriverForMinerType(minerType models.Type) (sdk.Driver, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	plugin, exists := m.pluginsByType[minerType]
-	if !exists {
-		return nil, fleeterror.NewInternalErrorf("no plugin found for miner type: %s", minerType)
-	}
-
-	return plugin.Driver, nil
-}
-
-// GetPluginWithCapability retrieves a plugin for a specific miner type and verifies it has the required capability.
-// Returns the plugin and an error if the plugin doesn't exist or lacks the capability.
-func (m *Manager) GetPluginWithCapability(minerType models.Type, capability string) (*LoadedPlugin, error) {
-	plugin, exists := m.GetPluginForMinerType(minerType)
-	if !exists {
-		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", minerType)
-	}
-
-	if !plugin.Caps[capability] {
-		return nil, fleeterror.NewInternalErrorf("plugin %s does not support capability %s", plugin.Name, capability)
-	}
-
-	return plugin, nil
 }
 
 // RegisterPluginForTest registers a plugin for testing purposes.
@@ -370,9 +347,9 @@ func (m *Manager) RegisterPluginForTest(plugin *LoadedPlugin) error {
 
 	m.plugins[plugin.Name] = plugin
 
-	for _, minerType := range plugin.MinerTypes {
-		if _, exists := m.pluginsByType[minerType]; !exists {
-			m.pluginsByType[minerType] = plugin
+	if plugin.Identifier.DriverName != "" {
+		if _, exists := m.pluginsByDriverName[plugin.Identifier.DriverName]; !exists {
+			m.pluginsByDriverName[plugin.Identifier.DriverName] = plugin
 		}
 	}
 
@@ -414,7 +391,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 
 	m.plugins = make(map[string]*LoadedPlugin)
-	m.pluginsByType = make(map[models.Type]*LoadedPlugin)
+	m.pluginsByDriverName = make(map[string]*LoadedPlugin)
 
 	if len(shutdownErrors) > 0 {
 		return fleeterror.NewInternalErrorf("plugin shutdown errors: %v", errors.Join(shutdownErrors...))

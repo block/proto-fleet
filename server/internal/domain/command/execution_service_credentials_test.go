@@ -80,13 +80,13 @@ func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 	}{
 		{
 			name:               "Antminer devices store credentials in DB after update",
-			deviceType:         models.TypeAntminer.String(),
+			deviceType:         "antminer",
 			shouldStoreInDB:    true,
 			userProvidedPasswd: "currentpass",
 		},
 		{
 			name:               "Proto devices do not store credentials in DB",
-			deviceType:         models.TypeProto.String(),
+			deviceType:         "proto",
 			shouldStoreInDB:    false,
 			userProvidedPasswd: "protocurrent",
 		},
@@ -99,9 +99,9 @@ func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 			// - Proto: credentials NOT stored (shouldStoreInDB = false, uses JWT)
 			// - All device types require user to provide current password
 
-			if tt.deviceType == models.TypeAntminer.String() {
+			if tt.deviceType == "antminer" {
 				assert.True(t, tt.shouldStoreInDB, "Antminer credentials should be stored after update")
-			} else if tt.deviceType == models.TypeProto.String() {
+			} else if tt.deviceType == "proto" {
 				assert.False(t, tt.shouldStoreInDB, "Proto credentials should not be stored")
 			}
 
@@ -122,25 +122,25 @@ func TestUpdateMinerPassword_CurrentPasswordRequired(t *testing.T) {
 	}{
 		{
 			name:               "Antminer with current password succeeds",
-			deviceType:         models.TypeAntminer.String(),
+			deviceType:         "antminer",
 			userProvidedPasswd: "currentpass",
 			shouldSucceed:      true,
 		},
 		{
 			name:               "Antminer without current password fails",
-			deviceType:         models.TypeAntminer.String(),
+			deviceType:         "antminer",
 			userProvidedPasswd: "",
 			shouldSucceed:      false,
 		},
 		{
 			name:               "Proto with current password succeeds",
-			deviceType:         models.TypeProto.String(),
+			deviceType:         "proto",
 			userProvidedPasswd: "protocurrent",
 			shouldSucceed:      true,
 		},
 		{
 			name:               "Proto without current password fails",
-			deviceType:         models.TypeProto.String(),
+			deviceType:         "proto",
 			userProvidedPasswd: "",
 			shouldSucceed:      false,
 		},
@@ -177,7 +177,7 @@ func (m *mockMinerForPassword) UpdateMinerPassword(ctx context.Context, payload 
 }
 
 // Implement MinerInfo interface
-func (m *mockMinerForPassword) GetType() models.Type           { return models.TypeAntminer }
+func (m *mockMinerForPassword) GetDriverName() string          { return "antminer" }
 func (m *mockMinerForPassword) GetID() models.DeviceIdentifier { return "test-device" }
 func (m *mockMinerForPassword) GetOrgID() int64                { return 1 }
 func (m *mockMinerForPassword) GetSerialNumber() string        { return "SN123" }

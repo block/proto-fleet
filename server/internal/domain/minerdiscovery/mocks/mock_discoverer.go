@@ -8,8 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+	models "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -37,10 +36,10 @@ func (m *MockDiscoverer) EXPECT() *MockDiscovererMockRecorder {
 }
 
 // Discover mocks base method.
-func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*models0.DiscoveredDevice, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*models.DiscoveredDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Discover", ctx, ipAddress, port)
-	ret0, _ := ret[0].(*models0.DiscoveredDevice)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -49,18 +48,4 @@ func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (
 func (mr *MockDiscovererMockRecorder) Discover(ctx, ipAddress, port interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Discover", reflect.TypeOf((*MockDiscoverer)(nil).Discover), ctx, ipAddress, port)
-}
-
-// GetMinerType mocks base method.
-func (m *MockDiscoverer) GetMinerType() models.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMinerType")
-	ret0, _ := ret[0].(models.Type)
-	return ret0
-}
-
-// GetMinerType indicates an expected call of GetMinerType.
-func (mr *MockDiscovererMockRecorder) GetMinerType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerType", reflect.TypeOf((*MockDiscoverer)(nil).GetMinerType))
 }

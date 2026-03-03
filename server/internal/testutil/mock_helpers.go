@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	discovererMocks "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/mocks"
 	pairerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/golang/mock/gomock"
@@ -20,9 +19,7 @@ func NewMockProtoDiscoverer(ctrl *gomock.Controller) *discovererMocks.MockDiscov
 	return discovererMocks.NewMockDiscoverer(ctrl)
 }
 
-// NewMockProtoPairer creates a mock pairer configured for Proto miner type
+// NewMockProtoPairer creates a mock pairer for testing
 func NewMockProtoPairer(ctrl *gomock.Controller) *pairerMocks.MockPairer {
-	mockPairer := pairerMocks.NewMockPairer(ctrl)
-	mockPairer.EXPECT().GetMinerType().Return(models.TypeProto).AnyTimes()
-	return mockPairer
+	return pairerMocks.NewMockPairer(ctrl)
 }

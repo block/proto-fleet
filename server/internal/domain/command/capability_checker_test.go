@@ -17,7 +17,7 @@ type mockCapabilitiesProvider struct {
 }
 
 func (m *mockCapabilitiesProvider) GetMinerCapabilitiesForDevice(_ context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities {
-	key := device.Type + "|" + device.Manufacturer + "|" + device.Model
+	key := device.DriverName + "|" + device.Manufacturer + "|" + device.Model
 	return m.capabilities[key]
 }
 
@@ -172,8 +172,8 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "proto", Manufacturer: "Proto", Model: "Model1"},
-			{DeviceIdentifier: "device-2", Type: "proto", Manufacturer: "Proto", Model: "Model2"},
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Model1"},
+			{DeviceIdentifier: "device-2", DriverName: "proto", Manufacturer: "Proto", Model: "Model2"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -196,8 +196,8 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-2", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -224,9 +224,9 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "proto", Manufacturer: "Proto", Model: "Model1", FirmwareVersion: "2.0.0"},
-			{DeviceIdentifier: "device-2", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-3", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Model1", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -250,10 +250,10 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-2", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-3", Type: "antminer", Manufacturer: "Bitmain", Model: "S19Pro", FirmwareVersion: "2.0.0"},
-			{DeviceIdentifier: "device-4", Type: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.1.0"},
+			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19Pro", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-4", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.1.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -281,7 +281,7 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "antminer", Manufacturer: "", Model: "", FirmwareVersion: ""},
+			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "", Model: "", FirmwareVersion: ""},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -313,7 +313,7 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "unknown", Manufacturer: "Unknown", Model: "Unknown"},
+			{DeviceIdentifier: "device-1", DriverName: "unknown", Manufacturer: "Unknown", Model: "Unknown"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -332,7 +332,7 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", Type: "proto", Manufacturer: "Proto", Model: "Model1"},
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Model1"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})

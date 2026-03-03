@@ -20,7 +20,6 @@ from google.protobuf.empty_pb2 import Empty
 from proto_fleet_sdk.auth import APIKey, BearerToken, SecretBundle, TLSClientCert, UsernamePassword
 from proto_fleet_sdk.enums import (
     CoolingMode,
-    DeviceType,
     PerformanceMode,
 )
 from proto_fleet_sdk.error_codes import DeviceError, DeviceErrors
@@ -171,7 +170,6 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
             serial_number=info.serial_number,
             model=info.model,
             manufacturer=info.manufacturer,
-            device_type=DeviceType(info.type),
             mac_address=info.mac_address,
             firmware_version=info.firmware_version,
         )
@@ -186,7 +184,6 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
             serial_number=info.serial_number,
             model=info.model,
             manufacturer=info.manufacturer,
-            type=info.device_type,
             mac_address=info.mac_address,
             firmware_version=info.firmware_version,
         )

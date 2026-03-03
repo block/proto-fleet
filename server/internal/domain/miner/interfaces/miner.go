@@ -15,7 +15,7 @@ import (
 
 //go:generate mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
 type MinerInfo interface {
-	GetType() models.Type
+	GetDriverName() string
 	GetID() models.DeviceIdentifier
 	GetOrgID() int64
 	GetSerialNumber() string

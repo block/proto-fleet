@@ -188,7 +188,8 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 	pm := NewPluginMiner(
 		testOrgID,
 		models.DeviceIdentifier("test-device-123"),
-		models.TypeAntminer,
+		"antminer",
+		nil,
 		"SN123456",
 		*connInfo,
 		mockDevice,
@@ -215,7 +216,8 @@ func (m *mockLogSaver) SaveLogs(_ string, _ string, logLines []string) (string, 
 
 func TestPluginMiner_DownloadLogs_Success(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	pm.deviceType = models.TypeProto
+	pm.driverName = "proto"
+	pm.caps = sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true}
 	saver := &mockLogSaver{}
 	pm.filesService = saver
 
@@ -515,7 +517,7 @@ func TestPluginMiner_MinerInfo(t *testing.T) {
 	pm, _ := createTestPluginMiner()
 
 	assert.Equal(t, models.DeviceIdentifier("test-device-123"), pm.GetID())
-	assert.Equal(t, models.TypeAntminer, pm.GetType())
+	assert.Equal(t, "antminer", pm.GetDriverName())
 	assert.Equal(t, "SN123456", pm.GetSerialNumber())
 	assert.NotNil(t, pm.GetConnectionInfo())
 }
@@ -878,7 +880,8 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 	pluginMiner := NewPluginMiner(
 		testOrgID,
 		deviceID,
-		models.TypeProto,
+		"proto",
+		nil,
 		"serial-123",
 		*connInfo,
 		mockDevice,
@@ -921,7 +924,8 @@ func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *tes
 	pluginMiner := NewPluginMiner(
 		testOrgID,
 		deviceID,
-		models.TypeProto,
+		"proto",
+		nil,
 		"serial-456",
 		*connInfo,
 		mockDevice,

@@ -18,7 +18,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
-    type: "antminer",
+    driverName: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -72,7 +72,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
-    type: "antminer",
+    driverName: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -126,7 +126,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
-    type: "antminer",
+    driverName: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -180,7 +180,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
-    type: "antminer",
+    driverName: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },

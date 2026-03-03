@@ -136,7 +136,6 @@ func (d *Driver) DiscoverDevice(_ context.Context, ipAddress, port string) (sdk.
 		SerialNumber:    minerCfg.SerialNumber,
 		Model:           minerCfg.Model,
 		Manufacturer:    minerCfg.Manufacturer,
-		Type:            sdk.DeviceTypeASIC,
 		MacAddress:      minerCfg.MacAddress,
 		FirmwareVersion: "1.0.0-virtual",
 	}, nil
@@ -163,7 +162,6 @@ func (d *Driver) PairDevice(_ context.Context, deviceInfo sdk.DeviceInfo, _ sdk.
 		SerialNumber:    minerCfg.SerialNumber,
 		Model:           minerCfg.Model,
 		Manufacturer:    minerCfg.Manufacturer,
-		Type:            sdk.DeviceTypeASIC,
 		MacAddress:      minerCfg.MacAddress,
 		FirmwareVersion: "1.0.0-virtual",
 	}, nil

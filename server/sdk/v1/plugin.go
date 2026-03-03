@@ -1579,21 +1579,6 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 
 // DeviceInfo conversion functions
 func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
-	// Convert DeviceType enum to protobuf enum
-	var deviceType pb.DeviceType
-	switch d.Type {
-	case DeviceTypeASIC:
-		deviceType = pb.DeviceType_DEVICE_TYPE_ASIC
-	case DeviceTypeGPU:
-		deviceType = pb.DeviceType_DEVICE_TYPE_GPU
-	case DeviceTypeFPGA:
-		deviceType = pb.DeviceType_DEVICE_TYPE_FPGA
-	case DeviceTypeUnspecified:
-		deviceType = pb.DeviceType_DEVICE_TYPE_UNSPECIFIED
-	default:
-		deviceType = pb.DeviceType_DEVICE_TYPE_UNSPECIFIED
-	}
-
 	return &pb.DeviceInfo{
 		Host:            d.Host,
 		Port:            d.Port,
@@ -1601,28 +1586,12 @@ func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 		SerialNumber:    d.SerialNumber,
 		Model:           d.Model,
 		Manufacturer:    d.Manufacturer,
-		Type:            deviceType,
 		MacAddress:      d.MacAddress,
 		FirmwareVersion: d.FirmwareVersion,
 	}
 }
 
 func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
-	// Convert protobuf DeviceType enum to Go enum
-	var deviceType DeviceType
-	switch p.Type {
-	case pb.DeviceType_DEVICE_TYPE_UNSPECIFIED:
-		deviceType = DeviceTypeUnspecified
-	case pb.DeviceType_DEVICE_TYPE_ASIC:
-		deviceType = DeviceTypeASIC
-	case pb.DeviceType_DEVICE_TYPE_GPU:
-		deviceType = DeviceTypeGPU
-	case pb.DeviceType_DEVICE_TYPE_FPGA:
-		deviceType = DeviceTypeFPGA
-	default:
-		deviceType = DeviceTypeUnspecified
-	}
-
 	return DeviceInfo{
 		Host:            p.Host,
 		Port:            p.Port,
@@ -1630,7 +1599,6 @@ func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 		SerialNumber:    p.SerialNumber,
 		Model:           p.Model,
 		Manufacturer:    p.Manufacturer,
-		Type:            deviceType,
 		MacAddress:      p.MacAddress,
 		FirmwareVersion: p.FirmwareVersion,
 	}

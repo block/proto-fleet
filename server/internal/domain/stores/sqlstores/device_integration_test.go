@@ -44,7 +44,7 @@ func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {
 	device1 := findDeviceByIdentifier(devices, "test-device-001")
 	require.NotNil(t, device1, "Should find test-device-001")
 	require.Equal(t, "AA:BB:CC:DD:EE:01", device1.MacAddress)
-	require.Equal(t, "proto", device1.DeviceType)
+	require.Equal(t, "proto", device1.DriverName)
 	require.Equal(t, "192.168.1.100", device1.LastKnownIP)
 	require.Equal(t, "50051", device1.LastKnownPort)
 	require.Equal(t, "grpc", device1.LastKnownURLScheme)
@@ -117,7 +117,7 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert discovered devices
 	_, err = conn.Exec(`
-		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme)
 		VALUES
 			(1, 1, 'test-device-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
 			(2, 1, 'test-device-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc'),
@@ -678,7 +678,7 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 		// Use unique IP for each device to avoid unique constraint violations on (org_id, ip_address, port)
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
@@ -923,7 +923,7 @@ func setupUpsertDeviceStatusesTestData(t *testing.T, conn *sql.DB, devices []tes
 	for i, device := range devices {
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
@@ -963,7 +963,7 @@ func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devic
 	for i, device := range devices {
 		ipAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, device.id, device.identifier, ipAddress)
 		require.NoError(t, err)
@@ -1276,7 +1276,7 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 
 	for _, d := range devices {
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'proto', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, d.id, d.identifier, d.ipAddress)
 		require.NoError(t, err)
@@ -1391,7 +1391,7 @@ func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 	for i, d := range devices {
 		// Insert discovered device
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, d.id, d.identifier, fmt.Sprintf("192.168.100.%d", 100+i))
 		require.NoError(t, err)
@@ -1529,7 +1529,7 @@ func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
 
 	for _, d := range devices {
 		_, err := conn.Exec(`
-			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, is_active)
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
 			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', 'proto', $3, '50051', 'grpc', TRUE)
 		`, d.id, d.identifier, d.ipAddress)
 		require.NoError(t, err)

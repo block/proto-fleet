@@ -34,7 +34,6 @@ func testDeviceInfo() sdk.DeviceInfo {
 		URLScheme:       "http",
 		Model:           testModel,
 		Manufacturer:    testManufacturer,
-		Type:            sdk.DeviceTypeASIC,
 		FirmwareVersion: testFirmware,
 	}
 }

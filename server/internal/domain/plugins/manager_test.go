@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +24,9 @@ func TestNewManager(t *testing.T) {
 	assert.NotNil(t, manager)
 	assert.Equal(t, config, manager.config)
 	assert.NotNil(t, manager.plugins)
-	assert.NotNil(t, manager.pluginsByType)
 	assert.Empty(t, manager.plugins)
-	assert.Empty(t, manager.pluginsByType)
+	assert.NotNil(t, manager.pluginsByDriverName)
+	assert.Empty(t, manager.pluginsByDriverName)
 }
 
 func TestManager_LoadPlugins_Disabled(t *testing.T) {
@@ -123,62 +121,6 @@ func TestManager_isExecutable(t *testing.T) {
 	assert.False(t, isExecutable(filepath.Join(tempDir, "does-not-exist")))
 }
 
-func TestManager_determineMinerTypes(t *testing.T) {
-	caps := sdk.Capabilities{
-		sdk.CapabilityDiscovery: true,
-		sdk.CapabilityPairing:   true,
-	}
-
-	tests := []struct {
-		name          string
-		pluginName    string
-		expectedTypes []models.Type
-	}{
-		{
-			name:          "antminer plugin",
-			pluginName:    "antminer-plugin",
-			expectedTypes: []models.Type{models.TypeAntminer},
-		},
-		{
-			name:          "proto plugin",
-			pluginName:    "proto-fleet-plugin",
-			expectedTypes: []models.Type{models.TypeProto},
-		},
-		{
-			name:          "multiple types - antminer and proto",
-			pluginName:    "antminer-proto-plugin",
-			expectedTypes: []models.Type{models.TypeAntminer, models.TypeProto},
-		},
-		{
-			name:          "unknown plugin with discovery",
-			pluginName:    "unknown-plugin",
-			expectedTypes: []models.Type{}, // No types determined from name
-		},
-		{
-			name:          "whatsminer plugin - not supported",
-			pluginName:    "whatsminer-driver",
-			expectedTypes: []models.Type{}, // Not supported in current implementation
-		},
-		{
-			name:          "avalon plugin - not supported",
-			pluginName:    "avalon-miner",
-			expectedTypes: []models.Type{}, // Not supported in current implementation
-		},
-		{
-			name:          "virtual plugin",
-			pluginName:    "virtual-plugin",
-			expectedTypes: []models.Type{models.TypeVirtual},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			types := determineMinerTypes(tt.pluginName, caps)
-			assert.ElementsMatch(t, tt.expectedTypes, types)
-		})
-	}
-}
-
 func TestManager_GetPlugin(t *testing.T) {
 	manager := NewManager(&Config{})
 
@@ -200,43 +142,45 @@ func TestManager_GetPlugin(t *testing.T) {
 	assert.True(t, exists)
 }
 
-func TestManager_GetPluginForMinerType(t *testing.T) {
+func TestManager_GetPluginByDriverName(t *testing.T) {
 	manager := NewManager(&Config{})
 
-	// Test getting plugin for non-existent type
-	plugin, exists := manager.GetPluginForMinerType(models.TypeAntminer)
+	// Act
+	plugin, exists := manager.GetPluginByDriverName("antminer")
+
+	// Assert
 	assert.Nil(t, plugin)
 	assert.False(t, exists)
 
-	// Add a mock plugin directly for testing
+	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name: "antminer-plugin",
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 
-	// Test getting existing plugin
-	plugin, exists = manager.GetPluginForMinerType(models.TypeAntminer)
+	// Act
+	plugin, exists = manager.GetPluginByDriverName("antminer")
+
+	// Assert
 	assert.Equal(t, mockPlugin, plugin)
 	assert.True(t, exists)
 }
 
-func TestManager_HasPluginForMinerType(t *testing.T) {
+func TestManager_HasPluginForDriverName(t *testing.T) {
 	manager := NewManager(&Config{})
 
-	// Test non-existent type
-	assert.False(t, manager.HasPluginForMinerType(models.TypeAntminer))
+	// Assert
+	assert.False(t, manager.HasPluginForDriverName("antminer"))
 
-	// Add a mock plugin
+	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		MinerTypes: []models.Type{models.TypeAntminer},
+		Name: "antminer-plugin",
 	}
-	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.pluginsByDriverName["antminer"] = mockPlugin
 
-	// Test existing type
-	assert.True(t, manager.HasPluginForMinerType(models.TypeAntminer))
-	assert.False(t, manager.HasPluginForMinerType(models.TypeWhatsminer))
+	// Assert
+	assert.True(t, manager.HasPluginForDriverName("antminer"))
+	assert.False(t, manager.HasPluginForDriverName("whatsminer"))
 }
 
 func TestManager_GetAllPlugins(t *testing.T) {
@@ -273,5 +217,5 @@ func TestManager_Shutdown(t *testing.T) {
 
 	// Verify maps are cleared
 	assert.Empty(t, manager.plugins)
-	assert.Empty(t, manager.pluginsByType)
+	assert.Empty(t, manager.pluginsByDriverName)
 }

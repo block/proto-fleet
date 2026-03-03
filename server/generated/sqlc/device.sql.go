@@ -146,8 +146,8 @@ SELECT
     d.device_identifier,
     dd.manufacturer,
     dd.model,
-    dd.type,
-    dd.firmware_version
+    dd.firmware_version,
+    dd.driver_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -161,8 +161,8 @@ type GetAllDeviceInfoForCapabilityCheckRow struct {
 	DeviceIdentifier string
 	Manufacturer     sql.NullString
 	Model            sql.NullString
-	Type             string
 	FirmwareVersion  sql.NullString
+	DriverName       string
 }
 
 // Returns device information for all paired devices in an organization.
@@ -181,8 +181,8 @@ func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID 
 			&i.DeviceIdentifier,
 			&i.Manufacturer,
 			&i.Model,
-			&i.Type,
 			&i.FirmwareVersion,
+			&i.DriverName,
 		); err != nil {
 			return nil, err
 		}
@@ -430,8 +430,8 @@ SELECT
     d.device_identifier,
     dd.manufacturer,
     dd.model,
-    dd.type,
-    dd.firmware_version
+    dd.firmware_version,
+    dd.driver_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -451,8 +451,8 @@ type GetDeviceInfoForCapabilityCheckRow struct {
 	DeviceIdentifier string
 	Manufacturer     sql.NullString
 	Model            sql.NullString
-	Type             string
 	FirmwareVersion  sql.NullString
+	DriverName       string
 }
 
 // Returns device information needed for capability checking.
@@ -471,8 +471,8 @@ func (q *Queries) GetDeviceInfoForCapabilityCheck(ctx context.Context, arg GetDe
 			&i.DeviceIdentifier,
 			&i.Manufacturer,
 			&i.Model,
-			&i.Type,
 			&i.FirmwareVersion,
+			&i.DriverName,
 		); err != nil {
 			return nil, err
 		}
@@ -743,10 +743,10 @@ SELECT
     d.mac_address,
     d.org_id,
     dd.device_identifier AS discovered_device_identifier,
-    dd.type,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    dd.driver_name
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_status ds ON d.id = ds.device_id
@@ -766,10 +766,10 @@ type GetOfflineDevicesRow struct {
 	MacAddress                 string
 	OrgID                      int64
 	DiscoveredDeviceIdentifier string
-	Type                       string
 	IpAddress                  string
 	Port                       string
 	UrlScheme                  string
+	DriverName                 string
 }
 
 func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error) {
@@ -787,10 +787,10 @@ func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOffl
 			&i.MacAddress,
 			&i.OrgID,
 			&i.DiscoveredDeviceIdentifier,
-			&i.Type,
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.DriverName,
 		); err != nil {
 			return nil, err
 		}
@@ -1023,7 +1023,6 @@ SELECT
     d.serial_number,
     dd.model,
     dd.manufacturer,
-    dd.type,
     dd.firmware_version,
     ds.status as device_status,
     ds.status_timestamp,
@@ -1034,6 +1033,7 @@ SELECT
     CASE WHEN d.id IS NOT NULL THEN COALESCE(dp.pairing_status::text, 'UNPAIRED') ELSE 'UNPAIRED' END as pairing_status,
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
+    dd.driver_name,
     d.custom_name
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
@@ -1048,7 +1048,6 @@ type ListMinerStateSnapshotsRow struct {
 	SerialNumber     sql.NullString
 	Model            sql.NullString
 	Manufacturer     sql.NullString
-	Type             string
 	FirmwareVersion  sql.NullString
 	DeviceStatus     NullDeviceStatusEnum
 	StatusTimestamp  sql.NullTime
@@ -1059,6 +1058,7 @@ type ListMinerStateSnapshotsRow struct {
 	PairingStatus    string
 	CursorID         int64
 	DeviceID         int64
+	DriverName       string
 	CustomName       sql.NullString
 }
 
@@ -1081,7 +1081,6 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.SerialNumber,
 			&i.Model,
 			&i.Manufacturer,
-			&i.Type,
 			&i.FirmwareVersion,
 			&i.DeviceStatus,
 			&i.StatusTimestamp,
@@ -1092,6 +1091,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.PairingStatus,
 			&i.CursorID,
 			&i.DeviceID,
+			&i.DriverName,
 			&i.CustomName,
 		); err != nil {
 			return nil, err

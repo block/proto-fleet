@@ -25,7 +25,6 @@ const minerSelectColumns = `SELECT
     device.serial_number,
     discovered_device.model,
     discovered_device.manufacturer,
-    discovered_device.type,
     discovered_device.firmware_version,
     device_status.status as device_status,
     device_status.status_timestamp,
@@ -36,6 +35,7 @@ const minerSelectColumns = `SELECT
     ` + pairingStatusExpr + ` as pairing_status,
     discovered_device.id as cursor_id,
     COALESCE(device.id, 0) as device_id,
+    discovered_device.driver_name,
     device.custom_name`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.

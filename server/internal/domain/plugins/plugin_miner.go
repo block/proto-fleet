@@ -47,7 +47,8 @@ type logSaver interface {
 type PluginMiner struct {
 	orgID          int64
 	deviceID       models.DeviceIdentifier
-	deviceType     models.Type
+	driverName     string
+	caps           sdk.Capabilities
 	serialNumber   string
 	connectionInfo networking.ConnectionInfo
 	sdkDevice      sdk.Device
@@ -59,7 +60,8 @@ type PluginMiner struct {
 func NewPluginMiner(
 	orgID int64,
 	deviceID models.DeviceIdentifier,
-	deviceType models.Type,
+	driverName string,
+	caps sdk.Capabilities,
 	serialNumber string,
 	connectionInfo networking.ConnectionInfo,
 	sdkDevice sdk.Device,
@@ -69,7 +71,8 @@ func NewPluginMiner(
 	return &PluginMiner{
 		orgID:          orgID,
 		deviceID:       deviceID,
-		deviceType:     deviceType,
+		driverName:     driverName,
+		caps:           caps,
 		serialNumber:   serialNumber,
 		connectionInfo: connectionInfo,
 		sdkDevice:      sdkDevice,
@@ -88,9 +91,9 @@ func (p *PluginMiner) GetOrgID() int64 {
 	return p.orgID
 }
 
-// GetType implements interfaces.MinerInfo
-func (p *PluginMiner) GetType() models.Type {
-	return p.deviceType
+// GetDriverName implements interfaces.MinerInfo
+func (p *PluginMiner) GetDriverName() string {
+	return p.driverName
 }
 
 // GetSerialNumber implements interfaces.MinerInfo
@@ -297,7 +300,7 @@ func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) err
 	}
 	logLines := strings.Split(strings.TrimRight(logData, "\n"), "\n")
 
-	csvRows := formatLogsToCSV(logLines, p.deviceType == models.TypeProto)
+	csvRows := formatLogsToCSV(logLines, p.caps[sdk.CapabilityAsymmetricAuth])
 	if _, err := p.filesService.SaveLogs(batchLogUUID, p.deviceInfo.MacAddress, csvRows); err != nil {
 		return fleeterror.NewInternalErrorf("failed to save logs: %v", err)
 	}

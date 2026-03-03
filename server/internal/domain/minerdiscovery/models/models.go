@@ -12,7 +12,8 @@ type DeviceOrgIdentifier struct {
 	OrgID            int64
 }
 
-// DiscoveredDevice represents a device that has been discovered on the network
+// DiscoveredDevice represents a device that has been discovered on the network.
+// DriverName is available via the embedded pb.Device.DriverName field (plugin routing key).
 type DiscoveredDevice struct {
 	pb.Device
 	IsActive        bool
