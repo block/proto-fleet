@@ -30,7 +30,7 @@ def main() -> None:
     )
 
     driver = PyAsicDriver(config)
-    server = PluginServer(driver, port=0, host="localhost")
+    server = PluginServer(driver)
     server.run()
 
 

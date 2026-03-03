@@ -1,14 +1,21 @@
 """Plugin gRPC server implementation.
 
 This module provides the PluginServer class for running a Python plugin as a gRPC server
-that communicates with the Proto Fleet server.
+that communicates with the Proto Fleet server via the HashiCorp go-plugin protocol.
+
+The go-plugin protocol requires:
+  1. Magic cookie environment variable check for security
+  2. Connection info printed to stdout after server starts:
+     ``CORE_PROTOCOL_VERSION|APP_PROTOCOL_VERSION|NETWORK_TYPE|NETWORK_ADDR|PROTOCOL``
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
+import sys
 from typing import Any
 
 import grpc
@@ -21,22 +28,54 @@ __all__ = ["PluginServer"]
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PLUGIN_PORT = 50051
+DEFAULT_PLUGIN_PORT = 0
+
+# go-plugin protocol constants — must match server/sdk/v1/plugin.go HandshakeConfig
+_MAGIC_COOKIE_KEY = "MINER_DRIVER_PLUGIN"
+_MAGIC_COOKIE_VALUE = "fleet-miner-driver"
+_CORE_PROTOCOL_VERSION = 1
+_APP_PROTOCOL_VERSION = 1
 
 
 class PluginServer:
     """gRPC server for Python plugins.
 
-    This class manages the lifecycle of a plugin gRPC server, including startup,
-    graceful shutdown, and signal handling.
+    Implements the HashiCorp go-plugin protocol so the Go server can launch
+    this plugin as a subprocess, negotiate a gRPC connection, and communicate
+    over the SDK's Driver service.
     """
 
-    def __init__(self, driver: Driver, port: int = DEFAULT_PLUGIN_PORT, host: str = "localhost") -> None:
+    def __init__(self, driver: Driver, port: int = DEFAULT_PLUGIN_PORT, host: str = "127.0.0.1") -> None:
         self.driver = driver
         self.port = port
         self.host = host
         self.server: grpc.aio.Server | None = None
         self._shutdown_event = asyncio.Event()
+
+    @staticmethod
+    def _check_magic_cookie() -> None:
+        """Verify the go-plugin magic cookie.
+
+        go-plugin sets this env var when launching the subprocess. If it's
+        missing or wrong, we're not being launched by the host — exit early.
+        """
+        actual = os.environ.get(_MAGIC_COOKIE_KEY)
+        if actual != _MAGIC_COOKIE_VALUE:
+            print(
+                f"This binary is a plugin. It is not meant to be executed directly. "
+                f"Expected {_MAGIC_COOKIE_KEY}={_MAGIC_COOKIE_VALUE}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    def _emit_go_plugin_handshake(self) -> None:
+        """Print the go-plugin connection advertisement to stdout.
+
+        Format: CORE_PROTOCOL_VERSION|APP_PROTOCOL_VERSION|NETWORK_TYPE|NETWORK_ADDR|PROTOCOL
+        """
+        line = f"{_CORE_PROTOCOL_VERSION}|{_APP_PROTOCOL_VERSION}|tcp|{self.host}:{self.port}|grpc"
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
 
     async def start(self) -> None:
         self.server = grpc.aio.server()
@@ -45,13 +84,16 @@ class PluginServer:
         servicer = DriverServicer(self.driver)
         driver_pb2_grpc.add_DriverServicer_to_server(servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
 
-        # Bind to address
+        # Bind to address (port=0 lets the OS pick a free port)
         address = f"{self.host}:{self.port}"
         actual_port = self.server.add_insecure_port(address)
         self.port = actual_port
 
         await self.server.start()
         logger.info("Plugin server started on %s:%s", self.host, self.port)
+
+        # Tell the go-plugin host where to connect
+        self._emit_go_plugin_handshake()
 
     async def stop(self, grace: float = 5.0) -> None:
         if self.server:
@@ -78,12 +120,13 @@ class PluginServer:
         Example:
             >>> async def main():
             ...     driver = MyDriver()
-            ...     server = PluginServer(driver, port=50051)
+            ...     server = PluginServer(driver)
             ...     await server.serve()
             >>>
             >>> if __name__ == "__main__":
             ...     asyncio.run(main())
         """
+        self._check_magic_cookie()
         self._setup_signal_handlers()
 
         try:
@@ -104,7 +147,7 @@ class PluginServer:
         Example:
             >>> if __name__ == "__main__":
             ...     driver = MyDriver()
-            ...     server = PluginServer(driver, port=50051)
+            ...     server = PluginServer(driver)
             ...     server.run()
         """
         asyncio.run(self.serve())
