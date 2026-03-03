@@ -8,11 +8,15 @@ RUN apk add --no-cache \
 
 WORKDIR /build
 
-COPY pyproject.toml ./
-COPY main.py ./
-COPY config.yaml ./
-COPY pyasic_driver/ ./pyasic_driver/
+# Install SDK first (from monorepo — build context must be repo root)
+COPY server/sdk/v1/python/ ./sdk/
+RUN pip install --no-cache-dir ./sdk
 
+# Install plugin and PyInstaller
+COPY plugin/pyasic/pyproject.toml ./
+COPY plugin/pyasic/main.py ./
+COPY plugin/pyasic/config.yaml ./
+COPY plugin/pyasic/pyasic_driver/ ./pyasic_driver/
 RUN pip install --no-cache-dir . pyinstaller
 
 RUN pyinstaller \
