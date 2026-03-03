@@ -6,7 +6,7 @@ inherit from SDKError and include an error code, message, and optional cause.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 __all__ = [
     "ErrorCode",
@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """SDK error codes for categorizing failures."""
 
     UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"

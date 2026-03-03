@@ -26,9 +26,8 @@ def _validate_non_negative(metric: MetricValue | None, field_name: str) -> None:
 
 
 def _validate_temp_range(metric: MetricValue | None, field_name: str) -> None:
-    if metric is not None:
-        if metric.value < MIN_TEMP_C or metric.value > MAX_TEMP_C:
-            raise InvalidConfigError(f"{field_name} out of reasonable range: {metric.value}")
+    if metric is not None and (metric.value < MIN_TEMP_C or metric.value > MAX_TEMP_C):
+        raise InvalidConfigError(f"{field_name} out of reasonable range: {metric.value}")
 
 
 def validate_device_metrics(metrics: DeviceMetrics) -> None:

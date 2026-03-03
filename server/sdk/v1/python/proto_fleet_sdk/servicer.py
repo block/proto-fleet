@@ -9,10 +9,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Callable, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])
+from typing import Any, TypeVar
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -54,6 +53,8 @@ from proto_fleet_sdk.types import (
 
 __all__ = ["DriverServicer"]
 
+F = TypeVar("F", bound=Callable[..., Any])
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TIME_SERIES_POINTS = 1000
@@ -70,7 +71,7 @@ def _rpc_handler(method: F) -> F:
         except Exception as e:
             await self._handle_sdk_error(e, context)
             raise
-    return wrapper  # type: ignore[return-value]
+    return wrapper  # type: ignore[return-value]  # wrapper preserves F's signature via @functools.wraps
 
 
 class DriverServicer(driver_pb2_grpc.DriverServicer):
@@ -136,6 +137,7 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
         # Determine which kind is set
         kind_field = secret.WhichOneof("kind")
 
+        kind: APIKey | UsernamePassword | BearerToken | TLSClientCert
         if kind_field == "api_key":
             kind = APIKey(key=secret.api_key.key)
         elif kind_field == "user_pass":
@@ -200,13 +202,10 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
 
     @staticmethod
     def _metric_value_to_proto(
-        metric: MetricValue | None,
-    ) -> driver_pb2.MetricValue | None:
+        metric: MetricValue,
+    ) -> driver_pb2.MetricValue:
         """Convert SDK MetricValue to protobuf MetricValue."""
-        if metric is None:
-            return None
-
-        pb_metric = driver_pb2.MetricValue(value=metric.value, kind=metric.kind)
+        pb_metric = driver_pb2.MetricValue(value=metric.value, kind=metric.kind)  # type: ignore[arg-type]  # SDK IntEnum values match protobuf enum values by design
 
         if metric.metadata:
             metadata = driver_pb2.MetricValueMetaData()
@@ -233,7 +232,7 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
     def _component_info_to_proto(info: ComponentInfo) -> driver_pb2.ComponentInfo:
         """Convert SDK ComponentInfo to protobuf ComponentInfo."""
         pb_info = driver_pb2.ComponentInfo(
-            index=info.index, name=info.name, status=info.status
+            index=info.index, name=info.name, status=info.status  # type: ignore[arg-type]  # SDK IntEnum → protobuf enum
         )
         if info.status_reason:
             pb_info.status_reason = info.status_reason
@@ -245,7 +244,7 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
     def _device_metrics_to_proto(metrics: DeviceMetrics) -> driver_pb2.DeviceMetrics:
         """Convert SDK DeviceMetrics to protobuf DeviceMetrics."""
         pb_metrics = driver_pb2.DeviceMetrics(
-            device_id=metrics.device_id, health=metrics.health
+            device_id=metrics.device_id, health=metrics.health  # type: ignore[arg-type]  # SDK IntEnum → protobuf enum
         )
         pb_metrics.timestamp.FromDatetime(metrics.timestamp)
 
@@ -417,14 +416,14 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
     def _device_error_to_proto(error: DeviceError) -> driver_pb2.DeviceError:
         """Convert SDK DeviceError to protobuf DeviceError."""
         pb_error = driver_pb2.DeviceError(
-            miner_error=error.miner_error,
+            miner_error=error.miner_error,  # type: ignore[arg-type]  # SDK IntEnum → protobuf enum
             cause_summary=error.cause_summary,
             recommended_action=error.recommended_action,
-            severity=error.severity,
+            severity=error.severity,  # type: ignore[arg-type]  # SDK IntEnum → protobuf enum
             device_id=error.device_id,
             impact=error.impact,
             summary=error.summary,
-            component_type=error.component_type,
+            component_type=error.component_type,  # type: ignore[arg-type]  # SDK IntEnum → protobuf enum
         )
 
         if error.first_seen_at:

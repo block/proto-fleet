@@ -34,6 +34,7 @@ dev = [
     "mypy>=1.7.0",
     "ruff>=0.1.6",
     "types-protobuf>=5.29.0",
+    "grpc-stubs>=1.53.0",
 ]
 
 [build-system]
@@ -68,6 +69,7 @@ ignore_errors = true
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["proto_fleet_sdk/generated/"]
 
 [tool.ruff.lint]
 select = [

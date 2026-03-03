@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 try:
-    import httpx
+    import httpx  # type: ignore[import-not-found]  # httpx is an optional runtime dependency
     HAS_HTTPX = True
 except ImportError:
     HAS_HTTPX = False

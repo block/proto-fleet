@@ -12,6 +12,18 @@ default:
 setup:
   @bash "{{package_root}}/setup.sh"
 
+# Install dev tools (ruff) for linting
+setup-dev: setup
+  "{{package_root}}/.venv/bin/pip" install --quiet -r "{{package_root}}/dev-requirements.txt"
+
+# Lint Python source with ruff
+lint: setup-dev
+  "{{package_root}}/.venv/bin/ruff" check "{{package_root}}/protoc_gen_python_grpc.py"
+
+# Format Python source with ruff
+format: setup-dev
+  "{{package_root}}/.venv/bin/ruff" format "{{package_root}}/protoc_gen_python_grpc.py"
+
 # Run integration tests using buf generate
 test: setup
   #!/usr/bin/env bash

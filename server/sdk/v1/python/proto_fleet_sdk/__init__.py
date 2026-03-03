@@ -92,7 +92,13 @@ from proto_fleet_sdk.enums import (
     MetricKind,
     PerformanceMode,
 )
-from proto_fleet_sdk.error_codes import ComponentType, DeviceError, DeviceErrors, MinerError, Severity
+from proto_fleet_sdk.error_codes import (
+    ComponentType,
+    DeviceError,
+    DeviceErrors,
+    MinerError,
+    Severity,
+)
 from proto_fleet_sdk.errors import (
     AuthenticationFailedError,
     DeviceNotFoundError,

@@ -43,7 +43,7 @@ class PluginServer:
 
         # Add servicer
         servicer = DriverServicer(self.driver)
-        driver_pb2_grpc.add_DriverServicer_to_server(servicer, self.server)
+        driver_pb2_grpc.add_DriverServicer_to_server(servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
 
         # Bind to address
         address = f"{self.host}:{self.port}"

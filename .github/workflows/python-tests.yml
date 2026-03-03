@@ -47,6 +47,9 @@ jobs:
       - name: Run tests
         run: just test
 
+      - name: Lint
+        run: just lint
+
   sdk-python:
     runs-on: ubuntu-latest
     defaults:
@@ -62,8 +65,8 @@ jobs:
       - name: Setup venv
         run: just setup
 
-      - name: Run tests
-        run: just test
+      - name: Run checks (tests + typecheck + lint)
+        run: just check
 
   python-gen-staleness:
     runs-on: ubuntu-latest
