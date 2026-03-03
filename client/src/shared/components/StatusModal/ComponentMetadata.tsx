@@ -5,9 +5,16 @@ interface ComponentMetadataProps {
 }
 
 const MetadataRow = ({ label, value }: { label: string; value: string }) => (
-  <div className="flex justify-between border-b border-border-5 py-2 last:border-0">
-    <div className="text-emphasis-300 text-text-primary">{label}</div>
-    <div className="text-300 text-text-primary">{value}</div>
+  <div
+    className="flex justify-between border-b border-border-5 py-2 last:border-0"
+    data-testid="status-modal-metadata-row"
+  >
+    <div className="text-emphasis-300 text-text-primary" data-testid="status-modal-metadata-label">
+      {label}
+    </div>
+    <div className="text-300 text-text-primary" data-testid="status-modal-metadata-value">
+      {value}
+    </div>
   </div>
 );
 
