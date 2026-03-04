@@ -14,11 +14,13 @@ build-plugins:
   set -euo pipefail
   echo "Syncing Go workspace..."
   go work sync
-  echo "Building plugins..."
+  echo "Building Go plugins..."
   mkdir -p server/plugins
   (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .)
   (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .)
   chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+  echo "Building pyasic plugin..."
+  just build-pyasic-plugin
   echo "Plugins built successfully"
 
 # Build plugin binaries for Docker (Linux ARM64)
@@ -27,11 +29,13 @@ build-plugins-docker:
   set -euo pipefail
   echo "Syncing Go workspace..."
   go work sync
-  echo "Building plugins for Docker (Linux ARM64)..."
+  echo "Building Go plugins for Docker (Linux ARM64)..."
   mkdir -p server/plugins
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/proto-plugin .)
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/antminer-plugin .)
   chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+  echo "Building pyasic plugin for Docker (Linux ARM64)..."
+  just build-pyasic-plugin-docker
   echo "Docker plugins built successfully"
 
 # Build plugin binaries for multiple architectures (deployment)
@@ -40,13 +44,15 @@ build-plugins-multi-arch:
   set -euo pipefail
   echo "Syncing Go workspace..."
   go work sync
-  echo "Building plugins for multiple architectures..."
+  echo "Building Go plugins for multiple architectures..."
   mkdir -p deployment-files/server
   (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
   chmod +x deployment-files/server/*-plugin-*
+  echo "Building pyasic plugin for multiple architectures..."
+  just build-pyasic-plugin-multi-arch
   echo "Multi-arch plugins built successfully"
 
 # Build virtual miner plugin for Docker (Linux ARM64)
@@ -59,6 +65,48 @@ build-virtual-plugin:
   cp plugin/virtual/config.json server/plugins/
   chmod +x server/plugins/virtual-plugin
   echo "Virtual plugin built successfully"
+
+# Build pyasic plugin via Docker for ARM64 (used by build-plugins-docker)
+build-pyasic-plugin-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p server/plugins
+  docker buildx build \
+    --platform linux/arm64 \
+    --file plugin/pyasic/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/pyasic-plugin
+  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
+
+# Build pyasic plugin via Docker (produces Linux binary for current arch)
+build-pyasic-plugin:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p server/plugins
+  docker buildx build \
+    --file plugin/pyasic/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/pyasic-plugin
+  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
+
+# Build pyasic plugin for multiple architectures (deployment)
+build-pyasic-plugin-multi-arch:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p deployment-files/server
+  for arch in amd64 arm64; do
+    docker buildx build \
+      --platform "linux/${arch}" \
+      --file plugin/pyasic/Dockerfile.build \
+      --output "type=local,dest=/tmp/pyasic-${arch}" \
+      .
+    cp "/tmp/pyasic-${arch}/pyasic-plugin" "deployment-files/server/pyasic-plugin-${arch}"
+    rm -rf "/tmp/pyasic-${arch}"
+  done
+  cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
+  chmod +x deployment-files/server/pyasic-plugin-*
 
 # Update all Go dependencies across workspace
 update-go-deps:

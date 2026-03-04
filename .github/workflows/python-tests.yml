@@ -94,6 +94,36 @@ jobs:
           fi
           echo "Generated stubs are up to date."
 
+  pyasic-plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/pyasic
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Setup venv and install dependencies
+        run: |
+          python3.13 -m venv .venv
+          .venv/bin/pip install --upgrade pip setuptools
+          .venv/bin/pip install -e "../../server/sdk/v1/python"
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Run tests
+        run: .venv/bin/pytest tests/ -v --cov=pyasic_driver --cov-report=term-missing
+
+      - name: Lint
+        run: .venv/bin/ruff check pyasic_driver/ tests/
+
+      - name: Typecheck
+        run: |
+          .venv/bin/pip install types-PyYAML
+          .venv/bin/mypy pyasic_driver/
+
   proto-python-gen-tarball:
     runs-on: ubuntu-latest
     defaults:

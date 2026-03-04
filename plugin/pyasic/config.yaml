@@ -1,0 +1,47 @@
+plugin:
+  log_level: info
+  discovery_timeout_seconds: 10
+  telemetry_cache_ttl_seconds: 5
+
+miners:
+  whatsminer:
+    enabled: true
+
+  antminer:
+    enabled: false  # Go plugin handles these
+
+  avalonminer:
+    enabled: false
+
+  goldshell:
+    enabled: false
+
+  auradine:
+    enabled: false
+
+  bitaxe:
+    enabled: false
+
+  iceriver:
+    enabled: false
+
+  innosilicon:
+    enabled: false
+
+  braiins:
+    enabled: false
+
+  epic:
+    enabled: false
+
+  hammer:
+    enabled: false
+
+  volcminer:
+    enabled: false
+
+  elphapex:
+    enabled: false
+
+  luckyminer:
+    enabled: false
