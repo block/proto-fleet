@@ -322,7 +322,7 @@ jobs:
 
   build-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-proto-fleet-server, build-proto-fleet-client, build-timescaledb-image]
+    needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer, build-timescaledb-image]
     strategy:
       matrix:
         arch: [amd64, arm64]
