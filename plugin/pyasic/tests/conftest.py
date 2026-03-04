@@ -72,7 +72,7 @@ class MockMinerData:
     voltage: float | None = 12.5
     current: float | None = 256.0
     mac: str = "AA:BB:CC:DD:EE:FF"
-    firmware_version: str = "1.0.0"
+    fw_ver: str = "1.0.0"
     hashboards: list[MockHashBoard] = field(default_factory=list)
     fans: list[MockFan] = field(default_factory=list)
     errors: list[MockMinerError] = field(default_factory=list)

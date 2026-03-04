@@ -135,7 +135,7 @@ class PyAsicDriver:
             raise AuthenticationFailedError(device_info.host)
 
         mac = getattr(data, "mac", "") or ""
-        firmware = getattr(data, "firmware_version", "") or device_info.firmware_version
+        firmware = getattr(data, "fw_ver", "") or device_info.firmware_version
 
         logger.info("Paired %s at %s (mac=%s)", device_info.model, device_info.host, mac)
         return DeviceInfo(

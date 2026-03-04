@@ -48,7 +48,17 @@ def _metric_rate(value: float) -> MetricValue:
 
 
 def _has_value(val: object) -> bool:
-    return val is not None and val != 0
+    """Check if a value is present and non-zero.
+
+    Uses float() conversion because pyasic may return rich objects
+    (e.g. SHA256HashRate) that support float() but not comparison operators.
+    """
+    if val is None:
+        return False
+    try:
+        return float(val) != 0  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
 
 
 def _to_float(val: object) -> float:
@@ -95,11 +105,11 @@ def _determine_board_status(board: Any) -> ComponentStatus:
     chips = getattr(board, "chips", None)
     expected = getattr(board, "expected_chips", None)
 
-    if hashrate and hashrate > 0:
+    if _has_value(hashrate):
         if expected and chips and chips < expected:
             return ComponentStatus.COMPONENT_STATUS_WARNING
         return ComponentStatus.COMPONENT_STATUS_HEALTHY
-    if temp and temp > 0:
+    if _has_value(temp):
         return ComponentStatus.COMPONENT_STATUS_WARNING
     return ComponentStatus.COMPONENT_STATUS_OFFLINE
 
@@ -175,10 +185,10 @@ class PyAsicDevice:
         temp_avg = getattr(data, "temperature_avg", None)
         efficiency = getattr(data, "efficiency", None)
 
-        hashrate_hs = _metric_rate(ths_to_hs(hashrate_ths)) if _has_value(hashrate_ths) else None
+        hashrate_hs = _metric_rate(ths_to_hs(_to_float(hashrate_ths))) if _has_value(hashrate_ths) else None
         power_w = _metric_gauge(_to_float(wattage)) if _has_value(wattage) else None
         temp_c = _metric_gauge(_to_float(temp_avg)) if _has_value(temp_avg) else None
-        efficiency_jh = _metric_gauge(jth_to_jh(efficiency)) if _has_value(efficiency) else None
+        efficiency_jh = _metric_gauge(jth_to_jh(_to_float(efficiency))) if _has_value(efficiency) else None
 
         hash_boards = self._convert_hashboards(data)
         fan_metrics = self._convert_fans(data)
@@ -233,7 +243,9 @@ class PyAsicDevice:
                 HashBoardMetrics(
                     component_info=info,
                     serial_number=serial,
-                    hash_rate_hs=_metric_rate(ths_to_hs(hashrate)) if _has_value(hashrate) else None,
+                    hash_rate_hs=(
+                        _metric_rate(ths_to_hs(_to_float(hashrate))) if _has_value(hashrate) else None
+                    ),
                     temp_c=_metric_gauge(_to_float(temp)) if _has_value(temp) else None,
                     chip_count=chips if _has_value(chips) else None,
                     chip_frequency_mhz=_metric_gauge(_to_float(chip_freq)) if _has_value(chip_freq) else None,

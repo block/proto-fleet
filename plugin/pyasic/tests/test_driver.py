@@ -160,7 +160,7 @@ class TestDiscoverDevice:
 class TestPairDevice:
     async def test_pair_extracts_mac(self, mock_ctx: MagicMock, mock_secret: SecretBundle) -> None:
         # Arrange
-        data = MockMinerData(mac="AA:BB:CC:DD:EE:FF", firmware_version="2.0.0")
+        data = MockMinerData(mac="AA:BB:CC:DD:EE:FF", fw_ver="2.0.0")
         miner = make_mock_miner(data=data)
         driver = _make_driver(get_miner_fn=AsyncMock(return_value=miner))
         device_info = DeviceInfo(
