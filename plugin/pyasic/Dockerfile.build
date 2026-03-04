@@ -24,6 +24,7 @@ RUN pyinstaller \
     --name pyasic-plugin \
     --hidden-import pyasic \
     --hidden-import yaml \
+    --add-data "config.yaml:." \
     main.py
 
 FROM scratch AS export

@@ -16,8 +16,19 @@ from pyasic_driver.config import load_config
 from pyasic_driver.driver import PyAsicDriver
 
 
+def _get_base_dir() -> Path:
+    """Return the base directory for bundled resources.
+
+    PyInstaller --onefile extracts to a temp dir exposed as sys._MEIPASS.
+    When running from source, use the script's parent directory.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]  # noqa: SLF001
+    return Path(__file__).parent
+
+
 def main() -> None:
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = _get_base_dir() / "config.yaml"
     if not config_path.exists():
         print(f"FATAL: config.yaml not found at {config_path}", file=sys.stderr)
         sys.exit(1)
