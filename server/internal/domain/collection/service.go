@@ -38,7 +38,13 @@ func NewService(
 	}
 }
 
-// CreateCollection creates a new collection.
+// createCollectionResult holds the result of the CreateCollection transaction.
+type createCollectionResult struct {
+	collection *pb.DeviceCollection
+	addedCount int64
+}
+
+// CreateCollection creates a new collection, optionally adding devices atomically.
 func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollectionRequest) (*pb.CreateCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -48,6 +54,15 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	rackInfo := req.GetRackInfo()
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
+	}
+
+	// Resolve device identifiers outside the transaction if device_selector is provided.
+	var deviceIdentifiers []string
+	if req.DeviceSelector != nil {
+		deviceIdentifiers, err = s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -64,18 +79,31 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
 		}
 
-		return collection, nil
+		// Add devices to the collection if device_selector was provided.
+		var addedCount int64
+		if len(deviceIdentifiers) > 0 {
+			addedCount, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collection.Id, deviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			// Update device count to reflect added devices.
+			// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
+			collection.DeviceCount = int32(addedCount)
+		}
+
+		return &createCollectionResult{collection: collection, addedCount: addedCount}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	collection, ok := result.(*pb.DeviceCollection)
+	txResult, ok := result.(*createCollectionResult)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	return &pb.CreateCollectionResponse{Collection: collection}, nil
+	// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
+	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
 }
 
 // GetCollection retrieves a collection by ID.

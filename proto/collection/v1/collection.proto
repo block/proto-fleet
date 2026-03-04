@@ -150,12 +150,19 @@ message CreateCollectionRequest {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
     }
+
+    // Optional: devices to add atomically when creating the collection.
+    // If provided, devices are added in the same transaction as collection creation.
+    optional common.v1.DeviceSelector device_selector = 6;
 }
 
 // Response after creating a collection
 message CreateCollectionResponse {
     // The newly created collection
     DeviceCollection collection = 1;
+
+    // Number of devices added to the collection (0 if no device_selector was provided)
+    int32 added_count = 2;
 }
 
 // Request to get a collection by ID

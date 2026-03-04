@@ -265,3 +265,117 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "access denied")
 }
+
+func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	ctx := testCtx(t)
+
+	// Arrange - resolver returns device IDs
+	deviceIDs := []string{"device-1", "device-2", "device-3"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc := NewService(mockStore, mockTransactor, resolver)
+
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
+
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Group with devices", "").
+		Return(&pb.DeviceCollection{Id: 99, Label: "Group with devices", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(99), deviceIDs).
+		Return(int64(3), nil)
+
+	// Act
+	resp, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_GROUP,
+		Label: "Group with devices",
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "Group with devices", resp.Collection.Label)
+	assert.Equal(t, int32(3), resp.AddedCount)
+	assert.Equal(t, int32(3), resp.Collection.DeviceCount)
+}
+
+func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	ctx := testCtx(t)
+
+	// Arrange - resolver fails
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, fleeterror.NewForbiddenError("device not owned by org")
+	}
+	svc := NewService(mockStore, mockTransactor, resolver)
+
+	// Act
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_GROUP,
+		Label: "Group with devices",
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
+			},
+		},
+	})
+
+	// Assert - error from resolver is propagated, collection is never created
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device not owned by org")
+}
+
+func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	ctx := testCtx(t)
+
+	// Arrange - resolver returns all devices for the org
+	allDevices := []string{"device-1", "device-2", "device-3", "device-4", "device-5"}
+	resolver := func(_ context.Context, selector *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		if selector.GetAllDevices() {
+			return allDevices, nil
+		}
+		return nil, nil
+	}
+	svc := NewService(mockStore, mockTransactor, resolver)
+
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
+
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "All devices group", "").
+		Return(&pb.DeviceCollection{Id: 100, Label: "All devices group", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(100), allDevices).
+		Return(int64(5), nil)
+
+	// Act
+	resp, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_GROUP,
+		Label: "All devices group",
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_AllDevices{AllDevices: true},
+		},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int32(5), resp.AddedCount)
+	assert.Equal(t, int32(5), resp.Collection.DeviceCount)
+}

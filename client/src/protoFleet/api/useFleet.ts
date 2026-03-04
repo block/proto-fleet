@@ -169,6 +169,11 @@ const useFleet = (options: UseFleetOptions = {}) => {
           setLocalMinerIds(ids);
           setLocalMiners(minersMap);
           setLocalTotalMiners(responseTotalMiners);
+
+          // Update available models for filter dropdown
+          if (models && models.length > 0) {
+            setAvailableModels(models);
+          }
         }
 
         // Store the response cursor for the next page

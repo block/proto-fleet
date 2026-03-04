@@ -49,6 +49,12 @@ export const useMinerFirmwareVersion = (deviceId: string) =>
 export const useMinerDeviceStatus = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.deviceStatus);
 
+export const useMinerRackLabel = (deviceId: string) =>
+  useFleetStore((state) => state.fleet.miners[deviceId]?.rackLabel);
+
+export const useMinerGroupLabels = (deviceId: string) =>
+  useFleetStore((state) => state.fleet.miners[deviceId]?.groupLabels);
+
 // =============================================================================
 // Shared Measurement Helper
 // =============================================================================

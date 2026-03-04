@@ -8,6 +8,7 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
+import { GroupsPage } from "@/protoFleet/features/groupManagement";
 import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFleet/features/onboarding";
 import {
   Authentication as AuthSettings,
@@ -95,6 +96,9 @@ const router = createBrowserRouter([
 
   // Miners
   createRoute("/miners", <Miners />),
+
+  // Groups
+  createRoute("/groups", <GroupsPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout)
   {

@@ -130,6 +130,16 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * Defaults to "desc" if not provided.
    */
   getDefaultSortDirection?: (field: ColKey) => SortDirection;
+  /**
+   * Optional content to render at the bottom of the scroll container.
+   * Useful for pagination controls that should scroll with the list content.
+   */
+  footerContent?: ReactNode;
+  /**
+   * When true, renders filters outside/above the scroll container so they remain
+   * visible while scrolling. Default is false (filters scroll with content).
+   */
+  renderFiltersOutsideScroll?: boolean;
 };
 
 const cellClassList = "text-left";
@@ -186,6 +196,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   currentSort,
   onSort,
   getDefaultSortDirection,
+  footerContent,
+  renderFiltersOutsideScroll = false,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -342,12 +354,23 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     [filterItem, items, onFilterChange],
   );
 
-  // Update filteredItems when items change (for server-side filtering)
+  // Determine if Filters component will render (and handle filtering)
+  const shouldRenderFilters = !!(filters?.length || headerControls);
+
+  // Update filteredItems when items change
   useEffect(() => {
     if (isServerSideFiltering) {
+      // Server-side filtering: items are already filtered by server
+      setFilteredItems(items);
+    } else if (!shouldRenderFilters && filterItem) {
+      // Client-side filtering without Filters component: apply filterItem directly
+      setFilteredItems(items.filter((item) => filterItem(item, { buttonFilters: [], dropdownFilters: {} })));
+    } else if (!shouldRenderFilters) {
+      // No filtering at all: use items directly
       setFilteredItems(items);
     }
-  }, [items, isServerSideFiltering]);
+    // When shouldRenderFilters is true, Filters component handles filtering via onFilter callback
+  }, [items, isServerSideFiltering, shouldRenderFilters, filterItem]);
 
   // Clear selection anchor when filtered items change to prevent invalid range selection
   useEffect(() => {
@@ -458,20 +481,24 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
   );
 
+  const filtersElement = (filters?.length || headerControls) && (
+    <div className={clsx("relative z-3 flex w-full")}>
+      <Filters<ListItem>
+        className={clsx("gap-4 py-6", paddingClasses)}
+        filterItems={filters ?? []}
+        filterSize={filterSize}
+        items={items}
+        onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
+        isServerSide={isServerSideFiltering}
+        headerControls={headerControls}
+        initialActiveFilters={initialActiveFilters}
+      />
+    </div>
+  );
+
   return (
     <div style={paddingCssVariables}>
-      <div className={clsx("relative z-3 flex w-full")}>
-        <Filters<ListItem>
-          className={clsx("gap-4 py-6", paddingClasses)}
-          filterItems={filters ?? []}
-          filterSize={filterSize}
-          items={items}
-          onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
-          isServerSide={isServerSideFiltering}
-          headerControls={headerControls}
-          initialActiveFilters={initialActiveFilters}
-        />
-      </div>
+      {renderFiltersOutsideScroll && filtersElement}
 
       {!hideTotal && total !== undefined && (
         <div className="flex">
@@ -481,6 +508,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         </div>
       )}
       <div className={clsx("flex flex-col", containerClassName)}>
+        {!renderFiltersOutsideScroll && filtersElement}
         <div className={clsx({ "overflow-x-auto": overflowContainer })}>
           {!noDataElement || (items && items.length > 0) ? (
             <>
@@ -695,6 +723,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                   {isLoadingMore && <ProgressCircular indeterminate />}
                 </div>
               )}
+              {footerContent}
               <div ref={refs.vertical.end} />
             </>
           ) : (

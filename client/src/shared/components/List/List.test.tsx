@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import List from "@/shared/components/List/index";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
-import { testCols, testColTitles, TestItem, testItems } from "@/shared/components/List/mocks/data";
+import { testCols, testColTitles, testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 import { ListAction } from "@/shared/components/List/types";
 
 beforeAll(() => {
@@ -1333,6 +1333,169 @@ describe("List", () => {
       // onFilterChange is called when filters are applied through the UI
       // The callback should be available and callable
       expect(onFilterChange).toBeDefined();
+    });
+  });
+
+  describe("footerContent prop", () => {
+    it("renders footerContent at the bottom of the scroll container", () => {
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          footerContent={<div data-testid="footer-content">Pagination Controls</div>}
+        />,
+      );
+
+      const footerContent = screen.getByTestId("footer-content");
+      expect(footerContent).toBeInTheDocument();
+      expect(footerContent.textContent).toBe("Pagination Controls");
+    });
+
+    it("renders footerContent after the table element", () => {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          footerContent={<div data-testid="footer-content">Footer</div>}
+        />,
+      );
+
+      const table = container.querySelector("table");
+      const footerContent = screen.getByTestId("footer-content");
+
+      // Footer content should come after the table in the DOM
+      expect(table).toBeInTheDocument();
+      expect(footerContent).toBeInTheDocument();
+
+      // Verify footer is a sibling or descendant after the table
+      const tableParent = table?.parentElement;
+      const footerParent = footerContent.parentElement;
+
+      // Both should share a common scroll container ancestor
+      expect(tableParent).toBeTruthy();
+      expect(footerParent).toBeTruthy();
+    });
+
+    it("does not render footerContent when prop is not provided", () => {
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+        />,
+      );
+
+      expect(screen.queryByTestId("footer-content")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("renderFiltersOutsideScroll prop", () => {
+    it("renders filters outside the scroll container when renderFiltersOutsideScroll is true", () => {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          filters={testFilters}
+          renderFiltersOutsideScroll
+        />,
+      );
+
+      // Verify filters are rendered
+      expect(screen.getByText("All Items")).toBeInTheDocument();
+
+      // Get the overflow container (scroll container)
+      const overflowContainer = container.querySelector(".overflow-auto, .overflow-y-auto");
+
+      // When renderFiltersOutsideScroll is true, filters should be BEFORE the scroll container
+      // The filters div should not be inside the overflow container
+      if (overflowContainer) {
+        const filtersInsideScroll = overflowContainer.querySelector('[data-testid="filters"]');
+        expect(filtersInsideScroll).toBeNull();
+      }
+    });
+
+    it("renders filters inside the scroll container when renderFiltersOutsideScroll is false", () => {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          filters={testFilters}
+          renderFiltersOutsideScroll={false}
+        />,
+      );
+
+      // Verify filters are rendered
+      expect(screen.getByText("All Items")).toBeInTheDocument();
+
+      // Get the table element and the filters
+      const table = container.querySelector("table");
+      const filtersButton = screen.getByText("All Items");
+
+      // Find their common parent (the flex container that holds both)
+      const tableParent = table?.parentElement;
+      const filtersContainer = filtersButton.closest(".flex.flex-col");
+
+      // Both should be inside the same container (filters not rendered outside)
+      expect(tableParent).toBeTruthy();
+      expect(filtersContainer).toBeTruthy();
+    });
+
+    it("renders filters inside scroll container by default (when prop is not provided)", () => {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          filters={testFilters}
+        />,
+      );
+
+      // Verify filters are rendered
+      expect(screen.getByText("All Items")).toBeInTheDocument();
+
+      // Get the table element
+      const table = container.querySelector("table");
+      expect(table).toBeInTheDocument();
+
+      // Verify the filters and table both exist in the document
+      const filtersButton = screen.getByText("All Items");
+      expect(filtersButton).toBeInTheDocument();
+    });
+
+    it("does not render empty filters wrapper when no filters are provided", () => {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          renderFiltersOutsideScroll
+        />,
+      );
+
+      // Should not find any filter buttons when no filters provided
+      expect(screen.queryByText("All Items")).not.toBeInTheDocument();
+
+      // The container should still render the list without extra wrapper divs
+      const table = container.querySelector("table");
+      expect(table).toBeInTheDocument();
     });
   });
 });

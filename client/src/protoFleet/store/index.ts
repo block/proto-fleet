@@ -60,6 +60,8 @@ export {
   useMinerModel,
   useMinerFirmwareVersion,
   useMinerDeviceStatus,
+  useMinerRackLabel,
+  useMinerGroupLabels,
   useMinerHashrate,
   useMinerEfficiency,
   useMinerPowerUsage,
