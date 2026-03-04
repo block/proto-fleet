@@ -1,4 +1,5 @@
 /* eslint-disable playwright/expect-expect */
+import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { AuthPage } from "../pages/auth";
@@ -12,8 +13,12 @@ test.describe("Miners", () => {
 
   // Cleanup - re-added Antminers might need authentication again
   test.afterAll("CLEANUP: Re-authenticate added miners", async ({ browser }, testInfo) => {
+    if (testConfig.target === "real") {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
-    const context = await browser.newContext();
+    const context = await browser.newContext({ baseURL: testConfig.baseUrl });
     const page = await context.newPage();
     await page.goto("/");
 

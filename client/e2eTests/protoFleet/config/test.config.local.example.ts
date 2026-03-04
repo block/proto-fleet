@@ -10,6 +10,12 @@ import type { TestConfig } from "./test.config.defaults";
  * Your IDE will provide autocomplete for all available options.
  */
 export const localTestConfig: Partial<TestConfig> = {
+  // Example: Switch environment target (real miners skip auth flows)
+  // target: "real",
+
+  // Example: Force the local fake-miners environment explicitly
+  // target: "fake",
+
   // Example: Override admin credentials
   users: {
     admin: {

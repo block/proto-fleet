@@ -1,0 +1,149 @@
+name: ProtoFleet E2E (Real Miners - Manual)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: protofleet-e2e-real-miners
+  cancel-in-progress: false
+
+jobs:
+  e2e-real-miners:
+    timeout-minutes: 60
+    runs-on: [self-hosted, fleet-testing]
+    env:
+      # Use a dedicated compose project name so this workflow doesn't interfere
+      # with other compose stacks that might be running on the machine.
+      COMPOSE_PROJECT_NAME: protofleet-e2e-real
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Reset backend stack + stale frontend
+        working-directory: server
+        run: |
+          set -euo pipefail
+          docker compose down -v --remove-orphans
+
+          # Frontend is started as a local Vite process (not Docker). If a previous
+          # manual run left it behind, stop it so port 8080 is free.
+          pid_file="/tmp/protofleet-vite-preview-8080.pid"
+          if [ -f "$pid_file" ]; then
+            pid="$(cat "$pid_file" 2>/dev/null || true)"
+            if [[ "$pid" =~ ^[0-9]+$ ]]; then
+              cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+              if echo "$cmd" | grep -Fq "vite preview --mode protoFleet --port 8080"; then
+                kill "$pid" 2>/dev/null || true
+              else
+                echo "Not killing PID $pid: unexpected command: $cmd"
+              fi
+            else
+              echo "Not killing Vite preview: invalid PID in $pid_file: $pid"
+            fi
+            rm -f "$pid_file"
+          fi
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: client/e2eTests/protoFleet
+        run: npx playwright install chromium
+
+      - name: Build ProtoFleet
+        working-directory: client
+        run: npm run build:protoFleet
+
+      - name: Build plugins for runner (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Self-hosted runner architecture may vary (amd64 vs arm64)
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) goarch="amd64" ;;
+            aarch64|arm64) goarch="arm64" ;;
+            *) echo "Unsupported runner arch: $arch"; exit 1 ;;
+          esac
+
+          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building static plugins for Linux $goarch..."
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+
+      - name: Start backend services (TimeScaleDB + Fleet API)
+        working-directory: server
+        run: docker compose up -d --wait --wait-timeout 120 timescaledb fleet-api
+
+      - name: Wait for Fleet API health
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Waiting for Fleet API..."
+          timeout 120 bash -c 'until curl -fsS http://localhost:4000/health >/dev/null; do sleep 2; done'
+          echo "Fleet API is healthy"
+
+      - name: Start frontend (8080)
+        working-directory: client
+        shell: bash
+        env:
+          VITE_VERSION: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
+          VITE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          log_file="/tmp/protofleet-vite-preview-8080.log"
+          pid_file="/tmp/protofleet-vite-preview-8080.pid"
+
+          npx vite preview --mode protoFleet --port 8080 --host 127.0.0.1 --strictPort > "$log_file" 2>&1 &
+          echo $! > "$pid_file"
+
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -fsS http://localhost:8080 >/dev/null; do sleep 2; done'
+          echo "Frontend is ready"
+
+      - name: Run Playwright tests (desktop)
+        working-directory: client/e2eTests/protoFleet
+        env:
+          CI: true
+          E2E_TARGET: real
+        run: npx playwright test --project=desktop
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-protofleet-real
+          path: client/e2eTests/protoFleet/playwright-report/
+          retention-days: 30
+
+      - name: Upload Playwright test results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-results-protofleet-real
+          path: client/e2eTests/protoFleet/test-results/
+          retention-days: 30
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: server
+        run: |
+          set -euo pipefail
+          echo "=== Fleet API Logs ==="
+          docker compose logs fleet-api || true
+          echo "=== TimescaleDB Logs ==="
+          docker compose logs timescaledb || true
+          echo "=== Vite Preview Logs ==="
+          tail -n 200 /tmp/protofleet-vite-preview-8080.log 2>/dev/null || true

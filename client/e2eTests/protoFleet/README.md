@@ -11,7 +11,7 @@ The E2E test suite validates critical user workflows and functionality across th
 ### Prerequisites
 
 - All dependencies installed via `npm install` in the client directory
-- ProtoFleet development environment and simulated miners set up (usually with `just dev`)
+- ProtoFleet development environment and fake miners set up (usually with `just dev`)
 
 ### Quick Start
 
@@ -332,7 +332,7 @@ E2E tests run automatically in GitHub Actions:
 
 - **Triggers**: Pull requests affecting e2e tests, daily at 7 AM UTC, manual dispatch
 - **Matrix**: Tests run on both `desktop` and `mobile` projects
-- **Environment**: Ubuntu with Docker, TimescaleDB, and 12 simulated miners
+- **Environment**: Ubuntu with Docker, TimescaleDB, and 12 fake miners
 - **Reporting**: HTML reports and GitHub annotations
 
 See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet-e2e-tests.yml) for full workflow configuration.
@@ -343,7 +343,7 @@ The workflow:
 
 1. Builds ProtoFleet client (both ProtoOS and ProtoFleet apps)
 2. Starts TimescaleDB service
-3. Builds and runs 12 simulated miners via Docker Compose
+3. Builds and runs 12 fake miners via Docker Compose
 4. Runs backend server
 5. Executes Playwright tests with `--project=desktop` or `--project=mobile`
 6. Uploads test reports and traces as artifacts
