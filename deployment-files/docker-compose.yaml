@@ -8,8 +8,6 @@ services:
       service: fleet-api
     build:
       context: ./server
-      args:
-        TARGETARCH: ${TARGETARCH:-amd64}
     environment:
       LOG_LEVEL: "INFO"
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
