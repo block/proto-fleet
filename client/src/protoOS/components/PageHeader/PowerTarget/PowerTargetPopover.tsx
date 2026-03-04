@@ -73,13 +73,14 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
     setSelectedPerformanceMode(performanceMode);
   }, [pending, performanceMode]);
 
-  const calculatePowerTarget = useCallback((): number | undefined => {
+  // Converts the selected power target to whole watts (the API rejects fractional watts).
+  const calculatePowerTargetWattage = useCallback((): number | undefined => {
     if (selectedPowerTargetMode === powerTargetModes.default) {
       return defaultTarget;
     } else if (selectedPowerTargetMode === powerTargetModes.max) {
       return bounds?.max;
     } else if (selectedPowerTargetMode === powerTargetModes.custom && inputRef.current) {
-      return +inputRef.current.value * 1000;
+      return Math.round(+inputRef.current.value * 1000);
     } else {
       return defaultTarget;
     }
@@ -90,14 +91,14 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
       return;
     }
 
-    const powerTarget = calculatePowerTarget();
+    const powerTarget = calculatePowerTargetWattage();
     const miningTargetUpdate = {
       performance_mode: selectedPerformanceMode,
       power_target_watts: powerTarget,
     };
 
     onUpdateStart?.(miningTargetUpdate);
-  }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTarget, onUpdateStart]);
+  }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTargetWattage, onUpdateStart]);
 
   return (
     <Popover position={positions["bottom left"]} className="flex w-80 flex-col gap-4 !space-y-1 p-6">

@@ -63,7 +63,10 @@ const useMiningTarget = () => {
       authRetry({
         request: (header) => api.editMiningTarget(newTarget, header),
         onSuccess: (res) => setFromResponse(res),
-        onError: (error) => setError(error?.error?.message ?? "An error occurred"),
+        onError: (error) => {
+          setPending(false);
+          setError(error?.error?.message ?? "An error occurred");
+        },
       });
     },
     [api, authRetry, setPending, setError, setFromResponse],
