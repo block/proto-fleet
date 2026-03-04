@@ -6,10 +6,8 @@ public sealed class PluginValidator : IPluginValidator
 {
     private static readonly string[] RequiredPlugins =
     [
-        "proto-plugin-amd64",
-        "proto-plugin-arm64",
-        "antminer-plugin-amd64",
-        "antminer-plugin-arm64"
+        "proto-plugin",
+        "antminer-plugin"
     ];
 
     private readonly WslCommandExecutor _executor;
