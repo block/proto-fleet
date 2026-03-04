@@ -243,6 +243,7 @@ export const AUTH_ACTIONS = {
   reboot: "reboot",
   update: "update",
   miningTarget: "miningTarget",
+  locate: "locate",
 } as const;
 
 export type AuthAction = keyof typeof AUTH_ACTIONS | null;
