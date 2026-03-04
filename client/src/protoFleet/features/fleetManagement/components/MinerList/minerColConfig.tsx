@@ -24,7 +24,7 @@ const createMinerColConfig = ({
     component: (device: DeviceListItem) => (
       <MinerName deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
     ),
-    width: "min-w-20",
+    width: "min-w-56",
   },
   [minerCols.model]: {
     component: (device: DeviceListItem) => <MinerModel deviceIdentifier={device.deviceIdentifier} />,

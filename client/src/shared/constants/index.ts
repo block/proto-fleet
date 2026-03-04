@@ -1,3 +1,5 @@
+export const INACTIVE_PLACEHOLDER = "—";
+
 export const positions = {
   top: "top",
   "top left": "top left",

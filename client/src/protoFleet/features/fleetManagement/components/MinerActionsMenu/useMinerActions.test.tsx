@@ -33,6 +33,8 @@ const mockUpdateMinerPassword = vi.fn();
 const mockGetMinerModelGroups = vi.fn();
 const mockDownloadLogs = vi.fn();
 const mockGetCommandBatchLogBundle = vi.fn();
+const mockRenameSingleMiner = vi.fn();
+const mockUpdateMinerName = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -71,6 +73,12 @@ vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({
   }),
 }));
 
+vi.mock("@/protoFleet/api/useRenameMiners", () => ({
+  default: () => ({
+    renameSingleMiner: mockRenameSingleMiner,
+  }),
+}));
+
 const { mockUseFleetStore } = vi.hoisted(() => {
   const fn: any = vi.fn();
   fn.getState = vi.fn();
@@ -88,6 +96,7 @@ vi.mock("@/protoFleet/store", () => ({
   useStartBatchOperation: () => mockStartBatchOperation,
   useCompleteBatchOperation: () => mockCompleteBatchOperation,
   useRemoveDevicesFromBatch: () => mockRemoveDevicesFromBatch,
+  useUpdateMinerName: () => mockUpdateMinerName,
   useAuthErrors: () => ({
     handleAuthErrors: vi.fn(({ onError }) => onError?.()),
   }),
@@ -180,6 +189,7 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
+          enableRename: true,
         }),
       );
 
@@ -192,6 +202,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
       expect(actions).toContain(settingsActions.coolingMode);
+      expect(actions).toContain(settingsActions.rename);
     });
   });
 
@@ -2878,6 +2889,163 @@ describe("useMinerActions", () => {
         downloadLogsAction?.actionHandler();
       });
 
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+  });
+
+  describe("Rename miner action", () => {
+    it("should include rename in popoverActions with showGroupDivider when enableRename is true", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      const renameAction = result.current.popoverActions.find((a) => a.action === settingsActions.rename);
+
+      expect(renameAction).toBeDefined();
+      expect(renameAction?.showGroupDivider).toBe(true);
+    });
+
+    it("should not include rename in popoverActions when enableRename is false", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const renameAction = result.current.popoverActions.find((a) => a.action === settingsActions.rename);
+
+      expect(renameAction).toBeUndefined();
+    });
+
+    it("should open rename dialog when rename action handler is called", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      act(() => {
+        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+      });
+
+      expect(result.current.showRenameDialog).toBe(true);
+      expect(result.current.currentAction).toBe(settingsActions.rename);
+    });
+
+    it("should call renameSingleMiner with device identifier and name on confirm", async () => {
+      mockRenameSingleMiner.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.handleRenameConfirm("New Name");
+      });
+
+      expect(mockRenameSingleMiner).toHaveBeenCalledWith("device-1", "New Name");
+    });
+
+    it("should show 'Miner renamed' success toast after successful rename", async () => {
+      mockRenameSingleMiner.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.handleRenameConfirm("New Name");
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ message: "Miner renamed", status: "success" }),
+      );
+    });
+
+    it("should show error toast when rename fails", async () => {
+      mockRenameSingleMiner.mockRejectedValue(new Error("Network error"));
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.handleRenameConfirm("New Name");
+      });
+
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ message: "Failed to rename miner", status: "error" }),
+      );
+    });
+
+    it("should close rename dialog and reset currentAction on confirm", async () => {
+      mockRenameSingleMiner.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          enableRename: true,
+        }),
+      );
+
+      act(() => {
+        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+      });
+
+      expect(result.current.showRenameDialog).toBe(true);
+
+      await act(async () => {
+        await result.current.handleRenameConfirm("New Name");
+      });
+
+      expect(result.current.showRenameDialog).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("should close rename dialog and call onActionComplete on dismiss", () => {
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+          enableRename: true,
+        }),
+      );
+
+      act(() => {
+        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+      });
+
+      act(() => {
+        result.current.handleRenameDismiss();
+      });
+
+      expect(result.current.showRenameDialog).toBe(false);
+      expect(result.current.currentAction).toBeNull();
       expect(onActionComplete).toHaveBeenCalled();
     });
   });

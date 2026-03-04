@@ -58,6 +58,11 @@ const computeBasePosition = (
   return { top, left };
 };
 
+const clampPosition = (value: number, minValue: number, maxValue: number): number => {
+  const safeMaxValue = Math.max(minValue, maxValue);
+  return Math.min(Math.max(value, minValue), safeMaxValue);
+};
+
 type PopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
 
 const usePopoverPosition = (
@@ -192,6 +197,11 @@ const usePopoverPosition = (
         // Portal with fixed positioning: use viewport coordinates (no page offset)
         top = triggerRect.top + top;
         left = triggerRect.left + left;
+
+        // If both top and bottom would overflow, keep the popover pinned within viewport bounds.
+        // This prevents action rows from being rendered outside the tappable area on small screens.
+        top = clampPosition(top, minimalMargin, visibleViewport.height - popoverRect.height - minimalMargin);
+        left = clampPosition(left, minimalMargin, visibleViewport.width - popoverRect.width - minimalMargin);
       } else if (renderMode === "portal-scrolling") {
         // Portal with scrolling: use document coordinates (with page offset)
         top = triggerRect.top + top + initialPageOffset;

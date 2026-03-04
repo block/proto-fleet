@@ -40,12 +40,15 @@ const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
   };
 
   return (
-    <div className="flex w-full items-center justify-between gap-3">
-      <div>
-        <button type="button" className="cursor-pointer" onClick={handleNameClick}>
-          {name}
-        </button>
-      </div>
+    <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
+      <button
+        type="button"
+        className="min-w-0 cursor-pointer truncate text-left"
+        title={name}
+        onClick={handleNameClick}
+      >
+        {name}
+      </button>
       <div className="flex items-center gap-2">
         {needsAttention && !needsAuthentication && (
           <button

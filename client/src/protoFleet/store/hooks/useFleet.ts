@@ -191,6 +191,8 @@ export const useSetRefetchCallback = () => useFleetStore((state) => state.fleet.
 
 export const useUpdateMinerTimestamp = () => useFleetStore((state) => state.fleet.updateMinerTimestamp);
 
+export const useUpdateMinerName = () => useFleetStore((state) => state.fleet.updateMinerName);
+
 export const useSetLoading = () => useFleetStore((state) => state.fleet.setLoading);
 
 export const useSetCursor = () => useFleetStore((state) => state.fleet.setCursor);

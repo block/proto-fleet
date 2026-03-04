@@ -7,6 +7,7 @@ import { performanceActions, settingsActions, SupportedAction } from "./constant
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
+import RenameMinerDialog from "./RenameMinerDialog";
 import { type SecurityActionsProps } from "./useManageSecurityFlow";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
@@ -72,12 +73,16 @@ const SingleMinerActionsMenu = ({
     minerGroups,
     handleUpdateGroup,
     handleSecurityModalClose,
+    showRenameDialog,
+    handleRenameConfirm,
+    handleRenameDismiss,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
     selectionMode: "subset",
     onActionStart,
     onActionComplete,
+    enableRename: true,
   });
 
   const [isOpen, setIsOpen] = useState(false);
@@ -153,6 +158,10 @@ const SingleMinerActionsMenu = ({
         minerGroups={minerGroups}
         handleUpdateGroup={handleUpdateGroup}
         handleSecurityModalClose={handleSecurityModalClose}
+        deviceIdentifier={deviceIdentifier}
+        showRenameDialog={showRenameDialog}
+        handleRenameConfirm={handleRenameConfirm}
+        handleRenameDismiss={handleRenameDismiss}
       />
     </PopoverProvider>
   );
@@ -186,6 +195,10 @@ type SingleMinerActionsMenuInnerProps = {
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
   handleUnsupportedMinersDismiss: () => void;
+  deviceIdentifier: string;
+  showRenameDialog: boolean;
+  handleRenameConfirm: (name: string) => void;
+  handleRenameDismiss: () => void;
 } & SecurityActionsProps;
 
 const SingleMinerActionsMenuInner = ({
@@ -228,9 +241,12 @@ const SingleMinerActionsMenuInner = ({
   minerGroups,
   handleUpdateGroup,
   handleSecurityModalClose,
+  deviceIdentifier,
+  showRenameDialog,
+  handleRenameConfirm,
+  handleRenameDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
-
   useEffect(() => {
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
@@ -316,6 +332,13 @@ const SingleMinerActionsMenuInner = ({
         onSuccess={handleMiningPoolSuccess}
         onError={handleMiningPoolError}
         onDismiss={handleCancel}
+      />
+      <RenameMinerDialog
+        key={showRenameDialog ? deviceIdentifier : "closed"}
+        open={currentAction === settingsActions.rename && showRenameDialog}
+        deviceIdentifier={deviceIdentifier}
+        onConfirm={handleRenameConfirm}
+        onDismiss={handleRenameDismiss}
       />
       <ManagePowerModal
         open={currentAction === performanceActions.managePower && showManagePowerModal}

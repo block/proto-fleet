@@ -20,6 +20,7 @@ import DismissCircle from "./DismissCircle";
 import DismissCircleDark from "./DismissCircleDark";
 import DismissTiny from "./DismissTiny";
 import Download from "./Download";
+import Edit from "./Edit";
 import Efficiency from "./Efficiency";
 import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
@@ -100,6 +101,7 @@ export {
   DismissCircleDark,
   DismissTiny,
   Download,
+  Edit,
   Efficiency,
   Ellipsis,
   Eye,

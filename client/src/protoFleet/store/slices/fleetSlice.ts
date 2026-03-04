@@ -118,6 +118,7 @@ export interface FleetSlice {
   setRefetchCallback: (callback?: () => void) => void;
   setCurrentFilter: (filter: MinerListFilter | null) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
+  updateMinerName: (deviceId: string, name: string) => void;
   setLoading: (loading: boolean) => void;
   setCursor: (cursor: string) => void;
   notifyPairingCompleted: () => void;
@@ -264,6 +265,14 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
       const miner = state.fleet.miners[deviceId];
       if (miner) {
         miner.timestamp = timestamp;
+      }
+    }),
+
+  updateMinerName: (deviceId, name) =>
+    set((state) => {
+      const miner = state.fleet.miners[deviceId];
+      if (miner) {
+        miner.name = name;
       }
     }),
 

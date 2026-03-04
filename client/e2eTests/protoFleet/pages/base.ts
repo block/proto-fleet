@@ -58,8 +58,19 @@ export class BasePage {
   }
 
   async validateTextInToastGroup(text: string) {
-    const toast = this.page.getByTestId("grouped-toaster-header").getByText(text);
-    await expect(toast).toBeVisible();
+    const groupedHeaderMessage = this.page.getByTestId("grouped-toaster-header").getByText(text).first();
+    const groupedBodyMessage = this.page.getByTestId("toaster-container").getByTestId("toast").getByText(text).first();
+
+    await expect
+      .poll(
+        async () =>
+          (await groupedHeaderMessage.isVisible().catch(() => false)) ||
+          (await groupedBodyMessage.isVisible().catch(() => false)),
+        {
+          timeout: DEFAULT_TIMEOUT,
+        },
+      )
+      .toBe(true);
   }
 
   async dismissToast() {

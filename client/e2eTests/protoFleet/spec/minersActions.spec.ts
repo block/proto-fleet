@@ -2,6 +2,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
+import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -465,6 +466,45 @@ test.describe("Miners", () => {
       test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
       test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(3);
       test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("RENAME a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    const requestPromise = page.waitForRequest(/RenameMiners/);
+    const responsePromise = page.waitForResponse(/RenameMiners/);
+
+    const newName = generateRandomText("Renamed Miner E2E");
+    let minerIp: string;
+
+    await test.step("Select first miner and rename it", async () => {
+      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickRenameButton();
+      await minersPage.fillRenameInput(newName);
+      await minersPage.clickRenameSave();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateTextInToastGroup("Miner renamed");
+    });
+
+    await test.step("Validate 'RenameMiners' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+
+    await test.step("Validate name updated in miner list", async () => {
+      await minersPage.validateMinerName(minerIp, newName);
     });
   });
 

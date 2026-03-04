@@ -41,6 +41,21 @@ describe("MinerName", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
   });
 
+  it("renders miner name in a button with title attribute for tooltip", () => {
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+
+    const nameButton = screen.getByRole("button", { name: minerName });
+    expect(nameButton).toHaveAttribute("title", minerName);
+  });
+
+  it("falls back to device identifier when no custom name is set", () => {
+    vi.mocked(storeModule.useMinerName).mockReturnValue("");
+
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: deviceIdentifier })).toBeInTheDocument();
+  });
+
   it("hides alert icon when authentication is required", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
     vi.mocked(storeModule.useMiner).mockReturnValue({

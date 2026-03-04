@@ -44,10 +44,9 @@ Duplicate names are allowed — the UI warns but does not block.
 - Single and bulk rename flows are distinct UIs — the options component is not shared.
 - All flows must be usable on mobile screen sizes. The bulk rename modal's two-panel layout stacks vertically on mobile — name properties above, preview below.
 - The name preview area is shared but renders differently per context:
-  - **Single rename dialog**: shows current name only on open; updates to `current name → new name` with a debounce once the user starts typing
-  - **Bulk rename side panel**: `current name → new name` rows (first 3, "...", last 3); updates with a debounce on every property configuration change
-  - **Property options modal** (per-property configuration within bulk rename): new name only; updates with a debounce
-  - All preview updates use the shared `debounce` utility (`shared/utils/utility.ts`, default 500ms delay).
+  - **Single rename dialog**: shows current name only on open; updates to `current name → new name` immediately as the user types.
+  - **Bulk rename side panel**: `current name → new name` rows (first 3, "...", last 3); updates on every property configuration change.
+  - **Property options modal** (per-property configuration within bulk rename): new name only; updates on every property configuration change.
 - Bulk flow persists the user's last name configuration across sessions and restores it on reopen; falls back to defaults on first use (all properties deselected, separator set to dash). The following are persisted: property order, which properties are enabled, and the property separator. Stored under the `proto-ui-preferences` localStorage key via Zustand `persist` middleware in `useFleetStore`.
 - If no uniqueness-guaranteeing property is selected in the bulk rename flow, a warning dialog is shown on submit. This is evaluated client-side and does not block submission.
 
@@ -56,7 +55,7 @@ Duplicate names are allowed — the UI warns but does not block.
 
 ### Single Miner Rename UI
 
-A free-text input field pre-populated with the miner's current display name. Below the field, a preview area initially shows the current name only. Once the user begins typing, the preview updates to `current name → new name` (debounced). Submitted via a "Save" button.
+A free-text input field pre-populated with the miner's current display name. Below the field, a preview area initially shows the current name only. Once the user begins typing, the preview updates to `current name → new name` immediately. Submitted via a "Save" button.
 
 The submitted value maps to a `StringProperty` in `MinerNameConfig` — the server API is the same as bulk rename.
 
@@ -111,7 +110,7 @@ If a preview miner has no default pool configured, the worker name segment is om
 
 1. User opens miner action menu → selects "Rename".
 2. Dialog opens with a text field pre-populated with the miner's current display name and a preview area below it showing the current name.
-3. User edits the name → preview updates with a debounce.
+3. User edits the name → preview updates immediately.
 4. On save: commit rename API call. UI reflects new name.
 
 ### Bulk Rename
@@ -124,8 +123,8 @@ If a preview miner has no default pool configured, the worker name segment is om
 ### Input Validation
 
 - Trim whitespace before sending.
-- Names exceeding 100 characters should be rejected client-side with an inline error before submission (matching the server-side limit).
-- If the resulting name would be blank — empty text field (single rename) or no properties selected / all selected properties resolve to empty strings (bulk rename) — show a confirmation dialog before proceeding:
+- The name input enforces a 100-character limit via `maxLength`, preventing input beyond that length (matching the server-side limit).
+- If the user submits without making a meaningful change — blank text field after trim (single rename), submitted name equals the current name (single rename), or no properties selected / all selected properties resolve to empty strings (bulk rename) — show a confirmation dialog before proceeding:
   - **Title**: "You haven't made any changes"
   - **Body**: "You can continue to retain your existing miner names, or keep editing. Do you want to continue anyway?"
   - **Actions**: "No, keep editing" (returns to editing) / "Yes, continue" (exits the rename flow without making any changes)
@@ -159,7 +158,7 @@ Idle
   → Dialog open (text field pre-populated with current name)
     → User edits name
       → Save pressed
-        → Empty name warning shown (if text field is blank after trim)
+        → No-changes warning shown (if text field is blank after trim, or name equals current name)
             → "No, keep editing" → Back to editing
             → "Yes, continue" → Idle (no changes made)
         → Commit in progress → Success / Error
@@ -188,7 +187,6 @@ Unit tests for the single rename text field, the options component (property sel
 
 ### Known Gaps
 
-- End-to-end test covering the full rename flow including the empty name warning and uniqueness warning.
 - Mobile layout testing for all rename flows.
 
 ## Verification
@@ -212,3 +210,5 @@ Unit tests for the single rename text field, the options component (property sel
 | Date | Author | Change | Reason |
 |------|--------|--------|--------|
 | 2026-02-26 | Negar | Initial draft | Initial feature development |
+| 2026-03-02 | Negar | Extend no-changes warning to cover unchanged name | Saving without modifying the name should also show the warning, not just blank submissions |
+| 2026-03-03 | Negar | Remove debounce from preview | Preview updates are local state changes — no debounce needed |

@@ -1,4 +1,5 @@
 import { ColTitles } from "@/shared/components/List/types";
+export { INACTIVE_PLACEHOLDER } from "@/shared/constants";
 
 export const MINERS_PAGE_SIZE = 50;
 
@@ -52,6 +53,3 @@ export const componentIssues = {
   hashBoards: "hash-boards",
   psu: "psu",
 };
-
-/** Placeholder text displayed when a miner list value is unavailable */
-export const INACTIVE_PLACEHOLDER = "—";

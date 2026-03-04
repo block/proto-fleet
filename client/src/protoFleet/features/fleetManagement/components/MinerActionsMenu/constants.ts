@@ -23,6 +23,7 @@ export type PerformanceAction = (typeof performanceActions)[keyof typeof perform
 export const settingsActions = {
   miningPool: "mining-pool",
   coolingMode: "cooling-mode",
+  rename: "rename",
   security: "security",
 } as const;
 
@@ -51,6 +52,7 @@ export const loadingMessages: Record<string, string> = {
   [performanceActions.curtail]: "Curtailing miners",
   [settingsActions.miningPool]: "Assigning pools",
   [settingsActions.coolingMode]: "Setting cooling mode for",
+  [settingsActions.rename]: "Renaming miner",
   [settingsActions.security]: "Updating security for",
 };
 
@@ -79,5 +81,6 @@ export const successMessages: Record<string, string> = {
   [performanceActions.curtail]: "Miners curtailed",
   [settingsActions.miningPool]: "Assigned pools to",
   [settingsActions.coolingMode]: "Updated cooling mode for",
+  [settingsActions.rename]: "Miner renamed",
   [settingsActions.security]: "Updated security for",
 };

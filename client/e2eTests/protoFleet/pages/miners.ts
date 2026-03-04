@@ -172,6 +172,24 @@ export class MinersPage extends BasePage {
     await this.page.getByRole("button", { name: "Update cooling mode" }).click();
   }
 
+  async clickRenameButton() {
+    await this.page.getByTestId("rename-popover-button").click();
+  }
+
+  async fillRenameInput(name: string) {
+    const input = this.page.getByTestId("rename-miner-input");
+    await input.fill(name);
+  }
+
+  async clickRenameSave() {
+    await this.clickIn("Save", "modal");
+  }
+
+  async validateMinerName(ipAddress: string, expectedName: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await expect(minerRow.getByTestId("name")).toContainText(expectedName);
+  }
+
   async clickDeleteButton() {
     await this.page.getByTestId("delete-popover-button").click();
   }

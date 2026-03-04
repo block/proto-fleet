@@ -74,6 +74,7 @@ export {
   useSetDeviceStatusCounts,
   useSetRefetchCallback,
   useUpdateMinerTimestamp,
+  useUpdateMinerName,
   useSetLoading,
   useSetCursor,
   useLastPairingCompletedAt,

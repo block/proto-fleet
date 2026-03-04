@@ -44,6 +44,7 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useMinerCoolingMode from "@/protoFleet/api/useMinerCoolingMode";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
+import useRenameMiners from "@/protoFleet/api/useRenameMiners";
 import {
   BulkAction,
   type UnsupportedMinersInfo,
@@ -55,10 +56,12 @@ import {
   useFleetStore,
   useRemoveDevicesFromBatch,
   useStartBatchOperation,
+  useUpdateMinerName,
 } from "@/protoFleet/store";
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
+  Edit,
   Fan,
   LEDIndicator,
   Lock,
@@ -88,6 +91,8 @@ interface UseMinerActionsParams {
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
+  /** Set to true only in SingleMinerActionsMenu — bulk menus don't render RenameMinerDialog */
+  enableRename?: boolean;
 }
 
 /**
@@ -229,6 +234,7 @@ export const useMinerActions = ({
   currentFilter,
   onActionStart,
   onActionComplete,
+  enableRename = false,
 }: UseMinerActionsParams) => {
   const {
     startMining,
@@ -248,10 +254,13 @@ export const useMinerActions = ({
   const startBatchOperation = useStartBatchOperation();
   const completeBatchOperation = useCompleteBatchOperation();
   const removeDevicesFromBatch = useRemoveDevicesFromBatch();
+  const updateMinerName = useUpdateMinerName();
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
+  const { renameSingleMiner } = useRenameMiners();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
   const [filteredSelectorForPowerModal, setFilteredSelectorForPowerModal] = useState<DeviceSelector | undefined>();
   const [showCoolingModeModal, setShowCoolingModeModal] = useState(false);
@@ -636,6 +645,39 @@ export const useMinerActions = ({
     setCoolingModeFilteredSelector(undefined);
     setCoolingModeFilteredDeviceIds(undefined);
     setCurrentCoolingMode(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const handleRenameConfirm = useCallback(
+    async (name: string) => {
+      const deviceIdentifier = selectedMiners[0]?.deviceIdentifier;
+      if (!deviceIdentifier) return;
+
+      setShowRenameDialog(false);
+      setCurrentAction(null);
+
+      const id = pushToast({
+        message: loadingMessages[settingsActions.rename],
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+      });
+
+      try {
+        await renameSingleMiner(deviceIdentifier, name);
+        updateMinerName(deviceIdentifier, name);
+        updateToast(id, { message: successMessages[settingsActions.rename], status: TOAST_STATUSES.success });
+      } catch {
+        updateToast(id, { message: "Failed to rename miner", status: TOAST_STATUSES.error });
+      } finally {
+        onActionComplete?.();
+      }
+    },
+    [selectedMiners, renameSingleMiner, updateMinerName, onActionComplete],
+  );
+
+  const handleRenameDismiss = useCallback(() => {
+    setShowRenameDialog(false);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1180,9 +1222,25 @@ export const useMinerActions = ({
         requiresConfirmation: false,
         showGroupDivider: true, // End of performance/settings group
       },
-      // TODO: Implement Rename action
+      // Rename is single-miner only; not available in bulk actions yet
+      ...(enableRename
+        ? [
+            {
+              action: settingsActions.rename,
+              title: "Rename",
+              icon: <Edit />,
+              actionHandler: () => {
+                setCurrentAction(settingsActions.rename);
+                setShowRenameDialog(true);
+                onActionStart?.();
+              },
+              requiresConfirmation: false,
+              showGroupDivider: true,
+            } as BulkAction<SupportedAction>,
+          ]
+        : []),
       // TODO: Implement Add to group action
-      // TODO: Implement Add to rack action - when implemented, add showGroupDivider: true to end organization group
+      // TODO: Implement Add to rack action - when implemented, add showGroupDivider: true to add-to-rack (last in organization group)
       // Security and dangerous actions (same group)
       {
         action: settingsActions.security,
@@ -1230,6 +1288,7 @@ export const useMinerActions = ({
     deleteConfirmationSubtitle,
     startManageSecurity,
     startAuthentication,
+    enableRename,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
@@ -1274,5 +1333,8 @@ export const useMinerActions = ({
     minerGroups,
     handleUpdateGroup,
     handleSecurityModalClose,
+    showRenameDialog,
+    handleRenameConfirm,
+    handleRenameDismiss,
   };
 };
