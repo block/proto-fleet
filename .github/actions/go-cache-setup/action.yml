@@ -10,7 +10,7 @@ runs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
         restore-keys: |
-          ${{ runner.os }}-go-workspace-
-          ${{ runner.os }}-go-
+          ${{ runner.os }}-${{ runner.arch }}-go-workspace-
+          ${{ runner.os }}-${{ runner.arch }}-go-
