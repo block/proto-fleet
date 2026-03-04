@@ -170,7 +170,7 @@ extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
 # Validate plugin binaries exist
 echo "🔌 Validating plugin binaries..."
 PLUGIN_DIR="server"
-REQUIRED_PLUGINS=("proto-plugin" "antminer-plugin")
+REQUIRED_PLUGINS=("proto-plugin" "antminer-plugin" "pyasic-plugin")
 MISSING_PLUGINS=()
 
 for plugin in "${REQUIRED_PLUGINS[@]}"; do
@@ -186,8 +186,10 @@ if [ ${#MISSING_PLUGINS[@]} -ne 0 ]; then
   exit 1
 fi
 
-# Set executable permissions on plugin binaries
-chmod +x ${PLUGIN_DIR}/proto-plugin ${PLUGIN_DIR}/antminer-plugin ${PLUGIN_DIR}/pyasic-plugin
+# Set executable permissions on validated plugin binaries
+for plugin in "${REQUIRED_PLUGINS[@]}"; do
+  chmod +x "${PLUGIN_DIR}/${plugin}"
+done
 echo "✅ Plugin binaries validated"
 
 echo "🔧 Running deployment script..."
