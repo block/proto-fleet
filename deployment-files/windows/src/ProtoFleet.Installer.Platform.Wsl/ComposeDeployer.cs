@@ -49,7 +49,7 @@ public sealed class ComposeDeployer : IComposeDeployer
             return InstallerStepResult.Failed($"Unsupported architecture reported by uname: {archResult.StandardOutput.Trim()}");
         }
 
-        var tsdbImagePath = $"{context.DeploymentRootWslPath}/images/timescaledb-{arch}.tar.gz";
+        var tsdbImagePath = $"{context.DeploymentRootWslPath}/images/timescaledb.tar.gz";
         _logSink.Info($"Loading pre-built TimescaleDB image for {arch}...");
         var loadResult = await _executor.RunInDistroAsync(
             context.SelectedDistro,
