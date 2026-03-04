@@ -34,6 +34,13 @@ _DRIVER_NAME = "pyasic"
 _API_VERSION = "v1"
 _DEFAULT_PORT = 80
 
+# Ports that pyasic actually probes during detection.
+# Socket-based miners (WhatsMiner, Antminer CGMiner API) use 4028;
+# web-based miners (Auradine, Goldshell, etc.) use 80 or 443.
+# If nmap reports an open port outside this set, we must skip it to
+# avoid claiming the same device twice on different ports.
+_DISCOVERY_PORTS = {80, 443, 4028}
+
 GetMinerFunc = Callable[[str], Coroutine[Any, Any, Any]]
 
 
@@ -88,6 +95,9 @@ class PyAsicDriver:
         return identifier, dict(STATIC_BASE_CAPABILITIES)
 
     async def discover_device(self, ctx: grpc.ServicerContext, ip_address: str, port: int) -> DeviceInfo:
+        if port not in _DISCOVERY_PORTS:
+            raise DeviceNotFoundError(ip_address)
+
         miner = await self._probe_miner(ip_address)
 
         make = getattr(miner, "make", None)

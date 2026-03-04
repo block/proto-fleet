@@ -114,6 +114,28 @@ class TestDiscoverDevice:
         with pytest.raises(DeviceUnavailableError):
             await driver.discover_device(mock_ctx, "192.168.1.100", 80)
 
+    async def test_discover_unsupported_port_rejected(self, mock_ctx: MagicMock) -> None:
+        """Port 2121 is not used by pyasic, so discovery should fail immediately."""
+        # Arrange
+        driver = _make_driver()
+
+        # Act & Assert
+        with pytest.raises(DeviceNotFoundError):
+            await driver.discover_device(mock_ctx, "192.168.1.100", 2121)
+
+    async def test_discover_on_socket_port(self, mock_ctx: MagicMock) -> None:
+        """Port 4028 is a valid pyasic socket detection port."""
+        # Arrange
+        miner = make_mock_miner(make="WhatsMiner", model="M60S")
+        driver = _make_driver(get_miner_fn=AsyncMock(return_value=miner))
+
+        # Act
+        info = await driver.discover_device(mock_ctx, "192.168.1.100", 4028)
+
+        # Assert
+        assert info.manufacturer == "WhatsMiner"
+        assert info.port == 4028
+
     async def test_discover_multi_family(self, mock_ctx: MagicMock) -> None:
         """Both WhatsMiner and Antminer enabled — Antminer should be accepted."""
         # Arrange
