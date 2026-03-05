@@ -115,7 +115,14 @@ else
   echo "🔖 Latest version is ${VERSION}"
 fi
 
-TAR_NAME="proto-fleet-${VERSION}.tar.gz"
+# Detect architecture
+case "$(uname -m)" in
+  x86_64|amd64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) echo "❌ Unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+
+TAR_NAME="proto-fleet-${VERSION}-${ARCH}.tar.gz"
 URL="${BUCKET_URL}/${VERSION}/${TAR_NAME}"
 
 echo "🛰  Fetching proto-fleet ${VERSION} from ${URL}"
@@ -163,7 +170,7 @@ extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
 # Validate plugin binaries exist
 echo "🔌 Validating plugin binaries..."
 PLUGIN_DIR="server"
-REQUIRED_PLUGINS=("proto-plugin-amd64" "proto-plugin-arm64" "antminer-plugin-amd64" "antminer-plugin-arm64")
+REQUIRED_PLUGINS=("proto-plugin" "antminer-plugin" "pyasic-plugin")
 MISSING_PLUGINS=()
 
 for plugin in "${REQUIRED_PLUGINS[@]}"; do
@@ -179,8 +186,10 @@ if [ ${#MISSING_PLUGINS[@]} -ne 0 ]; then
   exit 1
 fi
 
-# Set executable permissions on plugin binaries
-chmod +x ${PLUGIN_DIR}/proto-plugin-* ${PLUGIN_DIR}/antminer-plugin-*
+# Set executable permissions on validated plugin binaries
+for plugin in "${REQUIRED_PLUGINS[@]}"; do
+  chmod +x "${PLUGIN_DIR}/${plugin}"
+done
 echo "✅ Plugin binaries validated"
 
 echo "🔧 Running deployment script..."

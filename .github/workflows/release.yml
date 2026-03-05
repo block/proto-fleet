@@ -73,7 +73,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-proto-fleet-server:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -84,72 +91,61 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      - name: Build Golang server
+      - name: Build Golang server (${{ matrix.arch }})
         working-directory: ./server
         run: |
           go mod download
-          GOOS=linux GOARCH=amd64 go build -v -o fleetd-amd64 ./cmd/fleetd
-          GOOS=linux GOARCH=arm64 go build -v -o fleetd-arm64 ./cmd/fleetd
+          go build -v -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           echo "version: ${{ github.event.release.tag_name }}" > version.txt
           echo "is_prerelease: ${{ github.event.release.prerelease }}" >> version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
 
-      - name: Build Go plugin binaries
+      - name: Build Go plugin binaries (${{ matrix.arch }})
         run: |
           echo "Syncing Go workspace..."
           go work sync
-          echo "Building Go plugins for multiple architectures..."
-          GOOS=linux GOARCH=amd64 go build -o server/proto-plugin-amd64 ./plugin/proto
-          GOOS=linux GOARCH=amd64 go build -o server/antminer-plugin-amd64 ./plugin/antminer
-          GOOS=linux GOARCH=arm64 go build -o server/proto-plugin-arm64 ./plugin/proto
-          GOOS=linux GOARCH=arm64 go build -o server/antminer-plugin-arm64 ./plugin/antminer
+          echo "Building Go plugins for ${{ matrix.arch }}..."
+          go build -o server/proto-plugin-${{ matrix.arch }} ./plugin/proto
+          go build -o server/antminer-plugin-${{ matrix.arch }} ./plugin/antminer
           chmod +x server/proto-plugin-* server/antminer-plugin-*
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Set up QEMU for multi-arch builds
-        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
-
-      - name: Build pyasic plugin binaries
+      - name: Build pyasic plugin binary (${{ matrix.arch }})
         run: |
-          for arch in amd64 arm64; do
-            docker buildx build \
-              --platform "linux/${arch}" \
-              --file plugin/pyasic/Dockerfile.build \
-              --output "type=local,dest=/tmp/pyasic-${arch}" \
-              .
-            cp "/tmp/pyasic-${arch}/pyasic-plugin" "server/pyasic-plugin-${arch}"
-            rm -rf "/tmp/pyasic-${arch}"
-          done
+          docker buildx build \
+            --file plugin/pyasic/Dockerfile.build \
+            --output "type=local,dest=/tmp/pyasic" \
+            .
+          cp "/tmp/pyasic/pyasic-plugin" "server/pyasic-plugin-${{ matrix.arch }}"
           cp plugin/pyasic/config.yaml server/pyasic-config.yaml
           chmod +x server/pyasic-plugin-*
-          echo "All plugins built successfully"
+          echo "pyasic plugin built successfully for ${{ matrix.arch }}"
 
-      - name: Package server binaries
+      - name: Package server binaries (${{ matrix.arch }})
         working-directory: ./server
         run: |
-          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz \
-            fleetd-amd64 fleetd-arm64 \
-            proto-plugin-amd64 proto-plugin-arm64 \
-            antminer-plugin-amd64 antminer-plugin-arm64 \
-            pyasic-plugin-amd64 pyasic-plugin-arm64 \
+          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz \
+            fleetd-${{ matrix.arch }} \
+            proto-plugin-${{ matrix.arch }} \
+            antminer-plugin-${{ matrix.arch }} \
+            pyasic-plugin-${{ matrix.arch }} \
             pyasic-config.yaml \
             version.txt
 
-      # Upload to GitHub Actions artifacts
       - name: Upload server artifact for job use
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: proto-fleet-server-artifact
-          path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
+          name: proto-fleet-server-artifact-${{ matrix.arch }}
+          path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
       - name: Upload ProtoFleet server artifact
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
+          files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -327,6 +323,9 @@ jobs:
   build-proto-fleet:
     runs-on: ubuntu-latest
     needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer, build-timescaledb-image]
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -336,11 +335,11 @@ jobs:
           mkdir -p deployment/server
           mkdir -p deployment/client
 
-      - name: Download server artifact
+      - name: Download server artifact (${{ matrix.arch }})
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
-          name: proto-fleet-server-artifact
-          path: /tmp
+          name: proto-fleet-server-artifact-${{ matrix.arch }}
+          path: /tmp/server-artifacts
 
       - name: Download client artifact
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -349,40 +348,41 @@ jobs:
           path: /tmp
 
       - name: Download Windows installer artifact
+        if: matrix.arch == 'amd64'
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: proto-fleet-windows-installer
           path: /tmp/windows-installer
 
-      - name: Download TimescaleDB image artifacts
+      - name: Download TimescaleDB image artifact (${{ matrix.arch }})
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
-          pattern: proto-fleet-timescaledb-*
+          name: proto-fleet-timescaledb-${{ matrix.arch }}
           path: /tmp/timescaledb-images
-          merge-multiple: true
 
       - name: Extract artifacts
         run: |
-          tar -xzf /tmp/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz -C deployment/server
+          # Extract server artifacts and rename to generic names (no arch suffix)
+          tar -xzf /tmp/server-artifacts/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz -C deployment/server
+          cd deployment/server
+          mv fleetd-${{ matrix.arch }} fleetd
+          mv proto-plugin-${{ matrix.arch }} proto-plugin
+          mv antminer-plugin-${{ matrix.arch }} antminer-plugin
+          mv pyasic-plugin-${{ matrix.arch }} pyasic-plugin
+          cd ../..
+
+          # Extract client
           mkdir -p /tmp/client
           tar -xzf /tmp/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz -C /tmp/client
           mkdir -p deployment/client/protoFleet
           cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
-          mkdir -p deployment/install
-          installer_path="$(find /tmp/windows-installer -type f -name installer.exe | head -n 1)"
-          uninstaller_path="$(find /tmp/windows-installer -type f -name uninstall.exe | head -n 1)"
-          if [ -z "$installer_path" ]; then
-            echo "installer.exe not found in downloaded windows artifact"
-            find /tmp/windows-installer -maxdepth 8 -type f | sort
-            exit 1
+
+          # Bundle Windows installer in amd64 tarball only
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            mkdir -p deployment/install
+            cp /tmp/windows-installer/installer.exe deployment/install/installer.exe
+            cp /tmp/windows-installer/uninstall.exe deployment/install/uninstall.exe
           fi
-          if [ -z "$uninstaller_path" ]; then
-            echo "uninstall.exe not found in downloaded windows artifact"
-            find /tmp/windows-installer -maxdepth 8 -type f | sort
-            exit 1
-          fi
-          cp "$installer_path" deployment/install/installer.exe
-          cp "$uninstaller_path" deployment/install/uninstall.exe
 
       - name: Copy deployment configuration files
         run: |
@@ -394,15 +394,12 @@ jobs:
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
           cp deployment-files/uninstall.sh deployment/
-          cp deployment-files/migrate-data.sh deployment/
-          cp deployment-files/rollback-migration.sh deployment/
           cp -r deployment-files/scripts deployment/
-          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/migrate-data.sh deployment/rollback-migration.sh deployment/scripts/*.sh
+          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
 
-          # Pre-built TimescaleDB Docker images (avoids building from source on target)
+          # Pre-built TimescaleDB Docker image for this architecture
           mkdir -p deployment/images
-          cp /tmp/timescaledb-images/timescaledb-amd64.tar.gz deployment/images/
-          cp /tmp/timescaledb-images/timescaledb-arm64.tar.gz deployment/images/
+          cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
 
       - name: Create version file
         run: |
@@ -410,22 +407,35 @@ jobs:
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> deployment/version.txt
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
 
-      - name: Package full ProtoFleet deployment bundle
+      - name: Package ProtoFleet deployment bundle (${{ matrix.arch }})
         run: |
-          tar -czf proto-fleet-${{ github.event.release.tag_name }}.tar.gz deployment
+          tar -czf proto-fleet-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz deployment
 
-      # Upload to GitHub Actions artifacts for deployment job
       - name: Upload deployment bundle artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: proto-fleet-deployment-bundle
-          path: proto-fleet-${{ github.event.release.tag_name }}.tar.gz
+          name: proto-fleet-deployment-bundle-${{ matrix.arch }}
+          path: proto-fleet-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
-      - name: Upload full ProtoFleet deployment bundle
+  publish-proto-fleet:
+    runs-on: ubuntu-latest
+    needs: [build-proto-fleet]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download all deployment bundle artifacts
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: proto-fleet-deployment-bundle-*
+          path: /tmp/bundles
+          merge-multiple: true
+
+      - name: Upload deployment bundles to GitHub release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          files: proto-fleet-${{ github.event.release.tag_name }}.tar.gz
+          files: /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -434,17 +444,43 @@ jobs:
         with:
           aws-region: "us-east-1"
           role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
-      - name: Upload ProtoFleet bundle to S3
+
+      - name: Upload deployment bundles to S3
         run: |
-          aws s3 cp \
-            proto-fleet-${{ github.event.release.tag_name }}.tar.gz \
+          for bundle in /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz; do
+            aws s3 cp "$bundle" \
               s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
               --acl public-read
+          done
+
       - name: Upload install script to S3
         run: |
           aws s3 cp \
             deployment-files/install.sh \
             s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/install.sh \
+            --acl public-read
+
+  finalize-release:
+    runs-on: ubuntu-latest
+    needs: [publish-proto-fleet]
+    steps:
+      - name: Create version file
+        run: |
+          echo "version: ${{ github.event.release.tag_name }}" > version.txt
+          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
+          echo "commit: ${{ github.sha }}" >> version.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          aws-region: "us-east-1"
+          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
+
+      - name: Upload version file to S3
+        run: |
+          aws s3 cp \
+            version.txt \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/version.txt \
             --acl public-read
 
       - name: Sync release to latest folder
@@ -461,15 +497,6 @@ jobs:
         if: github.event.release.prerelease == true
         run: echo "Skipping sync to latest folder - this is a pre-release"
 
-      - name: Upload version file to latest folder
-        if: github.event.release.prerelease == false
-        run: |
-          echo "Uploading version file to latest folder"
-          aws s3 cp \
-            deployment/version.txt \
-            s3://proto-fleet/releases/fleet/latest/version.txt \
-            --acl public-read
-
   deploy-to-testing-env:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-mar']
     needs: [build-proto-fleet]
@@ -482,7 +509,7 @@ jobs:
       - name: Deploy ProtoFleet to pi-mar (testing environment)
         uses: ./.github/actions/deploy-protofleet
         with:
-          artifact_name: proto-fleet-deployment-bundle
+          artifact_name: proto-fleet-deployment-bundle-arm64
           install_dir: ${{ vars.INSTALL_DIR }}
 
   deploy-to-all-envs:
@@ -501,5 +528,5 @@ jobs:
       - name: Deploy ProtoFleet to ${{ matrix.environment }}
         uses: ./.github/actions/deploy-protofleet
         with:
-          artifact_name: proto-fleet-deployment-bundle
+          artifact_name: proto-fleet-deployment-bundle-arm64
           install_dir: ${{ vars.INSTALL_DIR }}

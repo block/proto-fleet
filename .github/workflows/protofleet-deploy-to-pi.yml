@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   build-proto-fleet-server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -36,57 +36,47 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      - name: Build Golang server
+      - name: Build Golang server (arm64)
         working-directory: ./server
         run: |
           go mod download
-          GOOS=linux GOARCH=amd64 go build -v -o fleetd-amd64 ./cmd/fleetd
-          GOOS=linux GOARCH=arm64 go build -v -o fleetd-arm64 ./cmd/fleetd
+          go build -v -o fleetd ./cmd/fleetd
           echo "version: dev-${{ github.sha }}" > version.txt
           echo "branch: ${{ inputs.branch }}" >> version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
 
-      - name: Build Go plugin binaries
+      - name: Build Go plugin binaries (arm64)
         run: |
           echo "Syncing Go workspace..."
           go work sync
-          echo "Building Go plugins for multiple architectures..."
-          GOOS=linux GOARCH=amd64 go build -o server/proto-plugin-amd64 ./plugin/proto
-          GOOS=linux GOARCH=amd64 go build -o server/antminer-plugin-amd64 ./plugin/antminer
-          GOOS=linux GOARCH=arm64 go build -o server/proto-plugin-arm64 ./plugin/proto
-          GOOS=linux GOARCH=arm64 go build -o server/antminer-plugin-arm64 ./plugin/antminer
-          chmod +x server/proto-plugin-* server/antminer-plugin-*
+          echo "Building Go plugins for arm64..."
+          go build -o server/proto-plugin ./plugin/proto
+          go build -o server/antminer-plugin ./plugin/antminer
+          chmod +x server/proto-plugin server/antminer-plugin
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Set up QEMU for multi-arch builds
-        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
-
-      - name: Build pyasic plugin binaries
+      - name: Build pyasic plugin binary (arm64)
         run: |
-          for arch in amd64 arm64; do
-            docker buildx build \
-              --platform "linux/${arch}" \
-              --file plugin/pyasic/Dockerfile.build \
-              --output "type=local,dest=/tmp/pyasic-${arch}" \
-              .
-            cp "/tmp/pyasic-${arch}/pyasic-plugin" "server/pyasic-plugin-${arch}"
-            rm -rf "/tmp/pyasic-${arch}"
-          done
+          docker buildx build \
+            --file plugin/pyasic/Dockerfile.build \
+            --output "type=local,dest=/tmp/pyasic" \
+            .
+          cp "/tmp/pyasic/pyasic-plugin" "server/pyasic-plugin"
           cp plugin/pyasic/config.yaml server/pyasic-config.yaml
-          chmod +x server/pyasic-plugin-*
-          echo "All plugins built successfully"
+          chmod +x server/pyasic-plugin
+          echo "pyasic plugin built successfully for arm64"
 
-      - name: Package server binaries
+      - name: Package server binaries (arm64)
         working-directory: ./server
         run: |
           tar -czf proto-fleet-server-dev.tar.gz \
-            fleetd-amd64 fleetd-arm64 \
-            proto-plugin-amd64 proto-plugin-arm64 \
-            antminer-plugin-amd64 antminer-plugin-arm64 \
-            pyasic-plugin-amd64 pyasic-plugin-arm64 \
+            fleetd \
+            proto-plugin \
+            antminer-plugin \
+            pyasic-plugin \
             pyasic-config.yaml \
             version.txt
 

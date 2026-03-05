@@ -561,19 +561,10 @@ fi
 echo "Pulling latest Docker images..."
 docker compose -f "$COMPOSE_FILE" pull
 
-# Detect system architecture and set appropriate build target
-if [ "$(uname -m)" == "arm64" ] || [ "$(uname -m)" == "aarch64" ]; then
-    export TARGETARCH="arm64"
-    echo "Detected ARM64 architecture, setting TARGETARCH=arm64"
-else
-    export TARGETARCH="amd64"
-    echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
-fi
-
 # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
-TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb-${TARGETARCH}.tar.gz"
+TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 if [ -f "$TSDB_IMAGE" ]; then
-    echo "Loading pre-built TimescaleDB image for ${TARGETARCH}..."
+    echo "Loading pre-built TimescaleDB image..."
     if gunzip -c "$TSDB_IMAGE" | docker load; then
         echo "TimescaleDB image loaded successfully."
     else
