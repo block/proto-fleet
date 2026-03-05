@@ -111,6 +111,7 @@ def make_mock_miner(
 
     miner.reboot = AsyncMock(return_value=True)
     miner.fault_light_on = AsyncMock(return_value=True)
+    miner.fault_light_off = AsyncMock(return_value=True)
     miner.stop_mining = AsyncMock(return_value=True)
     miner.resume_mining = AsyncMock(return_value=True)
     miner.send_config = AsyncMock(return_value=None)

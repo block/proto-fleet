@@ -77,7 +77,10 @@ MAKE_TO_FAMILY: dict[str, str] = {v: k for k, v in FAMILY_TO_MAKE.items()}
 
 # Default credentials per manufacturer make string
 DEFAULT_CREDENTIALS: dict[str, list[UsernamePassword]] = {
-    "WhatsMiner": [UsernamePassword(username="admin", password="admin")],
+    "WhatsMiner": [
+        UsernamePassword(username="admin", password="admin"),
+        UsernamePassword(username="admin", password="super"),
+    ],
     "AntMiner": [UsernamePassword(username="root", password="root")],
     "AvalonMiner": [UsernamePassword(username="admin", password="admin")],
     "Goldshell": [UsernamePassword(username="admin", password="123456789")],

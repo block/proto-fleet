@@ -53,19 +53,39 @@ def _default_get_miner() -> GetMinerFunc:
 
 
 def _apply_credentials(miner: Any, secret: SecretBundle) -> None:
-    """Apply SDK credentials to a pyasic miner instance."""
+    """Apply SDK credentials to a pyasic miner instance.
+
+    Sets the RPC password (used for privileged commands like set.system.led)
+    and web credentials (used by web-based miners like Antminer/BOS).
+    The fleet server stores the validated RPC password from pairing, so we
+    always apply it here to ensure commands authenticate correctly.
+    """
     if isinstance(secret.kind, UsernamePassword):
-        if hasattr(miner, "rpc") and miner.rpc is not None:
+        rpc_applied = False
+        if hasattr(miner, "rpc") and miner.rpc is not None and hasattr(miner.rpc, "pwd"):
             miner.rpc.pwd = secret.kind.password
+            rpc_applied = True
+
+        web_applied = False
         if hasattr(miner, "web") and miner.web is not None:
             if hasattr(miner.web, "pwd"):
                 miner.web.pwd = secret.kind.password
+                web_applied = True
             if hasattr(miner.web, "username"):
                 miner.web.username = secret.kind.username
+
+        logger.info(
+            "Applied credentials to %s (user=%s, rpc=%s, web=%s)",
+            getattr(miner, "ip", "?"),
+            secret.kind.username,
+            rpc_applied,
+            web_applied,
+        )
     else:
         logger.warning(
-            "Unsupported credential type %s, skipping",
+            "Unsupported credential type %s for %s, skipping",
             type(secret.kind).__name__,
+            getattr(miner, "ip", "?"),
         )
 
 
@@ -140,6 +160,8 @@ class PyAsicDriver:
         if data is None:
             raise AuthenticationFailedError(device_info.host)
 
+        await self._validate_privileged_access(miner, device_info.host)
+
         mac = getattr(data, "mac", "") or ""
         firmware = getattr(data, "fw_ver", "") or device_info.firmware_version
 
@@ -154,6 +176,34 @@ class PyAsicDriver:
             mac_address=mac,
             firmware_version=firmware,
         )
+
+    async def _validate_privileged_access(self, miner: Any, host: str) -> None:
+        """Validate write credentials by sending back the current config unchanged.
+
+        Some miners (e.g. WhatsMiner V3) use separate auth for reads vs writes.
+        get_data() succeeds with any password, so we must verify a write operation
+        actually works before storing the credential. Reading the current config
+        and writing it back is a no-op that validates auth across all manufacturers.
+        """
+        try:
+            config = await miner.get_config()
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise DeviceUnavailableError(host, cause=exc) from exc
+        except Exception as exc:
+            logger.warning("Failed to read config for credential validation on %s: %s", host, exc)
+            raise AuthenticationFailedError(host, cause=exc) from exc
+
+        if config is None:
+            logger.debug("No config available for %s, skipping write validation", host)
+            return
+
+        try:
+            await miner.send_config(config)
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise DeviceUnavailableError(host, cause=exc) from exc
+        except Exception as exc:
+            logger.warning("Credential validation (send_config) failed for %s: %s", host, exc)
+            raise AuthenticationFailedError(host, cause=exc) from exc
 
     async def new_device(
         self, ctx: grpc.ServicerContext, device_id: str, device_info: DeviceInfo, secret: SecretBundle

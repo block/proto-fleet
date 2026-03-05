@@ -11,7 +11,7 @@ from proto_fleet_sdk.errors import UnsupportedCapabilityError
 from proto_fleet_sdk.telemetry import ths_to_hs
 from proto_fleet_sdk.types import DeviceInfo
 
-from pyasic_driver.device import PyAsicDevice, _infer_component, _infer_severity
+from pyasic_driver.device import DeviceCommandFailedError, PyAsicDevice, _infer_component, _infer_severity
 from tests.conftest import (
     MockFan,
     MockHashBoard,
@@ -282,6 +282,60 @@ class TestControl:
         miner.fault_light_on.assert_called_once()
         # fault_light_off is scheduled via call_later, not called immediately
         miner.fault_light_off.assert_not_called()
+
+
+class TestControlFailure:
+    """Verify that commands raise DeviceCommandFailedError when pyasic returns False."""
+
+    async def test_start_mining_failure_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.resume_mining = AsyncMock(return_value=False)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceCommandFailedError, match="resume_mining"):
+            await device.start_mining(mock_ctx)
+
+    async def test_stop_mining_failure_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.stop_mining = AsyncMock(return_value=False)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceCommandFailedError, match="stop_mining"):
+            await device.stop_mining(mock_ctx)
+
+    async def test_reboot_failure_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.reboot = AsyncMock(return_value=False)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceCommandFailedError, match="reboot"):
+            await device.reboot(mock_ctx)
+
+    async def test_blink_led_failure_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.fault_light_on = AsyncMock(return_value=False)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceCommandFailedError, match="fault_light_on"):
+            await device.blink_led(mock_ctx)
+
+    async def test_firmware_update_failure_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.upgrade_firmware = AsyncMock(return_value=False)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceCommandFailedError, match="upgrade_firmware"):
+            await device.firmware_update(mock_ctx)
 
 
 class TestSetPowerTarget:

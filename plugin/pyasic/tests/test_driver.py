@@ -217,6 +217,41 @@ class TestPairDevice:
         with pytest.raises(AuthenticationFailedError):
             await driver.pair_device(mock_ctx, device_info, mock_secret)
 
+    async def test_pair_rejects_wrong_write_credentials(
+        self, mock_ctx: MagicMock, mock_secret: SecretBundle,
+    ) -> None:
+        # Arrange — get_data succeeds but send_config fails (wrong write password)
+        miner = make_mock_miner()
+        miner.send_config = AsyncMock(side_effect=Exception("invalid password"))
+        driver = _make_driver(get_miner_fn=AsyncMock(return_value=miner))
+        device_info = DeviceInfo(
+            host="192.168.1.100", port=80, url_scheme="http",
+            serial_number="", model="M60S", manufacturer="WhatsMiner",
+            mac_address="", firmware_version="",
+        )
+
+        # Act & Assert
+        with pytest.raises(AuthenticationFailedError):
+            await driver.pair_device(mock_ctx, device_info, mock_secret)
+
+    async def test_pair_applies_rpc_credentials(
+        self, mock_ctx: MagicMock, mock_secret: SecretBundle,
+    ) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        driver = _make_driver(get_miner_fn=AsyncMock(return_value=miner))
+        device_info = DeviceInfo(
+            host="192.168.1.100", port=80, url_scheme="http",
+            serial_number="", model="M60S", manufacturer="WhatsMiner",
+            mac_address="", firmware_version="",
+        )
+
+        # Act
+        await driver.pair_device(mock_ctx, device_info, mock_secret)
+
+        # Assert — RPC password was set from the credential
+        assert miner.rpc.pwd == mock_secret.kind.password
+
 
 class TestNewDevice:
     async def test_creates_device(self, mock_ctx: MagicMock, mock_secret: SecretBundle) -> None:

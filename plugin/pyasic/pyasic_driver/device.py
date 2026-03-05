@@ -26,7 +26,7 @@ from proto_fleet_sdk.error_codes import (
     MinerError,
     Severity,
 )
-from proto_fleet_sdk.errors import UnsupportedCapabilityError
+from proto_fleet_sdk.errors import DeviceUnavailableError, UnsupportedCapabilityError
 from proto_fleet_sdk.telemetry import DeviceMetrics, jth_to_jh, ths_to_hs
 from proto_fleet_sdk.telemetry.components import (
     ComponentInfo,
@@ -72,6 +72,28 @@ def _to_float(val: object) -> float:
 def _require_cap(caps: Capabilities, cap: str, device_id: str) -> None:
     if not caps.get(cap):
         raise UnsupportedCapabilityError(cap, device_id=device_id)
+
+
+class DeviceCommandFailedError(DeviceUnavailableError):
+    """Raised when a pyasic command returns False, indicating silent failure.
+
+    pyasic command methods (reboot, resume_mining, fault_light_on, etc.) return
+    bool to indicate success/failure but never raise exceptions on failure.
+    This error surfaces those silent failures to the fleet server.
+
+    Extends DeviceUnavailableError so the gRPC servicer maps it to UNAVAILABLE
+    rather than INTERNAL, matching the transient/retryable nature of the failure.
+    """
+
+    def __init__(self, command: str, device_id: str, *, miner_type: str = "", miner_ip: str = "") -> None:
+        super().__init__(device_id=device_id)
+        parts = [f"Command '{command}' failed on device {device_id}"]
+        if miner_type or miner_ip:
+            parts.append(f"(type={miner_type}, ip={miner_ip})")
+        parts.append("— pyasic returned False.")
+        msg = " ".join(parts)
+        self.message = msg
+        Exception.__init__(self, msg)
 
 
 def _infer_severity(error_message: str) -> Severity:
@@ -304,21 +326,32 @@ class PyAsicDevice:
 
     # --- Control ---
 
+    async def _exec_pyasic_command(self, command_name: str, coro: Any) -> None:
+        """Execute a pyasic command that returns bool, raising on failure."""
+        result = await coro
+        if result is False:
+            raise DeviceCommandFailedError(
+                command_name,
+                self._id,
+                miner_type=type(self._miner).__name__,
+                miner_ip=getattr(self._miner, "ip", "?"),
+            )
+
     async def start_mining(self, ctx: grpc.ServicerContext) -> None:
         _require_cap(self._caps, "mining_start", self._id)
-        await self._miner.resume_mining()
+        await self._exec_pyasic_command("resume_mining", self._miner.resume_mining())
 
     async def stop_mining(self, ctx: grpc.ServicerContext) -> None:
         _require_cap(self._caps, "mining_stop", self._id)
-        await self._miner.stop_mining()
+        await self._exec_pyasic_command("stop_mining", self._miner.stop_mining())
 
     async def reboot(self, ctx: grpc.ServicerContext) -> None:
         _require_cap(self._caps, "reboot", self._id)
-        await self._miner.reboot()
+        await self._exec_pyasic_command("reboot", self._miner.reboot())
 
     async def blink_led(self, ctx: grpc.ServicerContext) -> None:
         _require_cap(self._caps, "led_blink", self._id)
-        await self._miner.fault_light_on()
+        await self._exec_pyasic_command("fault_light_on", self._miner.fault_light_on())
         asyncio.get_event_loop().call_later(
             _BLINK_LED_DURATION_SECS,
             lambda: asyncio.ensure_future(self._miner.fault_light_off()),
@@ -372,6 +405,7 @@ class PyAsicDevice:
 
         new_pool_config = PoolConfig(groups=groups)
         config = PyasicMinerConfig.from_dict(config.as_dict() | {"pools": new_pool_config.as_dict()})
+
         await self._miner.send_config(config)
 
     async def set_cooling_mode(self, ctx: grpc.ServicerContext, mode: CoolingMode) -> None:
@@ -404,6 +438,7 @@ class PyAsicDevice:
         config_dict = config.as_dict()
         config_dict["mining_mode"] = {"mode": mining_mode.mode}
         new_config = PyasicMinerConfig.from_dict(config_dict)
+
         await self._miner.send_config(new_config)
 
     async def update_miner_password(
@@ -420,7 +455,7 @@ class PyAsicDevice:
 
     async def firmware_update(self, ctx: grpc.ServicerContext) -> None:
         _require_cap(self._caps, "firmware", self._id)
-        await self._miner.upgrade_firmware()
+        await self._exec_pyasic_command("upgrade_firmware", self._miner.upgrade_firmware())
 
     async def unpair(self, ctx: grpc.ServicerContext) -> None:
         pass
