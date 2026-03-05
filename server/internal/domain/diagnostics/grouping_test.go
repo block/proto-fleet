@@ -524,7 +524,7 @@ func TestGroupByComponent_WithMixedKeysInMap_ShouldOnlyIncludeMatched(t *testing
 	assert.Equal(t, "HB0", result[0].ComponentID)
 }
 
-// TestGroupByComponent_WithSameComponentIDButDifferentTypes_ShouldKeepSeparate verifies the fix for DASH-1210.
+// TestGroupByComponent_WithSameComponentIDButDifferentTypes_ShouldKeepSeparate verifies that components with the same ID but different types are kept separate.
 // This test ensures that errors with the same component_id but different component_types (e.g., pool errors
 // vs hashboard errors both with component_id='0') are kept separate and not incorrectly grouped together.
 func TestGroupByComponent_WithSameComponentIDButDifferentTypes_ShouldKeepSeparate(t *testing.T) {

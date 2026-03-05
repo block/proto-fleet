@@ -149,7 +149,7 @@ func TestStratumConnectWithInvalidURL(t *testing.T) {
 	}
 }
 
-// TODO(briano): remove really endpoint from unit testing
+// TODO: remove real endpoint from unit testing
 func TestRealEndpoint(t *testing.T) {
 	t.Skip("Skipping real endpoint test, only for manual execution")
 	inputs := []struct {

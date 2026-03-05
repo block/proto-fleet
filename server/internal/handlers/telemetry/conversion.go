@@ -239,7 +239,7 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 	}, nil
 }
 
-// TODO(briano): implement long-term solution to prevent NaN (see DASH-1316)
+// TODO: implement long-term solution to prevent NaN
 
 // sanitizeFloat64 replaces NaN and Inf with zero at the protobuf serialization boundary.
 // PostgreSQL can store NaN as DOUBLE PRECISION, and COALESCE(NaN, 0) returns NaN (NaN is

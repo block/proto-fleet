@@ -1,4 +1,4 @@
-// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+// Copyright 2024 Block, Inc.
 //
 // File: miner_common_api.proto
 // Description: Common API definitions for miner services.

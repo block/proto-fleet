@@ -612,7 +612,7 @@ const (
 
 ### Related Documentation
 
-- **Server development**: `../CLAUDE.md`
+- **Server development**: `../README.md`
 - **Plugin architecture**: `../internal/domain/pairing/plugin/README.md` (if exists)
 - **API definitions**: `../../proto/`
 - **Docker setup**: `../docker-compose.yml`

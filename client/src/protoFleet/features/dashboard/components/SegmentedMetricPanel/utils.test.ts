@@ -231,7 +231,7 @@ describe("getCurrentBreakdown", () => {
 
   describe("Edge case: Legend uses processed chart data, ensuring consistency", () => {
     it("uses the exact data from the last processed chart bar", () => {
-      // This test verifies the fix for DASH-1043:
+      // This test verifies the fix for zero-value edge case:
       // Legend should use the same data as the chart's last bar,
       // not independently process raw data which could have newer timestamps
 

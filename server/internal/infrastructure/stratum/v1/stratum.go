@@ -35,7 +35,7 @@ type rpcResponse struct {
 // The context can be used to set a timeout for the authentication process.
 // The url is expected to be in the format "stratum+<protocol>://address".
 // The Password is optional and can be nil if not required by the Stratum server.
-// TODO(briano): Add custom error types for better error handling with connectGRPc
+// TODO: Add custom error types for better error handling with connectGRPC
 func Authenticate(ctx context.Context, url string, username string, password *secrets.Text) (bool, error) {
 	protocol, address, err := parseStratumURL(url)
 	if err != nil {

@@ -1,4 +1,4 @@
-// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+// Copyright 2024 Block, Inc.
 //
 // File: mfgtool_test_commands.proto
 // Description: Protobuf definitions for the mfgtoolctl and mfgtoold

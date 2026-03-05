@@ -1,4 +1,4 @@
-// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+// Copyright 2024 Block, Inc.
 //
 // File: miner_debug_api.proto
 // Description: Protobuf definitions for the miner debug API.

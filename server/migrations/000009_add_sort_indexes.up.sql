@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: Add indexes to support miner list sorted pagination (DASH-1239)
+-- Migration: Add indexes to support miner list sorted pagination
 -- ============================================================================
 
 -- Index for name sorting (manufacturer then model)

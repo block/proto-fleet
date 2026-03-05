@@ -1,75 +1,112 @@
 # Fleet Service
 
-Fleet is a Go-based service that provides a web interface and API endpoints for managing the miner fleet.
-The service uses a SQL database for data persistence and exposes grpc, gRPC-web and HTTP API endpoints.
+Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
-## Features
+## Development Commands
 
-- gRPC-web API endpoints for:
-  - Greeting service
-  - Authors service
-- SQL database integration with migrations
-- Configurable through environment variables and command-line flags
+### Build and Run
 
-## Configuration
-
-The service can be configured using environment variables or command-line flags, see `internal/domain/config.go`.
-
-## Development
-
-### Error wrapping
-
-~~This project uses [errtrace](https://github.com/bracesdev/errtrace) for enhancing errors with stack traces.~~
-
-### Database Migrations
-
-The service automatically runs database migrations on startup.
-Migration files are managed using [golang-migrate](https://github.com/golang-migrate).
-Migrations are located in `internal/db/migrations`.
-
-#### Creating new migration files
-
-Migration files are generated with sequential prefix. Instead of manualy creating the sequence and up/down migration files you can run the following command. Replace `<migration_name>` with the name of your migration e.g. `create_signals_table`
-
+```bash
+just dev              # Run local server with Docker Compose (watch mode)
+just start            # Start all services (without watch)
+just stop             # Stop services
+just build-all        # Build all Go packages
+just install          # Install fleetd binary
+just clean-build      # Clean rebuild (wipes all data)
+just rebuild-fleet-api  # Rebuild just fleet-api
 ```
-just new-migration <migration_name>
+
+### Testing and Quality
+
+```bash
+just test             # Run all tests
+just lint             # Lint code
+just format           # Format code
+```
+
+To run tests for a specific package:
+
+```bash
+go test ./internal/domain/pairing -v
+go test ./internal/domain/pairing -v -run TestFunctionName
 ```
 
 ### Code Generation
 
-All code generation can be done by running `just gen`.
-Generated files are located in the `generated` directory.
-All generated code should be checked in to Git following Go best practices.
+```bash
+just gen              # Run all code generation
+just gen-db-queries   # Generate database query bindings (sqlc)
+just gen-miner-protos # Generate protobuf/gRPC code
+just gen-go           # Run go:generate directives
+```
 
-#### SQL Models and Queries
+All generated code must be checked into Git. Run `just gen` after modifying protobuf definitions, database migrations, or sqlc queries.
 
-The service uses [sqlc](https://docs.sqlc.dev/en/stable/tutorials/getting-started-mysql.html) to generate Go bindings for models and queries without going as far as using an ORM.
+### Database Operations
 
-Models are generated from database schema migrations in `internal/db/migrations`.
-Queries are generated from annotated SQL queries in `internal/db/queries`.
-Refer to sqlc documentation for details on how to use.
+```bash
+just db-up            # Start PostgreSQL/TimescaleDB
+just db-migrate       # Run migrations
+just new-migration <name>  # Create new migration
+just db-shell         # Interactive PostgreSQL shell
+just db-down          # Stop database
+just db-clean         # Run down migrations
+```
 
-To regenerate the bindings, run `just gen-db-queries` (or just `just gen`).
+Migrations are sequential and run automatically on startup. **Never modify existing migrations after they have been deployed.**
 
-#### Protobuf and gRPC
+## Architecture
 
-This service uses [Go Protobuf](https://protobuf.dev/getting-started/gotutorial/) and [Connect RPC](https://connectrpc.com/docs/go/getting-started/), both generated using [Buf](https://buf.build/docs/cli/).
-Protobuf provides type-safe interface descriptions (IDL) generated across languages.
-Connect RPC is a multi-protocol implementation of RPC that supports gRPC and ConnectRPC.
-We choose ConnectRPC because it's completely gRPC compatible, and is a more modern implementation that is built on top of the Go standard library's h2 server.
+### Project Structure
 
-To regenerate the bindings, run `buf generate` (or just `just gen`).
+The codebase follows a domain-driven design with clear separation of concerns:
 
-### API Development
+- **`cmd/fleetd/`** — Main application entry point and configuration
+- **`internal/domain/`** — Core business logic organized by domain (auth, pairing, telemetry, command, etc.)
+- **`internal/handlers/`** — gRPC/HTTP request handlers that delegate to domain services
+- **`internal/infrastructure/`** — Infrastructure concerns (database, queue, encryption, logging, networking)
+- **`generated/`** — All generated code (protobuf, sqlc bindings)
+- **`migrations/`** — Database schema migrations (sequential numbered files)
+- **`sqlc/queries/`** — SQL query definitions for sqlc code generation
+- **`sdk/v1/`** — SDK for external plugin integrations
+- **`fake-antminer/`** — Development simulator for testing Antminer plugin integration
 
-The service uses [Connect](https://connectrpc.com/docs/go/getting-started) for API endpoints.
-The gRPC API definitions can be found in the `proto` directory.
+### Core Domains
 
-## Running the Service via Docker
+- **Pairing**: Device discovery and registration. Supports multiple miner types through a pluggable pairer interface.
+- **Telemetry**: Real-time and historical metrics collection. Uses TimescaleDB and a scheduler for periodic data collection.
+- **Commands**: Asynchronous command execution with a database-backed message queue.
+- **Fleet Management**: High-level operations for managing groups of devices (listing, filtering, monitoring status).
+- **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
 
-Note: The service runs in host mode, so you must explicitly enable host networking via Docker Desktop for non Linux systems. Settings -> Resources -> Network -> Check Enable host networking.
+### Plugin System
 
-```shell
+Plugins are external processes that communicate with the fleet service:
+
+- **Discovery**: Plugins implement custom device discovery logic for new miner types
+- **Pairing**: Plugins implement custom pairing logic for new miner types
+- **Priority**: Plugin-based discoverers and pairers take priority over internal implementations
+
+Configuration is in `cmd/fleetd/config.go` with options for plugin directories, startup timeouts, and health check behavior.
+
+### Data Layer
+
+- **PostgreSQL/TimescaleDB**: Primary data store with schema defined in `migrations/`. Migrations run automatically on startup.
+- **sqlc**: Type-safe Go code generated from SQL queries in `sqlc/queries/`. Regenerate with `just gen-db-queries`.
+- **Stores**: Repository pattern implementations in `internal/domain/stores/sqlstores/`.
+- **Transactions**: Transactor pattern (`sqlstores.NewSQLTransactor`) for managing transactions across multiple operations.
+
+### API Layer
+
+- **Protocol**: [Connect RPC](https://connectrpc.com/) supporting both gRPC and Connect protocols over HTTP/1.1 and HTTP/2.
+- **Interceptors**: Authentication, error mapping, logging, and validation in `internal/handlers/interceptors/`.
+- **Proto definitions**: API definitions in `../proto/`. Miner API definitions vendored in `../proto-rig-api/grpc/`.
+
+## Running via Docker
+
+The service runs in Docker with host networking mode. On non-Linux systems, enable host networking in Docker Desktop: **Settings → Resources → Network → Enable host networking**.
+
+```bash
 just dev
 ```
 
@@ -77,18 +114,35 @@ This will:
 
 1. Connect to the database
 2. Run any pending migrations
-3. Run the server in docker compose with watch enabled on the fleet service
-4. Start serving the API on the configured address (default: http://localhost:4000)
+3. Start the server in Docker Compose with watch enabled
+4. Serve the API on http://localhost:4000
+
+### Test Simulators
+
+Docker Compose includes simulated miners for development:
+
+- **fake-proto-rig**: Proto firmware simulator (5 replicas by default)
+- **fake-antminer**: Antminer simulator (2 replicas by default)
+- **proto-sim**: Single Proto simulator on fixed ports
+- **antminer-sim**: Single Antminer simulator on fixed ports
+
+Scale replicas with: `docker compose up --scale fake-proto-rig=10`
+
+## Configuration
+
+The service is configured using environment variables or command-line flags. See `internal/domain/config.go`. For local development, create a `.env` file in this directory.
+
+## API Testing
+
+Use the `.http` files in `testing/` with GoLand's HTTP Client or the VS Code Rest Client extension. Each service has its own file (e.g., `testing/auth.http`, `testing/telemetry.http`).
 
 ## Error Query Service (Testing/Development Only)
 
-The Error Query Service provides a mock error management system for testing and development. It can return controlled seed data or randomly generated errors for devices.
+The Error Query Service provides a mock error management system for testing. It can return controlled seed data or randomly generated errors for devices.
 
 > **Note:** This is temporary scaffolding to enable client development while server-side error query logic is being implemented.
 
 ### Seed Data Configuration
-
-To use controlled error data instead of random generation, create a YAML seed file and configure the service:
 
 ```bash
 # Via environment variable
@@ -109,8 +163,6 @@ volumes:
 - To force a device to have no errors, include it with an empty errors list: `errors: []`
 
 ### Seed File Format
-
-See `internal/domain/errorquery/testdata/seed_errors.yaml` for an example. Basic structure:
 
 ```yaml
 devices:
@@ -141,19 +193,3 @@ devices:
 | `last_seen_ago` | Duration since last occurrence | `5m`, `1h` |
 | `closed` | Mark error as resolved | `true` |
 | `vendor_attributes` | Custom key-value metadata | `psu_temp_c: "87"` |
-
-### Miner Error Categories
-
-- **PSU errors**: `PSU_NOT_PRESENT`, `PSU_OVER_TEMPERATURE`, `PSU_INPUT_VOLTAGE_LOW`, etc.
-- **Thermal/Fan errors**: `FAN_FAILED`, `FAN_SPEED_DEVIATION`, `INLET_OVER_TEMPERATURE`, etc.
-- **Hashboard errors**: `HASHBOARD_NOT_PRESENT`, `HASHBOARD_OVER_TEMPERATURE`, `HASHBOARD_MISSING_CHIPS`, etc.
-- **Board power errors**: `BOARD_POWER_OVERCURRENT_TRIP`, `BOARD_POWER_RAIL_UNDERVOLT`, etc.
-- **Sensor errors**: `TEMP_SENSOR_FAULT`, `VOLTAGE_SENSOR_FAULT`, etc.
-- **Firmware errors**: `FIRMWARE_IMAGE_INVALID`, `EEPROM_CRC_MISMATCH`, etc.
-- **Control plane errors**: `CONTROL_BOARD_COMMUNICATION_LOST`, `DEVICE_INTERNAL_BUS_FAULT`, etc.
-
-## Interacting with the service
-
-### HTTP API
-
-The service responds to both gRPC requests and HTTP requests. To interact via HTTP see the `.http` files in the [testing/](testing/) directory. Each service has its own file (e.g., `testing/auth.http`, `testing/telemetry.http`). You can make requests from these files directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.) or the [Rest Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) vscode extension.

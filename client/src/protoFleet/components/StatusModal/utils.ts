@@ -205,7 +205,7 @@ export function buildComponentStatusProps(
   });
 
   // No component-level telemetry metrics available
-  // Backend only collects miner-level aggregated telemetry (DASH-782)
+  // TODO: Backend only collects miner-level aggregated telemetry
   const telemetry: ComponentMetric[] = [];
 
   // Build metadata
