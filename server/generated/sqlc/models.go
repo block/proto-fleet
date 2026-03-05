@@ -365,18 +365,17 @@ type DeviceMetric struct {
 }
 
 type DeviceMetricsDaily struct {
-	Bucket            time.Time
-	DeviceIdentifier  string
-	AvgHashRate       float64
-	MaxHashRate       sql.NullFloat64
-	MinHashRate       sql.NullFloat64
-	AvgTemp           float64
-	MaxTemp           sql.NullFloat64
-	MinTemp           sql.NullFloat64
-	AvgPower          float64
-	EnergyKwhEstimate sql.NullFloat64
-	AvgEfficiency     float64
-	DataPoints        int64
+	Bucket           time.Time
+	DeviceIdentifier string
+	AvgHashRate      float64
+	MaxHashRate      sql.NullFloat64
+	MinHashRate      sql.NullFloat64
+	AvgTemp          float64
+	MaxTemp          sql.NullFloat64
+	MinTemp          sql.NullFloat64
+	AvgPower         float64
+	AvgEfficiency    float64
+	DataPoints       int64
 }
 
 type DeviceMetricsHourly struct {

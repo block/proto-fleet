@@ -30,7 +30,27 @@ const (
 	// Queries > 10 days use daily aggregates
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
+
+	// Energy estimation constants.
+	// Each telemetry data point represents one polling interval of device uptime.
+	pollingIntervalSeconds = 10.0
+	secondsPerHour         = 3600.0
+	wattsPerKilowatt       = 1000.0
 )
+
+// estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
+// from average power and data point count. Unlike the old CAGG formula
+// (SUM(power_w) / COUNT(*) * 24) which assumed 24h of uniform sampling,
+// this scales by actual device uptime: each data point represents one polling
+// interval (~10s), so devices offline for part of the day get proportionally
+// less energy attributed.
+//
+// Intended for per-device daily energy rollups in handlers or domain logic
+// once energy reporting is surfaced to the UI.
+func estimateEnergyKWh(avgPowerW float64, dataPoints int64) float64 {
+	activeHours := float64(dataPoints) * pollingIntervalSeconds / secondsPerHour
+	return avgPowerW * activeHours / wattsPerKilowatt
+}
 
 // dataSource represents which table to query from based on time range
 type dataSource int
@@ -813,6 +833,10 @@ func (s *TimescaleTelemetryStore) aggregateHourlyRows(
 }
 
 // aggregateHourlyBucket aggregates values from hourly rows for a single bucket.
+// For non-cumulative metrics (temperature, efficiency, fan speed), averages are
+// weighted by data_points so devices with more readings have proportionally more
+// influence. Cumulative metrics (hashrate, power, current) sum per-device averages
+// for fleet totals, unweighted.
 func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 	rows []sqlc.DeviceMetricsHourly,
 	measurementType models.MeasurementType,
@@ -821,7 +845,9 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 	isCumulative := isCumulativeMetric(measurementType)
 
 	var avgSum float64
-	var count int
+	var weightedSum float64
+	var totalDataPoints int64
+	var deviceCount int
 
 	for _, row := range rows {
 		avg, _, _, ok := extractHourlyValues(row, measurementType)
@@ -829,10 +855,12 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 			continue
 		}
 		avgSum += avg
-		count++
+		weightedSum += avg * float64(row.DataPoints)
+		totalDataPoints += row.DataPoints
+		deviceCount++
 	}
 
-	if count == 0 {
+	if deviceCount == 0 {
 		return nil
 	}
 
@@ -842,9 +870,11 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 		switch aggType {
 		case models.AggregationTypeAverage:
 			if isCumulative {
-				value = avgSum // Sum across devices for fleet total
+				value = avgSum
+			} else if totalDataPoints > 0 {
+				value = weightedSum / float64(totalDataPoints)
 			} else {
-				value = avgSum / float64(count) // Average across devices
+				value = avgSum / float64(deviceCount)
 			}
 		case models.AggregationTypeMin, models.AggregationTypeMax:
 			s.logger.Error("min/max aggregation not implemented for continuous aggregates",
@@ -853,7 +883,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 		case models.AggregationTypeSum:
 			value = avgSum
 		case models.AggregationTypeCount:
-			value = float64(count)
+			value = float64(deviceCount)
 		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
 			continue
 		}
@@ -946,6 +976,10 @@ func (s *TimescaleTelemetryStore) aggregateDailyRows(
 }
 
 // aggregateDailyBucket aggregates values from daily rows for a single bucket.
+// For non-cumulative metrics (temperature, efficiency), averages are weighted by
+// data_points so devices with more readings have proportionally more influence.
+// Cumulative metrics (hashrate, power, current) sum per-device averages for fleet
+// totals, unweighted.
 func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 	rows []sqlc.DeviceMetricsDaily,
 	measurementType models.MeasurementType,
@@ -954,7 +988,9 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 	isCumulative := isCumulativeMetric(measurementType)
 
 	var avgSum float64
-	var count int
+	var weightedSum float64
+	var totalDataPoints int64
+	var deviceCount int
 
 	for _, row := range rows {
 		avg, _, _, ok := extractDailyValues(row, measurementType)
@@ -962,10 +998,12 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 			continue
 		}
 		avgSum += avg
-		count++
+		weightedSum += avg * float64(row.DataPoints)
+		totalDataPoints += row.DataPoints
+		deviceCount++
 	}
 
-	if count == 0 {
+	if deviceCount == 0 {
 		return nil
 	}
 
@@ -976,8 +1014,10 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 		case models.AggregationTypeAverage:
 			if isCumulative {
 				value = avgSum
+			} else if totalDataPoints > 0 {
+				value = weightedSum / float64(totalDataPoints)
 			} else {
-				value = avgSum / float64(count)
+				value = avgSum / float64(deviceCount)
 			}
 		case models.AggregationTypeMin, models.AggregationTypeMax:
 			// TODO: Min/Max aggregation needs proper implementation (currently averages per-device values)
@@ -987,7 +1027,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 		case models.AggregationTypeSum:
 			value = avgSum
 		case models.AggregationTypeCount:
-			value = float64(count)
+			value = float64(deviceCount)
 		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
 			continue
 		}

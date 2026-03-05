@@ -56,10 +56,14 @@ func GetTestDB(t *testing.T) *sql.DB {
 	assert.NoError(t, err)
 	conn.Close()
 
-	// Now connect to the test database
+	// Connect and run migrations with retry on deadlock.
+	// TimescaleDB continuous aggregate DDL acquires instance-level catalog locks
+	// that can deadlock when parallel tests migrate concurrently. On failure we
+	// drop and recreate the database for a clean slate (avoids golang-migrate
+	// dirty flag issues).
 	testDBConfig := config
 	testDBConfig.Name = dbName
-	conn, err = db.ConnectAndMigrate(&testDBConfig)
+	conn, err = connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
 	assert.NoError(t, err)
 
 	// Clean up the database when the test is done
@@ -86,6 +90,77 @@ func GetTestDB(t *testing.T) *sql.DB {
 	})
 
 	return conn
+}
+
+const (
+	migrationMaxRetries     = 5
+	migrationRetryBaseDelay = 200 * time.Millisecond
+)
+
+// connectAndMigrateWithRetry wraps db.ConnectAndMigrate with retry logic for
+// deadlocks caused by concurrent TimescaleDB catalog operations across test
+// databases. On deadlock, the test database is dropped and recreated to avoid
+// golang-migrate dirty flag issues.
+func connectAndMigrateWithRetry(
+	t *testing.T,
+	testDBConfig *db.Config,
+	adminConfig *db.Config,
+	dbName string,
+) (*sql.DB, error) {
+	t.Helper()
+
+	var conn *sql.DB
+	var lastErr error
+	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+		conn, lastErr = db.ConnectAndMigrate(testDBConfig)
+		if lastErr == nil {
+			return conn, nil
+		}
+
+		if !isRetryableMigrationError(lastErr) || attempt == migrationMaxRetries {
+			return nil, lastErr
+		}
+
+		t.Logf("migration deadlock (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		recreateTestDatabase(t, adminConfig, dbName)
+
+		delay := time.Duration(attempt) * migrationRetryBaseDelay
+		time.Sleep(delay)
+	}
+
+	return nil, lastErr
+}
+
+// isRetryableMigrationError checks whether a migration error is caused by a
+// deadlock or serialization failure. golang-migrate wraps database errors as
+// strings, so we check for SQLSTATE codes in the message text.
+func isRetryableMigrationError(err error) bool {
+	if db.IsRetryablePostgresError(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, db.PGDeadlockDetected) || strings.Contains(msg, db.PGSerializationFailure)
+}
+
+// recreateTestDatabase drops and recreates a test database via the admin connection.
+func recreateTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
+	adminConn, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminConn.Close()
+
+	_, _ = adminConn.ExecContext(t.Context(), fmt.Sprintf(`
+		SELECT pg_terminate_backend(pg_stat_activity.pid)
+		FROM pg_stat_activity
+		WHERE pg_stat_activity.datname = '%s'
+		AND pid <> pg_backend_pid()
+	`, dbName))
+
+	_, err = adminConn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+	assert.NoError(t, err)
+	_, err = adminConn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
+	assert.NoError(t, err)
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.

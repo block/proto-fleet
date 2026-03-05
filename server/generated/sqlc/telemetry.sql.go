@@ -24,7 +24,6 @@ SELECT
     max_temp,
     min_temp,
     COALESCE(avg_power, 0) AS avg_power,
-    energy_kwh_estimate,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily
@@ -59,7 +58,6 @@ func (q *Queries) GetAllDeviceMetricsDailyAggregates(ctx context.Context, arg Ge
 			&i.MaxTemp,
 			&i.MinTemp,
 			&i.AvgPower,
-			&i.EnergyKwhEstimate,
 			&i.AvgEfficiency,
 			&i.DataPoints,
 		); err != nil {
@@ -383,7 +381,6 @@ SELECT
     max_temp,
     min_temp,
     COALESCE(avg_power, 0) AS avg_power,
-    energy_kwh_estimate,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily
@@ -419,7 +416,6 @@ func (q *Queries) GetDeviceMetricsDailyAggregates(ctx context.Context, arg GetDe
 			&i.MaxTemp,
 			&i.MinTemp,
 			&i.AvgPower,
-			&i.EnergyKwhEstimate,
 			&i.AvgEfficiency,
 			&i.DataPoints,
 		); err != nil {

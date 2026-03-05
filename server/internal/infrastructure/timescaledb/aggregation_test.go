@@ -1,9 +1,11 @@
 package timescaledb
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/stretchr/testify/assert"
@@ -166,4 +168,169 @@ func TestAggregateMetrics_CumulativeVsNonCumulative(t *testing.T) {
 
 	// Temperature should be actual average: (70 + 72 + 74) / 3 = 72
 	assert.Equal(t, 72.0, tempAvg, "Temperature average should be mathematical average")
+}
+
+func TestAggregateHourlyBucket_WeightedAverage(t *testing.T) {
+	// Device A: 360 data points, avg temp 70°C (full hour of reporting)
+	// Device B: 10 data points, avg temp 90°C (sparse reporting)
+	// Unweighted: (70 + 90) / 2 = 80
+	// Weighted: (70*360 + 90*10) / (360+10) = 26100/370 ≈ 70.54
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgTemp:          70.0,
+			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
+			MinTemp:          sql.NullFloat64{Float64: 65.0, Valid: true},
+			DataPoints:       360,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgTemp:          90.0,
+			MaxTemp:          sql.NullFloat64{Float64: 95.0, Valid: true},
+			MinTemp:          sql.NullFloat64{Float64: 85.0, Valid: true},
+			DataPoints:       10,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
+	result := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+
+	assert.Len(t, result, 1)
+	expected := (70.0*360 + 90.0*10) / (360 + 10) // ≈ 70.54
+	assert.InDelta(t, expected, result[0].Value, 0.01,
+		"Non-cumulative average should be weighted by data points")
+}
+
+func TestAggregateHourlyBucket_CumulativeUnweighted(t *testing.T) {
+	// Cumulative metrics (power) should sum per-device averages for fleet total,
+	// regardless of data point counts.
+	// Device A: 360 points, avg power 1500W
+	// Device B: 10 points, avg power 500W
+	// Fleet total: 1500 + 500 = 2000W (not weighted)
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgPower:         1500.0,
+			DataPoints:       360,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgPower:         500.0,
+			DataPoints:       10,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
+	result := store.aggregateHourlyBucket(rows, models.MeasurementTypePower, aggTypes)
+
+	assert.Len(t, result, 1)
+	assert.Equal(t, 2000.0, result[0].Value,
+		"Cumulative average should be fleet total (sum of per-device averages)")
+}
+
+func TestAggregateDailyBucket_WeightedAverage(t *testing.T) {
+	// Same weighting logic applies to daily buckets.
+	// Device A: 8640 points (full day), avg efficiency 30 J/TH
+	// Device B: 4320 points (half day), avg efficiency 40 J/TH
+	// Weighted: (30*8640 + 40*4320) / (8640+4320) = 432000/12960 ≈ 33.33
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsDaily{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgEfficiency:    30.0,
+			DataPoints:       8640,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgEfficiency:    40.0,
+			DataPoints:       4320,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
+	result := store.aggregateDailyBucket(rows, models.MeasurementTypeEfficiency, aggTypes)
+
+	assert.Len(t, result, 1)
+	expected := (30.0*8640 + 40.0*4320) / (8640 + 4320) // ≈ 33.33
+	assert.InDelta(t, expected, result[0].Value, 0.01,
+		"Non-cumulative daily average should be weighted by data points")
+}
+
+func TestAggregateHourlyBucket_SingleDevice(t *testing.T) {
+	// With a single device, weighted and unweighted produce the same result.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgTemp:          72.5,
+			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
+			MinTemp:          sql.NullFloat64{Float64: 70.0, Valid: true},
+			DataPoints:       360,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
+	result := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+
+	assert.Len(t, result, 1)
+	assert.Equal(t, 72.5, result[0].Value,
+		"Single device average should equal device average regardless of weighting")
+}
+
+func TestEstimateEnergyKWh(t *testing.T) {
+	tests := []struct {
+		name       string
+		avgPowerW  float64
+		dataPoints int64
+		expected   float64
+	}{
+		{
+			name:       "full day at 1500W",
+			avgPowerW:  1500.0,
+			dataPoints: 8640, // 24h * 360 points/hour
+			expected:   36.0, // 1500W * 24h / 1000
+		},
+		{
+			name:       "half day at 1500W",
+			avgPowerW:  1500.0,
+			dataPoints: 4320, // 12h * 360 points/hour
+			expected:   18.0, // 1500W * 12h / 1000
+		},
+		{
+			name:       "one hour at 3000W",
+			avgPowerW:  3000.0,
+			dataPoints: 360, // 1h * 360 points/hour
+			expected:   3.0, // 3000W * 1h / 1000
+		},
+		{
+			name:       "zero data points",
+			avgPowerW:  1500.0,
+			dataPoints: 0,
+			expected:   0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := estimateEnergyKWh(tt.avgPowerW, tt.dataPoints)
+			assert.InDelta(t, tt.expected, result, 0.001)
+		})
+	}
 }

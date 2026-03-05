@@ -190,7 +190,6 @@ SELECT
     max_temp,
     min_temp,
     COALESCE(avg_power, 0) AS avg_power,
-    energy_kwh_estimate,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily
@@ -234,7 +233,6 @@ SELECT
     max_temp,
     min_temp,
     COALESCE(avg_power, 0) AS avg_power,
-    energy_kwh_estimate,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
     data_points
 FROM device_metrics_daily

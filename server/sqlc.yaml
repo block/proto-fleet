@@ -52,10 +52,6 @@ sql:
             go_type:
               import: "database/sql"
               type: "NullFloat64"
-          - column: "device_metrics_daily.energy_kwh_estimate"
-            go_type:
-              import: "database/sql"
-              type: "NullFloat64"
           # Status aggregate type overrides
           - column: "device_status_hourly.bucket"
             go_type: "time.Time"
