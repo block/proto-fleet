@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { Ellipsis } from "@/shared/assets/icons";
 import { ListAction } from "@/shared/components/List/types";
@@ -13,9 +13,13 @@ interface ListActionProps<ListItem> {
 }
 
 const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionProps<ListItem>) => {
-  const { triggerRef } = usePopover();
+  const { triggerRef, setPopoverRenderMode } = usePopover();
 
   const [actionsVisible, setActionsVisible] = useState<boolean>(false);
+
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
 
   if (!actions || actions.length === 0) {
     return null;

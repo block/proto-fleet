@@ -151,10 +151,11 @@ const usePopoverPosition = (
       let finalPosition = position;
 
       let { top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition);
+      const getPopoverTopInViewport = () => triggerRect.top + top;
 
       // handle overflow on top
       // top position on page is less than some margin
-      if (top + triggerRect.top < minimalMargin) {
+      if (getPopoverTopInViewport() < minimalMargin) {
         // flip position from top to bottom
         finalPosition = flipPosition(finalPosition);
         ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
@@ -162,7 +163,7 @@ const usePopoverPosition = (
 
       // handle overflow on bottom
       // top position on page + height of popover is greater than viewport height minus some margin
-      if (top + triggerRect.bottom + popoverRect.height > visibleViewport.height - minimalMargin) {
+      if (getPopoverTopInViewport() + popoverRect.height > visibleViewport.height - minimalMargin) {
         // flip position from bottom to top
         finalPosition = flipPosition(finalPosition);
         ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));

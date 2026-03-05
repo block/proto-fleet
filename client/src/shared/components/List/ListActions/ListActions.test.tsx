@@ -1,5 +1,5 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import ListActions from "./ListActions";
 import { PopoverProvider } from "@/shared/components/Popover";
 
@@ -24,60 +24,64 @@ describe("List actions", () => {
     },
   ];
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("renders with provided actions", () => {
-    const { getByText, getByTestId } = render(
+    render(
       <PopoverProvider>
         <ListActions item={item} actions={actions} />,
       </PopoverProvider>,
     );
-    const triggerButton = getByTestId("list-actions-trigger");
+    const triggerButton = screen.getByTestId("list-actions-trigger");
     expect(triggerButton).toBeInTheDocument();
     fireEvent.click(triggerButton);
 
     actions.forEach((action) => {
-      expect(getByText(action.title)).toBeInTheDocument();
+      expect(screen.getByText(action.title)).toBeInTheDocument();
     });
   });
 
   test("hides actions on click outside", async () => {
-    const { getByText, getByTestId, queryByText } = render(
+    render(
       <PopoverProvider>
         <ListActions item={item} actions={actions} />,
       </PopoverProvider>,
     );
-    const triggerButton = getByTestId("list-actions-trigger");
+    const triggerButton = screen.getByTestId("list-actions-trigger");
     expect(triggerButton).toBeInTheDocument();
     fireEvent.click(triggerButton);
 
     actions.forEach((action) => {
-      expect(getByText(action.title)).toBeInTheDocument();
+      expect(screen.getByText(action.title)).toBeInTheDocument();
     });
 
     // simulate click outside
     fireEvent.mouseDown(document);
     await waitFor(() => {
       actions.forEach((action) => {
-        expect(queryByText(action.title)).not.toBeInTheDocument();
+        expect(screen.queryByText(action.title)).not.toBeInTheDocument();
       });
     });
   });
 
   test("calls onAction callback when an action is clicked", () => {
-    const { getByText, getByTestId } = render(
+    render(
       <PopoverProvider>
         <ListActions item={item} actions={actions} />,
       </PopoverProvider>,
     );
-    const triggerButton = getByTestId("list-actions-trigger");
+    const triggerButton = screen.getByTestId("list-actions-trigger");
     expect(triggerButton).toBeInTheDocument();
     fireEvent.click(triggerButton);
 
-    fireEvent.click(getByText(actions[0].title));
+    fireEvent.click(screen.getByText(actions[0].title));
     expect(actions[0].actionHandler).toHaveBeenCalledWith(item);
 
     // Popover closes after click, so we need to reopen it to test another action
     fireEvent.click(triggerButton);
-    fireEvent.click(getByText(actions[1].title));
+    fireEvent.click(screen.getByText(actions[1].title));
     expect(actions[1].actionHandler).toHaveBeenCalledWith(item);
   });
 
@@ -89,5 +93,76 @@ describe("List actions", () => {
     );
     const triggerButton = queryByTestId("list-actions-trigger");
     expect(triggerButton).not.toBeInTheDocument();
+  });
+
+  test("positions the popover using the current scroll offset when opened after scrolling", async () => {
+    Object.defineProperty(window, "scrollY", {
+      value: 500,
+      configurable: true,
+    });
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.className === "relative") {
+        return {
+          x: 120,
+          y: 40,
+          width: 32,
+          height: 32,
+          top: 40,
+          left: 120,
+          bottom: 72,
+          right: 152,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+
+      if (typeof this.className === "string" && this.className.includes("z-50")) {
+        return {
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 160,
+          top: 0,
+          left: 0,
+          bottom: 160,
+          right: 240,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+
+    render(
+      <PopoverProvider>
+        <ListActions item={item} actions={actions} />
+      </PopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("list-actions-trigger"));
+
+    const popoverContainer = await waitFor(() => {
+      const actionRow = screen.getByText("Archive");
+      const container = actionRow.closest(".popover-content")?.parentElement as HTMLDivElement | null;
+
+      if (container === null) {
+        throw new Error("Expected popover container to be rendered");
+      }
+
+      return container;
+    });
+
+    expect(popoverContainer.style.top).toBe("580px");
+    expect(popoverContainer.style.left).toBe("8px");
   });
 });

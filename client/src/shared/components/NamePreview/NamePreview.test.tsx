@@ -42,4 +42,18 @@ describe("NamePreview", () => {
     expect(screen.queryByTestId("arrow-icon")).not.toBeInTheDocument();
     expect(screen.getByText("Bitmain S17")).toBeInTheDocument();
   });
+
+  it("shows only the new name in new-name-only mode", () => {
+    render(<NamePreview newName="M-001" mode="new-name-only" />);
+
+    expect(screen.getByText("M-001")).toBeInTheDocument();
+    expect(screen.queryByTestId("arrow-icon")).not.toBeInTheDocument();
+  });
+
+  it("shows em dash in new-name-only mode when name is empty", () => {
+    render(<NamePreview newName="   " mode="new-name-only" />);
+
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByTestId("arrow-icon")).not.toBeInTheDocument();
+  });
 });

@@ -23,6 +23,7 @@ interface ModalProps {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  headerSpacingClassName?: string;
   contentHeader?: string;
   contentHeaderClassName?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
@@ -43,6 +44,7 @@ const Modal = ({
   children,
   className,
   bodyClassName,
+  headerSpacingClassName = "mt-6",
   contentHeader,
   contentHeaderClassName,
   icon = <Dismiss />,
@@ -128,7 +130,7 @@ const Modal = ({
               inline
               centerButton
             />
-            {divider ? <Divider className="mt-6" /> : <div className="mt-6" />}
+            {divider ? <Divider className={headerSpacingClassName} /> : <div className={headerSpacingClassName} />}
           </div>
         )}
         {contentHeader && (

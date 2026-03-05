@@ -1,30 +1,63 @@
+import PreviewContainer from "./PreviewContainer";
 import { ArrowDown } from "@/shared/assets/icons";
 import { INACTIVE_PLACEHOLDER } from "@/shared/constants";
 
-interface NamePreviewProps {
+const previewModes = {
+  transition: "transition",
+  newNameOnly: "new-name-only",
+} as const;
+
+export type NamePreviewMode = (typeof previewModes)[keyof typeof previewModes];
+
+interface TransitionNamePreviewProps {
+  mode?: typeof previewModes.transition;
   currentName: string;
   newName: string;
 }
 
-const NamePreview = ({ currentName, newName }: NamePreviewProps) => {
-  const showTransition = newName.trim() !== currentName.trim();
+interface NewNameOnlyPreviewProps {
+  mode: typeof previewModes.newNameOnly;
+  currentName?: never;
+  newName: string;
+}
+
+type NamePreviewProps = TransitionNamePreviewProps | NewNameOnlyPreviewProps;
+
+const NamePreview = (props: NamePreviewProps) => {
+  const trimmedNewName = props.newName.trim();
+  const hasNewName = trimmedNewName !== "";
+
+  if (props.mode === previewModes.newNameOnly) {
+    return (
+      <PreviewContainer>
+        {hasNewName ? (
+          <span className="text-300 whitespace-nowrap text-text-primary">{props.newName}</span>
+        ) : (
+          <span className="text-300 whitespace-nowrap text-text-primary-30">{INACTIVE_PLACEHOLDER}</span>
+        )}
+      </PreviewContainer>
+    );
+  }
+
+  const { currentName } = props;
+  const showTransition = trimmedNewName !== currentName.trim();
 
   return (
-    <div className="flex min-h-40 items-center justify-center rounded-3xl bg-black/5 px-3 py-6">
+    <PreviewContainer>
       {showTransition ? (
-        <div className="flex w-full min-w-0 items-center justify-center gap-6">
-          <span className="max-w-[50%] shrink-0 text-300 break-words text-text-primary">{currentName}</span>
+        <div className="flex items-center justify-center gap-6 whitespace-nowrap">
+          <span className="text-300 text-text-primary">{currentName}</span>
           <ArrowDown className="shrink-0 -rotate-90 text-text-primary-30" width="w-4" />
-          {newName.trim() ? (
-            <span className="min-w-0 text-300 break-words text-text-primary">{newName}</span>
+          {hasNewName ? (
+            <span className="text-300 text-text-primary">{props.newName}</span>
           ) : (
             <span className="text-300 text-text-primary-30">{INACTIVE_PLACEHOLDER}</span>
           )}
         </div>
       ) : (
-        <span className="text-300 break-words text-text-primary">{currentName}</span>
+        <span className="text-300 whitespace-nowrap text-text-primary">{currentName}</span>
       )}
-    </div>
+    </PreviewContainer>
   );
 };
 

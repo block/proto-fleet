@@ -144,7 +144,7 @@ const Input = ({
               "border border-border-5": !error && !compact,
             },
             {
-              "border border-border-20 focus:ring-4 focus:ring-surface-10": !error && !compact && !disabled,
+              "focus:border-border-20 focus:ring-4 focus:ring-core-primary-5": !error && !compact && !disabled,
             },
             {
               "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20": error,

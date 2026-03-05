@@ -6,13 +6,17 @@ type RadioProps = {
   selected?: boolean;
   className?: string;
   disabled?: boolean;
+  name?: string;
+  value?: string | number;
 };
 
-const Radio = ({ onChange, selected, className = "", disabled = false }: RadioProps) => {
+const Radio = ({ onChange, selected, className = "", disabled = false, name, value }: RadioProps) => {
   return (
     <div className={clsx(className, "relative flex", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
       <input
         type="radio"
+        name={name}
+        value={value}
         checked={selected}
         disabled={disabled}
         onChange={(e) => {
