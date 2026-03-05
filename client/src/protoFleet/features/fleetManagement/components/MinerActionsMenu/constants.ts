@@ -29,11 +29,19 @@ export const settingsActions = {
 
 export type SettingsAction = (typeof settingsActions)[keyof typeof settingsActions];
 
+// Group Actions
+export const groupActions = {
+  addToGroup: "add-to-group",
+} as const;
+
+export type GroupAction = (typeof groupActions)[keyof typeof groupActions];
+
 // All Actions Combined
 export const allActions = {
   ...deviceActions,
   ...performanceActions,
   ...settingsActions,
+  ...groupActions,
 } as const;
 
 export type SupportedAction = (typeof allActions)[keyof typeof allActions];
@@ -54,6 +62,7 @@ export const loadingMessages: Record<string, string> = {
   [settingsActions.coolingMode]: "Setting cooling mode for",
   [settingsActions.rename]: "Renaming miner",
   [settingsActions.security]: "Updating security for",
+  [groupActions.addToGroup]: "Adding to group",
 };
 
 export const statusColumnLoadingMessages: Record<string, string> = {
@@ -83,4 +92,5 @@ export const successMessages: Record<string, string> = {
   [settingsActions.coolingMode]: "Updated cooling mode for",
   [settingsActions.rename]: "Miner renamed",
   [settingsActions.security]: "Updated security for",
+  [groupActions.addToGroup]: "Added to group",
 };

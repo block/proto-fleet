@@ -41,6 +41,15 @@ interface ListCollectionsProps {
   onFinally?: () => void;
 }
 
+interface AddDevicesToCollectionProps {
+  collectionId: bigint;
+  deviceIdentifiers?: string[];
+  allDevices?: boolean;
+  onSuccess?: (addedCount: number) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface ListGroupMembersProps {
   collectionId: bigint;
   onSuccess?: (deviceIdentifiers: string[]) => void;
@@ -237,6 +246,41 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const addDevicesToCollection = useCallback(
+    async ({
+      collectionId,
+      deviceIdentifiers,
+      allDevices,
+      onSuccess,
+      onError,
+      onFinally,
+    }: AddDevicesToCollectionProps) => {
+      try {
+        const deviceSelector =
+          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
+            ? buildDeviceSelector(deviceIdentifiers, allDevices)
+            : undefined;
+
+        const response = await collectionClient.addDevicesToCollection({
+          collectionId,
+          deviceSelector,
+        });
+
+        onSuccess?.(response.addedCount);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
     updateGroup,
@@ -244,6 +288,7 @@ const useCollections = () => {
     listGroups,
     listRacks,
     listGroupMembers,
+    addDevicesToCollection,
   };
 };
 

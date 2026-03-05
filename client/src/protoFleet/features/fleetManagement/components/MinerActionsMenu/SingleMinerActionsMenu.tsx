@@ -3,7 +3,8 @@ import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionP
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import AddToGroupModal from "./AddToGroupModal";
+import { groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
@@ -76,6 +77,8 @@ const SingleMinerActionsMenu = ({
     showRenameDialog,
     handleRenameConfirm,
     handleRenameDismiss,
+    showAddToGroupModal,
+    handleAddToGroupDismiss,
   } = useMinerActions({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
@@ -162,6 +165,8 @@ const SingleMinerActionsMenu = ({
         showRenameDialog={showRenameDialog}
         handleRenameConfirm={handleRenameConfirm}
         handleRenameDismiss={handleRenameDismiss}
+        showAddToGroupModal={showAddToGroupModal}
+        handleAddToGroupDismiss={handleAddToGroupDismiss}
       />
     </PopoverProvider>
   );
@@ -199,6 +204,8 @@ type SingleMinerActionsMenuInnerProps = {
   showRenameDialog: boolean;
   handleRenameConfirm: (name: string) => void;
   handleRenameDismiss: () => void;
+  showAddToGroupModal: boolean;
+  handleAddToGroupDismiss: () => void;
 } & SecurityActionsProps;
 
 const SingleMinerActionsMenuInner = ({
@@ -245,6 +252,8 @@ const SingleMinerActionsMenuInner = ({
   showRenameDialog,
   handleRenameConfirm,
   handleRenameDismiss,
+  showAddToGroupModal,
+  handleAddToGroupDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   useEffect(() => {
@@ -370,6 +379,13 @@ const SingleMinerActionsMenuInner = ({
         hasThirdPartyMiners={hasThirdPartyMiners}
         onConfirm={handlePasswordConfirm}
         onDismiss={handlePasswordDismiss}
+      />
+      <AddToGroupModal
+        open={currentAction === groupActions.addToGroup && showAddToGroupModal}
+        onDismiss={handleAddToGroupDismiss}
+        selectedMiners={[deviceIdentifier]}
+        selectionMode="subset"
+        displayCount={1}
       />
     </div>
   );

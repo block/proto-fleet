@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   deviceActions,
+  groupActions,
   loadingMessages,
   minersMessage,
   performanceActions,
@@ -67,6 +68,7 @@ import {
   Lock,
   MiningPools,
   Play,
+  Plus,
   Power,
   Reboot,
   Speedometer,
@@ -267,6 +269,7 @@ export const useMinerActions = ({
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
+  const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
@@ -678,6 +681,12 @@ export const useMinerActions = ({
 
   const handleRenameDismiss = useCallback(() => {
     setShowRenameDialog(false);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const handleAddToGroupDismiss = useCallback(() => {
+    setShowAddToGroupModal(false);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1102,6 +1111,12 @@ export const useMinerActions = ({
       startAuthentication("security");
     };
 
+    const handleAddToGroup = () => {
+      setCurrentAction(groupActions.addToGroup);
+      setShowAddToGroupModal(true);
+      onActionStart?.();
+    };
+
     // TODO: Implement firmware update action (requires Fleet auth — follow handleMiningPool/handleManageSecurity pattern)
 
     const sleepAction: BulkAction<SupportedAction> = {
@@ -1239,8 +1254,15 @@ export const useMinerActions = ({
             } as BulkAction<SupportedAction>,
           ]
         : []),
-      // TODO: Implement Add to group action
-      // TODO: Implement Add to rack action - when implemented, add showGroupDivider: true to add-to-rack (last in organization group)
+      {
+        action: groupActions.addToGroup,
+        title: "Add to group",
+        icon: <Plus />,
+        actionHandler: handleAddToGroup,
+        requiresConfirmation: false,
+        showGroupDivider: true,
+      },
+      // TODO: Implement Add to rack action - when implemented, move showGroupDivider from add-to-group to add-to-rack (last in organization group)
       // Security and dangerous actions (same group)
       {
         action: settingsActions.security,
@@ -1336,5 +1358,7 @@ export const useMinerActions = ({
     showRenameDialog,
     handleRenameConfirm,
     handleRenameDismiss,
+    showAddToGroupModal,
+    handleAddToGroupDismiss,
   };
 };

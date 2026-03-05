@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
-import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import AddToGroupModal from "./AddToGroupModal";
+import { groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
@@ -70,6 +71,9 @@ const MinerActionsMenu = ({
     minerGroups,
     handleUpdateGroup,
     handleSecurityModalClose,
+    showAddToGroupModal,
+    handleAddToGroupDismiss,
+    displayCount,
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
@@ -148,6 +152,13 @@ const MinerActionsMenu = ({
         hasThirdPartyMiners={hasThirdPartyMiners}
         onConfirm={handlePasswordConfirm}
         onDismiss={handlePasswordDismiss}
+      />
+      <AddToGroupModal
+        open={currentAction === groupActions.addToGroup && showAddToGroupModal}
+        onDismiss={handleAddToGroupDismiss}
+        selectedMiners={selectedMiners}
+        selectionMode={selectionMode}
+        displayCount={displayCount ?? selectedMiners.length}
       />
     </PopoverProvider>
   );
