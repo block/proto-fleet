@@ -65,7 +65,7 @@ func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, 
 				"result", result.Any(),
 			)
 		} else {
-			slog.Info("incoming unary request", "procedure", procedure, "took", duration)
+			slog.Debug("incoming unary request", "procedure", procedure, "took", duration)
 		}
 	}
 }
