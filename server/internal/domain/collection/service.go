@@ -121,11 +121,21 @@ func (s *Service) GetCollection(ctx context.Context, req *pb.GetCollectionReques
 	return &pb.GetCollectionResponse{Collection: collection}, nil
 }
 
-// UpdateCollection updates a collection's label and/or description.
+// UpdateCollection updates a collection's label, description, and/or membership.
 func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollectionRequest) (*pb.UpdateCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Resolve device identifiers outside the transaction if device_selector is provided.
+	var deviceIdentifiers []string
+	hasDeviceSelector := req.DeviceSelector != nil
+	if hasDeviceSelector {
+		deviceIdentifiers, err = s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -140,6 +150,21 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		err := s.collectionStore.UpdateCollection(ctx, info.OrganizationID, req.CollectionId, label, description)
 		if err != nil {
 			return nil, err
+		}
+
+		// Replace membership atomically if device_selector was provided.
+		if hasDeviceSelector {
+			_, err = s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(deviceIdentifiers) > 0 {
+				_, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 
 		collection, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)

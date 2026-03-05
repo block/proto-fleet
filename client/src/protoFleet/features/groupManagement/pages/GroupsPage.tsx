@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useCollections } from "@/protoFleet/api/useCollections";
-import AddGroupModal from "@/protoFleet/features/groupManagement/components/AddGroupModal";
+import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 
 import { Groups } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -13,7 +13,8 @@ const GroupsPage = () => {
   const { listGroups } = useCollections();
   const [groups, setGroups] = useState<DeviceCollection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [editGroup, setEditGroup] = useState<DeviceCollection | null>(null);
 
   const fetchGroups = useCallback(() => {
     setIsLoading(true);
@@ -56,7 +57,7 @@ const GroupsPage = () => {
                 <Header title="Groups" titleSize="text-display-200" description="Organize your miners into groups." />
               </div>
               <div>
-                <Button variant="primary" onClick={() => setShowAddModal(true)}>
+                <Button variant="primary" onClick={() => setShowGroupModal(true)}>
                   Add group
                 </Button>
               </div>
@@ -67,15 +68,17 @@ const GroupsPage = () => {
         <div className="p-10 phone:p-6 tablet:p-6">
           <div className="mb-6 flex items-center justify-between">
             <h1 className="text-heading-300 text-text-primary">Groups</h1>
-            <Button variant="primary" onClick={() => setShowAddModal(true)}>
+            <Button variant="primary" onClick={() => setShowGroupModal(true)}>
               Add group
             </Button>
           </div>
           <div className="flex flex-col gap-3">
             {groups.map((group) => (
-              <div
+              <button
+                type="button"
                 key={String(group.id)}
-                className="flex items-center justify-between rounded-xl border border-border-10 p-4"
+                className="flex cursor-pointer items-center justify-between rounded-xl border border-border-10 p-4 text-left transition-colors hover:bg-surface-5"
+                onClick={() => setEditGroup(group)}
               >
                 <div>
                   <div className="text-emphasis-300 text-text-primary">{group.label}</div>
@@ -84,13 +87,15 @@ const GroupsPage = () => {
                 <div className="text-200 text-text-primary-70">
                   {group.deviceCount} {group.deviceCount === 1 ? "miner" : "miners"}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       )}
 
-      {showAddModal && <AddGroupModal onDismiss={() => setShowAddModal(false)} onSuccess={fetchGroups} />}
+      {showGroupModal && <GroupModal onDismiss={() => setShowGroupModal(false)} onSuccess={fetchGroups} />}
+
+      {editGroup && <GroupModal group={editGroup} onDismiss={() => setEditGroup(null)} onSuccess={fetchGroups} />}
     </div>
   );
 };

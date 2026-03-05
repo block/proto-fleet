@@ -824,6 +824,25 @@ func (q *Queries) ListCollectionsPaginatedAfter(ctx context.Context, arg ListCol
 	return items, nil
 }
 
+const removeAllDevicesFromCollection = `-- name: RemoveAllDevicesFromCollection :execrows
+DELETE FROM device_collection_membership
+WHERE collection_id = $1
+  AND org_id = $2
+`
+
+type RemoveAllDevicesFromCollectionParams struct {
+	CollectionID int64
+	OrgID        int64
+}
+
+func (q *Queries) RemoveAllDevicesFromCollection(ctx context.Context, arg RemoveAllDevicesFromCollectionParams) (int64, error) {
+	result, err := q.exec(ctx, q.removeAllDevicesFromCollectionStmt, removeAllDevicesFromCollection, arg.CollectionID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const removeDevicesFromCollection = `-- name: RemoveDevicesFromCollection :execrows
 DELETE FROM device_collection_membership
 WHERE collection_id = $1

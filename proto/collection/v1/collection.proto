@@ -200,6 +200,9 @@ message UpdateCollectionRequest {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
     }
+
+    // Optional: atomically replace all collection members with the selected devices.
+    common.v1.DeviceSelector device_selector = 6;
 }
 
 // Response after updating a collection

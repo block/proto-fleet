@@ -18,10 +18,59 @@ interface CreateGroupProps {
   onFinally?: () => void;
 }
 
+interface UpdateGroupProps {
+  collectionId: bigint;
+  label?: string;
+  deviceIdentifiers?: string[];
+  allDevices?: boolean;
+  onSuccess?: (collection: DeviceCollection) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface DeleteGroupProps {
+  collectionId: bigint;
+  onSuccess?: () => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface ListCollectionsProps {
   onSuccess?: (collections: DeviceCollection[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
+}
+
+interface ListGroupMembersProps {
+  collectionId: bigint;
+  onSuccess?: (deviceIdentifiers: string[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+const memberPageSize = 250;
+
+function buildDeviceSelector(deviceIdentifiers: string[] | undefined, allDevices: boolean | undefined) {
+  if (allDevices) {
+    return create(DeviceSelectorSchema, {
+      selectionType: {
+        case: "allDevices",
+        value: true,
+      },
+    });
+  }
+  // When deviceIdentifiers is provided (even empty), build a device list selector
+  if (deviceIdentifiers !== undefined) {
+    return create(DeviceSelectorSchema, {
+      selectionType: {
+        case: "deviceList",
+        value: create(DeviceIdentifierListSchema, {
+          deviceIdentifiers,
+        }),
+      },
+    });
+  }
+  return undefined;
 }
 
 const useCollections = () => {
@@ -30,27 +79,9 @@ const useCollections = () => {
   const createGroup = useCallback(
     async ({ label, deviceIdentifiers = [], allDevices = false, onSuccess, onError, onFinally }: CreateGroupProps) => {
       try {
-        // Build device selector if devices are specified
-        let deviceSelector;
-        if (allDevices) {
-          deviceSelector = create(DeviceSelectorSchema, {
-            selectionType: {
-              case: "allDevices",
-              value: true,
-            },
-          });
-        } else if (deviceIdentifiers.length > 0) {
-          deviceSelector = create(DeviceSelectorSchema, {
-            selectionType: {
-              case: "deviceList",
-              value: create(DeviceIdentifierListSchema, {
-                deviceIdentifiers,
-              }),
-            },
-          });
-        }
+        const deviceSelector =
+          allDevices || deviceIdentifiers.length > 0 ? buildDeviceSelector(deviceIdentifiers, allDevices) : undefined;
 
-        // Create collection with devices atomically in a single request
         const createResponse = await collectionClient.createCollection({
           type: CollectionType.GROUP,
           label,
@@ -64,6 +95,57 @@ const useCollections = () => {
         }
 
         onSuccess?.(collection);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const updateGroup = useCallback(
+    async ({ collectionId, label, deviceIdentifiers, allDevices, onSuccess, onError, onFinally }: UpdateGroupProps) => {
+      try {
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
+
+        const response = await collectionClient.updateCollection({
+          collectionId,
+          label,
+          deviceSelector,
+        });
+
+        const collection = response.collection;
+        if (!collection) {
+          onError?.("Failed to update group");
+          return;
+        }
+
+        onSuccess?.(collection);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const deleteGroup = useCallback(
+    async ({ collectionId, onSuccess, onError, onFinally }: DeleteGroupProps) => {
+      try {
+        await collectionClient.deleteCollection({ collectionId });
+        onSuccess?.();
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -122,10 +204,46 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const listGroupMembers = useCallback(
+    async ({ collectionId, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+      try {
+        const allIdentifiers: string[] = [];
+        let pageToken = "";
+
+        do {
+          const response = await collectionClient.listCollectionMembers({
+            collectionId,
+            pageSize: memberPageSize,
+            pageToken,
+          });
+          for (const member of response.members) {
+            allIdentifiers.push(member.deviceIdentifier);
+          }
+          pageToken = response.nextPageToken;
+        } while (pageToken !== "");
+
+        onSuccess?.(allIdentifiers);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
+    updateGroup,
+    deleteGroup,
     listGroups,
     listRacks,
+    listGroupMembers,
   };
 };
 

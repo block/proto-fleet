@@ -337,6 +337,101 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	assert.Contains(t, err.Error(), "device not owned by org")
 }
 
+func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	ctx := testCtx(t)
+
+	deviceIDs := []string{"device-1", "device-2"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc := NewService(mockStore, mockTransactor, resolver)
+
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
+
+	newLabel := "Updated Group"
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, &newLabel, (*string)(nil)).Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).Return(int64(3), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, testCollectionID, deviceIDs).Return(int64(2), nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: newLabel, DeviceCount: 2}, nil)
+
+	resp, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: testCollectionID,
+		Label:        &newLabel,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, newLabel, resp.Collection.Label)
+	assert.Equal(t, int32(2), resp.Collection.DeviceCount)
+}
+
+func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	ctx := testCtx(t)
+
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{}, nil
+	}
+	svc := NewService(mockStore, mockTransactor, resolver)
+
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, (*string)(nil), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).Return(int64(5), nil)
+	// AddDevicesToCollection should NOT be called since deviceIdentifiers is empty
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "My Group", DeviceCount: 0}, nil)
+
+	resp, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: testCollectionID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.Collection.DeviceCount)
+}
+
+func TestService_UpdateCollection_WithoutDeviceSelectorLeavesMembers(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	newLabel := "Renamed Group"
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, &newLabel, (*string)(nil)).Return(nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: newLabel, DeviceCount: 3}, nil)
+
+	resp, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: testCollectionID,
+		Label:        &newLabel,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, newLabel, resp.Collection.Label)
+	assert.Equal(t, int32(3), resp.Collection.DeviceCount)
+}
+
 func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)

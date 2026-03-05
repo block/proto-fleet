@@ -109,6 +109,11 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND dc.deleted_at IS NULL
 ON CONFLICT (collection_id, device_id) DO NOTHING;
 
+-- name: RemoveAllDevicesFromCollection :execrows
+DELETE FROM device_collection_membership
+WHERE collection_id = $1
+  AND org_id = $2;
+
 -- name: RemoveDevicesFromCollection :execrows
 DELETE FROM device_collection_membership
 WHERE collection_id = $1

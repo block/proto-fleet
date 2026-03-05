@@ -269,6 +269,17 @@ func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID i
 	return count, nil
 }
 
+func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).RemoveAllDevicesFromCollection(ctx, sqlc.RemoveAllDevicesFromCollectionParams{
+		CollectionID: collectionID,
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to remove all devices from collection: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLCollectionStore) RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error) {
 	count, err := s.GetQueries(ctx).RemoveDevicesFromCollection(ctx, sqlc.RemoveDevicesFromCollectionParams{
 		CollectionID:      collectionID,

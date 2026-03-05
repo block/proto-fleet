@@ -535,6 +535,28 @@ describe("List", () => {
     });
   });
 
+  it("preserves customSelectedItems for items not in current page when preserveOffPageSelection is true", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    const selectedAcrossPages = [testItems[0].id, testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    expect(customSetSelectedItems).not.toHaveBeenCalled();
+  });
+
   describe("Shift+click range selection", () => {
     it("selects range of items when Shift+clicking after initial selection", () => {
       const { getByTestId } = render(

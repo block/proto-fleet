@@ -52,6 +52,10 @@ type CollectionStore interface {
 	// Returns the number of devices actually added (excludes duplicates and non-existent devices).
 	AddDevicesToCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
+	// RemoveAllDevicesFromCollection removes all devices from a collection.
+	// Returns the number of devices removed.
+	RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error)
+
 	// RemoveDevicesFromCollection removes devices from a collection.
 	// Returns the number of devices actually removed.
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)

@@ -381,6 +381,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.queryErrorsStmt, err = db.PrepareContext(ctx, queryErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query QueryErrors: %w", err)
 	}
+	if q.removeAllDevicesFromCollectionStmt, err = db.PrepareContext(ctx, removeAllDevicesFromCollection); err != nil {
+		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromCollection: %w", err)
+	}
 	if q.removeDevicesFromCollectionStmt, err = db.PrepareContext(ctx, removeDevicesFromCollection); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromCollection: %w", err)
 	}
@@ -1101,6 +1104,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing queryErrorsStmt: %w", cerr)
 		}
 	}
+	if q.removeAllDevicesFromCollectionStmt != nil {
+		if cerr := q.removeAllDevicesFromCollectionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing removeAllDevicesFromCollectionStmt: %w", cerr)
+		}
+	}
 	if q.removeDevicesFromCollectionStmt != nil {
 		if cerr := q.removeDevicesFromCollectionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeDevicesFromCollectionStmt: %w", cerr)
@@ -1459,6 +1467,7 @@ type Queries struct {
 	queryComponentKeysWithErrorsStmt                    *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
 	queryErrorsStmt                                     *sql.Stmt
+	removeAllDevicesFromCollectionStmt                  *sql.Stmt
 	removeDevicesFromCollectionStmt                     *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
@@ -1624,6 +1633,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
 		queryErrorsStmt:                                     q.queryErrorsStmt,
+		removeAllDevicesFromCollectionStmt:                  q.removeAllDevicesFromCollectionStmt,
 		removeDevicesFromCollectionStmt:                     q.removeDevicesFromCollectionStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,

@@ -1,4 +1,4 @@
-import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -140,6 +140,17 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * visible while scrolling. Default is false (filters scroll with content).
    */
   renderFiltersOutsideScroll?: boolean;
+  /**
+   * Ref forwarded to the scrollable container element.
+   * Useful for programmatic scroll control (e.g., scroll-to-top on pagination).
+   */
+  scrollRef?: Ref<HTMLDivElement>;
+  /**
+   * When true, skips automatic cleanup of customSelectedItems that are not
+   * in the current items list. Use for paginated lists where the parent
+   * manages selections across pages.
+   */
+  preserveOffPageSelection?: boolean;
 };
 
 const cellClassList = "text-left";
@@ -198,6 +209,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   getDefaultSortDirection,
   footerContent,
   renderFiltersOutsideScroll = false,
+  scrollRef,
+  preserveOffPageSelection = false,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -399,7 +412,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       return;
     }
 
-    // In "subset" or "none" mode, clean up stale selections (items that no longer exist)
+    // When preserveOffPageSelection is enabled, skip cleanup so the parent
+    // can manage selections across pages.
+    if (preserveOffPageSelection) {
+      return;
+    }
+
     if (customSetSelectedItems && customSelectedItems) {
       const newSelectedItems = customSelectedItems.filter((selectedKey) => currentItemKeys.has(selectedKey));
       if (newSelectedItems.length !== customSelectedItems.length) {
@@ -509,7 +527,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       )}
       <div className={clsx("flex flex-col", containerClassName)}>
         {!renderFiltersOutsideScroll && filtersElement}
-        <div className={clsx({ "overflow-x-auto": overflowContainer })}>
+        <div ref={scrollRef} className={clsx({ "overflow-x-auto": overflowContainer })}>
           {!noDataElement || (items && items.length > 0) ? (
             <>
               <div ref={refs.vertical.start} />
