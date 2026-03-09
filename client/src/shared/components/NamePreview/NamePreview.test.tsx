@@ -56,4 +56,21 @@ describe("NamePreview", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByTestId("arrow-icon")).not.toBeInTheDocument();
   });
+
+  it("renders transition content without the card container in inline layout", () => {
+    render(<NamePreview currentName="Bitmain S17" newName="My Miner" layout="inline" />);
+
+    expect(screen.getByTestId("arrow-icon")).toBeInTheDocument();
+    expect(screen.getByText("Bitmain S17")).toBeInTheDocument();
+    expect(screen.getByText("My Miner")).toBeInTheDocument();
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
+  });
+
+  it("shows an em dash in inline layout when names match", () => {
+    render(<NamePreview currentName="Bitmain S17" newName="Bitmain S17" layout="inline" />);
+
+    expect(screen.getByTestId("arrow-icon")).toBeInTheDocument();
+    expect(screen.getByText("Bitmain S17")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
 });

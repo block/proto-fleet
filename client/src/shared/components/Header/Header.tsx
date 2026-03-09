@@ -7,16 +7,19 @@ import ButtonGroup, { ButtonProps, groupVariants } from "@/shared/components/But
 interface HeaderProps {
   buttons?: ButtonProps[];
   buttonSize?: keyof typeof sizes;
+  buttonsWrapperClassName?: string;
   centerButton?: boolean;
   children?: ReactNode;
   className?: string;
   compact?: boolean;
+  iconButtonClassName?: string;
   icon?: ReactNode;
   iconOnClick?: () => void;
   iconSize?: keyof typeof sizes;
   iconTextColor?: string;
   iconVariant?: ButtonVariant;
   inline?: boolean;
+  stackButtonsOnPhone?: boolean;
   showSubtitleTooltip?: boolean;
   subtitle?: string;
   subtitleClassName?: string;
@@ -31,16 +34,19 @@ interface HeaderProps {
 const Header = ({
   buttons,
   buttonSize = sizes.compact,
+  buttonsWrapperClassName,
   centerButton,
   className,
   children,
   compact,
+  iconButtonClassName,
   icon,
   iconOnClick,
   iconSize = sizes.base,
   iconTextColor,
   iconVariant = variants.secondary,
   inline = false,
+  stackButtonsOnPhone = true,
   showSubtitleTooltip,
   subtitle,
   subtitleClassName,
@@ -53,7 +59,11 @@ const Header = ({
 }: HeaderProps) => {
   return (
     <div
-      className={clsx("flex w-full justify-between gap-3 phone:flex-wrap", { "items-center": centerButton }, className)}
+      className={clsx(
+        "flex w-full justify-between gap-3",
+        { "items-center": centerButton, "phone:flex-wrap": stackButtonsOnPhone },
+        className,
+      )}
     >
       <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
@@ -63,6 +73,7 @@ const Header = ({
             size={iconSize}
             prefixIcon={icon}
             onClick={iconOnClick}
+            className={iconButtonClassName}
             testId="header-icon-button"
           />
         )}
@@ -98,7 +109,7 @@ const Header = ({
       </div>
       {children}
       {buttons && (
-        <div className="ml-3 phone:ml-0 phone:w-full">
+        <div className={clsx("ml-3", { "phone:ml-0 phone:w-full": stackButtonsOnPhone }, buttonsWrapperClassName)}>
           <ButtonGroup buttons={buttons} variant={groupVariants.rightAligned} size={buttonSize} />
         </div>
       )}
