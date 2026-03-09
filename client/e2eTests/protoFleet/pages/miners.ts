@@ -15,9 +15,9 @@ export class MinersPage extends BasePage {
     await expect(rows).toHaveCount(minerCount);
   }
 
-  async validateMinersAdded() {
+  async validateMinersAdded(minerCount: number = 5) {
     const rows = this.page.getByTestId("list-body").locator("tr");
-    expect(await rows.count()).toBeGreaterThanOrEqual(5);
+    expect(await rows.count()).toBeGreaterThanOrEqual(minerCount);
   }
 
   private async filterMinersByModel(minerType: string) {
@@ -210,10 +210,11 @@ export class MinersPage extends BasePage {
     const rows = this.page.getByTestId("list-body").locator("tr");
     await expect(rows).not.toHaveCount(0);
     await expect(async () => {
-      const detectedRowCount = await rows.count();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
-      expect(await rows.count()).toBe(detectedRowCount);
+      const rowCount = await rows.count();
+      await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
+      const rowCountAfterDelay = await rows.count();
+
+      expect(rowCountAfterDelay).toBe(rowCount);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 

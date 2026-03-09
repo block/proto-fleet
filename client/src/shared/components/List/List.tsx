@@ -548,7 +548,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                   >
                     {itemSelectable && (
                       <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
-                        <div className="w-9 truncate overflow-hidden">
+                        <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
                           <Checkbox
                             checked={allSelected}
                             partiallyChecked={
@@ -644,6 +644,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                         key={i}
                         className={rowClassList}
                         ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}
+                        data-testid="list-row"
                       >
                         {itemSelectable && (
                           <td

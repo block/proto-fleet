@@ -7,7 +7,7 @@ test.describe("Proto Fleet - Onboarding", () => {
     await page.goto("/");
   });
 
-  test("Onboard the admin user @setup", async ({ authPage }) => {
+  test("Onboard the admin user @setup @real", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);
@@ -43,24 +43,60 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Add all scanned miners @setup", async ({ authPage, minersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
+  if (testConfig.target === "real") {
+    test("Add specific miners @setup @real", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
+      await commonSteps.loginAsAdmin();
 
-    await test.step("Get started with onboarding", async () => {
-      await authPage.clickGetStarted();
+      await test.step("Get started with onboarding", async () => {
+        await authPage.clickGetStarted();
+      });
+
+      const rawMinerIps = process.env.E2E_MINER_IPS || "";
+      const minerIps = rawMinerIps
+        .split(",")
+        .map((ip) => ip.trim())
+        .filter(Boolean);
+      expect(
+        minerIps,
+        "E2E_MINER_IPS must be a comma-separated list of miner IPs, e.g. '192.168.1.10,192.168.1.11'.",
+      ).not.toHaveLength(0);
+
+      const listOfMiners = minerIps.join(",");
+      console.warn("Running onboarding test with the following miner IPs:", minerIps);
+      const amountOfMiners = minerIps.length;
+
+      await test.step("Find and add miners", async () => {
+        await addMinersPage.inputMinerIp(listOfMiners);
+        await addMinersPage.clickFindMinersByIp();
+        await addMinersPage.clickContinueWithXMiners(amountOfMiners);
+      });
+
+      await commonSteps.goToMinersPage();
+
+      await test.step("Validate miners added", async () => {
+        await minersPage.validateMinersAdded(amountOfMiners);
+      });
     });
+  } else {
+    test("Add all scanned miners @setup", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
+      await commonSteps.loginAsAdmin();
 
-    await test.step("Find and add miners", async () => {
-      await authPage.clickFindMiners();
-      await authPage.clickContinueWithSelectedMiners();
+      await test.step("Get started with onboarding", async () => {
+        await authPage.clickGetStarted();
+      });
+
+      await test.step("Find and add miners", async () => {
+        await addMinersPage.clickFindMinersInNetwork();
+        await addMinersPage.clickContinueWithSelectedMiners();
+      });
+
+      await commonSteps.goToMinersPage();
+
+      await test.step("Validate miners added", async () => {
+        await minersPage.validateMinersAdded();
+      });
     });
-
-    await commonSteps.goToMinersPage();
-
-    await test.step("Validate miners added", async () => {
-      await minersPage.validateMinersAdded();
-    });
-  });
+  }
 
   if (testConfig.target !== "real") {
     test("Authenticate miners @setup", async ({ homePage, commonSteps }) => {

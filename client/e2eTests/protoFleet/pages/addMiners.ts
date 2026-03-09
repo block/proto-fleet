@@ -18,6 +18,10 @@ export class AddMinersPage extends BasePage {
     await this.clickButton("Choose miners");
   }
 
+  async clickSelectAllCheckboxInModal() {
+    await this.page.getByTestId("modal").getByTestId("select-all-checkbox").click();
+  }
+
   async clickSelectNone() {
     await this.clickButton("Select none");
   }
@@ -45,6 +49,10 @@ export class AddMinersPage extends BasePage {
 
   async clickContinueWithXMiners(minerCount: number) {
     await this.page.getByRole("button", { name: `Continue with ${minerCount} miners` }).click();
+  }
+
+  async clickContinueWithSelectedMiners() {
+    await this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).click();
   }
 
   async validateOneMinerWasFoundByIp() {
