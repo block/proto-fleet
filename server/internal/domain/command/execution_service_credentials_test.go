@@ -13,6 +13,7 @@ import (
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -205,9 +206,11 @@ func (m *mockMinerForPassword) UpdateMiningPools(ctx context.Context, payload dt
 func (m *mockMinerForPassword) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	return nil
 }
-func (m *mockMinerForPassword) BlinkLED(ctx context.Context) error       { return nil }
-func (m *mockMinerForPassword) FirmwareUpdate(ctx context.Context) error { return nil }
-func (m *mockMinerForPassword) Unpair(ctx context.Context) error         { return nil }
+func (m *mockMinerForPassword) BlinkLED(ctx context.Context) error { return nil }
+func (m *mockMinerForPassword) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
+	return nil
+}
+func (m *mockMinerForPassword) Unpair(ctx context.Context) error { return nil }
 func (m *mockMinerForPassword) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
 	return modelsV2.DeviceMetrics{}, nil
 }

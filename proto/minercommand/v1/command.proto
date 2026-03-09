@@ -127,6 +127,8 @@ message BlinkLEDResponse {
 
 message FirmwareUpdateRequest {
   DeviceSelector device_selector = 1;
+  // Reference to a firmware file previously uploaded via the firmware upload HTTP endpoint
+  string firmware_file_id = 2;
 }
 
 message FirmwareUpdateResponse {

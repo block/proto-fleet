@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
@@ -378,10 +379,17 @@ type DeviceConfiguration interface {
 	GetMiningPools(ctx context.Context) ([]ConfiguredPool, error)
 }
 
+// FirmwareFile represents a firmware file to be uploaded to a device.
+type FirmwareFile struct {
+	Reader   io.Reader
+	Filename string
+	Size     int64
+}
+
 // DeviceMaintenance represents device maintenance operations
 type DeviceMaintenance interface {
 	DownloadLogs(ctx context.Context, since *time.Time, batchLogUUID string) (logData string, moreData bool, err error)
-	FirmwareUpdate(ctx context.Context) error
+	FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error
 	// Unpair clears device credentials during fleet unpairing
 	Unpair(ctx context.Context) error
 }

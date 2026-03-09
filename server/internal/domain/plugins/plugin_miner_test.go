@@ -37,7 +37,7 @@ type mockSDKDevice struct {
 	setPowerTargetFunc      func(ctx context.Context, performanceMode sdk.PerformanceMode) error
 	updatePoolsFunc         func(ctx context.Context, pools []sdk.MiningPoolConfig) error
 	downloadLogsFunc        func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
-	firmwareUpdateFunc      func(ctx context.Context) error
+	firmwareUpdateFunc      func(ctx context.Context, firmware sdk.FirmwareFile) error
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
 	tryGetWebViewFunc       func(ctx context.Context) (string, bool, error)
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword string, newPassword string) error
@@ -131,9 +131,9 @@ func (m *mockSDKDevice) DownloadLogs(ctx context.Context, since *time.Time, uuid
 	return "", false, nil
 }
 
-func (m *mockSDKDevice) FirmwareUpdate(ctx context.Context) error {
+func (m *mockSDKDevice) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	if m.firmwareUpdateFunc != nil {
-		return m.firmwareUpdateFunc(ctx)
+		return m.firmwareUpdateFunc(ctx, firmware)
 	}
 	return nil
 }

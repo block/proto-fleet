@@ -323,17 +323,17 @@ func (mr *MockDeviceMaintenanceMockRecorder) DownloadLogs(ctx, since, batchLogUU
 }
 
 // FirmwareUpdate mocks base method.
-func (m *MockDeviceMaintenance) FirmwareUpdate(ctx context.Context) error {
+func (m *MockDeviceMaintenance) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx)
+	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx, firmware)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // FirmwareUpdate indicates an expected call of FirmwareUpdate.
-func (mr *MockDeviceMaintenanceMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
+func (mr *MockDeviceMaintenanceMockRecorder) FirmwareUpdate(ctx, firmware interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDeviceMaintenance)(nil).FirmwareUpdate), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDeviceMaintenance)(nil).FirmwareUpdate), ctx, firmware)
 }
 
 // Unpair mocks base method.
@@ -560,17 +560,17 @@ func (mr *MockDeviceMockRecorder) DownloadLogs(ctx, since, batchLogUUID interfac
 }
 
 // FirmwareUpdate mocks base method.
-func (m *MockDevice) FirmwareUpdate(ctx context.Context) error {
+func (m *MockDevice) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx)
+	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx, firmware)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // FirmwareUpdate indicates an expected call of FirmwareUpdate.
-func (mr *MockDeviceMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
+func (mr *MockDeviceMockRecorder) FirmwareUpdate(ctx, firmware interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDevice)(nil).FirmwareUpdate), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDevice)(nil).FirmwareUpdate), ctx, firmware)
 }
 
 // GetCoolingMode mocks base method.

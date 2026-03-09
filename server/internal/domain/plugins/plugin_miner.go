@@ -418,8 +418,8 @@ func formatLogLineToCSVRow(line string, includeType bool) string {
 }
 
 // FirmwareUpdate implements interfaces.Miner
-func (p *PluginMiner) FirmwareUpdate(ctx context.Context) error {
-	if err := p.sdkDevice.FirmwareUpdate(ctx); err != nil {
+func (p *PluginMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
+	if err := p.sdkDevice.FirmwareUpdate(ctx, firmware); err != nil {
 		return fleeterror.NewInternalErrorf("failed to update firmware: %v", err)
 	}
 	return nil

@@ -225,7 +225,8 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	case commandtype.BlinkLED:
 		err = minerInfo.BlinkLED(ctx)
 	case commandtype.FirmwareUpdate:
-		err = minerInfo.FirmwareUpdate(ctx)
+		// TODO: unmarshal FirmwareUpdatePayload, open firmware file, pass to miner
+		err = fleeterror.NewInternalErrorf("firmware update command execution is not yet implemented")
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
 		if err == nil {

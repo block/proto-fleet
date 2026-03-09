@@ -16,6 +16,7 @@ import (
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -178,17 +179,17 @@ func (mr *MockMinerMockRecorder) DownloadLogs(ctx, batchLogUUID interface{}) *go
 }
 
 // FirmwareUpdate mocks base method.
-func (m *MockMiner) FirmwareUpdate(ctx context.Context) error {
+func (m *MockMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx)
+	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx, firmware)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // FirmwareUpdate indicates an expected call of FirmwareUpdate.
-func (mr *MockMinerMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
+func (mr *MockMinerMockRecorder) FirmwareUpdate(ctx, firmware interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockMiner)(nil).FirmwareUpdate), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockMiner)(nil).FirmwareUpdate), ctx, firmware)
 }
 
 // GetConnectionInfo mocks base method.

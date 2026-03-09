@@ -11,6 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
 //go:generate mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
@@ -43,7 +44,7 @@ type Miner interface {
 
 	DownloadLogs(ctx context.Context, batchLogUUID string) error
 
-	FirmwareUpdate(ctx context.Context) error
+	FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error
 
 	// Unpair clears device credentials and unregisters from fleet
 	Unpair(ctx context.Context) error

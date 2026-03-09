@@ -521,15 +521,16 @@ func (s *DriverGRPCServer) Reboot(ctx context.Context, req *pb.DeviceRef) (*empt
 
 func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
 	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
+	_, exists := s.devices[req.DeviceId]
 	s.mu.RUnlock()
 
 	if !exists {
 		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
 	}
 
-	err := device.FirmwareUpdate(ctx)
-	return &emptypb.Empty{}, err
+	// The gRPC driver protocol doesn't support streaming firmware file data.
+	// File-based firmware updates must be handled directly by in-process plugins.
+	return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("file-based firmware update via gRPC driver"))
 }
 
 func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -1005,7 +1006,12 @@ func (d *DeviceGRPCClient) Reboot(ctx context.Context) error {
 	return err
 }
 
-func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context) error {
+func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error {
+	// The gRPC driver protocol does not support streaming firmware files.
+	// File-based firmware updates are handled directly by the plugin device
+	// implementation, not through the gRPC driver proxy. This path is only
+	// reached for in-process plugins; out-of-process plugins must implement
+	// FirmwareUpdate on the device side.
 	_, err := d.client.UpdateFirmware(ctx, &pb.DeviceRef{
 		DeviceId: d.deviceID,
 	})

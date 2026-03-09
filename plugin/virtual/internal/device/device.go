@@ -212,7 +212,7 @@ func (d *Device) DownloadLogs(_ context.Context, _ *time.Time, _ string) (string
 }
 
 // FirmwareUpdate implements sdk.DeviceMaintenance.
-func (d *Device) FirmwareUpdate(_ context.Context) error {
+func (d *Device) FirmwareUpdate(_ context.Context, _ sdk.FirmwareFile) error {
 	slog.Info("Virtual miner firmware update requested (no-op)", "device_id", d.id)
 	return nil
 }
