@@ -590,6 +590,15 @@ echo "Starting services..."
 docker compose -f "$COMPOSE_FILE" up -d
 
 # ----------------------------------------------------------------------------
+# Docker Cleanup
+# ----------------------------------------------------------------------------
+
+# Remove dangling images and build cache left behind by previous deployments.
+echo "Cleaning up old Docker images and build cache..."
+docker image prune -f 2>/dev/null || true
+docker builder prune -f 2>/dev/null || true
+
+# ----------------------------------------------------------------------------
 # Final Status Check
 # ----------------------------------------------------------------------------
 
