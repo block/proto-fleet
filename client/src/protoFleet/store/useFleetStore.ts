@@ -6,6 +6,7 @@ import { createDashboardSlice, type DashboardSlice } from "./slices/dashboardSli
 import { createFleetSlice, type FleetSlice } from "./slices/fleetSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
+import { normalizeBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
 
 // =============================================================================
 // Combined Store Interface
@@ -26,7 +27,7 @@ export interface FleetStore {
 // Type for the partial state that we persist
 type PersistedFleetState = {
   auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
-  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration">;
+  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences">;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
@@ -90,6 +91,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 theme: state.ui.theme,
                 temperatureUnit: state.ui.temperatureUnit,
                 duration: state.ui.duration,
+                bulkRenamePreferences: state.ui.bulkRenamePreferences,
               },
             },
             version: value.version,
@@ -134,6 +136,7 @@ export const useFleetStore = create<FleetStore>()(
               theme: state.ui.theme,
               temperatureUnit: state.ui.temperatureUnit,
               duration: state.ui.duration,
+              bulkRenamePreferences: state.ui.bulkRenamePreferences,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -156,6 +159,9 @@ export const useFleetStore = create<FleetStore>()(
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
                 duration: persisted?.ui?.duration ?? currentState.ui.duration,
+                bulkRenamePreferences: normalizeBulkRenamePreferences(
+                  persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,
+                ),
               },
             };
           },

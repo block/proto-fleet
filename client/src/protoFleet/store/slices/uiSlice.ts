@@ -1,5 +1,9 @@
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
+import {
+  type BulkRenamePreferences,
+  createDefaultBulkRenamePreferences,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences";
 
@@ -12,12 +16,14 @@ export interface UISlice {
   deviceTheme: ThemeColor | undefined;
   temperatureUnit: TemperatureUnit;
   duration: FleetDuration;
+  bulkRenamePreferences: BulkRenamePreferences;
 
   // Actions
   setTheme: (theme: Theme) => void;
   setDeviceTheme: (theme: ThemeColor) => void;
   setTemperatureUnit: (unit: TemperatureUnit) => void;
   setDuration: (duration: FleetDuration) => void;
+  setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
 }
 
 // =============================================================================
@@ -30,6 +36,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   deviceTheme: undefined,
   temperatureUnit: "C",
   duration: "24h",
+  bulkRenamePreferences: createDefaultBulkRenamePreferences(),
 
   // Actions
   setTheme: (theme) =>
@@ -50,5 +57,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setDuration: (duration) =>
     set((state) => {
       state.ui.duration = duration;
+    }),
+
+  setBulkRenamePreferences: (preferences) =>
+    set((state) => {
+      state.ui.bulkRenamePreferences = preferences;
     }),
 });
