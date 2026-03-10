@@ -26,7 +26,11 @@ from proto_fleet_sdk.error_codes import (
     MinerError,
     Severity,
 )
-from proto_fleet_sdk.errors import DeviceUnavailableError, UnsupportedCapabilityError
+from proto_fleet_sdk.errors import (
+    DeviceUnavailableError,
+    SDKError,
+    UnsupportedCapabilityError,
+)
 from proto_fleet_sdk.telemetry import DeviceMetrics, jth_to_jh, ths_to_hs
 from proto_fleet_sdk.telemetry.components import (
     ComponentInfo,
@@ -40,6 +44,7 @@ from proto_fleet_sdk.types import Capabilities, ConfiguredPool, DeviceInfo, Mini
 logger = logging.getLogger(__name__)
 
 _BLINK_LED_DURATION_SECS = 30
+_DEFAULT_STRATUM_PASSWORD = "x"
 
 
 def _metric_gauge(value: float) -> MetricValue:
@@ -72,6 +77,31 @@ def _to_float(val: object) -> float:
 def _require_cap(caps: Capabilities, cap: str, device_id: str) -> None:
     if not caps.get(cap):
         raise UnsupportedCapabilityError(cap, device_id=device_id)
+
+
+_KEYWORD_TO_MINER_ERROR: list[tuple[str, MinerError]] = [
+    ("fan", MinerError.FAN_FAILED),
+    ("psu", MinerError.PSU_FAULT_GENERIC),
+    ("power supply", MinerError.PSU_FAULT_GENERIC),
+    ("over temperature", MinerError.DEVICE_OVER_TEMPERATURE),
+    ("temperature is too high", MinerError.DEVICE_OVER_TEMPERATURE),
+    ("overheat", MinerError.DEVICE_OVER_TEMPERATURE),
+    ("hashboard", MinerError.HASHBOARD_NOT_PRESENT),
+    ("hash board", MinerError.HASHBOARD_NOT_PRESENT),
+    ("eeprom", MinerError.EEPROM_READ_FAILURE),
+    ("control board", MinerError.CONTROL_BOARD_FAILURE),
+    ("firmware", MinerError.FIRMWARE_IMAGE_INVALID),
+]
+
+
+def _infer_miner_error(error_message: str, error_code: int | None) -> MinerError:
+    """Map a pyasic error to the most specific MinerError enum value."""
+    msg_lower = error_message.lower()
+    for keyword, miner_err in _KEYWORD_TO_MINER_ERROR:
+        if keyword in msg_lower:
+            return miner_err
+
+    return MinerError.VENDOR_ERROR_UNMAPPED
 
 
 class DeviceCommandFailedError(DeviceUnavailableError):
@@ -149,21 +179,71 @@ class PyAsicDevice:
     def __init__(
         self,
         device_id: str,
-        miner: Any,
+        miner: Any | None,
         device_info: DeviceInfo,
         caps: Capabilities,
         cache_ttl_seconds: int = 5,
+        probe_fn: Any | None = None,
+        secret: Any | None = None,
     ) -> None:
         self._id = device_id
         self._miner = miner
         self._info = device_info
         self._caps = caps
         self._cache_ttl_seconds = cache_ttl_seconds
+        self._probe_fn = probe_fn
+        self._secret = secret
         self._last_status: DeviceMetrics | None = None
         self._last_status_at: datetime | None = None
 
     def id(self) -> str:
         return self._id
+
+    async def _ensure_connected(self) -> bool:
+        """Ensure we have a live pyasic miner connection. Returns True if connected."""
+        if self._miner is not None:
+            return True
+        if self._probe_fn is None:
+            return False
+        try:
+            miner = await asyncio.wait_for(self._probe_fn(self._info.host), timeout=10)
+        except Exception:
+            logger.debug("Reconnect failed for %s at %s", self._id, self._info.host, exc_info=True)
+            return False
+        if miner is None:
+            return False
+        miner_make = getattr(miner, "make", None) or ""
+        miner_model = getattr(miner, "model", None) or ""
+        if (
+            self._info.manufacturer
+            and miner_make
+            and miner_make != self._info.manufacturer
+        ) or (
+            self._info.model
+            and miner_model
+            and miner_model != self._info.model
+        ):
+            logger.warning(
+                "Device identity mismatch at %s for %s: expected %s/%s, got %s/%s — "
+                "IP may have been reassigned to a different device",
+                self._info.host, self._id,
+                self._info.manufacturer, self._info.model,
+                miner_make, miner_model,
+            )
+            return False
+        if self._secret is not None:
+            from pyasic_driver.driver import _apply_credentials
+            _apply_credentials(miner, self._secret)
+        self._miner = miner
+        from pyasic_driver.capabilities import build_capabilities
+        self._caps = build_capabilities(miner)
+        logger.info("Reconnected device %s at %s", self._id, self._info.host)
+        return True
+
+    async def _ensure_connected_or_raise(self) -> None:
+        """Ensure connected, raising DeviceUnavailableError if not."""
+        if not await self._ensure_connected():
+            raise DeviceUnavailableError(device_id=self._id)
 
     async def describe_device(self, ctx: grpc.ServicerContext) -> tuple[DeviceInfo, Capabilities]:
         return self._info, self._caps
@@ -179,9 +259,16 @@ class PyAsicDevice:
         ):
             return self._last_status
 
+        if not await self._ensure_connected():
+            raise DeviceUnavailableError(device_id=self._id)
+        assert self._miner is not None
+
         try:
             data = await self._miner.get_data()
+        except SDKError:
+            raise
         except Exception:
+            self._miner = None
             logger.warning("Failed to get data from %s", self._id, exc_info=True)
             return DeviceMetrics(
                 device_id=self._id,
@@ -213,7 +300,11 @@ class PyAsicDevice:
         hashrate_hs = _metric_rate(ths_to_hs(_to_float(hashrate_ths))) if _has_value(hashrate_ths) else None
         power_w = _metric_gauge(_to_float(wattage)) if _has_value(wattage) else None
         temp_c = _metric_gauge(_to_float(temp_avg)) if _has_value(temp_avg) else None
-        efficiency_jh = _metric_gauge(jth_to_jh(_to_float(efficiency))) if _has_value(efficiency) else None
+        efficiency_jh = (
+            _metric_gauge(jth_to_jh(_to_float(efficiency)))
+            if _has_value(efficiency) and _has_value(hashrate_ths)
+            else None
+        )
 
         hash_boards = self._convert_hashboards(data)
         fan_metrics = self._convert_fans(data)
@@ -238,14 +329,14 @@ class PyAsicDevice:
         hashrate = getattr(data, "hashrate", None)
         errors = getattr(data, "errors", None)
 
-        if errors and len(errors) > 0:
+        if is_mining is False:
+            return HealthStatus.HEALTH_HEALTHY_INACTIVE, None
+        if errors:
             return HealthStatus.HEALTH_WARNING, f"{len(errors)} error(s) reported"
         if is_mining and _has_value(hashrate):
             return HealthStatus.HEALTH_HEALTHY_ACTIVE, None
         if is_mining and not _has_value(hashrate):
             return HealthStatus.HEALTH_WARNING, "Mining but no hashrate detected"
-        if is_mining is False:
-            return HealthStatus.HEALTH_HEALTHY_INACTIVE, None
         return HealthStatus.HEALTH_UNKNOWN, None
 
     def _convert_hashboards(self, data: Any) -> list[HashBoardMetrics]:
@@ -338,28 +429,46 @@ class PyAsicDevice:
             )
 
     async def start_mining(self, ctx: grpc.ServicerContext) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "mining_start", self._id)
         await self._exec_pyasic_command("resume_mining", self._miner.resume_mining())
 
     async def stop_mining(self, ctx: grpc.ServicerContext) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "mining_stop", self._id)
         await self._exec_pyasic_command("stop_mining", self._miner.stop_mining())
 
     async def reboot(self, ctx: grpc.ServicerContext) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "reboot", self._id)
         await self._exec_pyasic_command("reboot", self._miner.reboot())
 
     async def blink_led(self, ctx: grpc.ServicerContext) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "led_blink", self._id)
         await self._exec_pyasic_command("fault_light_on", self._miner.fault_light_on())
-        asyncio.get_event_loop().call_later(
+
+        async def _turn_off_led() -> None:
+            try:
+                if self._miner is not None:
+                    await self._miner.fault_light_off()
+            except Exception:
+                logger.warning("Failed to turn off LED for %s", self._id, exc_info=True)
+
+        asyncio.get_running_loop().call_later(
             _BLINK_LED_DURATION_SECS,
-            lambda: asyncio.ensure_future(self._miner.fault_light_off()),
+            lambda: asyncio.ensure_future(_turn_off_led()),
         )
 
     # --- Configuration ---
 
     async def get_mining_pools(self, ctx: grpc.ServicerContext) -> list[ConfiguredPool]:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "get_mining_pools", self._id)
         config = await self._miner.get_config()
         if config is None:
@@ -379,33 +488,25 @@ class PyAsicDevice:
         return pools
 
     async def update_mining_pools(self, ctx: grpc.ServicerContext, pools: list[MiningPoolConfig]) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "update_mining_pools", self._id)
 
         from pyasic.config import MinerConfig as PyasicMinerConfig
+        from pyasic.config.pools import Pool, PoolConfig, PoolGroup
 
         config = await self._miner.get_config()
         if config is None:
             config = PyasicMinerConfig()
 
-        pool_groups = getattr(config, "pools", None)
-        if pool_groups is None:
-            logger.warning("Cannot update pools for %s: no pool config structure", self._id)
-            return
-
-        # Build pyasic pool group from our SDK pool configs
-        from pyasic.config.pools import Pool, PoolConfig, PoolGroup
-
-        groups: list[PoolGroup] = []
-        for pool_cfg in sorted(pools, key=lambda p: p.priority):
-            group = PoolGroup(
-                pools=[Pool(url=pool_cfg.url, user=pool_cfg.worker_name, password="")],
-                quota=1,
-            )
-            groups.append(group)
-
-        new_pool_config = PoolConfig(groups=groups)
+        all_pools = [
+            Pool(url=p.url, user=p.worker_name, password=_DEFAULT_STRATUM_PASSWORD)
+            for p in sorted(pools, key=lambda p: p.priority)
+        ]
+        new_pool_config = PoolConfig(groups=[PoolGroup(pools=all_pools, quota=1)])
         config = PyasicMinerConfig.from_dict(config.as_dict() | {"pools": new_pool_config.as_dict()})
 
+        logger.info("Updating pools for %s: %d pool(s)", self._id, len(pools))
         await self._miner.send_config(config)
 
     async def set_cooling_mode(self, ctx: grpc.ServicerContext, mode: CoolingMode) -> None:
@@ -415,6 +516,8 @@ class PyAsicDevice:
         raise UnsupportedCapabilityError("get_cooling_mode", device_id=self._id)
 
     async def set_power_target(self, ctx: grpc.ServicerContext, performance_mode: PerformanceMode) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "power_mode_efficiency", self._id)
 
         from pyasic.config import MinerConfig as PyasicMinerConfig
@@ -454,6 +557,8 @@ class PyAsicDevice:
         raise UnsupportedCapabilityError("download_logs", device_id=self._id)
 
     async def firmware_update(self, ctx: grpc.ServicerContext) -> None:
+        await self._ensure_connected_or_raise()
+        assert self._miner is not None
         _require_cap(self._caps, "firmware", self._id)
         await self._exec_pyasic_command("upgrade_firmware", self._miner.upgrade_firmware())
 
@@ -464,9 +569,13 @@ class PyAsicDevice:
 
     async def get_errors(self, ctx: grpc.ServicerContext) -> DeviceErrors:
         now = datetime.now(timezone.utc)
+        if not await self._ensure_connected():
+            return DeviceErrors(device_id=self._id, errors=())
+        assert self._miner is not None
         try:
             raw_errors = await self._miner.get_errors()
         except Exception:
+            self._miner = None
             logger.warning("Failed to get errors from %s", self._id, exc_info=True)
             return DeviceErrors(device_id=self._id, errors=())
 
@@ -479,6 +588,7 @@ class PyAsicDevice:
             error_code = getattr(raw_err, "error_code", None)
             severity = _infer_severity(error_msg)
             component = _infer_component(error_msg)
+            miner_error = _infer_miner_error(error_msg, error_code)
 
             vendor_attrs: dict[str, str] = {}
             if error_code is not None:
@@ -486,7 +596,7 @@ class PyAsicDevice:
 
             errors.append(
                 DeviceError(
-                    miner_error=MinerError.VENDOR_ERROR_UNMAPPED,
+                    miner_error=miner_error,
                     cause_summary=error_msg,
                     recommended_action="Check device status",
                     severity=severity,
@@ -502,5 +612,6 @@ class PyAsicDevice:
         return DeviceErrors(device_id=self._id, errors=tuple(errors))
 
     async def close(self, ctx: grpc.ServicerContext) -> None:
+        self._miner = None
         self._last_status = None
         self._last_status_at = None

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from proto_fleet_sdk.enums import ComponentStatus, HealthStatus, MetricKind, PerformanceMode
 from proto_fleet_sdk.error_codes import ComponentType, MinerError, Severity
-from proto_fleet_sdk.errors import UnsupportedCapabilityError
+from proto_fleet_sdk.errors import DeviceUnavailableError, UnsupportedCapabilityError
 from proto_fleet_sdk.telemetry import ths_to_hs
 from proto_fleet_sdk.types import DeviceInfo
 
@@ -72,7 +72,7 @@ class TestDeviceCore:
         assert info == DEVICE_INFO
         assert caps == ALL_CAPS
 
-    async def test_close_clears_cache(self, mock_ctx: MagicMock) -> None:
+    async def test_close_clears_cache_and_miner(self, mock_ctx: MagicMock) -> None:
         # Arrange
         device = _make_device(make_mock_miner())
         await device.status(mock_ctx)  # populate cache
@@ -82,6 +82,7 @@ class TestDeviceCore:
 
         # Assert
         assert device._last_status is None
+        assert device._miner is None
 
 
 class TestTelemetry:
@@ -128,6 +129,53 @@ class TestTelemetry:
         # Assert
         assert metrics.health == HealthStatus.HEALTH_CRITICAL
         assert metrics.health_reason == "Failed to communicate with device"
+        assert device._miner is None  # cleared for reconnect on next call
+
+    async def test_status_communication_failure_triggers_reconnect(self, mock_ctx: MagicMock) -> None:
+        # Arrange — device starts connected, then get_data fails
+        miner = make_mock_miner()
+        miner.get_data = AsyncMock(side_effect=Exception("connection refused"))
+        reconnected_miner = make_mock_miner()
+        probe_fn = AsyncMock(return_value=reconnected_miner)
+        device = PyAsicDevice(
+            device_id="test-device-1",
+            miner=miner,
+            device_info=DEVICE_INFO,
+            caps=ALL_CAPS,
+            cache_ttl_seconds=0,
+            probe_fn=probe_fn,
+        )
+
+        # Act — first call fails and clears _miner
+        metrics = await device.status(mock_ctx)
+        assert metrics.health == HealthStatus.HEALTH_CRITICAL
+        assert device._miner is None
+
+        # Act — second call triggers reconnect via probe_fn
+        metrics = await device.status(mock_ctx)
+
+        # Assert
+        probe_fn.assert_called_once_with(DEVICE_INFO.host)
+        assert device._miner is reconnected_miner
+        assert metrics.health == HealthStatus.HEALTH_HEALTHY_ACTIVE
+
+    async def test_reconnect_rejects_mismatched_device(self, mock_ctx: MagicMock) -> None:
+        # Arrange — probe returns a different device at the same IP
+        wrong_miner = make_mock_miner(make="Antminer", model="S19")
+        probe_fn = AsyncMock(return_value=wrong_miner)
+        device = PyAsicDevice(
+            device_id="test-device-1",
+            miner=None,
+            device_info=DEVICE_INFO,  # expects WhatsMiner/M60S
+            caps=ALL_CAPS,
+            cache_ttl_seconds=0,
+            probe_fn=probe_fn,
+        )
+
+        # Act & Assert — should raise because reconnect fails identity check
+        with pytest.raises(DeviceUnavailableError):
+            await device.status(mock_ctx)
+        assert device._miner is None
 
     async def test_hashboard_conversion(self, mock_ctx: MagicMock) -> None:
         # Arrange
@@ -234,6 +282,21 @@ class TestHealth:
 
         # Assert
         assert metrics.health == HealthStatus.HEALTH_WARNING
+
+    async def test_stopped_with_errors_is_inactive(self, mock_ctx: MagicMock) -> None:
+        # Arrange — miner is stopped but has stale error codes
+        data = MockMinerData(
+            is_mining=False,
+            hashrate=0,
+            errors=[MockMinerError(error_code=9022, error_message="Unknown error type.")],
+        )
+        device = _make_device(make_mock_miner(data=data))
+
+        # Act
+        metrics = await device.status(mock_ctx)
+
+        # Assert — inactive takes priority over stale errors
+        assert metrics.health == HealthStatus.HEALTH_HEALTHY_INACTIVE
 
 
 class TestControl:
@@ -437,11 +500,11 @@ class TestErrorReporting:
         # Assert
         assert len(result.errors) == 0
 
-    async def test_errors_mapped_as_vendor_unmapped(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_mapped_by_code_range(self, mock_ctx: MagicMock) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(return_value=[
-            MockMinerError(error_code=100, error_message="Fan speed deviation detected"),
+            MockMinerError(error_code=100, error_message="Fan unknown."),
         ])
         device = _make_device(miner)
 
@@ -451,11 +514,42 @@ class TestErrorReporting:
         # Assert
         assert len(result.errors) == 1
         err = result.errors[0]
-        assert err.miner_error == MinerError.VENDOR_ERROR_UNMAPPED
-        assert err.summary == "Fan speed deviation detected"
+        assert err.miner_error == MinerError.FAN_FAILED
+        assert err.summary == "Fan unknown."
         assert err.vendor_attributes["vendor_error_code"] == "100"
 
-    async def test_error_get_failure_returns_empty(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_mapped_by_keyword_fallback(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.get_errors = AsyncMock(return_value=[
+            MockMinerError(error_code=None, error_message="Environment temperature is too high"),
+        ])
+        device = _make_device(miner)
+
+        # Act
+        result = await device.get_errors(mock_ctx)
+
+        # Assert
+        assert len(result.errors) == 1
+        err = result.errors[0]
+        assert err.miner_error == MinerError.DEVICE_OVER_TEMPERATURE
+
+    async def test_errors_unrecognized_falls_back_to_unmapped(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.get_errors = AsyncMock(return_value=[
+            MockMinerError(error_code=99999, error_message="Something completely unknown"),
+        ])
+        device = _make_device(miner)
+
+        # Act
+        result = await device.get_errors(mock_ctx)
+
+        # Assert
+        assert len(result.errors) == 1
+        assert result.errors[0].miner_error == MinerError.VENDOR_ERROR_UNMAPPED
+
+    async def test_error_get_failure_returns_empty_and_clears_miner(self, mock_ctx: MagicMock) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(side_effect=Exception("timeout"))
@@ -466,6 +560,7 @@ class TestErrorReporting:
 
         # Assert
         assert len(result.errors) == 0
+        assert device._miner is None
 
 
 class TestInferSeverity:

@@ -113,6 +113,16 @@ class PluginServer:
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
+    @staticmethod
+    def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        """Global handler for unhandled exceptions in fire-and-forget tasks."""
+        exception = context.get("exception")
+        message = context.get("message", "Unhandled exception in async task")
+        if exception:
+            logger.error("%s: %s", message, exception, exc_info=exception)
+        else:
+            logger.error("%s", message)
+
     async def serve(self) -> None:
         """Start server and wait for termination.
 
@@ -127,6 +137,9 @@ class PluginServer:
         """
         self._check_magic_cookie()
         self._setup_signal_handlers()
+
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(self._asyncio_exception_handler)
 
         try:
             await self.start()

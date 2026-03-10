@@ -208,10 +208,12 @@ class PyAsicDriver:
     async def new_device(
         self, ctx: grpc.ServicerContext, device_id: str, device_info: DeviceInfo, secret: SecretBundle
     ) -> NewDeviceResult:
-        miner = await self._probe_miner(device_info.host)
-        _apply_credentials(miner, secret)
-
-        caps = build_capabilities(miner)
+        miner = await self._try_probe_miner(device_info.host)
+        if miner is not None:
+            _apply_credentials(miner, secret)
+            caps = build_capabilities(miner)
+        else:
+            caps = dict(STATIC_BASE_CAPABILITIES)
 
         device = PyAsicDevice(
             device_id=device_id,
@@ -219,12 +221,17 @@ class PyAsicDriver:
             device_info=device_info,
             caps=caps,
             cache_ttl_seconds=self._config.plugin.telemetry_cache_ttl_seconds,
+            probe_fn=self._get_miner_fn,
+            secret=secret,
         )
 
         async with self._lock:
             self._devices[device_id] = device
 
-        logger.info("Created device %s for %s at %s", device_id, device_info.model, device_info.host)
+        logger.info(
+            "Created device %s for %s at %s (connected=%s)",
+            device_id, device_info.model, device_info.host, miner is not None,
+        )
         return NewDeviceResult(device=device)
 
     async def get_default_credentials(self, ctx: grpc.ServicerContext) -> list[UsernamePassword]:
@@ -242,7 +249,11 @@ class PyAsicDriver:
         return dict(STATIC_BASE_CAPABILITIES)
 
     async def _probe_miner(self, ip_address: str) -> Any:
-        """Probe an IP with pyasic and return the identified miner object."""
+        """Probe an IP with pyasic and return the identified miner object.
+
+        Raises DeviceUnavailableError on timeout/connection failure and
+        DeviceNotFoundError if pyasic cannot identify the device.
+        """
         timeout = self._config.plugin.discovery_timeout_seconds
         try:
             miner = await asyncio.wait_for(self._get_miner_fn(ip_address), timeout=timeout)
@@ -255,3 +266,15 @@ class PyAsicDriver:
             raise DeviceNotFoundError(ip_address)
 
         return miner
+
+    async def _try_probe_miner(self, ip_address: str) -> Any | None:
+        """Probe an IP, returning None if the miner is temporarily unreachable.
+
+        Used by new_device to allow device creation even when the miner is
+        offline. The device will attempt reconnection on first use.
+        """
+        try:
+            return await self._probe_miner(ip_address)
+        except DeviceUnavailableError:
+            logger.warning("Miner at %s is unreachable, creating device in disconnected state", ip_address)
+            return None

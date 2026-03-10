@@ -37,21 +37,33 @@ def _find_config() -> Path:
 
 
 def main() -> None:
-    config_path = _find_config()
-    if not config_path.exists():
-        print(f"FATAL: config.yaml not found at {config_path}", file=sys.stderr)
+    try:
+        try:
+            import pyasic_driver.patches as pyasic_patches
+            pyasic_patches.apply()
+        except ModuleNotFoundError:
+            pass
+        config_path = _find_config()
+        if not config_path.exists():
+            print(f"FATAL: config.yaml not found at {config_path}", file=sys.stderr)
+            sys.exit(1)
+
+        config = load_config(config_path)
+
+        logging.basicConfig(
+            level=getattr(logging, config.plugin.log_level.upper()),
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
+
+        driver = PyAsicDriver(config)
+        server = PluginServer(driver)
+        server.run()
+    except SystemExit:
+        raise
+    except Exception:
+        logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        logging.getLogger(__name__).critical("Plugin crashed", exc_info=True)
         sys.exit(1)
-
-    config = load_config(config_path)
-
-    logging.basicConfig(
-        level=getattr(logging, config.plugin.log_level.upper()),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    driver = PyAsicDriver(config)
-    server = PluginServer(driver)
-    server.run()
 
 
 if __name__ == "__main__":
