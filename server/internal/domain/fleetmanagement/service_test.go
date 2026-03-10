@@ -3,6 +3,7 @@ package fleetmanagement_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1304,9 +1305,9 @@ func TestService_RenameMiners_PersistsCustomName(t *testing.T) {
 	assert.Equal(t, "my-miner", listResp.Miners[0].Name)
 }
 
-// TestService_RenameMiners_CounterOrderByManufacturerModel verifies that counter values
-// are assigned in manufacturer+model sort order, not insertion order.
-func TestService_RenameMiners_CounterOrderByManufacturerModel(t *testing.T) {
+// TestService_RenameMiners_CounterOrderByRequestedSort verifies that counter values
+// follow the caller-provided fleet sort instead of a backend-only ordering.
+func TestService_RenameMiners_CounterOrderByRequestedSort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
@@ -1319,7 +1320,14 @@ func TestService_RenameMiners_CounterOrderByManufacturerModel(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
 
-	// Act — rename all 3 devices with counter starting at 1, scale 1
+	err := testContext.ServiceProvider.DeviceStore.UpdateDeviceCustomNames(ctx, testUser.OrganizationID, map[string]string{
+		deviceIDs[0]: "Zulu",
+		deviceIDs[1]: "Alpha",
+		deviceIDs[2]: "Beta",
+	})
+	require.NoError(t, err)
+
+	// Act — rename all 3 devices with counter starting at 1, scale 1 using current name sort.
 	renameReq := &pb.RenameMinersRequest{
 		DeviceSelector: &pb.DeviceSelector{
 			SelectionType: &pb.DeviceSelector_IncludeDevices{
@@ -1334,22 +1342,247 @@ func TestService_RenameMiners_CounterOrderByManufacturerModel(t *testing.T) {
 			},
 			Separator: "",
 		},
+		Sort: []*pb.MinerSortConfig{{
+			Field:     pb.SortField_SORT_FIELD_NAME,
+			Direction: pb.SortDirection_SORT_DIRECTION_ASC,
+		}},
 	}
-	_, err := service.RenameMiners(ctx, renameReq)
+	_, err = service.RenameMiners(ctx, renameReq)
 	require.NoError(t, err)
 
-	// Assert — all 3 devices received a numeric name (1, 2, 3)
+	// Assert — names follow Alpha -> Beta -> Zulu table ordering.
 	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
 	require.NoError(t, err)
 	require.Len(t, listResp.Miners, 3)
 
-	names := make(map[string]bool, 3)
+	namesByDeviceID := make(map[string]string, 3)
 	for _, m := range listResp.Miners {
-		names[m.Name] = true
+		namesByDeviceID[m.DeviceIdentifier] = m.Name
 	}
-	assert.True(t, names["1"], "expected counter name '1'")
-	assert.True(t, names["2"], "expected counter name '2'")
-	assert.True(t, names["3"], "expected counter name '3'")
+	assert.Equal(t, "3", namesByDeviceID[deviceIDs[0]])
+	assert.Equal(t, "1", namesByDeviceID[deviceIDs[1]])
+	assert.Equal(t, "2", namesByDeviceID[deviceIDs[2]])
+}
+
+// TestService_RenameMiners_BlankGeneratedNamesAreSkipped verifies that an all-blank
+// rename config behaves like a no-op batch.
+func TestService_RenameMiners_BlankGeneratedNamesAreSkipped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION}}},
+			},
+			Separator: "",
+		},
+	}
+
+	beforeResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, beforeResp.Miners, 2)
+
+	resp, err := service.RenameMiners(ctx, renameReq)
+	require.NoError(t, err)
+	require.Equal(t, int32(0), resp.RenamedCount)
+	require.Equal(t, int32(2), resp.UnchangedCount)
+	require.Equal(t, int32(0), resp.FailedCount)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Miners, 2)
+
+	namesBefore := make(map[string]string, len(beforeResp.Miners))
+	for _, miner := range beforeResp.Miners {
+		namesBefore[miner.DeviceIdentifier] = miner.Name
+	}
+
+	for _, miner := range listResp.Miners {
+		assert.Equal(t, namesBefore[miner.DeviceIdentifier], miner.Name)
+	}
+}
+
+// TestService_RenameMiners_BlankGeneratedNamesDoNotBlockOtherRenames verifies that
+// blank generated names are skipped without failing devices that have valid names.
+func TestService_RenameMiners_BlankGeneratedNamesDoNotBlockOtherRenames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	_, err := testContext.ServiceProvider.DB.ExecContext(
+		t.Context(),
+		`UPDATE device SET serial_number = $1 WHERE device_identifier = $2 AND org_id = $3`,
+		"SERIAL-001",
+		deviceIDs[0],
+		testUser.OrganizationID,
+	)
+	require.NoError(t, err)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	renameReq := &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER}}},
+			},
+			Separator: "",
+		},
+	}
+
+	beforeResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+
+	resp, err := service.RenameMiners(ctx, renameReq)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), resp.RenamedCount)
+	require.Equal(t, int32(1), resp.UnchangedCount)
+	require.Equal(t, int32(0), resp.FailedCount)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+
+	namesByDevice := make(map[string]string, len(listResp.Miners))
+	for _, miner := range listResp.Miners {
+		namesByDevice[miner.DeviceIdentifier] = miner.Name
+	}
+
+	serialByDevice := make(map[string]string, len(beforeResp.Miners))
+	namesBefore := make(map[string]string, len(beforeResp.Miners))
+	for _, miner := range beforeResp.Miners {
+		serialByDevice[miner.DeviceIdentifier] = miner.SerialNumber
+		namesBefore[miner.DeviceIdentifier] = miner.Name
+	}
+
+	require.Contains(t, namesByDevice, deviceIDs[0])
+	require.Contains(t, namesByDevice, deviceIDs[1])
+	assert.Equal(t, serialByDevice[deviceIDs[0]], namesByDevice[deviceIDs[0]])
+	assert.Equal(t, namesBefore[deviceIDs[1]], namesByDevice[deviceIDs[1]])
+}
+
+// TestService_RenameMiners_IdenticalGeneratedNamesAreUnchanged verifies that
+// renaming to the current persisted custom name is reported as unchanged.
+func TestService_RenameMiners_IdenticalGeneratedNamesAreUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	err := testContext.ServiceProvider.DeviceStore.UpdateDeviceCustomNames(ctx, testUser.OrganizationID, map[string]string{
+		deviceIDs[0]: "rig-01",
+	})
+	require.NoError(t, err)
+
+	resp, err := service.RenameMiners(ctx, &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig-01"}}},
+			},
+			Separator: "",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(0), resp.RenamedCount)
+	require.Equal(t, int32(1), resp.UnchangedCount)
+	require.Equal(t, int32(0), resp.FailedCount)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Miners, 1)
+	assert.Equal(t, "rig-01", listResp.Miners[0].Name)
+}
+
+// TestService_RenameMiners_InvalidGeneratedNamesAreCountedAsFailures verifies that
+// per-device name-generation errors are reported without failing the whole batch.
+func TestService_RenameMiners_InvalidGeneratedNamesAreCountedAsFailures(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	_, err := testContext.ServiceProvider.DB.ExecContext(
+		t.Context(),
+		`UPDATE device SET serial_number = $1 WHERE device_identifier = $2 AND org_id = $3`,
+		"SERIAL-001",
+		deviceIDs[0],
+		testUser.OrganizationID,
+	)
+	require.NoError(t, err)
+
+	_, err = testContext.ServiceProvider.DB.ExecContext(
+		t.Context(),
+		`UPDATE device SET serial_number = $1 WHERE device_identifier = $2 AND org_id = $3`,
+		strings.Repeat("x", 101),
+		deviceIDs[1],
+		testUser.OrganizationID,
+	)
+	require.NoError(t, err)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	resp, err := service.RenameMiners(ctx, &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER}}},
+			},
+			Separator: "",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), resp.RenamedCount)
+	require.Equal(t, int32(0), resp.UnchangedCount)
+	require.Equal(t, int32(1), resp.FailedCount)
 }
 
 // TestService_RenameMiners_UnknownDeviceReturnsForbidden verifies that referencing a

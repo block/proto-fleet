@@ -177,6 +177,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDevicePropertiesForRenameStmt, err = db.PrepareContext(ctx, getDevicePropertiesForRename); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePropertiesForRename: %w", err)
 	}
+	if q.getDevicePropertiesForRenameWithoutTelemetryStmt, err = db.PrepareContext(ctx, getDevicePropertiesForRenameWithoutTelemetry); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDevicePropertiesForRenameWithoutTelemetry: %w", err)
+	}
 	if q.getDeviceStatusStmt, err = db.PrepareContext(ctx, getDeviceStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceStatus: %w", err)
 	}
@@ -762,6 +765,11 @@ func (q *Queries) Close() error {
 	if q.getDevicePropertiesForRenameStmt != nil {
 		if cerr := q.getDevicePropertiesForRenameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDevicePropertiesForRenameStmt: %w", cerr)
+		}
+	}
+	if q.getDevicePropertiesForRenameWithoutTelemetryStmt != nil {
+		if cerr := q.getDevicePropertiesForRenameWithoutTelemetryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDevicePropertiesForRenameWithoutTelemetryStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceStatusStmt != nil {
@@ -1399,6 +1407,7 @@ type Queries struct {
 	getDeviceMetricsTimeSeriesStmt                      *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDevicePropertiesForRenameStmt                    *sql.Stmt
+	getDevicePropertiesForRenameWithoutTelemetryStmt    *sql.Stmt
 	getDeviceStatusStmt                                 *sql.Stmt
 	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
 	getDeviceStatusDailyAggregatesStmt                  *sql.Stmt
@@ -1565,6 +1574,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceMetricsTimeSeriesStmt:                      q.getDeviceMetricsTimeSeriesStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDevicePropertiesForRenameStmt:                    q.getDevicePropertiesForRenameStmt,
+		getDevicePropertiesForRenameWithoutTelemetryStmt:    q.getDevicePropertiesForRenameWithoutTelemetryStmt,
 		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
 		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,
 		getDeviceStatusDailyAggregatesStmt:                  q.getDeviceStatusDailyAggregatesStmt,

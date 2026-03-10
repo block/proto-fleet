@@ -214,6 +214,7 @@ export class MinersPage extends BasePage {
       await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
       const rowCountAfterDelay = await rows.count();
 
+      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(rowCountAfterDelay).toBe(rowCount);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }

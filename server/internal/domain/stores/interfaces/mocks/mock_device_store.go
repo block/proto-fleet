@@ -118,18 +118,18 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceIdentifiersByOrgWithFilter(ctx, 
 }
 
 // GetDevicePropertiesForRename mocks base method.
-func (m *MockDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]interfaces.DeviceRenameProperties, error) {
+func (m *MockDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]interfaces.DeviceRenameProperties, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDevicePropertiesForRename", ctx, orgID, deviceIdentifiers)
+	ret := m.ctrl.Call(m, "GetDevicePropertiesForRename", ctx, orgID, deviceIdentifiers, includeTelemetry)
 	ret0, _ := ret[0].([]interfaces.DeviceRenameProperties)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetDevicePropertiesForRename indicates an expected call of GetDevicePropertiesForRename.
-func (mr *MockDeviceStoreMockRecorder) GetDevicePropertiesForRename(ctx, orgID, deviceIdentifiers interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) GetDevicePropertiesForRename(ctx, orgID, deviceIdentifiers, includeTelemetry interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePropertiesForRename", reflect.TypeOf((*MockDeviceStore)(nil).GetDevicePropertiesForRename), ctx, orgID, deviceIdentifiers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePropertiesForRename", reflect.TypeOf((*MockDeviceStore)(nil).GetDevicePropertiesForRename), ctx, orgID, deviceIdentifiers, includeTelemetry)
 }
 
 // GetDeviceStatusForDeviceIdentifiers mocks base method.

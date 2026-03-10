@@ -419,10 +419,18 @@ message RenameMinersRequest {
 
   // Naming pattern applied to all selected miners.
   MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+
+  // Current fleet table sort used to assign counter order during rename.
+  // If omitted, the backend falls back to the default name ascending order.
+  repeated MinerSortConfig sort = 3;
 }
 
-// Response from renaming miners (empty — all errors are returned as RPC errors).
-message RenameMinersResponse {}
+// Response from renaming miners with per-device outcome counts for the batch.
+message RenameMinersResponse {
+  int32 renamed_count = 1;
+  int32 unchanged_count = 2;
+  int32 failed_count = 3;
+}
 
 // Configures how names are generated for a batch of miners.
 message MinerNameConfig {

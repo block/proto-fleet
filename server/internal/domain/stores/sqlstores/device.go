@@ -954,15 +954,77 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 }
 
 // GetDevicePropertiesForRename fetches device attributes needed for name generation.
-func (s *SQLDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]stores.DeviceRenameProperties, error) {
+func (s *SQLDeviceStore) GetDevicePropertiesForRename(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+	includeTelemetry bool,
+) ([]stores.DeviceRenameProperties, error) {
 	if len(deviceIdentifiers) == 0 {
 		return nil, nil
 	}
 
-	rows, err := s.getQueries(ctx).GetDevicePropertiesForRename(ctx, sqlc.GetDevicePropertiesForRenameParams{
-		DeviceIdentifiers: deviceIdentifiers,
-		OrgID:             orgID,
-	})
+	if includeTelemetry {
+		rows, err := s.getQueries(ctx).GetDevicePropertiesForRename(ctx, sqlc.GetDevicePropertiesForRenameParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get device properties for rename: %v", err)
+		}
+
+		result := make([]stores.DeviceRenameProperties, 0, len(rows))
+		for _, row := range rows {
+			props := stores.DeviceRenameProperties{
+				DeviceIdentifier:   row.DeviceIdentifier,
+				DiscoveredDeviceID: row.DiscoveredDeviceID,
+				CustomName:         row.CustomName,
+				MacAddress:         row.MacAddress,
+				IPAddress:          row.IpAddress,
+			}
+			if row.SerialNumber.Valid {
+				props.SerialNumber = row.SerialNumber.String
+			}
+			if row.Model.Valid {
+				props.Model = row.Model.String
+				props.ModelSortValue = &props.Model
+			}
+			if row.Manufacturer.Valid {
+				props.Manufacturer = row.Manufacturer.String
+			}
+			if row.FirmwareVersion.Valid {
+				props.FirmwareVersion = row.FirmwareVersion.String
+				props.FirmwareSortValue = &props.FirmwareVersion
+			}
+			if row.HashRateHs.Valid {
+				hashrate := row.HashRateHs.Float64
+				props.Hashrate = &hashrate
+			}
+			if row.TempC.Valid {
+				temperature := row.TempC.Float64
+				props.Temperature = &temperature
+			}
+			if row.PowerW.Valid {
+				power := row.PowerW.Float64
+				props.Power = &power
+			}
+			if row.EfficiencyJh.Valid {
+				efficiency := row.EfficiencyJh.Float64
+				props.Efficiency = &efficiency
+			}
+			result = append(result, props)
+		}
+
+		return result, nil
+	}
+
+	rows, err := s.getQueries(ctx).GetDevicePropertiesForRenameWithoutTelemetry(
+		ctx,
+		sqlc.GetDevicePropertiesForRenameWithoutTelemetryParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		},
+	)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get device properties for rename: %v", err)
 	}
@@ -970,17 +1032,25 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID
 	result := make([]stores.DeviceRenameProperties, 0, len(rows))
 	for _, row := range rows {
 		props := stores.DeviceRenameProperties{
-			DeviceIdentifier: row.DeviceIdentifier,
-			MacAddress:       row.MacAddress,
+			DeviceIdentifier:   row.DeviceIdentifier,
+			DiscoveredDeviceID: row.DiscoveredDeviceID,
+			CustomName:         row.CustomName,
+			MacAddress:         row.MacAddress,
+			IPAddress:          row.IpAddress,
 		}
 		if row.SerialNumber.Valid {
 			props.SerialNumber = row.SerialNumber.String
 		}
 		if row.Model.Valid {
 			props.Model = row.Model.String
+			props.ModelSortValue = &props.Model
 		}
 		if row.Manufacturer.Valid {
 			props.Manufacturer = row.Manufacturer.String
+		}
+		if row.FirmwareVersion.Valid {
+			props.FirmwareVersion = row.FirmwareVersion.String
+			props.FirmwareSortValue = &props.FirmwareVersion
 		}
 		result = append(result, props)
 	}

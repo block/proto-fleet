@@ -3,17 +3,24 @@ package fleetmanagement
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
+	"connectrpc.com/authn"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/deviceresolver"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 func int32Ptr(v int32) *int32 { return &v }
@@ -22,13 +29,18 @@ func sectionPtr(v pb.CharacterSection) *pb.CharacterSection { return &v }
 
 func baseProps() interfaces.DeviceRenameProperties {
 	return interfaces.DeviceRenameProperties{
-		DeviceIdentifier: "dev-1",
-		MacAddress:       "AA:BB:CC:DD:EE:FF",
-		SerialNumber:     "SN1234567",
-		Model:            "S19Pro",
-		Manufacturer:     "Bitmain",
+		DeviceIdentifier:   "dev-1",
+		DiscoveredDeviceID: 1,
+		MacAddress:         "AA:BB:CC:DD:EE:FF",
+		SerialNumber:       "SN1234567",
+		Model:              "S19Pro",
+		Manufacturer:       "Bitmain",
 	}
 }
+
+func float64Ptr(v float64) *float64 { return &v }
+
+func stringPtr(v string) *string { return &v }
 
 // TestFormatCounter verifies zero-padding across different scales.
 func TestFormatCounter(t *testing.T) {
@@ -175,6 +187,294 @@ func TestGenerateName_StringOnly(t *testing.T) {
 	name, err := generateName(cfg, baseProps(), "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "warehouse-A", name)
+}
+
+func TestSortDevicePropsForRename_NameAscending(t *testing.T) {
+	deviceProps := []interfaces.DeviceRenameProperties{
+		{
+			DeviceIdentifier:   "dev-2",
+			DiscoveredDeviceID: 2,
+			CustomName:         "Zulu",
+		},
+		{
+			DeviceIdentifier:   "dev-3",
+			DiscoveredDeviceID: 3,
+			Manufacturer:       "Bitmain",
+			Model:              "S19",
+		},
+		{
+			DeviceIdentifier:   "dev-1",
+			DiscoveredDeviceID: 1,
+			CustomName:         "Alpha",
+		},
+	}
+
+	sortDevicePropsForRename(deviceProps, &interfaces.SortConfig{
+		Field:     interfaces.SortFieldName,
+		Direction: interfaces.SortDirectionAsc,
+	})
+
+	assert.Equal(t, []string{"dev-1", "dev-3", "dev-2"}, []string{
+		deviceProps[0].DeviceIdentifier,
+		deviceProps[1].DeviceIdentifier,
+		deviceProps[2].DeviceIdentifier,
+	})
+}
+
+func TestSortDevicePropsForRename_HashrateDescNullsLast(t *testing.T) {
+	deviceProps := []interfaces.DeviceRenameProperties{
+		{
+			DeviceIdentifier:   "dev-1",
+			DiscoveredDeviceID: 1,
+			Hashrate:           float64Ptr(90),
+		},
+		{
+			DeviceIdentifier:   "dev-2",
+			DiscoveredDeviceID: 2,
+		},
+		{
+			DeviceIdentifier:   "dev-3",
+			DiscoveredDeviceID: 3,
+			Hashrate:           float64Ptr(110),
+		},
+	}
+
+	sortDevicePropsForRename(deviceProps, &interfaces.SortConfig{
+		Field:     interfaces.SortFieldHashrate,
+		Direction: interfaces.SortDirectionDesc,
+	})
+
+	assert.Equal(t, []string{"dev-3", "dev-1", "dev-2"}, []string{
+		deviceProps[0].DeviceIdentifier,
+		deviceProps[1].DeviceIdentifier,
+		deviceProps[2].DeviceIdentifier,
+	})
+}
+
+func TestSortDevicePropsForRename_HashrateAscNaNAfterFinite(t *testing.T) {
+	deviceProps := []interfaces.DeviceRenameProperties{
+		{
+			DeviceIdentifier:   "dev-1",
+			DiscoveredDeviceID: 1,
+			Hashrate:           float64Ptr(math.NaN()),
+		},
+		{
+			DeviceIdentifier:   "dev-2",
+			DiscoveredDeviceID: 2,
+			Hashrate:           float64Ptr(90),
+		},
+		{
+			DeviceIdentifier:   "dev-3",
+			DiscoveredDeviceID: 3,
+		},
+	}
+
+	sortDevicePropsForRename(deviceProps, &interfaces.SortConfig{
+		Field:     interfaces.SortFieldHashrate,
+		Direction: interfaces.SortDirectionAsc,
+	})
+
+	assert.Equal(t, []string{"dev-2", "dev-1", "dev-3"}, []string{
+		deviceProps[0].DeviceIdentifier,
+		deviceProps[1].DeviceIdentifier,
+		deviceProps[2].DeviceIdentifier,
+	})
+}
+
+func TestSortDevicePropsForRename_ModelAscNullsLast(t *testing.T) {
+	deviceProps := []interfaces.DeviceRenameProperties{
+		{
+			DeviceIdentifier:   "dev-2",
+			DiscoveredDeviceID: 2,
+			Model:              "",
+			ModelSortValue:     stringPtr(""),
+		},
+		{
+			DeviceIdentifier:   "dev-3",
+			DiscoveredDeviceID: 3,
+			Model:              "S21",
+			ModelSortValue:     stringPtr("S21"),
+		},
+		{
+			DeviceIdentifier:   "dev-1",
+			DiscoveredDeviceID: 1,
+			Model:              "M60",
+			ModelSortValue:     stringPtr("M60"),
+		},
+		{
+			DeviceIdentifier:   "dev-4",
+			DiscoveredDeviceID: 4,
+		},
+	}
+
+	sortDevicePropsForRename(deviceProps, &interfaces.SortConfig{
+		Field:     interfaces.SortFieldModel,
+		Direction: interfaces.SortDirectionAsc,
+	})
+
+	assert.Equal(t, []string{"dev-2", "dev-1", "dev-3", "dev-4"}, []string{
+		deviceProps[0].DeviceIdentifier,
+		deviceProps[1].DeviceIdentifier,
+		deviceProps[2].DeviceIdentifier,
+		deviceProps[3].DeviceIdentifier,
+	})
+}
+
+func TestSortDevicePropsForRename_FirmwareAscPreservesEmptyStringOrdering(t *testing.T) {
+	deviceProps := []interfaces.DeviceRenameProperties{
+		{
+			DeviceIdentifier:   "dev-2",
+			DiscoveredDeviceID: 2,
+			FirmwareVersion:    "",
+			FirmwareSortValue:  stringPtr(""),
+		},
+		{
+			DeviceIdentifier:   "dev-3",
+			DiscoveredDeviceID: 3,
+			FirmwareVersion:    "Braiins",
+			FirmwareSortValue:  stringPtr("Braiins"),
+		},
+		{
+			DeviceIdentifier:   "dev-1",
+			DiscoveredDeviceID: 1,
+			FirmwareVersion:    "Antminer",
+			FirmwareSortValue:  stringPtr("Antminer"),
+		},
+		{
+			DeviceIdentifier:   "dev-4",
+			DiscoveredDeviceID: 4,
+		},
+	}
+
+	sortDevicePropsForRename(deviceProps, &interfaces.SortConfig{
+		Field:     interfaces.SortFieldFirmware,
+		Direction: interfaces.SortDirectionAsc,
+	})
+
+	assert.Equal(t, []string{"dev-2", "dev-1", "dev-3", "dev-4"}, []string{
+		deviceProps[0].DeviceIdentifier,
+		deviceProps[1].DeviceIdentifier,
+		deviceProps[2].DeviceIdentifier,
+		deviceProps[3].DeviceIdentifier,
+	})
+}
+
+func TestValidateRenameNameConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *pb.MinerNameConfig
+		wantErr string
+	}{
+		{
+			name:    "nil config",
+			config:  nil,
+			wantErr: "name_config is required",
+		},
+		{
+			name: "missing properties",
+			config: &pb.MinerNameConfig{
+				Separator: "-",
+			},
+			wantErr: "name_config.properties must contain at least one item",
+		},
+		{
+			name: "invalid separator",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "miner"}}},
+				},
+				Separator: "/",
+			},
+			wantErr: "name_config.separator must be one of '-', '_', '.', or empty",
+		},
+		{
+			name: "valid config",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "miner"}}},
+				},
+				Separator: "-",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRenameNameConfig(tc.config)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			require.True(t, fleeterror.IsInvalidArgumentError(err))
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestRenameMiners_RejectsMissingNameConfig(t *testing.T) {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+	})
+	service := &Service{}
+
+	_, err := service.RenameMiners(ctx, &pb.RenameMinersRequest{})
+
+	require.Error(t, err)
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+	require.ErrorContains(t, err, "name_config is required")
+}
+
+func TestRenameMiners_RejectsRequestWideGeneratedNameErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+	})
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().
+		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).
+		Return(true, nil)
+	deviceStore.EXPECT().
+		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{
+			{
+				DeviceIdentifier:   "dev-1",
+				DiscoveredDeviceID: 1,
+			},
+		}, nil)
+
+	service := &Service{
+		deviceStore:    deviceStore,
+		deviceResolver: deviceresolver.New(deviceStore),
+	}
+
+	_, err := service.RenameMiners(ctx, &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"dev-1"},
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: strings.Repeat("a", 101)}}},
+			},
+			Separator: "",
+		},
+	})
+
+	require.Error(t, err)
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+	require.ErrorContains(t, err, "generated name exceeds")
 }
 
 // TestGenerateName_FixedValues verifies each FixedValueType returns the correct device attribute.
@@ -339,7 +639,7 @@ func TestGenerateName_CharacterCount_LongerThanValue(t *testing.T) {
 	assert.Equal(t, "S19Pro", name)
 }
 
-// TestGenerateName_BlankResult verifies a blank name after trim returns an error.
+// TestGenerateName_BlankResult verifies a blank name after trim is treated as a no-op.
 func TestGenerateName_BlankResult(t *testing.T) {
 	// LOCATION is reserved/unimplemented — produces empty segment.
 	// With only that property, the joined name is blank.
@@ -349,9 +649,9 @@ func TestGenerateName_BlankResult(t *testing.T) {
 		},
 		Separator: "",
 	}
-	_, err := generateName(cfg, baseProps(), "", 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "blank")
+	name, err := generateName(cfg, baseProps(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "", name)
 }
 
 // TestGenerateName_TooLong verifies names exceeding 100 characters return an error.

@@ -503,14 +503,38 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 }
 
 const getDevicePropertiesForRename = `-- name: GetDevicePropertiesForRename :many
+WITH latest_metrics AS (
+    SELECT DISTINCT ON (device_metrics.device_identifier)
+        device_metrics.device_identifier,
+        device_metrics.hash_rate_hs,
+        device_metrics.temp_c,
+        device_metrics.power_w,
+        device_metrics.efficiency_jh
+    FROM device_metrics
+    INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
+        AND d2.deleted_at IS NULL
+        AND d2.org_id = $2
+    WHERE device_metrics.time > NOW() - INTERVAL '10 minutes'
+        AND device_metrics.device_identifier = ANY($1::text[])
+    ORDER BY device_metrics.device_identifier, device_metrics.time DESC
+)
 SELECT
     d.device_identifier,
+    dd.id as discovered_device_id,
+    COALESCE(d.custom_name, '') as custom_name,
     COALESCE(d.mac_address, '') as mac_address,
     d.serial_number,
     dd.model,
-    dd.manufacturer
+    dd.manufacturer,
+    COALESCE(dd.ip_address, '') as ip_address,
+    dd.firmware_version,
+    latest_metrics.hash_rate_hs,
+    latest_metrics.temp_c,
+    latest_metrics.power_w,
+    latest_metrics.efficiency_jh
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
+LEFT JOIN latest_metrics ON d.device_identifier = latest_metrics.device_identifier
 WHERE d.device_identifier = ANY($1::text[])
   AND d.org_id = $2
   AND d.deleted_at IS NULL
@@ -522,11 +546,19 @@ type GetDevicePropertiesForRenameParams struct {
 }
 
 type GetDevicePropertiesForRenameRow struct {
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	Model            sql.NullString
-	Manufacturer     sql.NullString
+	DeviceIdentifier   string
+	DiscoveredDeviceID int64
+	CustomName         string
+	MacAddress         string
+	SerialNumber       sql.NullString
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	IpAddress          string
+	FirmwareVersion    sql.NullString
+	HashRateHs         sql.NullFloat64
+	TempC              sql.NullFloat64
+	PowerW             sql.NullFloat64
+	EfficiencyJh       sql.NullFloat64
 }
 
 // Returns the device properties needed for name generation during a rename operation.
@@ -541,10 +573,87 @@ func (q *Queries) GetDevicePropertiesForRename(ctx context.Context, arg GetDevic
 		var i GetDevicePropertiesForRenameRow
 		if err := rows.Scan(
 			&i.DeviceIdentifier,
+			&i.DiscoveredDeviceID,
+			&i.CustomName,
 			&i.MacAddress,
 			&i.SerialNumber,
 			&i.Model,
 			&i.Manufacturer,
+			&i.IpAddress,
+			&i.FirmwareVersion,
+			&i.HashRateHs,
+			&i.TempC,
+			&i.PowerW,
+			&i.EfficiencyJh,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDevicePropertiesForRenameWithoutTelemetry = `-- name: GetDevicePropertiesForRenameWithoutTelemetry :many
+SELECT
+    d.device_identifier,
+    dd.id as discovered_device_id,
+    COALESCE(d.custom_name, '') as custom_name,
+    COALESCE(d.mac_address, '') as mac_address,
+    d.serial_number,
+    dd.model,
+    dd.manufacturer,
+    COALESCE(dd.ip_address, '') as ip_address,
+    dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.device_identifier = ANY($1::text[])
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+`
+
+type GetDevicePropertiesForRenameWithoutTelemetryParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetDevicePropertiesForRenameWithoutTelemetryRow struct {
+	DeviceIdentifier   string
+	DiscoveredDeviceID int64
+	CustomName         string
+	MacAddress         string
+	SerialNumber       sql.NullString
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	IpAddress          string
+	FirmwareVersion    sql.NullString
+}
+
+// Returns rename properties when the requested sort does not require telemetry data.
+func (q *Queries) GetDevicePropertiesForRenameWithoutTelemetry(ctx context.Context, arg GetDevicePropertiesForRenameWithoutTelemetryParams) ([]GetDevicePropertiesForRenameWithoutTelemetryRow, error) {
+	rows, err := q.query(ctx, q.getDevicePropertiesForRenameWithoutTelemetryStmt, getDevicePropertiesForRenameWithoutTelemetry, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDevicePropertiesForRenameWithoutTelemetryRow
+	for rows.Next() {
+		var i GetDevicePropertiesForRenameWithoutTelemetryRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.DiscoveredDeviceID,
+			&i.CustomName,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.Model,
+			&i.Manufacturer,
+			&i.IpAddress,
+			&i.FirmwareVersion,
 		); err != nil {
 			return nil, err
 		}

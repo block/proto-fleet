@@ -3,6 +3,8 @@ package fleetmanagement
 import (
 	"context"
 	"fmt"
+	"math"
+	"net/netip"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +19,13 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
+var defaultRenameSortConfig = &interfaces.SortConfig{
+	Field:     interfaces.SortFieldName,
+	Direction: interfaces.SortDirectionAsc,
+}
+
+var invalidSortIPAddress = netip.MustParseAddr("0.0.0.0")
+
 const (
 	maxCustomNameLength = 100
 	defaultPoolPriority = 0
@@ -30,11 +39,15 @@ const (
 )
 
 // RenameMiners assigns custom names to the selected miners based on the provided name config.
-// Devices are sorted by manufacturer+model for counter ordering, then names are generated
-// and persisted in a single bulk UPDATE.
+// Devices are sorted using the current fleet table sort (defaulting to name ascending), then
+// names are generated and persisted in a single bulk UPDATE.
 func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest) (*pb.RenameMinersResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := validateRenameNameConfig(req.NameConfig); err != nil {
 		return nil, err
 	}
 
@@ -47,7 +60,14 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		return &pb.RenameMinersResponse{}, nil
 	}
 
-	deviceProps, err := s.deviceStore.GetDevicePropertiesForRename(ctx, info.OrganizationID, deviceIdentifiers)
+	sortConfig := parseSortConfig(req.Sort)
+
+	deviceProps, err := s.deviceStore.GetDevicePropertiesForRename(
+		ctx,
+		info.OrganizationID,
+		deviceIdentifiers,
+		sortConfig != nil && sortConfig.IsTelemetrySort(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -63,17 +83,15 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		workerNames = s.collectWorkerNames(ctx, deviceIdentifiers)
 	}
 
-	// Sort by manufacturer+model for stable counter assignment order.
-	sort.Slice(deviceProps, func(i, j int) bool {
-		ki := deviceProps[i].Manufacturer + " " + deviceProps[i].Model
-		kj := deviceProps[j].Manufacturer + " " + deviceProps[j].Model
-		if ki != kj {
-			return ki < kj
-		}
-		return deviceProps[i].DeviceIdentifier < deviceProps[j].DeviceIdentifier
-	})
+	sortDevicePropsForRename(deviceProps, sortConfig)
+
+	if err := validateRequestWideGeneratedNames(req.NameConfig, len(deviceProps)); err != nil {
+		return nil, err
+	}
 
 	names := make(map[string]string, len(deviceProps))
+	unchangedCount := 0
+	failedCount := 0
 	for idx, props := range deviceProps {
 		workerName := ""
 		if workerNames != nil {
@@ -82,7 +100,16 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 
 		name, err := generateName(req.NameConfig, props, workerName, idx)
 		if err != nil {
-			return nil, err
+			// Request-level config errors are validated before the batch loop;
+			// any remaining generation error is specific to this device's data.
+			failedCount++
+			continue
+		}
+		if name == "" || isUnchangedRename(name, props.CustomName) {
+			// Blank results are intentional no-ops for omitted/reserved properties
+			// and devices without a usable worker-name segment.
+			unchangedCount++
+			continue
 		}
 		names[props.DeviceIdentifier] = name
 	}
@@ -91,7 +118,270 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		return nil, err
 	}
 
-	return &pb.RenameMinersResponse{}, nil
+	return &pb.RenameMinersResponse{
+		RenamedCount:   renameResponseCount(len(names)),
+		UnchangedCount: renameResponseCount(unchangedCount),
+		FailedCount:    renameResponseCount(failedCount),
+	}, nil
+}
+
+func sortDevicePropsForRename(deviceProps []interfaces.DeviceRenameProperties, sortConfig *interfaces.SortConfig) {
+	if len(deviceProps) <= 1 {
+		return
+	}
+
+	normalizedSortConfig := defaultRenameSortConfig
+	if sortConfig != nil && !sortConfig.IsUnspecified() {
+		normalizedSortConfig = sortConfig
+	}
+
+	sort.Slice(deviceProps, func(i, j int) bool {
+		return lessDevicePropsForRename(deviceProps[i], deviceProps[j], normalizedSortConfig)
+	})
+}
+
+func lessDevicePropsForRename(
+	left interfaces.DeviceRenameProperties,
+	right interfaces.DeviceRenameProperties,
+	sortConfig *interfaces.SortConfig,
+) bool {
+	switch sortConfig.Field {
+	case interfaces.SortFieldUnspecified,
+		interfaces.SortFieldName,
+		interfaces.SortFieldIPAddress,
+		interfaces.SortFieldMACAddress:
+	case interfaces.SortFieldHashrate:
+		return lessNullableFloat64(left.Hashrate, right.Hashrate, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
+	case interfaces.SortFieldTemperature:
+		return lessNullableFloat64(left.Temperature, right.Temperature, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
+	case interfaces.SortFieldPower:
+		return lessNullableFloat64(left.Power, right.Power, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
+	case interfaces.SortFieldEfficiency:
+		return lessNullableFloat64(left.Efficiency, right.Efficiency, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
+	case interfaces.SortFieldFirmware:
+		return lessNullableString(
+			left.FirmwareSortValue,
+			right.FirmwareSortValue,
+			sortConfig.Direction,
+			left.DiscoveredDeviceID,
+			right.DiscoveredDeviceID,
+		)
+	case interfaces.SortFieldModel:
+		return lessNullableString(
+			left.ModelSortValue,
+			right.ModelSortValue,
+			sortConfig.Direction,
+			left.DiscoveredDeviceID,
+			right.DiscoveredDeviceID,
+		)
+	}
+
+	comparison := compareDevicePropsForRename(left, right, sortConfig.Field)
+	if comparison == 0 {
+		return lessDiscoveredDeviceID(left.DiscoveredDeviceID, right.DiscoveredDeviceID, sortConfig.Direction)
+	}
+
+	return comparisonForDirection(comparison, sortConfig.Direction)
+}
+
+func compareDevicePropsForRename(
+	left interfaces.DeviceRenameProperties,
+	right interfaces.DeviceRenameProperties,
+	field interfaces.SortField,
+) int {
+	switch field {
+	case interfaces.SortFieldUnspecified,
+		interfaces.SortFieldName,
+		interfaces.SortFieldHashrate,
+		interfaces.SortFieldTemperature,
+		interfaces.SortFieldPower,
+		interfaces.SortFieldEfficiency,
+		interfaces.SortFieldFirmware:
+		// Telemetry sorts are handled earlier by lessDevicePropsForRename; this
+		// fallback preserves deterministic behavior if compareDevicePropsForRename
+		// is ever called directly with those fields.
+		return strings.Compare(getRenameSortName(left), getRenameSortName(right))
+	case interfaces.SortFieldIPAddress:
+		return compareIPAddresses(left.IPAddress, right.IPAddress)
+	case interfaces.SortFieldMACAddress:
+		return strings.Compare(left.MacAddress, right.MacAddress)
+	case interfaces.SortFieldModel:
+		return compareNullableString(left.ModelSortValue, right.ModelSortValue)
+	}
+
+	return strings.Compare(getRenameSortName(left), getRenameSortName(right))
+}
+
+func getRenameSortName(props interfaces.DeviceRenameProperties) string {
+	if strings.TrimSpace(props.CustomName) != "" {
+		return strings.TrimSpace(props.CustomName)
+	}
+
+	return strings.TrimSpace(props.Manufacturer + " " + props.Model)
+}
+
+func compareNullableFloat64(left *float64, right *float64) int {
+	if left == nil && right == nil {
+		return 0
+	}
+	if left == nil {
+		return 1
+	}
+	if right == nil {
+		return -1
+	}
+	if math.IsNaN(*left) && math.IsNaN(*right) {
+		return 0
+	}
+	if math.IsNaN(*left) {
+		return 1
+	}
+	if math.IsNaN(*right) {
+		return -1
+	}
+	switch {
+	case *left < *right:
+		return -1
+	case *left > *right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func lessNullableFloat64(
+	left *float64,
+	right *float64,
+	direction interfaces.SortDirection,
+	leftTie int64,
+	rightTie int64,
+) bool {
+	if left == nil && right == nil {
+		return lessDiscoveredDeviceID(leftTie, rightTie, direction)
+	}
+	if left == nil {
+		return false
+	}
+	if right == nil {
+		return true
+	}
+
+	comparison := compareNullableFloat64(left, right)
+	if comparison == 0 {
+		return lessDiscoveredDeviceID(leftTie, rightTie, direction)
+	}
+	if direction == interfaces.SortDirectionDesc {
+		return comparison > 0
+	}
+	return comparison < 0
+}
+
+func compareNullableString(left *string, right *string) int {
+	if left == nil && right == nil {
+		return 0
+	}
+	if left == nil {
+		return 1
+	}
+	if right == nil {
+		return -1
+	}
+	return strings.Compare(*left, *right)
+}
+
+func lessNullableString(
+	left *string,
+	right *string,
+	direction interfaces.SortDirection,
+	leftTie int64,
+	rightTie int64,
+) bool {
+	if left == nil && right == nil {
+		return lessDiscoveredDeviceID(leftTie, rightTie, direction)
+	}
+	if left == nil {
+		return false
+	}
+	if right == nil {
+		return true
+	}
+
+	comparison := compareNullableString(left, right)
+	if comparison == 0 {
+		return lessDiscoveredDeviceID(leftTie, rightTie, direction)
+	}
+	if direction == interfaces.SortDirectionDesc {
+		return comparison > 0
+	}
+	return comparison < 0
+}
+
+func compareIPAddresses(left string, right string) int {
+	leftIP := parseSortIPAddress(left)
+	rightIP := parseSortIPAddress(right)
+	return leftIP.Compare(rightIP)
+}
+
+func parseSortIPAddress(value string) netip.Addr {
+	if parsed, err := netip.ParseAddr(value); err == nil {
+		return parsed
+	}
+
+	return invalidSortIPAddress
+}
+
+func lessDiscoveredDeviceID(left int64, right int64, direction interfaces.SortDirection) bool {
+	if direction == interfaces.SortDirectionDesc {
+		return left > right
+	}
+
+	return left < right
+}
+
+func comparisonForDirection(comparison int, direction interfaces.SortDirection) bool {
+	if direction == interfaces.SortDirectionDesc {
+		return comparison > 0
+	}
+
+	return comparison < 0
+}
+
+func isUnchangedRename(nextName string, currentCustomName string) bool {
+	return strings.TrimSpace(nextName) == strings.TrimSpace(currentCustomName)
+}
+
+func renameResponseCount(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	return int32(n) // #nosec G115 -- bounded above by math.MaxInt32
+}
+
+func validateRenameNameConfig(cfg *pb.MinerNameConfig) error {
+	if cfg == nil {
+		return fleeterror.NewInvalidArgumentError("name_config is required")
+	}
+
+	if len(cfg.Properties) == 0 {
+		return fleeterror.NewInvalidArgumentError("name_config.properties must contain at least one item")
+	}
+
+	switch cfg.Separator {
+	case "-", "_", ".", "":
+		return nil
+	default:
+		return fleeterror.NewInvalidArgumentError("name_config.separator must be one of '-', '_', '.', or empty")
+	}
+}
+
+func validateRequestWideGeneratedNames(cfg *pb.MinerNameConfig, deviceCount int) error {
+	if cfg == nil || deviceCount == 0 || renameConfigDependsOnDeviceData(cfg) {
+		return nil
+	}
+
+	_, err := generateName(cfg, interfaces.DeviceRenameProperties{}, "", deviceCount-1)
+	return err
 }
 
 // requiresWorkerName returns true if any property in the config is a WORKER_NAME fixed value.
@@ -106,6 +396,33 @@ func requiresWorkerName(cfg *pb.MinerNameConfig) bool {
 			}
 		}
 	}
+	return false
+}
+
+func renameConfigDependsOnDeviceData(cfg *pb.MinerNameConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	for _, prop := range cfg.Properties {
+		fv, ok := prop.Kind.(*pb.NameProperty_FixedValue)
+		if !ok {
+			continue
+		}
+
+		switch fv.FixedValue.GetType() {
+		case pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
+			pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER,
+			pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MODEL,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER:
+			return true
+		case pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION,
+			pb.FixedValueType_FIXED_VALUE_TYPE_UNSPECIFIED:
+			return false
+		}
+	}
+
 	return false
 }
 
@@ -194,9 +511,6 @@ func generateName(cfg *pb.MinerNameConfig, props interfaces.DeviceRenameProperti
 	}
 
 	name := strings.TrimSpace(strings.Join(segments, sep))
-	if name == "" {
-		return "", fleeterror.NewInvalidArgumentError("generated name is blank after applying name config")
-	}
 	if utf8.RuneCountInString(name) > maxCustomNameLength {
 		return "", fleeterror.NewInvalidArgumentErrorf("generated name exceeds %d characters", maxCustomNameLength)
 	}
