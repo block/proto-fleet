@@ -2461,7 +2461,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should show loading toast when download begins", () => {
+    it("should show loading toast when download begins", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
@@ -2470,8 +2470,8 @@ describe("useMinerActions", () => {
       );
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      act(() => {
-        downloadLogsAction?.actionHandler();
+      await act(async () => {
+        await downloadLogsAction?.actionHandler();
       });
 
       expect(toaster.pushToast).toHaveBeenCalledWith({
@@ -2481,7 +2481,7 @@ describe("useMinerActions", () => {
       });
     });
 
-    it("should call downloadLogs API with the correct deviceSelector", () => {
+    it("should call downloadLogs API with the correct deviceSelector", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
@@ -2490,8 +2490,8 @@ describe("useMinerActions", () => {
       );
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      act(() => {
-        downloadLogsAction?.actionHandler();
+      await act(async () => {
+        await downloadLogsAction?.actionHandler();
       });
 
       expect(mockDownloadLogs).toHaveBeenCalled();
@@ -2623,7 +2623,7 @@ describe("useMinerActions", () => {
       );
     });
 
-    it("should show error toast when downloadLogs API call fails", () => {
+    it("should show error toast when downloadLogs API call fails", async () => {
       mockDownloadLogs.mockImplementation(({ onError }: any) => {
         onError("Connection failed");
       });
@@ -2636,8 +2636,8 @@ describe("useMinerActions", () => {
       );
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      act(() => {
-        downloadLogsAction?.actionHandler();
+      await act(async () => {
+        await downloadLogsAction?.actionHandler();
       });
 
       expect(toaster.updateToast).toHaveBeenCalledWith(
@@ -2707,8 +2707,8 @@ describe("useMinerActions", () => {
       );
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      act(() => {
-        downloadLogsAction?.actionHandler();
+      await act(async () => {
+        await downloadLogsAction?.actionHandler();
       });
 
       expect(capturedAbortController?.signal.aborted).toBe(false);
@@ -2870,7 +2870,7 @@ describe("useMinerActions", () => {
       expect(onActionComplete).toHaveBeenCalled();
     });
 
-    it("should call onActionComplete when the downloadLogs API call fails", () => {
+    it("should call onActionComplete when the downloadLogs API call fails", async () => {
       const onActionComplete = vi.fn();
       mockDownloadLogs.mockImplementation(({ onError }: any) => {
         onError("Connection failed");
@@ -2885,8 +2885,8 @@ describe("useMinerActions", () => {
       );
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      act(() => {
-        downloadLogsAction?.actionHandler();
+      await act(async () => {
+        await downloadLogsAction?.actionHandler();
       });
 
       expect(onActionComplete).toHaveBeenCalled();

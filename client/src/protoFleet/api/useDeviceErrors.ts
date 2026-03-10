@@ -54,29 +54,25 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
 
         const response = await errorQueryClient.query(request);
 
-        // Process the response based on result type
+        const errorMap: Record<string, DeviceError> = {};
+        const allErrorMessages: ErrorMessage[] = [];
+
         if (response.result?.case === "devices" && response.result.value) {
           const deviceErrors = response.result.value.items;
-          const errorMap: Record<string, DeviceError> = {};
-          const allErrorMessages: ErrorMessage[] = [];
 
-          // Map errors by device ID and collect all error messages
           deviceErrors.forEach((deviceError) => {
             const deviceId = deviceError.deviceIdentifier;
             if (deviceId) {
               errorMap[deviceId] = deviceError;
-              // Collect all error messages for normalized store
               if (deviceError.errors) {
                 allErrorMessages.push(...deviceError.errors);
               }
             }
           });
-
-          setErrors(errorMap);
-
-          // Update normalized error store
-          setNormalizedErrors(allErrorMessages, "devices", ids);
         }
+
+        setErrors(errorMap);
+        setNormalizedErrors(allErrorMessages, "devices", ids);
       } catch (err) {
         handleAuthErrors({
           error: err,

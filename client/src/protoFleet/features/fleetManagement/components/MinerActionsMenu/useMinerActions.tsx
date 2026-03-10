@@ -912,97 +912,101 @@ export const useMinerActions = ({
       });
     };
 
-    const handleDownloadLogs = () => {
+    const handleDownloadLogs = async () => {
       if (!deviceSelector) return;
       onActionStart?.();
 
-      const id = pushToast({
-        message: loadingMessages[deviceActions.downloadLogs],
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-      });
+      await withCapabilityCheck(deviceActions.downloadLogs, (filteredSelector) => {
+        const selectorToUse = filteredSelector ?? deviceSelector;
 
-      const request = create(DownloadLogsRequestSchema, { deviceSelector });
-      downloadLogs({
-        downloadLogsRequest: request,
-        onSuccess: ({ batchIdentifier }) => {
-          const streamAbortController = new AbortController();
-          let failureCount = 0;
-          let successCount = 0;
-          let allDevicesFailed = false;
-          let finishedReceived = false;
-          streamCommandBatchUpdates({
-            streamRequest: create(StreamCommandBatchUpdatesRequestSchema, { batchIdentifier }),
-            streamAbortController,
-            onStreamData: (response) => {
-              if (
-                response.status?.commandBatchUpdateStatus ===
-                CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED
-              ) {
-                failureCount = Number(response.status.commandBatchDeviceCount?.failure ?? 0);
-                successCount = Number(response.status.commandBatchDeviceCount?.success ?? 0);
-                allDevicesFailed = successCount === 0 && failureCount > 0;
-                finishedReceived = true;
-                streamAbortController.abort();
-              }
-            },
-          }).finally(() => {
-            if (!finishedReceived) {
-              updateToast(id, {
-                message: "Failed to download logs",
-                status: TOAST_STATUSES.error,
-              });
-              onActionComplete?.();
-              return;
-            }
+        const id = pushToast({
+          message: loadingMessages[deviceActions.downloadLogs],
+          status: TOAST_STATUSES.loading,
+          longRunning: true,
+        });
 
-            if (allDevicesFailed) {
-              updateToast(id, {
-                message: "Failed to download logs",
-                status: TOAST_STATUSES.error,
-              });
-              onActionComplete?.();
-              return;
-            }
-
-            getCommandBatchLogBundle({
-              request: create(GetCommandBatchLogBundleRequestSchema, { batchIdentifier }),
-              onSuccess: ({ chunkData, filename }) => {
-                const mimeType = filename.endsWith(".csv") ? "text/csv" : "application/zip";
-                const blob = new Blob([chunkData as Uint8Array<ArrayBuffer>], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = filename;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(url), 0);
-                updateToast(id, {
-                  message: successMessages[deviceActions.downloadLogs],
-                  status: TOAST_STATUSES.success,
-                });
-                if (failureCount > 0) {
-                  pushToast({
-                    message: `Failed to retrieve logs from ${failureCount} ${failureCount === 1 ? "miner" : "miners"}`,
-                    status: TOAST_STATUSES.error,
-                    longRunning: true,
-                  });
+        const request = create(DownloadLogsRequestSchema, { deviceSelector: selectorToUse });
+        downloadLogs({
+          downloadLogsRequest: request,
+          onSuccess: ({ batchIdentifier }) => {
+            const streamAbortController = new AbortController();
+            let failureCount = 0;
+            let successCount = 0;
+            let allDevicesFailed = false;
+            let finishedReceived = false;
+            streamCommandBatchUpdates({
+              streamRequest: create(StreamCommandBatchUpdatesRequestSchema, { batchIdentifier }),
+              streamAbortController,
+              onStreamData: (response) => {
+                if (
+                  response.status?.commandBatchUpdateStatus ===
+                  CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED
+                ) {
+                  failureCount = Number(response.status.commandBatchDeviceCount?.failure ?? 0);
+                  successCount = Number(response.status.commandBatchDeviceCount?.success ?? 0);
+                  allDevicesFailed = successCount === 0 && failureCount > 0;
+                  finishedReceived = true;
+                  streamAbortController.abort();
                 }
-                onActionComplete?.();
               },
-              onError: (err) => {
+            }).finally(() => {
+              if (!finishedReceived) {
                 updateToast(id, {
-                  message: err || "Failed to download logs",
+                  message: "Failed to download logs",
                   status: TOAST_STATUSES.error,
                 });
                 onActionComplete?.();
-              },
+                return;
+              }
+
+              if (allDevicesFailed) {
+                updateToast(id, {
+                  message: "Failed to download logs",
+                  status: TOAST_STATUSES.error,
+                });
+                onActionComplete?.();
+                return;
+              }
+
+              getCommandBatchLogBundle({
+                request: create(GetCommandBatchLogBundleRequestSchema, { batchIdentifier }),
+                onSuccess: ({ chunkData, filename }) => {
+                  const mimeType = filename.endsWith(".csv") ? "text/csv" : "application/zip";
+                  const blob = new Blob([chunkData as Uint8Array<ArrayBuffer>], { type: mimeType });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 0);
+                  updateToast(id, {
+                    message: successMessages[deviceActions.downloadLogs],
+                    status: TOAST_STATUSES.success,
+                  });
+                  if (failureCount > 0) {
+                    pushToast({
+                      message: `Failed to retrieve logs from ${failureCount} ${failureCount === 1 ? "miner" : "miners"}`,
+                      status: TOAST_STATUSES.error,
+                      longRunning: true,
+                    });
+                  }
+                  onActionComplete?.();
+                },
+                onError: (err) => {
+                  updateToast(id, {
+                    message: err || "Failed to download logs",
+                    status: TOAST_STATUSES.error,
+                  });
+                  onActionComplete?.();
+                },
+              });
             });
-          });
-        },
-        onError: (err) => {
-          handleError(id, err);
-          onActionComplete?.();
-        },
+          },
+          onError: (err) => {
+            handleError(id, err);
+            onActionComplete?.();
+          },
+        });
       });
     };
 
