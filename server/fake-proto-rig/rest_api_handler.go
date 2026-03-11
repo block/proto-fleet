@@ -2432,7 +2432,7 @@ func (h *RESTApiHandler) generatePSUTimeSeries(fields []string, indexes []int, n
 // handlePairingInfo handles GET /api/v1/pairing/info
 func (h *RESTApiHandler) handlePairingInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
 
@@ -2453,12 +2453,12 @@ func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Req
 			PublicKey string `json:"public_key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 			return
 		}
 
 		if req.PublicKey == "" {
-			h.writeError(w, http.StatusBadRequest, "invalid_request", "public_key is required")
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "public_key is required")
 			return
 		}
 
@@ -2480,6 +2480,6 @@ func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Req
 		})
 
 	default:
-		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}
 }

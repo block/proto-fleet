@@ -29,12 +29,6 @@ type errorMapping struct {
 	impact            string
 }
 
-// errorKey uniquely identifies an error mapping using the REST error source and error_code.
-type errorKey struct {
-	source    string
-	errorCode string
-}
-
 // Rig error mappings keyed by error_code string
 var rigErrorMappings = map[string]errorMapping{
 	"LowHashRate": {

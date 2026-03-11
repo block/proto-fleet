@@ -445,6 +445,10 @@ func (c *Client) doGet(ctx context.Context, path string, result any) error {
 		return fmt.Errorf("unauthenticated: missing or invalid credentials")
 	}
 
+	if resp.StatusCode == http.StatusNoContent {
+		return nil // 204: valid response with no body (e.g. GET /api/v1/mining/target)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
@@ -472,7 +476,7 @@ func (c *Client) doPost(ctx context.Context, path string, body any) error {
 		return fmt.Errorf("unauthenticated: missing or invalid credentials")
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("request failed with status %d", resp.StatusCode)
 	}
 
