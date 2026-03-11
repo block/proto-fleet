@@ -79,6 +79,11 @@ public sealed class WslCommandExecutor
             };
         }
 
+        // Some older Windows 10 WSL builds emit UTF-16 LE even though we request UTF-8.
+        // When decoded as UTF-8 each ASCII character is followed by a null byte ('\0').
+        // Strip null bytes so downstream pattern matching (Contains, etc.) works correctly.
+        result = StripNullBytes(result);
+
         if (!result.IsSuccess)
         {
             _logSink.Error(
@@ -162,6 +167,24 @@ public sealed class WslCommandExecutor
             _logSink.Warn($"Launch attempt failed: {fileName} {arguments}. {ex.Message}");
             return false;
         }
+    }
+
+    private static CommandResult StripNullBytes(CommandResult result)
+    {
+        var stdout = result.StandardOutput.Replace("\0", string.Empty);
+        var stderr = result.StandardError.Replace("\0", string.Empty);
+        if (stdout.Length == result.StandardOutput.Length && stderr.Length == result.StandardError.Length)
+        {
+            return result;
+        }
+
+        return new CommandResult
+        {
+            ExitCode = result.ExitCode,
+            StandardOutput = stdout,
+            StandardError = stderr,
+            Duration = result.Duration,
+        };
     }
 
     private static string FormatSnippet(string? value)
