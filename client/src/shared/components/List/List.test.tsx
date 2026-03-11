@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { defaultListFilter } from "@/shared/components/List/constants";
 import List from "@/shared/components/List/index";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
 import { testCols, testColTitles, testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
@@ -193,6 +194,56 @@ describe("List", () => {
 
     // Verify all checkboxes are now unchecked
     expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
+  });
+
+  it("renders an in-table empty state row while keeping the header visible", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={[]}
+        itemKey="id"
+        emptyStateRow={<div>No matching items</div>}
+      />,
+    );
+
+    expect(screen.getByTestId("list-header")).toBeInTheDocument();
+    expect(screen.getByTestId("list-empty-row")).toBeInTheDocument();
+    expect(screen.getByText("No matching items")).toBeInTheDocument();
+  });
+
+  it("resets filter UI when initialActiveFilters changes", async () => {
+    const props = {
+      activeCols,
+      colTitles: testColTitles,
+      colConfig: testColConfig,
+      items: testItems,
+      itemKey: "id" as const,
+      filters: testFilters,
+      initialActiveFilters: {
+        buttonFilters: [defaultListFilter],
+        dropdownFilters: {
+          valueRange: ["low"],
+        },
+      },
+    };
+
+    const { rerender } = render(<List<TestItem, TestItemKey> {...props} />);
+
+    expect(await screen.findByTestId("active-filter-valueRange-low")).toBeInTheDocument();
+
+    rerender(
+      <List<TestItem, TestItemKey>
+        {...props}
+        initialActiveFilters={{
+          buttonFilters: [defaultListFilter],
+          dropdownFilters: {},
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("active-filter-valueRange-low")).not.toBeInTheDocument();
   });
 
   it("clearSelection callback deselects all items", async () => {

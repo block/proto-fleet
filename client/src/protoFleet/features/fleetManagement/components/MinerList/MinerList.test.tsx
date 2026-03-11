@@ -1,4 +1,4 @@
-import { BrowserRouter, MemoryRouter } from "react-router-dom";
+import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -14,6 +14,12 @@ const renderMinerList = (props: Parameters<typeof MinerList>[0], initialEntries?
       <MinerList {...props} />
     </Router>,
   );
+};
+
+const LocationDisplay = () => {
+  const location = useLocation();
+
+  return <div data-testid="location-display">{location.search}</div>;
 };
 
 describe("MinerList", () => {
@@ -293,6 +299,25 @@ describe("MinerList", () => {
       // Regular list view should be shown instead
       expect(screen.getByText("Miners")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Add miners" })).toBeInTheDocument();
+    });
+
+    it("shows the filtered empty state and clears filters when requested", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter initialEntries={["/?status=hashing&issues=control-board&sort=name&dir=desc"]}>
+          <MinerList title="Miners" minerIds={[]} totalMiners={0} totalUnfilteredMiners={14} onAddMiners={vi.fn()} />
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByText("No results")).toBeInTheDocument();
+      expect(screen.getByText("Try adjusting or clearing your filters.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Clear all filters" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Clear all filters" }));
+
+      expect(screen.getByTestId("location-display")).toHaveTextContent("?sort=name&dir=desc");
     });
   });
 });

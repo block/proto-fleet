@@ -256,6 +256,16 @@ const MinerList = ({
     return searchParams.has("status") || searchParams.has("issues") || searchParams.has("model");
   }, [searchParams]);
 
+  const handleClearFilters = useCallback(() => {
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("status");
+    nextSearchParams.delete("issues");
+    nextSearchParams.delete("model");
+
+    const nextSearch = nextSearchParams.toString();
+    navigate({ search: nextSearch ? `?${nextSearch}` : "" }, { replace: true });
+  }, [navigate, searchParams]);
+
   const filters = useMemo(() => {
     return [
       {
@@ -457,6 +467,23 @@ const MinerList = ({
           currentSort={currentSort}
           onSort={onSort}
           getDefaultSortDirection={getDefaultSortDirection}
+          emptyStateRow={
+            !loading && hasActiveFilters && totalMiners === 0 ? (
+              <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+                <div className="text-heading-200 text-text-primary">No results</div>
+                <p className="mt-1 text-400 text-text-primary-70">Try adjusting or clearing your filters.</p>
+                <Button
+                  className="mt-6"
+                  variant={variants.secondary}
+                  size={sizes.base}
+                  testId="clear-all-filters-button"
+                  onClick={handleClearFilters}
+                >
+                  Clear all filters
+                </Button>
+              </div>
+            ) : undefined
+          }
         />
       )}
 
