@@ -1,6 +1,7 @@
 import { minerCols, type MinerColumn } from "./constants";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerFirmware from "./MinerFirmware";
+import MinerGroups from "./MinerGroups";
 import MinerHashrate from "./MinerHashrate";
 import MinerIpAddress from "./MinerIpAddress";
 import MinerIssuesCell from "./MinerIssuesCell";
@@ -11,14 +12,17 @@ import MinerPowerUsage from "./MinerPowerUsage";
 import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
 import { type DeviceListItem } from "./types";
+import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { type ColConfig } from "@/shared/components/List/types";
 
 type CreateMinerColConfigParams = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
+  availableGroups: DeviceCollection[];
 };
 
 const createMinerColConfig = ({
   onOpenStatusFlow,
+  availableGroups,
 }: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
     component: (device: DeviceListItem) => (
@@ -72,6 +76,12 @@ const createMinerColConfig = ({
   },
   [minerCols.firmware]: {
     component: (device: DeviceListItem) => <MinerFirmware deviceIdentifier={device.deviceIdentifier} />,
+    width: "min-w-28",
+  },
+  [minerCols.groups]: {
+    component: (device: DeviceListItem) => (
+      <MinerGroups deviceIdentifier={device.deviceIdentifier} availableGroups={availableGroups} />
+    ),
     width: "min-w-28",
   },
 });

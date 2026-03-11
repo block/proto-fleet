@@ -15,6 +15,7 @@ const URL_PARAMS = {
   STATUS: "status",
   ISSUES: "issues",
   MODEL: "model",
+  GROUP: "group",
 } as const;
 
 /**
@@ -97,6 +98,11 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     params.set(URL_PARAMS.MODEL, filter.models.sort().join(","));
   }
 
+  // Encode group IDs
+  if (filter.groupIds.length > 0) {
+    params.set(URL_PARAMS.GROUP, filter.groupIds.map(String).sort().join(","));
+  }
+
   return params;
 }
 
@@ -107,9 +113,10 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
   const statusParam = params.get(URL_PARAMS.STATUS);
   const issuesParam = params.get(URL_PARAMS.ISSUES);
   const modelParam = params.get(URL_PARAMS.MODEL);
+  const groupParam = params.get(URL_PARAMS.GROUP);
 
   // If no filter params, return undefined
-  if (!statusParam && !issuesParam && !modelParam) {
+  if (!statusParam && !issuesParam && !modelParam && !groupParam) {
     return undefined;
   }
 
@@ -172,6 +179,17 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     });
   }
 
+  // Parse group IDs
+  if (groupParam) {
+    const groupValues = groupParam.split(",");
+    groupValues.forEach((id) => {
+      const trimmed = id.trim();
+      if (trimmed && /^\d+$/.test(trimmed)) {
+        filter.groupIds.push(BigInt(trimmed));
+      }
+    });
+  }
+
   return filter;
 }
 
@@ -212,6 +230,18 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.model = Array.from(new Set(modelValues));
   }
 
+  // Parse group dropdown
+  const groupParam = params.get(URL_PARAMS.GROUP);
+  if (groupParam) {
+    const groupValues = groupParam
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value !== "" && /^\d+$/.test(value));
+    if (groupValues.length > 0) {
+      activeFilters.dropdownFilters.group = Array.from(new Set(groupValues));
+    }
+  }
+
   return activeFilters;
 }
 
@@ -240,6 +270,12 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const modelFilters = filters.dropdownFilters.model;
   if (modelFilters && modelFilters.length > 0) {
     params.set(URL_PARAMS.MODEL, modelFilters.sort().join(","));
+  }
+
+  // Encode group dropdown
+  const groupFilters = filters.dropdownFilters.group;
+  if (groupFilters && groupFilters.length > 0) {
+    params.set(URL_PARAMS.GROUP, groupFilters.sort().join(","));
   }
 
   return params;

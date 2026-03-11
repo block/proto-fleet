@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
+import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   type SortConfig,
   SortConfigSchema,
@@ -9,6 +10,7 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
+import { useCollections } from "@/protoFleet/api/useCollections";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
@@ -35,6 +37,16 @@ const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
 
 const Fleet = () => {
   const navigate = useNavigate();
+  const { listGroups } = useCollections();
+  const [availableGroups, setAvailableGroups] = useState<DeviceCollection[]>([]);
+
+  useEffect(() => {
+    listGroups({
+      onSuccess: (collections) => {
+        setAvailableGroups(collections);
+      },
+    });
+  }, [listGroups]);
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
@@ -157,6 +169,7 @@ const Fleet = () => {
           currentSort={currentSort}
           onSort={handleSort}
           availableModels={availableModels}
+          availableGroups={availableGroups}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
         />

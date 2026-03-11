@@ -15,6 +15,7 @@ export const minerCols = {
   powerUsage: "powerUsage",
   temperature: "temperature",
   firmware: "firmware",
+  groups: "groups",
 } as const;
 
 export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
@@ -31,6 +32,7 @@ export const minerColTitles: ColTitles<MinerColumn> = {
   powerUsage: "Power",
   temperature: "Temp",
   firmware: "Firmware",
+  groups: "Groups",
 };
 
 export const deviceStatusFilterStates = {

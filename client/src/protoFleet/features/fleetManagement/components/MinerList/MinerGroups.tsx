@@ -1,12 +1,15 @@
 import { useCallback, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
+import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useMinerGroupLabels } from "@/protoFleet/store";
 
 type MinerGroupsProps = {
   deviceIdentifier: string;
+  availableGroups: DeviceCollection[];
 };
 
-const MinerGroups = ({ deviceIdentifier }: MinerGroupsProps) => {
+const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) => {
   const groupLabels = useMinerGroupLabels(deviceIdentifier);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const [popoverRect, setPopoverRect] = useState<DOMRect | null>(null);
@@ -31,8 +34,22 @@ const MinerGroups = ({ deviceIdentifier }: MinerGroupsProps) => {
     return <span />;
   }
 
+  const getGroupLink = (label: string) => {
+    const groupId = availableGroups.find((g) => g.label === label)?.id;
+    // TODO: link to group overview page once implemented
+    // return groupId ? `/groups/${groupId}` : undefined;
+    return groupId ? "#" : undefined;
+  };
+
   if (groupLabels.length === 1) {
-    return <span>{groupLabels[0]}</span>;
+    const link = getGroupLink(groupLabels[0]);
+    return link ? (
+      <Link to={link} className="text-emphasis-300 hover:underline">
+        {groupLabels[0]}
+      </Link>
+    ) : (
+      <span>{groupLabels[0]}</span>
+    );
   }
 
   return (
@@ -47,13 +64,20 @@ const MinerGroups = ({ deviceIdentifier }: MinerGroupsProps) => {
             onMouseLeave={closeWithDelay}
           >
             <ul className="flex flex-col divide-y divide-border-5 whitespace-nowrap">
-              {groupLabels.map((label) => (
-                <li key={label} className="py-2">
-                  <a href="#" className="text-emphasis-300 hover:underline">
-                    {label}
-                  </a>
-                </li>
-              ))}
+              {groupLabels.map((label) => {
+                const link = getGroupLink(label);
+                return (
+                  <li key={label} className="py-2">
+                    {link ? (
+                      <Link to={link} className="text-emphasis-300 hover:underline">
+                        {label}
+                      </Link>
+                    ) : (
+                      <span>{label}</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>,
           document.body,

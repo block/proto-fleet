@@ -45,8 +45,15 @@ vi.mock("@/protoFleet/store", () => {
     useSetRefetchCallback: vi.fn(() => vi.fn()),
     useCleanupStaleBatches: vi.fn(() => vi.fn()),
     useNotifyPairingCompleted: vi.fn(() => vi.fn()),
+    useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
   };
 });
+
+vi.mock("@/protoFleet/api/useCollections", () => ({
+  useCollections: vi.fn(() => ({
+    listGroups: vi.fn(),
+  })),
+}));
 
 vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
   default: vi.fn(() => ({ totalMiners: 0 })),

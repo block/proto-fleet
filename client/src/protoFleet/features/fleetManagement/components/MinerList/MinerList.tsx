@@ -14,6 +14,7 @@ import {
 import createMinerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
+import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
@@ -125,6 +126,10 @@ type MinerListProps = {
    * Comes from the API response.
    */
   availableModels?: string[];
+  /**
+   * Available groups for the group filter dropdown.
+   */
+  availableGroups?: DeviceCollection[];
   /** Active server-side filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
   /** Current server-side sort — forwarded for bulk actions that depend on table order. */
@@ -135,6 +140,7 @@ type MinerListProps = {
 // implement row customization
 const activeCols: MinerColumn[] = [
   minerCols.name,
+  minerCols.groups,
   minerCols.model,
   minerCols.macAddress,
   minerCols.ipAddress,
@@ -167,6 +173,7 @@ const MinerList = ({
   currentSort,
   onSort,
   availableModels = [],
+  availableGroups = [],
   currentFilter,
   currentSortConfig,
 }: MinerListProps) => {
@@ -248,12 +255,14 @@ const MinerList = ({
   }, []);
 
   const minerColConfig = useMemo(
-    () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow }),
-    [handleOpenStatusFlow],
+    () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow, availableGroups }),
+    [handleOpenStatusFlow, availableGroups],
   );
 
   const hasActiveFilters = useMemo(() => {
-    return searchParams.has("status") || searchParams.has("issues") || searchParams.has("model");
+    return (
+      searchParams.has("status") || searchParams.has("issues") || searchParams.has("model") || searchParams.has("group")
+    );
   }, [searchParams]);
 
   const handleClearFilters = useCallback(() => {
@@ -261,6 +270,7 @@ const MinerList = ({
     nextSearchParams.delete("status");
     nextSearchParams.delete("issues");
     nextSearchParams.delete("model");
+    nextSearchParams.delete("group");
 
     const nextSearch = nextSearchParams.toString();
     navigate({ search: nextSearch ? `?${nextSearch}` : "" }, { replace: true });
@@ -302,8 +312,15 @@ const MinerList = ({
         options: availableModels.map((model) => ({ id: model, label: model })),
         defaultOptionIds: [],
       },
+      {
+        type: "dropdown",
+        title: "Groups",
+        value: "group",
+        options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
+        defaultOptionIds: [],
+      },
     ] as FilterItem[];
-  }, [availableModels]);
+  }, [availableModels, availableGroups]);
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
@@ -355,6 +372,13 @@ const MinerList = ({
             break;
         }
       });
+
+      const groupFilters = filters.dropdownFilters.group;
+      if (groupFilters && groupFilters.length > 0) {
+        groupFilters.forEach((id) => {
+          minerFilter.groupIds.push(BigInt(id));
+        });
+      }
 
       // Navigate with URL params instead of calling parent callback
       // Start fresh with filter params, then preserve existing sort params

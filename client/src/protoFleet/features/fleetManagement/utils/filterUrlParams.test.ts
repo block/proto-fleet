@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { encodeFilterToURL, parseUrlToActiveFilters } from "./filterUrlParams";
+import { encodeFilterToURL, parseFilterFromURL, parseUrlToActiveFilters } from "./filterUrlParams";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
@@ -53,6 +53,98 @@ describe("filterUrlParams", () => {
       const activeFilters = parseUrlToActiveFilters(params);
 
       expect(activeFilters.dropdownFilters.model?.length).toBe(1);
+    });
+
+    it("should parse valid group IDs from URL", () => {
+      const params = new URLSearchParams("group=1,2,3");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.group).toEqual(["1", "2", "3"]);
+    });
+
+    it("should deduplicate group values from URL", () => {
+      const params = new URLSearchParams("group=1,1,2,2");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.group).toEqual(["1", "2"]);
+    });
+
+    it("should filter out empty group values from URL", () => {
+      const params = new URLSearchParams("group=1,,2,");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.group).toEqual(["1", "2"]);
+    });
+
+    it("should filter out non-numeric group values from URL", () => {
+      const params = new URLSearchParams("group=1,abc,2,xyz");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.group).toEqual(["1", "2"]);
+    });
+
+    it("should not set group filter when all values are invalid", () => {
+      const params = new URLSearchParams("group=abc,,xyz");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.group).toBeUndefined();
+    });
+  });
+
+  describe("encodeFilterToURL - group IDs", () => {
+    it("should encode group IDs to URL params", () => {
+      const filter = create(MinerListFilterSchema, {
+        groupIds: [1n, 2n, 3n],
+      });
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.get("group")).toBe("1,2,3");
+    });
+
+    it("should not set group param when no group IDs", () => {
+      const filter = create(MinerListFilterSchema, {});
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.has("group")).toBe(false);
+    });
+  });
+
+  describe("parseFilterFromURL - group IDs", () => {
+    it("should parse valid group IDs into BigInt values", () => {
+      const params = new URLSearchParams("group=1,2,3");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.groupIds).toEqual([1n, 2n, 3n]);
+    });
+
+    it("should skip empty group ID values", () => {
+      const params = new URLSearchParams("group=1,,3");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.groupIds).toEqual([1n, 3n]);
+    });
+
+    it("should skip non-numeric group ID values without throwing", () => {
+      const params = new URLSearchParams("group=abc,1,xyz,2");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.groupIds).toEqual([1n, 2n]);
+    });
+
+    it("should handle group param with only invalid values", () => {
+      const params = new URLSearchParams("group=abc");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.groupIds).toEqual([]);
+    });
+
+    it("should return undefined when no filter params present", () => {
+      const params = new URLSearchParams();
+      const filter = parseFilterFromURL(params);
+
+      expect(filter).toBeUndefined();
     });
   });
 });

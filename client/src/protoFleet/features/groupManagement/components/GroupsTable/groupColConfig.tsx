@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { groupCols, type GroupColumn } from "./constants";
 import GroupNameCell from "./GroupNameCell";
 import type { GroupListItem } from "./GroupsTable";
@@ -31,7 +32,15 @@ const createGroupColConfig = ({
     width: "min-w-44",
   },
   [groupCols.miners]: {
-    component: (item: GroupListItem) => <span>{item.group.deviceCount}</span>,
+    component: (item: GroupListItem) => (
+      <Link
+        to={`/miners?group=${item.group.id}`}
+        className="hover:underline"
+        aria-label={`View miners in ${item.group.label}`}
+      >
+        {item.group.deviceCount}
+      </Link>
+    ),
     width: "min-w-20",
   },
   [groupCols.issues]: {

@@ -319,5 +319,35 @@ describe("MinerList", () => {
 
       expect(screen.getByTestId("location-display")).toHaveTextContent("?sort=name&dir=desc");
     });
+
+    it("should not show null state when group filter is active", () => {
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: [],
+          totalMiners: 0,
+          onAddMiners: vi.fn(),
+        },
+        ["/?group=1"],
+      );
+
+      expect(screen.queryByText("You haven't paired any miners")).not.toBeInTheDocument();
+      expect(screen.getByText("Miners")).toBeInTheDocument();
+    });
+
+    it("clears group param along with other filters while preserving sort params", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter initialEntries={["/?status=hashing&group=1,2&sort=name&dir=desc"]}>
+          <MinerList title="Miners" minerIds={[]} totalMiners={0} totalUnfilteredMiners={14} onAddMiners={vi.fn()} />
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Clear all filters" }));
+
+      expect(screen.getByTestId("location-display")).toHaveTextContent("?sort=name&dir=desc");
+    });
   });
 });
