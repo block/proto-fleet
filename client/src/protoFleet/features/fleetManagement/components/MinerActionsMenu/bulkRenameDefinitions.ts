@@ -310,3 +310,9 @@ export const hasUniquenessGuaranteeingProperty = (
   getEnabledBulkRenameProperties(preferences).some((property) =>
     isBulkRenamePropertyUniquenessGuaranteeing(property, previewMiners),
   );
+
+export const shouldWarnAboutBulkRenameDuplicates = (
+  selectionCount: number,
+  preferences: BulkRenamePreferences,
+  previewMiners: BulkRenamePreviewMiner[] | null = null,
+): boolean => selectionCount > 1 && !hasUniquenessGuaranteeingProperty(preferences, previewMiners);

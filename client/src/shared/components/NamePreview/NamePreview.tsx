@@ -91,7 +91,7 @@ const NamePreview = (props: NamePreviewProps) => {
         <div className={transitionClassName}>
           <span
             className={getLayoutClassName(
-              "min-w-0 justify-self-end text-right text-300 break-all text-text-primary",
+              "min-w-0 justify-self-end text-right text-300 [overflow-wrap:anywhere] text-text-primary",
               "text-300 text-text-primary",
             )}
           >
@@ -107,7 +107,7 @@ const NamePreview = (props: NamePreviewProps) => {
           {!showInactivePlaceholder ? (
             <span
               className={getLayoutClassName(
-                "min-w-0 justify-self-start text-left text-300 break-all text-text-primary",
+                "min-w-0 justify-self-start text-left text-300 [overflow-wrap:anywhere] text-text-primary",
                 "text-300 text-text-primary",
               )}
             >
@@ -116,7 +116,7 @@ const NamePreview = (props: NamePreviewProps) => {
           ) : (
             <span
               className={getLayoutClassName(
-                "min-w-0 justify-self-start text-left text-300 break-all text-text-primary-30",
+                "min-w-0 justify-self-start text-left text-300 [overflow-wrap:anywhere] text-text-primary-30",
                 "text-300 text-text-primary-30",
               )}
             >

@@ -1,4 +1,7 @@
-import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type {
+  MinerListFilter,
+  MinerSortConfig,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 import { type SelectionMode } from "@/shared/components/List";
@@ -9,6 +12,7 @@ interface MinerListActionBarProps {
   selectionMode: SelectionMode;
   totalCount?: number;
   currentFilter?: MinerListFilter;
+  currentSort?: MinerSortConfig;
 }
 
 const MinerListActionBar = ({
@@ -17,6 +21,7 @@ const MinerListActionBar = ({
   selectionMode,
   totalCount,
   currentFilter,
+  currentSort,
 }: MinerListActionBarProps) => {
   return (
     <ActionBar
@@ -31,6 +36,7 @@ const MinerListActionBar = ({
           selectionMode={selectionMode}
           totalCount={totalCount}
           currentFilter={currentFilter}
+          currentSort={currentSort}
           onActionStart={() => setHidden(true)}
           onActionComplete={() => setHidden(false)}
         />

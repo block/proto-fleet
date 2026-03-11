@@ -3,10 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultFixedCharacterCount, fixedCharacterCountAll, fixedCharacterCountValues } from "./constants";
 import HighlightedNamePreview from "./HighlightedNamePreview";
 import InlineRadioGroup, { type InlineRadioOption } from "./InlineRadioGroup";
+import RenameOptionsModal, { RenameOptionsModalBody, RenameOptionsModalPreview } from "./RenameOptionsModal";
 import { fixedStringSections } from "./types";
 import type { FixedCharacterCount, FixedStringSection, FixedValueOptionsValues } from "./types";
-import { variants } from "@/shared/components/Button";
-import Modal from "@/shared/components/Modal/Modal";
 
 const buildDefaultOptions = (initialValues?: Partial<FixedValueOptionsValues>): FixedValueOptionsValues => {
   return {
@@ -88,25 +87,13 @@ const OpenFixedValueOptionsModal = ({
   }, [onConfirm, options, showStringSectionOptions]);
 
   return (
-    <Modal
-      open={true}
-      contentHeader="Options"
-      contentHeaderClassName="text-heading-300"
+    <RenameOptionsModal
       onDismiss={onDismiss}
-      divider={false}
-      headerSpacingClassName="mt-4"
-      size="large"
-      buttonSize="base"
-      buttons={[
-        {
-          text: "Save",
-          variant: variants.primary,
-          onClick: handleConfirm,
-          testId: "fixed-value-options-save-button",
-        },
-      ]}
+      onConfirm={handleConfirm}
+      desktopSaveTestId="fixed-value-options-save-button"
+      mobileSaveTestId="fixed-value-options-save-button-mobile"
     >
-      <div className="mt-10 flex flex-col gap-6">
+      <RenameOptionsModalBody>
         <InlineRadioGroup
           label="Number of characters"
           options={characterCountOptions}
@@ -133,16 +120,16 @@ const OpenFixedValueOptionsModal = ({
           />
         ) : null}
 
-        <div className="max-w-[592px]">
+        <RenameOptionsModalPreview>
           <HighlightedNamePreview
             previewName={previewName}
             highlightedText={highlightedText}
             highlightStartIndex={highlightStartIndex}
             testIdPrefix="fixed-value-preview"
           />
-        </div>
-      </div>
-    </Modal>
+        </RenameOptionsModalPreview>
+      </RenameOptionsModalBody>
+    </RenameOptionsModal>
   );
 };
 

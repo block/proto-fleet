@@ -41,7 +41,6 @@ vi.mock("@/shared/components/Modal/Modal", () => ({
 }));
 
 vi.mock("@/shared/components/NamePreview", () => ({
-  default: vi.fn(({ mode, newName }) => <div data-testid="name-preview" data-mode={mode} data-new-name={newName} />),
   PreviewContainer: vi.fn(({ children }: { children: React.ReactNode }) => (
     <div data-testid="preview-container">{children}</div>
   )),
@@ -139,7 +138,9 @@ describe("CustomPropertyOptionsModal", () => {
     fireEvent.change(screen.getByTestId("custom-property-suffix-input"), { target: { value: "-A" } });
 
     expect(screen.queryByText("Enter prefix, suffix, or counter to preview")).not.toBeInTheDocument();
-    expect(screen.getByTestId("name-preview")).toHaveAttribute("data-new-name", "Rack--A");
+    expect(screen.getByTestId("custom-property-preview-leading")).toHaveTextContent("");
+    expect(screen.getByTestId("custom-property-preview-highlighted")).toHaveTextContent("Rack--A");
+    expect(screen.getByTestId("custom-property-preview-trailing")).toHaveTextContent("");
   });
 
   it("requires string input for string-only type", () => {
@@ -180,7 +181,8 @@ describe("CustomPropertyOptionsModal", () => {
       />,
     );
 
-    expect(screen.getByTestId("name-preview")).toHaveAttribute("data-mode", "new-name-only");
-    expect(screen.getByTestId("name-preview")).toHaveAttribute("data-new-name", "M-001");
+    expect(screen.getByTestId("custom-property-preview-leading")).toHaveTextContent("");
+    expect(screen.getByTestId("custom-property-preview-highlighted")).toHaveTextContent("M-001");
+    expect(screen.getByTestId("custom-property-preview-trailing")).toHaveTextContent("");
   });
 });

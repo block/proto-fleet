@@ -1,15 +1,20 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
+import { type BulkAction } from "../BulkActions/types";
 import AddToGroupModal from "./AddToGroupModal";
+import BulkRenameModal from "./BulkRenameModal";
 import { groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
-import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type {
+  MinerListFilter,
+  MinerSortConfig,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { ChevronDown } from "@/shared/assets/icons";
+import { ChevronDown, Edit } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
@@ -21,6 +26,8 @@ interface MinerActionsMenuProps {
   totalCount?: number;
   /** Active UI filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
+  /** Active UI sort — forwarded so bulk actions can match visible table order. */
+  currentSort?: MinerSortConfig;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
@@ -30,9 +37,11 @@ const MinerActionsMenu = ({
   selectionMode,
   totalCount,
   currentFilter,
+  currentSort,
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
+  const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
     [selectedMiners],
@@ -83,6 +92,38 @@ const MinerActionsMenu = ({
     onActionComplete,
   });
 
+  const actionsWithBulkRename = useMemo(() => {
+    const renameAction: BulkAction<SupportedAction> = {
+      action: settingsActions.rename,
+      title: "Rename",
+      icon: <Edit />,
+      actionHandler: () => {
+        setShowBulkRenameModal(true);
+        onActionStart?.();
+      },
+      requiresConfirmation: false,
+    };
+
+    const addToGroupIndex = popoverActions.findIndex((action) => action.action === groupActions.addToGroup);
+    if (addToGroupIndex !== -1) {
+      return [...popoverActions.slice(0, addToGroupIndex), renameAction, ...popoverActions.slice(addToGroupIndex)];
+    }
+
+    const securityIndex = popoverActions.findIndex((action) => action.action === settingsActions.security);
+    if (securityIndex !== -1) {
+      return [
+        ...popoverActions.slice(0, securityIndex),
+        {
+          ...renameAction,
+          showGroupDivider: true,
+        },
+        ...popoverActions.slice(securityIndex),
+      ];
+    }
+
+    return [...popoverActions, renameAction];
+  }, [onActionStart, popoverActions]);
+
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
       return poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }));
@@ -95,13 +136,13 @@ const MinerActionsMenu = ({
       <BulkActionsWidget<SupportedAction>
         buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
         buttonTitle="All actions"
-        actions={popoverActions}
+        actions={actionsWithBulkRename}
         onConfirmation={handleConfirmation}
         onCancel={handleCancel}
         currentAction={currentAction}
         renderPopover={(beforeEach) => (
           <BulkActionsPopover<SupportedAction>
-            actions={popoverActions}
+            actions={actionsWithBulkRename}
             beforeEach={beforeEach}
             testId="actions-menu-popover"
           />
@@ -159,6 +200,18 @@ const MinerActionsMenu = ({
         selectedMiners={selectedMiners}
         selectionMode={selectionMode}
         displayCount={displayCount ?? selectedMiners.length}
+      />
+      <BulkRenameModal
+        open={showBulkRenameModal}
+        selectedMinerIds={selectedMiners}
+        selectionMode={selectionMode}
+        totalCount={totalCount}
+        currentFilter={currentFilter}
+        currentSort={currentSort}
+        onDismiss={() => {
+          setShowBulkRenameModal(false);
+          onActionComplete?.();
+        }}
       />
     </PopoverProvider>
   );

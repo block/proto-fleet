@@ -25,7 +25,7 @@ const InlineRadioGroup = <ValueType extends number | string>({
   return (
     <fieldset className="w-full space-y-2">
       <legend className="text-emphasis-300 text-text-primary">{label}</legend>
-      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-x-6 gap-y-1">
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-x-6 gap-y-0">
         {options.map((option) => {
           const selected = option.value === value;
 
@@ -34,7 +34,7 @@ const InlineRadioGroup = <ValueType extends number | string>({
               key={option.value}
               aria-label={option.label}
               data-testid={option.testId}
-              className="flex cursor-pointer items-center gap-2 text-300 text-text-primary"
+              className="flex h-12 cursor-pointer items-center gap-2 text-300 text-text-primary"
             >
               <Radio
                 name={groupName}

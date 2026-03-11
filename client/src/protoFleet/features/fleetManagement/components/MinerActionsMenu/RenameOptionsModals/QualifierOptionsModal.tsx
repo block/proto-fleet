@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { renameOptionInputMaxLength } from "./constants";
 import HighlightedNamePreview from "./HighlightedNamePreview";
+import RenameOptionsModal, { RenameOptionsModalBody, RenameOptionsModalPreview } from "./RenameOptionsModal";
 import { type QualifierOptionsValues } from "./types";
-import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
-import Modal from "@/shared/components/Modal/Modal";
 
 const buildDefaultOptions = (initialValues?: Partial<QualifierOptionsValues>): QualifierOptionsValues => {
   return {
@@ -51,25 +50,13 @@ const OpenQualifierOptionsModal = ({
   }, [onConfirm, options.prefix, options.suffix]);
 
   return (
-    <Modal
-      open={true}
-      contentHeader="Options"
-      contentHeaderClassName="text-heading-300"
+    <RenameOptionsModal
       onDismiss={onDismiss}
-      divider={false}
-      headerSpacingClassName="mt-4"
-      size="large"
-      buttonSize="base"
-      buttons={[
-        {
-          text: "Save",
-          variant: variants.primary,
-          onClick: handleConfirm,
-          testId: "qualifier-options-save-button",
-        },
-      ]}
+      onConfirm={handleConfirm}
+      desktopSaveTestId="qualifier-options-save-button"
+      mobileSaveTestId="qualifier-options-save-button-mobile"
     >
-      <div className="mt-10 flex flex-col gap-6">
+      <RenameOptionsModalBody>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input
             id="qualifier-property-prefix"
@@ -99,16 +86,16 @@ const OpenQualifierOptionsModal = ({
           />
         </div>
 
-        <div className="max-w-[592px]">
+        <RenameOptionsModalPreview>
           <HighlightedNamePreview
             previewName={previewName}
             highlightedText={highlightedText}
             highlightStartIndex={highlightStartIndex}
             testIdPrefix="qualifier-preview"
           />
-        </div>
-      </div>
-    </Modal>
+        </RenameOptionsModalPreview>
+      </RenameOptionsModalBody>
+    </RenameOptionsModal>
   );
 };
 

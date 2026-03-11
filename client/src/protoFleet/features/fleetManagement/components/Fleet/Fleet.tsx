@@ -5,7 +5,6 @@ import { POLL_INTERVAL_MS } from "./constants";
 import {
   type MinerSortConfig,
   MinerSortConfigSchema,
-  PairingStatus,
   SortDirection,
   SortField,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -20,15 +19,13 @@ import {
   getSortField,
 } from "@/protoFleet/features/fleetManagement/components/MinerList/sortConfig";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useCleanupStaleBatches, useNotifyPairingCompleted } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
-
-// Stable reference to prevent re-renders
-const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
 
 // Default sort: Name ascending (alphabetical A-Z)
 const DEFAULT_SORT_CONFIG: MinerSortConfig = create(MinerSortConfigSchema, {
@@ -62,7 +59,7 @@ const Fleet = () => {
   const { totalMiners: totalUnfilteredMiners } = useFleet({
     scope: "local",
     pageSize: 1,
-    pairingStatuses: FLEET_PAIRING_STATUSES,
+    pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
 
   // Fetch all devices (both paired and unpaired) with a single API call
@@ -83,7 +80,7 @@ const Fleet = () => {
     pageSize: MINERS_PAGE_SIZE,
     filter: currentFilter,
     sort: currentSortConfig,
-    pairingStatuses: FLEET_PAIRING_STATUSES,
+    pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
 
   // Fetch errors for all loaded miners to populate the error store
@@ -161,6 +158,7 @@ const Fleet = () => {
           onSort={handleSort}
           availableModels={availableModels}
           currentFilter={currentFilter}
+          currentSortConfig={currentSortConfig}
         />
       </ErrorBoundary>
 

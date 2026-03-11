@@ -62,7 +62,6 @@ import {
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
-  Edit,
   Fan,
   LEDIndicator,
   Lock,
@@ -93,8 +92,6 @@ interface UseMinerActionsParams {
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
-  /** Set to true only in SingleMinerActionsMenu — bulk menus don't render RenameMinerDialog */
-  enableRename?: boolean;
 }
 
 /**
@@ -236,7 +233,6 @@ export const useMinerActions = ({
   currentFilter,
   onActionStart,
   onActionComplete,
-  enableRename = false,
 }: UseMinerActionsParams) => {
   const {
     startMining,
@@ -684,6 +680,12 @@ export const useMinerActions = ({
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
+
+  const handleRenameOpen = useCallback(() => {
+    setCurrentAction(settingsActions.rename);
+    setShowRenameDialog(true);
+    onActionStart?.();
+  }, [onActionStart]);
 
   const handleAddToGroupDismiss = useCallback(() => {
     setShowAddToGroupModal(false);
@@ -1241,23 +1243,6 @@ export const useMinerActions = ({
         requiresConfirmation: false,
         showGroupDivider: true, // End of performance/settings group
       },
-      // Rename is single-miner only; not available in bulk actions yet
-      ...(enableRename
-        ? [
-            {
-              action: settingsActions.rename,
-              title: "Rename",
-              icon: <Edit />,
-              actionHandler: () => {
-                setCurrentAction(settingsActions.rename);
-                setShowRenameDialog(true);
-                onActionStart?.();
-              },
-              requiresConfirmation: false,
-              showGroupDivider: true,
-            } as BulkAction<SupportedAction>,
-          ]
-        : []),
       {
         action: groupActions.addToGroup,
         title: "Add to group",
@@ -1314,7 +1299,6 @@ export const useMinerActions = ({
     deleteConfirmationSubtitle,
     startManageSecurity,
     startAuthentication,
-    enableRename,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
@@ -1360,6 +1344,7 @@ export const useMinerActions = ({
     handleUpdateGroup,
     handleSecurityModalClose,
     showRenameDialog,
+    handleRenameOpen,
     handleRenameConfirm,
     handleRenameDismiss,
     showAddToGroupModal,

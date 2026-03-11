@@ -14,7 +14,7 @@ import {
 import { padLeft } from "@/shared/utils/stringUtils";
 
 export default {
-  title: "Proto Fleet/Fleet Management/RenameOptionsModals",
+  title: "Proto Fleet/Fleet Management/Bulk Rename/Options Modals",
 };
 
 const StoryContainer = ({ children }: { children: ReactNode }) => {

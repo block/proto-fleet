@@ -1532,6 +1532,53 @@ func TestService_RenameMiners_IdenticalGeneratedNamesAreUnchanged(t *testing.T) 
 	assert.Equal(t, "rig-01", listResp.Miners[0].Name)
 }
 
+// TestService_RenameMiners_IdenticalDisplayedNamesAreUnchanged verifies that
+// renaming to the current effective display name is treated as a no-op even
+// when the device does not already have a persisted custom name.
+func TestService_RenameMiners_IdenticalDisplayedNamesAreUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	beforeResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, beforeResp.Miners, 1)
+
+	currentDisplayedName := beforeResp.Miners[0].Name
+
+	resp, err := service.RenameMiners(ctx, &pb.RenameMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: currentDisplayedName}}},
+			},
+			Separator: "",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(0), resp.RenamedCount)
+	require.Equal(t, int32(1), resp.UnchangedCount)
+	require.Equal(t, int32(0), resp.FailedCount)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Miners, 1)
+	assert.Equal(t, currentDisplayedName, listResp.Miners[0].Name)
+}
+
 // TestService_RenameMiners_InvalidGeneratedNamesAreCountedAsFailures verifies that
 // per-device name-generation errors are reported without failing the whole batch.
 func TestService_RenameMiners_InvalidGeneratedNamesAreCountedAsFailures(t *testing.T) {

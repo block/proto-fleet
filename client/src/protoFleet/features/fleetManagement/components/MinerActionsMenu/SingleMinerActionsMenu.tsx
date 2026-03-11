@@ -15,7 +15,7 @@ import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
-import { Ellipsis } from "@/shared/assets/icons";
+import { Edit, Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -75,6 +75,7 @@ const SingleMinerActionsMenu = ({
     handleUpdateGroup,
     handleSecurityModalClose,
     showRenameDialog,
+    handleRenameOpen,
     handleRenameConfirm,
     handleRenameDismiss,
     showAddToGroupModal,
@@ -85,8 +86,36 @@ const SingleMinerActionsMenu = ({
     selectionMode: "subset",
     onActionStart,
     onActionComplete,
-    enableRename: true,
   });
+
+  const actionsWithRename = useMemo(() => {
+    const renameAction: BulkAction<SupportedAction> = {
+      action: settingsActions.rename,
+      title: "Rename",
+      icon: <Edit />,
+      actionHandler: handleRenameOpen,
+      requiresConfirmation: false,
+    };
+
+    const addToGroupIndex = popoverActions.findIndex((action) => action.action === groupActions.addToGroup);
+    if (addToGroupIndex !== -1) {
+      return [...popoverActions.slice(0, addToGroupIndex), renameAction, ...popoverActions.slice(addToGroupIndex)];
+    }
+
+    const securityIndex = popoverActions.findIndex((action) => action.action === settingsActions.security);
+    if (securityIndex !== -1) {
+      return [
+        ...popoverActions.slice(0, securityIndex),
+        {
+          ...renameAction,
+          showGroupDivider: true,
+        },
+        ...popoverActions.slice(securityIndex),
+      ];
+    }
+
+    return [...popoverActions, renameAction];
+  }, [handleRenameOpen, popoverActions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
@@ -126,7 +155,7 @@ const SingleMinerActionsMenu = ({
         setIsOpen={setIsOpen}
         showWarnDialog={showWarnDialog}
         currentAction={currentAction}
-        popoverActions={popoverActions}
+        popoverActions={actionsWithRename}
         onClickOutside={onClickOutside}
         handleAction={handleAction}
         handleConfirmationClick={handleConfirmationClick}

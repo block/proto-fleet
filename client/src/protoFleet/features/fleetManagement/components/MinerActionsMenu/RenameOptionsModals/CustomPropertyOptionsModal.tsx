@@ -8,12 +8,12 @@ import {
   renameOptionInputMaxLength,
 } from "./constants";
 import CustomPropertyTypeDropdown from "./CustomPropertyTypeDropdown";
+import HighlightedNamePreview from "./HighlightedNamePreview";
 import InlineRadioGroup from "./InlineRadioGroup";
+import RenameOptionsModal, { RenameOptionsModalBody, RenameOptionsModalPreview } from "./RenameOptionsModal";
 import { type CustomPropertyOptionsValues, customPropertyTypes } from "./types";
-import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
-import Modal from "@/shared/components/Modal/Modal";
-import NamePreview, { PreviewContainer } from "@/shared/components/NamePreview";
+import { PreviewContainer } from "@/shared/components/NamePreview";
 import { clamp } from "@/shared/utils/math";
 
 const buildDefaultOptions = (initialValues?: Partial<CustomPropertyOptionsValues>): CustomPropertyOptionsValues => ({
@@ -45,6 +45,8 @@ const previewPlaceholderLabels = {
 interface CustomPropertyOptionsModalProps {
   open: boolean;
   previewName: string;
+  highlightedText?: string;
+  highlightStartIndex?: number;
   initialValues?: Partial<CustomPropertyOptionsValues>;
   onConfirm: (nextValues: CustomPropertyOptionsValues) => void;
   onDismiss: () => void;
@@ -55,6 +57,8 @@ type OpenCustomPropertyOptionsModalProps = Omit<CustomPropertyOptionsModalProps,
 
 const OpenCustomPropertyOptionsModal = ({
   previewName,
+  highlightedText,
+  highlightStartIndex,
   initialValues,
   onConfirm,
   onDismiss,
@@ -103,26 +107,14 @@ const OpenCustomPropertyOptionsModal = ({
   }, [onConfirm, options, saveDisabled]);
 
   return (
-    <Modal
-      open={true}
-      contentHeader="Options"
-      contentHeaderClassName="text-heading-300"
+    <RenameOptionsModal
       onDismiss={onDismiss}
-      divider={false}
-      headerSpacingClassName="mt-4"
-      size="large"
-      buttonSize="base"
-      buttons={[
-        {
-          text: "Save",
-          variant: variants.primary,
-          onClick: handleConfirm,
-          disabled: saveDisabled,
-          testId: "custom-property-options-save-button",
-        },
-      ]}
+      onConfirm={handleConfirm}
+      saveDisabled={saveDisabled}
+      desktopSaveTestId="custom-property-options-save-button"
+      mobileSaveTestId="custom-property-options-save-button-mobile"
     >
-      <div className="mt-10 flex flex-col gap-6">
+      <RenameOptionsModalBody>
         <CustomPropertyTypeDropdown
           selectedType={options.type}
           onChange={(nextType) => updateOption("type", nextType)}
@@ -183,17 +175,22 @@ const OpenCustomPropertyOptionsModal = ({
           />
         ) : null}
 
-        <div className="max-w-[592px]">
+        <RenameOptionsModalPreview>
           {showPreviewPlaceholder ? (
             <PreviewContainer>
               <span className="text-300 text-text-primary-50">{previewPlaceholderLabels[options.type]}</span>
             </PreviewContainer>
           ) : (
-            <NamePreview mode="new-name-only" newName={previewNameValue} />
+            <HighlightedNamePreview
+              previewName={previewNameValue}
+              highlightedText={highlightedText}
+              highlightStartIndex={highlightStartIndex}
+              testIdPrefix="custom-property-preview"
+            />
           )}
-        </div>
-      </div>
-    </Modal>
+        </RenameOptionsModalPreview>
+      </RenameOptionsModalBody>
+    </RenameOptionsModal>
   );
 };
 

@@ -176,6 +176,22 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("rename-popover-button").click();
   }
 
+  async validateBulkRenamePageOpened() {
+    await this.validateTitle("Rename miners");
+  }
+
+  async clickBulkRenamePropertyToggle(propertyId: string) {
+    await this.page.getByTestId(`bulk-rename-row-${propertyId}`).locator('label:has(input[type="checkbox"])').click();
+  }
+
+  async clickBulkRenamePropertyOptions(propertyId: string) {
+    await this.page.getByTestId(`bulk-rename-options-${propertyId}`).click();
+  }
+
+  async clickBulkRenameSave() {
+    await this.page.getByTestId("bulk-rename-save-button").click();
+  }
+
   async fillRenameInput(name: string) {
     const input = this.page.getByTestId("rename-miner-input");
     await input.fill(name);

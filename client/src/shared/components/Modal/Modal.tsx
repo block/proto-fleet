@@ -5,7 +5,6 @@ import clsx from "clsx";
 import { sizes } from "./constants";
 import { Dismiss } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
-
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";

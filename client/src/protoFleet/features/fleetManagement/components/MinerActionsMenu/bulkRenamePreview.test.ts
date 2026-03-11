@@ -295,6 +295,15 @@ describe("bulkRenamePreview", () => {
     });
   });
 
+  it("limits compact previews to a single row without showing a desktop ellipsis marker", () => {
+    const previewMiners = [{ deviceIdentifier: "device-1" }, { deviceIdentifier: "device-2" }];
+
+    expect(takePreviewMiners(previewMiners, 2, 1)).toEqual({
+      miners: [previewMiners[0]],
+      showEllipsis: false,
+    });
+  });
+
   it("does not treat an empty preview set as unchanged when a real name config exists", () => {
     const preferences = createDefaultBulkRenamePreferences();
     preferences.properties = preferences.properties.map((property) => {

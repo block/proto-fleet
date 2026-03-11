@@ -413,6 +413,45 @@ func TestValidateRenameNameConfig(t *testing.T) {
 	}
 }
 
+func TestRenameConfigDependsOnDeviceData(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *pb.MinerNameConfig
+		expected bool
+	}{
+		{
+			name:     "nil config",
+			config:   nil,
+			expected: false,
+		},
+		{
+			name: "reserved fixed value only",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION}}},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "reserved fixed value before device dependent property",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION}}},
+					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER}}},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, renameConfigDependsOnDeviceData(tc.config))
+		})
+	}
+}
+
 func TestRenameMiners_RejectsMissingNameConfig(t *testing.T) {
 	ctx := authn.SetInfo(context.Background(), &session.Info{
 		SessionID:      "test-session-id",

@@ -276,16 +276,37 @@ export const mapSnapshotsToBulkRenamePreviewMiners = (
 ): BulkRenamePreviewMiner[] =>
   snapshots.map((snapshot, counterIndex) => mapSnapshotToBulkRenamePreviewMiner(snapshot, counterIndex));
 
-export const takePreviewMiners = <T>(miners: T[], totalCount: number): { miners: T[]; showEllipsis: boolean } => {
-  if (totalCount <= 6 || miners.length <= 6) {
+export const takePreviewMiners = <T>(
+  miners: T[],
+  totalCount: number,
+  maxVisibleMiners: number = 6,
+): { miners: T[]; showEllipsis: boolean } => {
+  if (maxVisibleMiners <= 0 || totalCount <= 0 || miners.length === 0) {
+    return {
+      miners: [],
+      showEllipsis: false,
+    };
+  }
+
+  if (maxVisibleMiners === 1) {
+    return {
+      miners: miners.slice(0, 1),
+      showEllipsis: false,
+    };
+  }
+
+  if (totalCount <= maxVisibleMiners || miners.length <= maxVisibleMiners) {
     return {
       miners,
       showEllipsis: totalCount > miners.length,
     };
   }
 
+  const headCount = Math.floor(maxVisibleMiners / 2);
+  const tailCount = maxVisibleMiners - headCount;
+
   return {
-    miners: [...miners.slice(0, 3), ...miners.slice(-3)],
+    miners: [...miners.slice(0, headCount), ...miners.slice(-tailCount)],
     showEllipsis: true,
   };
 };

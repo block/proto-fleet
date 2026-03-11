@@ -105,7 +105,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 			failedCount++
 			continue
 		}
-		if name == "" || isUnchangedRename(name, props.CustomName) {
+		if name == "" || isUnchangedRename(name, props) {
 			// Blank results are intentional no-ops for omitted/reserved properties
 			// and devices without a usable worker-name segment.
 			unchangedCount++
@@ -346,8 +346,8 @@ func comparisonForDirection(comparison int, direction interfaces.SortDirection) 
 	return comparison < 0
 }
 
-func isUnchangedRename(nextName string, currentCustomName string) bool {
-	return strings.TrimSpace(nextName) == strings.TrimSpace(currentCustomName)
+func isUnchangedRename(nextName string, props interfaces.DeviceRenameProperties) bool {
+	return strings.TrimSpace(nextName) == getRenameSortName(props)
 }
 
 func renameResponseCount(n int) int32 {
@@ -419,7 +419,7 @@ func renameConfigDependsOnDeviceData(cfg *pb.MinerNameConfig) bool {
 			return true
 		case pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION,
 			pb.FixedValueType_FIXED_VALUE_TYPE_UNSPECIFIED:
-			return false
+			continue
 		}
 	}
 

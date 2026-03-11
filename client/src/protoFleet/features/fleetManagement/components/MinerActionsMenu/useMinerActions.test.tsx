@@ -189,7 +189,6 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
-          enableRename: true,
         }),
       );
 
@@ -202,7 +201,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
       expect(actions).toContain(settingsActions.coolingMode);
-      expect(actions).toContain(settingsActions.rename);
+      expect(actions).not.toContain(settingsActions.rename);
     });
   });
 
@@ -2894,22 +2893,7 @@ describe("useMinerActions", () => {
   });
 
   describe("Rename miner action", () => {
-    it("should include rename in popoverActions with showGroupDivider when enableRename is true", () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          enableRename: true,
-        }),
-      );
-
-      const renameAction = result.current.popoverActions.find((a) => a.action === settingsActions.rename);
-
-      expect(renameAction).toBeDefined();
-      expect(renameAction?.showGroupDivider).toBe(true);
-    });
-
-    it("should not include rename in popoverActions when enableRename is false", () => {
+    it("should expose a rename opener that opens the single-miner dialog", () => {
       const { result } = renderHook(() =>
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
@@ -2917,22 +2901,10 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const renameAction = result.current.popoverActions.find((a) => a.action === settingsActions.rename);
-
-      expect(renameAction).toBeUndefined();
-    });
-
-    it("should open rename dialog when rename action handler is called", () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          enableRename: true,
-        }),
-      );
+      expect(result.current.popoverActions.find((a) => a.action === settingsActions.rename)).toBeUndefined();
 
       act(() => {
-        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+        result.current.handleRenameOpen();
       });
 
       expect(result.current.showRenameDialog).toBe(true);
@@ -2946,7 +2918,6 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
-          enableRename: true,
         }),
       );
 
@@ -2964,7 +2935,6 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
-          enableRename: true,
         }),
       );
 
@@ -2985,7 +2955,6 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
-          enableRename: true,
         }),
       );
 
@@ -3006,12 +2975,11 @@ describe("useMinerActions", () => {
         useMinerActions({
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
-          enableRename: true,
         }),
       );
 
       act(() => {
-        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+        result.current.handleRenameOpen();
       });
 
       expect(result.current.showRenameDialog).toBe(true);
@@ -3032,12 +3000,11 @@ describe("useMinerActions", () => {
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
-          enableRename: true,
         }),
       );
 
       act(() => {
-        result.current.popoverActions.find((a) => a.action === settingsActions.rename)?.actionHandler();
+        result.current.handleRenameOpen();
       });
 
       act(() => {

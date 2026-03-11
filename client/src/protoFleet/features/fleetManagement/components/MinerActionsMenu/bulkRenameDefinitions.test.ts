@@ -8,6 +8,7 @@ import {
   hasUniquenessGuaranteeingProperty,
   normalizeBulkRenamePreferences,
   reorderBulkRenameProperties,
+  shouldWarnAboutBulkRenameDuplicates,
 } from "./bulkRenameDefinitions";
 import { customPropertyTypes, fixedStringSections } from "./RenameOptionsModals/types";
 
@@ -157,5 +158,11 @@ describe("bulkRenameDefinitions", () => {
     });
 
     expect(hasUniquenessGuaranteeingProperty(preferences, [basePreviewMiner])).toBe(false);
+  });
+
+  it("skips duplicate-name warnings for single-miner renames", () => {
+    const preferences = createDefaultBulkRenamePreferences();
+
+    expect(shouldWarnAboutBulkRenameDuplicates(1, preferences, [basePreviewMiner])).toBe(false);
   });
 });

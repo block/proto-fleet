@@ -18,6 +18,7 @@ import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  type MinerSortConfig,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -126,6 +127,8 @@ type MinerListProps = {
   availableModels?: string[];
   /** Active server-side filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
+  /** Current server-side sort — forwarded for bulk actions that depend on table order. */
+  currentSortConfig?: MinerSortConfig;
 };
 
 // TODO: move this to state when we
@@ -165,6 +168,7 @@ const MinerList = ({
   onSort,
   availableModels = [],
   currentFilter,
+  currentSortConfig,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -433,6 +437,7 @@ const MinerList = ({
                 selectionMode={selectionMode}
                 totalCount={totalSelectable}
                 currentFilter={currentFilter}
+                currentSort={currentSortConfig}
               />
             </div>
           )}
