@@ -16,6 +16,7 @@ interface BulkActionsWidgetProps<ActionType> {
   onConfirmation?: () => void;
   onCancel: () => void;
   currentAction: SupportedAction | null;
+  renderQuickActions?: (onAction: (action: BulkAction<ActionType>) => void) => ReactNode;
   renderPopover: (onAction: (requiresConfirmation: boolean) => void) => ReactNode;
   testId: string;
   unsupportedMinersInfo?: UnsupportedMinersInfo;
@@ -31,6 +32,7 @@ const BulkActionsWidget = <ActionType extends Key>({
   onConfirmation,
   onCancel,
   currentAction,
+  renderQuickActions,
   renderPopover,
   testId,
   unsupportedMinersInfo,
@@ -61,6 +63,11 @@ const BulkActionsWidget = <ActionType extends Key>({
     if (requiresConfirmation) setShowWarnDialog(true);
   };
 
+  const handleQuickAction = (action: BulkAction<ActionType>) => {
+    handleAction(action.requiresConfirmation);
+    action.actionHandler();
+  };
+
   const handleConfirmation = () => {
     setShowWarnDialog(false);
     onConfirmation && onConfirmation();
@@ -78,7 +85,8 @@ const BulkActionsWidget = <ActionType extends Key>({
   }, [onUnsupportedMinersContinue]);
 
   return (
-    <div className="relative" ref={triggerRef}>
+    <div className="relative flex flex-wrap justify-start gap-3" ref={triggerRef}>
+      {renderQuickActions?.(handleQuickAction)}
       <Button
         className="bg-grayscale-white-10! text-grayscale-white-90!"
         size={sizes.compact}

@@ -87,7 +87,7 @@ describe("Action Bar", () => {
       />,
     );
 
-    expect(getByText("All actions")).toBeInTheDocument();
+    expect(getByText("More")).toBeInTheDocument();
 
     fireEvent.click(getByTestId("actions-menu-button"));
     fireEvent.click(getByTestId("reboot-popover-button"));

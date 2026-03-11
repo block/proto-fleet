@@ -4,7 +4,7 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { type BulkAction } from "../BulkActions/types";
 import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
-import { groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
+import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
@@ -16,8 +16,10 @@ import type {
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown, Edit } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface MinerActionsMenuProps {
   selectedMiners: string[];
@@ -42,6 +44,7 @@ const MinerActionsMenu = ({
   onActionComplete,
 }: MinerActionsMenuProps) => {
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
+  const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
     [selectedMiners],
@@ -131,27 +134,60 @@ const MinerActionsMenu = ({
     return selectedMinersWithStatus;
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
+  const showQuickActions = !isPhone && !isTablet;
+  const quickActions = useMemo(() => {
+    const quickActionOrder: SupportedAction[] = [
+      deviceActions.blinkLEDs,
+      deviceActions.reboot,
+      performanceActions.managePower,
+    ];
+    const actionMap = new Map(actionsWithBulkRename.map((action) => [action.action, action]));
+
+    return quickActionOrder.flatMap((actionKey) => {
+      const action = actionMap.get(actionKey);
+      return action ? [action] : [];
+    });
+  }, [actionsWithBulkRename]);
+
   return (
     <PopoverProvider>
-      <BulkActionsWidget<SupportedAction>
-        buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
-        buttonTitle="All actions"
-        actions={actionsWithBulkRename}
-        onConfirmation={handleConfirmation}
-        onCancel={handleCancel}
-        currentAction={currentAction}
-        renderPopover={(beforeEach) => (
-          <BulkActionsPopover<SupportedAction>
-            actions={actionsWithBulkRename}
-            beforeEach={beforeEach}
-            testId="actions-menu-popover"
-          />
-        )}
-        testId="actions-menu"
-        unsupportedMinersInfo={unsupportedMinersInfo}
-        onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
-        onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
-      />
+      <div className="flex flex-wrap justify-start gap-3">
+        <BulkActionsWidget<SupportedAction>
+          buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
+          buttonTitle={showQuickActions ? "More" : "All actions"}
+          actions={actionsWithBulkRename}
+          onConfirmation={handleConfirmation}
+          onCancel={handleCancel}
+          currentAction={currentAction}
+          renderQuickActions={(onAction) =>
+            showQuickActions
+              ? quickActions.map((action) => (
+                  <Button
+                    key={action.action}
+                    className="bg-grayscale-white-10! text-grayscale-white-90!"
+                    size={sizes.compact}
+                    variant={variants.secondary}
+                    testId={`actions-menu-quick-action-${action.action}`}
+                    onClick={() => onAction(action)}
+                  >
+                    {action.title}
+                  </Button>
+                ))
+              : null
+          }
+          renderPopover={(beforeEach) => (
+            <BulkActionsPopover<SupportedAction>
+              actions={actionsWithBulkRename}
+              beforeEach={beforeEach}
+              testId="actions-menu-popover"
+            />
+          )}
+          testId="actions-menu"
+          unsupportedMinersInfo={unsupportedMinersInfo}
+          onUnsupportedMinersContinue={handleUnsupportedMinersContinue}
+          onUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
+        />
+      </div>
       <PoolSelectionPageWrapper
         open={showPoolSelectionPage && !!fleetCredentials}
         selectedMiners={poolMiners}

@@ -69,7 +69,7 @@ const ActionBar = ({
       )}
       data-testid="action-bar"
     >
-      <div className="flex w-[calc(100vw-theme(spacing.24))] max-w-[640px] items-center justify-between gap-4 rounded-2xl bg-black p-3 shadow-300 dark:bg-surface-elevated-base phone:w-[calc(100vw-theme(spacing.4))]">
+      <div className="flex w-[calc(100vw-theme(spacing.24))] items-center justify-between gap-4 rounded-2xl bg-black p-3 shadow-300 dark:bg-surface-elevated-base phone:w-[calc(100vw-theme(spacing.4))]">
         <div className="flex items-center space-x-2">
           <Button
             className="bg-grayscale-white-10! text-grayscale-white-90!"
