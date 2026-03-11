@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	requiredPort = 2121
+	requiredPort = 80
 )
 
 func main() {

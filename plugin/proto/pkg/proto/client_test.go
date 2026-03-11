@@ -39,14 +39,14 @@ func TestClientCreation(t *testing.T) {
 		{
 			name:    "valid HTTP client",
 			host:    "192.168.1.100",
-			port:    2121,
+			port:    80,
 			scheme:  "http",
 			wantErr: false,
 		},
 		{
 			name:    "valid HTTPS client",
 			host:    "192.168.1.100",
-			port:    2121,
+			port:    80,
 			scheme:  "https",
 			wantErr: false,
 		},
@@ -60,7 +60,7 @@ func TestClientCreation(t *testing.T) {
 		{
 			name:    "IPv6 address",
 			host:    "::1",
-			port:    2121,
+			port:    80,
 			scheme:  "http",
 			wantErr: false,
 		},
@@ -225,7 +225,7 @@ func TestTLSVerificationConfiguration(t *testing.T) {
 
 // TestCredentialManagement tests credential setting and usage
 func TestCredentialManagement(t *testing.T) {
-	client, err := NewClient("localhost", 2121, "http")
+	client, err := NewClient("localhost", 80, "http")
 	require.NoError(t, err, "Failed to create client")
 
 	tests := []struct {
@@ -261,8 +261,8 @@ func TestClientSingletonBehavior(t *testing.T) {
 	resetClients()
 
 	// Create multiple clients with same scheme
-	client1, err1 := NewClient("host1", 2121, "http")
-	client2, err2 := NewClient("host2", 2121, "http")
+	client1, err1 := NewClient("host1", 80, "http")
+	client2, err2 := NewClient("host2", 80, "http")
 
 	require.NoError(t, err1, "Failed to create client1")
 	require.NoError(t, err2, "Failed to create client2")
@@ -271,8 +271,8 @@ func TestClientSingletonBehavior(t *testing.T) {
 	assert.Same(t, client1.httpClient, client2.httpClient, "HTTP clients should be shared (singleton)")
 
 	// Test with HTTPS
-	client3, err3 := NewClient("host3", 2121, "https")
-	client4, err4 := NewClient("host4", 2121, "https")
+	client3, err3 := NewClient("host3", 80, "https")
+	client4, err4 := NewClient("host4", 80, "https")
 
 	require.NoError(t, err3, "Failed to create HTTPS client3")
 	require.NoError(t, err4, "Failed to create HTTPS client4")
@@ -353,7 +353,7 @@ func TestUnsupportedScheme(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewClient("localhost", 2121, tt.scheme)
+			client, err := NewClient("localhost", 80, tt.scheme)
 
 			// Should either return an error or create a client that will fail on actual use
 			// The current implementation doesn't validate schemes upfront, but this test

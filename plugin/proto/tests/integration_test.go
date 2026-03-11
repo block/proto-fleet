@@ -40,10 +40,10 @@ func TestProtoPluginIntegration(t *testing.T) {
 				opts.Version = build.BuilderBuildKit
 			},
 		},
-		ExposedPorts: []string{"2121/tcp"},
-		WaitingFor:   wait.ForHTTP("/health").WithPort("2121/tcp").WithStartupTimeout(2 * time.Minute),
+		ExposedPorts: []string{"80/tcp"},
+		WaitingFor:   wait.ForHTTP("/health").WithPort("80/tcp").WithStartupTimeout(2 * time.Minute),
 		Env: map[string]string{
-			"GRPC_PORT":     "2121",
+			"HTTP_PORT":     "80",
 			"SERIAL_NUMBER": "PROTO-SIM-TEST",
 		},
 	}
@@ -63,14 +63,14 @@ func TestProtoPluginIntegration(t *testing.T) {
 	host, err := container.Host(ctx)
 	require.NoError(t, err)
 
-	port2121, err := container.MappedPort(ctx, "2121")
+	port80, err := container.MappedPort(ctx, "80")
 	require.NoError(t, err)
 
 	// Wait for miner to be ready
-	waitForMinerReady(ctx, t, host, port2121.Port())
+	waitForMinerReady(ctx, t, host, port80.Port())
 
 	// Create driver
-	d, err := driver.New(port2121.Int())
+	d, err := driver.New(port80.Int())
 	require.NoError(t, err)
 
 	t.Run("Driver Handshake", func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 	})
 
 	t.Run("Device Discovery", func(t *testing.T) {
-		deviceInfo, err := d.DiscoverDevice(ctx, host, port2121.Port())
+		deviceInfo, err := d.DiscoverDevice(ctx, host, port80.Port())
 		require.NoError(t, err)
 		assert.Equal(t, host, deviceInfo.Host)
 		assert.NotEmpty(t, deviceInfo.SerialNumber)
@@ -98,7 +98,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 	t.Run("Device Pairing", func(t *testing.T) {
 		// Discover device first
-		deviceInfo, err := d.DiscoverDevice(ctx, host, port2121.Port())
+		deviceInfo, err := d.DiscoverDevice(ctx, host, port80.Port())
 		require.NoError(t, err)
 
 		// Get the public key in the format expected by the miner (base64 SPKI DER)
@@ -126,7 +126,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 	t.Run("Real Miner Operations With JWT", func(t *testing.T) {
 		// Discover device
-		deviceInfo, err := d.DiscoverDevice(ctx, host, port2121.Port())
+		deviceInfo, err := d.DiscoverDevice(ctx, host, port80.Port())
 		require.NoError(t, err)
 
 		// Generate a real JWT token signed with the same Ed25519 private key used for pairing
