@@ -5,43 +5,57 @@ plugin:
 
 miners:
   whatsminer:
-    enabled: true
+    stock:
+      enabled: true
 
   antminer:
-    enabled: false  # Go plugin handles these
+    stock:
+      enabled: false  # Go plugin handles stock Antminers
+    braiins:
+      enabled: true
+    vnish:
+      enabled: false
 
   avalonminer:
-    enabled: false
+    stock:
+      enabled: false
 
   goldshell:
-    enabled: false
+    stock:
+      enabled: false
 
   auradine:
-    enabled: false
+    stock:
+      enabled: false
 
   bitaxe:
-    enabled: false
+    stock:
+      enabled: false
 
   iceriver:
-    enabled: false
+    stock:
+      enabled: false
 
   innosilicon:
-    enabled: false
-
-  braiins:
-    enabled: false
+    stock:
+      enabled: false
 
   epic:
-    enabled: false
+    stock:
+      enabled: false
 
   hammer:
-    enabled: false
+    stock:
+      enabled: false
 
   volcminer:
-    enabled: false
+    stock:
+      enabled: false
 
   elphapex:
-    enabled: false
+    stock:
+      enabled: false
 
   luckyminer:
-    enabled: false
+    stock:
+      enabled: false

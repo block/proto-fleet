@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from proto_fleet_sdk.auth import SecretBundle, UsernamePassword
 
-from pyasic_driver.config import MinerFamilyConfig, PluginConfig, PluginSettings
+from pyasic_driver.capabilities import FW_STOCK
+from pyasic_driver.config import FirmwareConfig, MinerFamilyConfig, PluginConfig, PluginSettings
+from pyasic_driver.patches import btminer
+
+btminer.apply()
 
 # --- Mock pyasic data structures ---
 
@@ -78,6 +82,14 @@ class MockMinerData:
     errors: list[MockMinerError] = field(default_factory=list)
 
 
+class BraiinsOSFirmware:
+    """Stub for pyasic's BraiinsOSFirmware MRO class used in firmware detection."""
+
+
+class _BOSMinerMock(BraiinsOSFirmware, MagicMock):
+    """Mock whose MRO includes BraiinsOSFirmware for detect_firmware_variant."""
+
+
 def make_mock_miner(
     *,
     make: str = "WhatsMiner",
@@ -88,9 +100,16 @@ def make_mock_miner(
     supports_presets: bool = False,
     supports_autotuning: bool = False,
     data: MockMinerData | None = None,
+    braiins_os: bool = False,
+    spec: type | None = None,
 ) -> MagicMock:
     """Create a mock pyasic miner for testing."""
-    miner = MagicMock()
+    if braiins_os:
+        miner = _BOSMinerMock()
+    elif spec is not None:
+        miner = MagicMock(spec=spec)
+    else:
+        miner = MagicMock()
     miner.make = make
     miner.model = model
     miner.fw_ver = fw_ver
@@ -137,11 +156,15 @@ def mock_miner_data() -> MockMinerData:
     )
 
 
+def _fw(enabled: bool = True) -> FirmwareConfig:
+    return FirmwareConfig(enabled=enabled)
+
+
 @pytest.fixture
 def whatsminer_config() -> PluginConfig:
     return PluginConfig(
         plugin=PluginSettings(),
-        miners={"whatsminer": MinerFamilyConfig(enabled=True)},
+        miners={"whatsminer": MinerFamilyConfig(firmware={FW_STOCK: _fw()})},
     )
 
 
@@ -150,9 +173,9 @@ def multi_family_config() -> PluginConfig:
     return PluginConfig(
         plugin=PluginSettings(),
         miners={
-            "whatsminer": MinerFamilyConfig(enabled=True),
-            "antminer": MinerFamilyConfig(enabled=True),
-            "avalonminer": MinerFamilyConfig(enabled=False),
+            "whatsminer": MinerFamilyConfig(firmware={FW_STOCK: _fw()}),
+            "antminer": MinerFamilyConfig(firmware={FW_STOCK: _fw()}),
+            "avalonminer": MinerFamilyConfig(firmware={FW_STOCK: _fw(False)}),
         },
     )
 

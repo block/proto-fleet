@@ -54,6 +54,19 @@ from proto_fleet_sdk.capabilities import (
 )
 from proto_fleet_sdk.types import Capabilities
 
+# Firmware variant identifiers (used as config keys and cache keys)
+FW_STOCK = "stock"
+FW_BRAIINS = "braiins"
+FW_VNISH = "vnish"
+
+# MRO class names used by pyasic to identify aftermarket firmware
+MRO_BRAIINS = "BraiinsOSFirmware"
+MRO_VNISH = "VNishFirmware"
+
+# Manufacturer display names for aftermarket firmware
+MFR_BRAIINS = "Braiins"
+MFR_VNISH = "VNish"
+
 # Maps config family name → pyasic miner.make string
 FAMILY_TO_MAKE: dict[str, str] = {
     "whatsminer": "WhatsMiner",
@@ -64,7 +77,6 @@ FAMILY_TO_MAKE: dict[str, str] = {
     "bitaxe": "BitAxe",
     "iceriver": "IceRiver",
     "innosilicon": "Innosilicon",
-    "braiins": "Braiins",
     "epic": "ePIC",
     "hammer": "Hammer",
     "volcminer": "VolcMiner",
@@ -75,22 +87,70 @@ FAMILY_TO_MAKE: dict[str, str] = {
 # Reverse lookup: pyasic make string → config family name
 MAKE_TO_FAMILY: dict[str, str] = {v: k for k, v in FAMILY_TO_MAKE.items()}
 
-# Default credentials per manufacturer make string
-DEFAULT_CREDENTIALS: dict[str, list[UsernamePassword]] = {
-    "WhatsMiner": [
-        UsernamePassword(username="admin", password="admin"),
-        UsernamePassword(username="admin", password="super"),
-    ],
-    "AntMiner": [UsernamePassword(username="root", password="root")],
-    "AvalonMiner": [UsernamePassword(username="admin", password="admin")],
-    "Goldshell": [UsernamePassword(username="admin", password="123456789")],
-    "Auradine": [UsernamePassword(username="admin", password="admin")],
-    "Innosilicon": [UsernamePassword(username="admin", password="admin")],
-    "ePIC": [UsernamePassword(username="admin", password="letmein")],
-    "IceRiver": [UsernamePassword(username="admin", password="12345678")],
-    "Hammer": [UsernamePassword(username="root", password="root")],
-    "VolcMiner": [UsernamePassword(username="admin", password="ltc@dog")],
-    "Braiins": [UsernamePassword(username="root", password="root")],
+# Firmware variants per hardware family.
+# Maps family → variant name → MRO class name used by pyasic for detection.
+# FW_STOCK uses empty string (default when no aftermarket firmware is detected).
+FIRMWARE_VARIANTS: dict[str, dict[str, str]] = {
+    "whatsminer": {FW_STOCK: ""},
+    "antminer": {
+        FW_STOCK: "",
+        FW_BRAIINS: MRO_BRAIINS,
+        FW_VNISH: MRO_VNISH,
+    },
+    "avalonminer": {FW_STOCK: ""},
+    "goldshell": {FW_STOCK: ""},
+    "auradine": {FW_STOCK: ""},
+    "bitaxe": {FW_STOCK: ""},
+    "iceriver": {FW_STOCK: ""},
+    "innosilicon": {FW_STOCK: ""},
+    "epic": {FW_STOCK: ""},
+    "hammer": {FW_STOCK: ""},
+    "volcminer": {FW_STOCK: ""},
+    "elphapex": {FW_STOCK: ""},
+    "luckyminer": {FW_STOCK: ""},
+}
+
+# Manufacturer string to report when a non-stock firmware variant is detected.
+FIRMWARE_MANUFACTURER: dict[str, str] = {
+    FW_BRAIINS: MFR_BRAIINS,
+    FW_VNISH: MFR_VNISH,
+}
+
+
+def detect_firmware_variant(miner: Any, family: str) -> str:
+    """Detect which firmware variant a miner is running via MRO class names."""
+    variants = FIRMWARE_VARIANTS.get(family, {})
+    mro_names = {cls.__name__ for cls in type(miner).__mro__}
+    for variant_name, mro_class in variants.items():
+        if mro_class and mro_class in mro_names:
+            return variant_name
+    return FW_STOCK
+
+
+# Default credentials keyed by family → firmware variant.
+DEFAULT_CREDENTIALS: dict[str, dict[str, list[UsernamePassword]]] = {
+    "whatsminer": {
+        FW_STOCK: [
+            UsernamePassword(username="admin", password="admin"),
+            UsernamePassword(username="admin", password="super"),
+        ],
+    },
+    "antminer": {
+        FW_STOCK: [UsernamePassword(username="root", password="root")],
+        FW_BRAIINS: [UsernamePassword(username="root", password="root")],
+        FW_VNISH: [UsernamePassword(username="root", password="root")],
+    },
+    "avalonminer": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
+    "goldshell": {FW_STOCK: [UsernamePassword(username="admin", password="123456789")]},
+    "auradine": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
+    "bitaxe": {FW_STOCK: []},
+    "iceriver": {FW_STOCK: [UsernamePassword(username="admin", password="12345678")]},
+    "innosilicon": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
+    "epic": {FW_STOCK: [UsernamePassword(username="admin", password="letmein")]},
+    "hammer": {FW_STOCK: [UsernamePassword(username="root", password="root")]},
+    "volcminer": {FW_STOCK: [UsernamePassword(username="admin", password="ltc@dog")]},
+    "elphapex": {FW_STOCK: []},
+    "luckyminer": {FW_STOCK: []},
 }
 
 # Reference to pyasic's base class for method introspection.

@@ -8,6 +8,7 @@ from textwrap import dedent
 import pytest
 from proto_fleet_sdk.errors import InvalidConfigError
 
+from pyasic_driver.capabilities import FW_BRAIINS, FW_STOCK, FW_VNISH
 from pyasic_driver.config import load_config
 
 
@@ -31,7 +32,8 @@ class TestLoadConfig:
               telemetry_cache_ttl_seconds: 10
             miners:
               whatsminer:
-                enabled: true
+                stock:
+                  enabled: true
         """)
 
         # Act
@@ -41,14 +43,15 @@ class TestLoadConfig:
         assert config.plugin.log_level == "debug"
         assert config.plugin.discovery_timeout_seconds == 15
         assert config.plugin.telemetry_cache_ttl_seconds == 10
-        assert config.miners["whatsminer"].enabled is True
+        assert config.miners["whatsminer"].is_enabled is True
 
     def test_minimal_config(self, tmp_config) -> None:
         # Arrange
         path = tmp_config("""\
             miners:
               whatsminer:
-                enabled: true
+                stock:
+                  enabled: true
         """)
 
         # Act
@@ -57,14 +60,15 @@ class TestLoadConfig:
         # Assert — defaults applied
         assert config.plugin.log_level == "info"
         assert config.plugin.discovery_timeout_seconds == 10
-        assert config.miners["whatsminer"].enabled is True
+        assert config.miners["whatsminer"].is_enabled is True
 
     def test_no_enabled_families_raises(self, tmp_config) -> None:
         # Arrange
         path = tmp_config("""\
             miners:
               whatsminer:
-                enabled: false
+                stock:
+                  enabled: false
         """)
 
         # Act & Assert
@@ -84,9 +88,11 @@ class TestLoadConfig:
         path = tmp_config("""\
             miners:
               whatsminer:
-                enabled: true
+                stock:
+                  enabled: true
               unknown_miner:
-                enabled: true
+                stock:
+                  enabled: true
         """)
 
         # Act
@@ -96,41 +102,104 @@ class TestLoadConfig:
         assert "unknown_miner" not in config.miners
         assert "whatsminer" in config.miners
 
-    def test_enabled_makes(self, tmp_config) -> None:
-        # Arrange
-        path = tmp_config("""\
-            miners:
-              whatsminer:
-                enabled: true
-              antminer:
-                enabled: true
-              goldshell:
-                enabled: false
-        """)
-
-        # Act
-        config = load_config(path)
-        makes = config.enabled_makes()
-
-        # Assert
-        assert makes == {"WhatsMiner", "AntMiner"}
-
     def test_multi_family_config(self, tmp_config) -> None:
         # Arrange
         path = tmp_config("""\
             miners:
               whatsminer:
-                enabled: true
+                stock:
+                  enabled: true
               auradine:
-                enabled: true
+                stock:
+                  enabled: true
               iceriver:
-                enabled: false
+                stock:
+                  enabled: false
         """)
 
         # Act
         config = load_config(path)
 
         # Assert
-        assert config.miners["whatsminer"].enabled is True
-        assert config.miners["auradine"].enabled is True
-        assert config.miners["iceriver"].enabled is False
+        assert config.miners["whatsminer"].is_enabled is True
+        assert config.miners["auradine"].is_enabled is True
+        assert config.miners["iceriver"].is_enabled is False
+
+    def test_firmware_variants_parsed(self, tmp_config) -> None:
+        # Arrange
+        path = tmp_config("""\
+            miners:
+              antminer:
+                stock:
+                  enabled: false
+                braiins:
+                  enabled: true
+                vnish:
+                  enabled: false
+        """)
+
+        # Act
+        config = load_config(path)
+
+        # Assert
+        fw = config.miners["antminer"].firmware
+        assert fw[FW_STOCK].enabled is False
+        assert fw[FW_BRAIINS].enabled is True
+        assert fw[FW_VNISH].enabled is False
+        assert config.miners["antminer"].is_enabled is True
+
+    def test_all_variants_disabled_not_enabled(self, tmp_config) -> None:
+        # Arrange
+        path = tmp_config("""\
+            miners:
+              whatsminer:
+                stock:
+                  enabled: true
+              antminer:
+                stock:
+                  enabled: false
+                braiins:
+                  enabled: false
+        """)
+
+        # Act
+        config = load_config(path)
+
+        # Assert
+        assert config.miners["antminer"].is_enabled is False
+
+    def test_enabled_firmware_returns_enabled_variants(self, tmp_config) -> None:
+        # Arrange
+        path = tmp_config("""\
+            miners:
+              antminer:
+                stock:
+                  enabled: false
+                braiins:
+                  enabled: true
+                vnish:
+                  enabled: true
+        """)
+
+        # Act
+        config = load_config(path)
+
+        # Assert
+        assert config.enabled_firmware("antminer") == {FW_BRAIINS, FW_VNISH}
+
+    def test_unknown_firmware_variant_skipped(self, tmp_config) -> None:
+        # Arrange
+        path = tmp_config("""\
+            miners:
+              whatsminer:
+                stock:
+                  enabled: true
+                unknown_fw:
+                  enabled: true
+        """)
+
+        # Act
+        config = load_config(path)
+
+        # Assert
+        assert "unknown_fw" not in config.miners["whatsminer"].firmware

@@ -33,6 +33,7 @@ def apply() -> None:
     _patch_send_config()
     _patch_error_codes()
     _patch_auth_error()
+    _patch_validate_write_access()
     _applied = True
     logger.info("Applied WhatsMiner (BTMiner) patches")
 
@@ -340,3 +341,22 @@ def _patch_auth_error() -> None:
 
     BTMinerV2.get_data = get_data_with_auth_check  # type: ignore[assignment]
     logger.debug("Patched BTMinerV2.get_data (BTMinerV3AuthError → AuthenticationFailedError)")
+
+
+def _patch_validate_write_access() -> None:
+    """Register WhatsMiner write credential validation.
+
+    WhatsMiner uses separate auth for reads vs writes — get_data() succeeds
+    with any password, but write operations require the correct one.
+    """
+    from pyasic.miners.backends.btminer import BTMinerV2
+
+    from pyasic_driver.driver import register_write_validator
+
+    async def _validate(miner: Any) -> None:
+        config = await miner.get_config()
+        if config is not None:
+            await miner.send_config(config)
+
+    register_write_validator(BTMinerV2, _validate)
+    logger.debug("Registered WhatsMiner write credential validator")

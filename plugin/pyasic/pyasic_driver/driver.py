@@ -22,8 +22,11 @@ from proto_fleet_sdk.types import Capabilities, DeviceInfo, DriverIdentifier, Ne
 
 from pyasic_driver.capabilities import (
     DEFAULT_CREDENTIALS,
+    FIRMWARE_MANUFACTURER,
+    MAKE_TO_FAMILY,
     STATIC_BASE_CAPABILITIES,
     build_capabilities,
+    detect_firmware_variant,
 )
 from pyasic_driver.config import PluginConfig
 from pyasic_driver.device import PyAsicDevice
@@ -43,6 +46,19 @@ _DISCOVERY_PORTS = {80, 443, 4028}
 _HTTPS_PORT = 443
 
 GetMinerFunc = Callable[[str], Coroutine[Any, Any, Any]]
+
+_write_validators: dict[type, Callable[[Any], Coroutine[Any, Any, None]]] = {}
+
+
+def register_write_validator(cls: type, fn: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
+    _write_validators[cls] = fn
+
+
+async def validate_write_access(miner: Any) -> None:
+    for cls, fn in _write_validators.items():
+        if isinstance(miner, cls):
+            await fn(miner)
+            return
 
 
 def _default_get_miner() -> GetMinerFunc:
@@ -103,10 +119,10 @@ class PyAsicDriver:
         get_miner: GetMinerFunc | None = None,
     ) -> None:
         self._config = config
-        self._enabled_makes = config.enabled_makes()
         self._get_miner_fn = get_miner or _default_get_miner()
         self._devices: dict[str, PyAsicDevice] = {}
         self._lock = asyncio.Lock()
+        self._model_capabilities: dict[str, Capabilities] = {}
 
     async def handshake(self, ctx: grpc.ServicerContext) -> DriverIdentifier:
         return DriverIdentifier(driver_name=_DRIVER_NAME, api_version=_API_VERSION)
@@ -122,11 +138,21 @@ class PyAsicDriver:
         miner = await self._probe_miner(ip_address)
 
         make = getattr(miner, "make", None)
-        if not make or str(make) not in self._enabled_makes:
+        if not make:
             raise DeviceNotFoundError(ip_address)
 
+        make_str = str(make)
+        family = MAKE_TO_FAMILY.get(make_str)
+        if not family or family not in self._config.miners:
+            raise DeviceNotFoundError(ip_address)
+
+        enabled_fw = self._config.enabled_firmware(family)
+        variant = detect_firmware_variant(miner, family)
+        if variant not in enabled_fw:
+            raise DeviceNotFoundError(ip_address)
+
+        manufacturer = FIRMWARE_MANUFACTURER.get(variant, make_str)
         model = getattr(miner, "model", "") or ""
-        manufacturer = str(make)
         firmware_version = getattr(miner, "fw_ver", "") or ""
 
         effective_port = port or _DEFAULT_PORT
@@ -160,7 +186,13 @@ class PyAsicDriver:
         if data is None:
             raise AuthenticationFailedError(device_info.host)
 
-        await self._validate_privileged_access(miner, device_info.host)
+        try:
+            await validate_write_access(miner)
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise DeviceUnavailableError(device_info.host, cause=exc) from exc
+        except Exception as exc:
+            logger.warning("Write credential validation failed for %s: %s", device_info.host, exc)
+            raise AuthenticationFailedError(device_info.host, cause=exc) from exc
 
         mac = getattr(data, "mac", "") or ""
         firmware = getattr(data, "fw_ver", "") or device_info.firmware_version
@@ -177,34 +209,6 @@ class PyAsicDriver:
             firmware_version=firmware,
         )
 
-    async def _validate_privileged_access(self, miner: Any, host: str) -> None:
-        """Validate write credentials by sending back the current config unchanged.
-
-        Some miners (e.g. WhatsMiner V3) use separate auth for reads vs writes.
-        get_data() succeeds with any password, so we must verify a write operation
-        actually works before storing the credential. Reading the current config
-        and writing it back is a no-op that validates auth across all manufacturers.
-        """
-        try:
-            config = await miner.get_config()
-        except (OSError, asyncio.TimeoutError) as exc:
-            raise DeviceUnavailableError(host, cause=exc) from exc
-        except Exception as exc:
-            logger.warning("Failed to read config for credential validation on %s: %s", host, exc)
-            raise AuthenticationFailedError(host, cause=exc) from exc
-
-        if config is None:
-            logger.debug("No config available for %s, skipping write validation", host)
-            return
-
-        try:
-            await miner.send_config(config)
-        except (OSError, asyncio.TimeoutError) as exc:
-            raise DeviceUnavailableError(host, cause=exc) from exc
-        except Exception as exc:
-            logger.warning("Credential validation (send_config) failed for %s: %s", host, exc)
-            raise AuthenticationFailedError(host, cause=exc) from exc
-
     async def new_device(
         self, ctx: grpc.ServicerContext, device_id: str, device_info: DeviceInfo, secret: SecretBundle
     ) -> NewDeviceResult:
@@ -212,6 +216,8 @@ class PyAsicDriver:
         if miner is not None:
             _apply_credentials(miner, secret)
             caps = build_capabilities(miner)
+            if device_info.model:
+                self._model_capabilities[device_info.model] = caps
         else:
             caps = dict(STATIC_BASE_CAPABILITIES)
 
@@ -223,6 +229,7 @@ class PyAsicDriver:
             cache_ttl_seconds=self._config.plugin.telemetry_cache_ttl_seconds,
             probe_fn=self._get_miner_fn,
             secret=secret,
+            on_caps_update=self._update_model_capabilities,
         )
 
         async with self._lock:
@@ -237,16 +244,31 @@ class PyAsicDriver:
     async def get_default_credentials(self, ctx: grpc.ServicerContext) -> list[UsernamePassword]:
         creds: list[UsernamePassword] = []
         seen: set[tuple[str, str]] = set()
-        for make in self._enabled_makes:
-            for cred in DEFAULT_CREDENTIALS.get(make, []):
-                key = (cred.username, cred.password)
-                if key not in seen:
-                    creds.append(cred)
-                    seen.add(key)
+        for family_name, family_config in self._config.miners.items():
+            family_creds = DEFAULT_CREDENTIALS.get(family_name, {})
+            for variant_name, fw_config in family_config.firmware.items():
+                if not fw_config.enabled:
+                    continue
+                for cred in family_creds.get(variant_name, []):
+                    key = (cred.username, cred.password)
+                    if key not in seen:
+                        creds.append(cred)
+                        seen.add(key)
         return creds
 
+    def _update_model_capabilities(self, model: str, caps: Capabilities) -> None:
+        """Callback for devices to update model capabilities on reconnect."""
+        self._model_capabilities[model] = caps
+
     async def get_capabilities_for_model(self, ctx: grpc.ServicerContext, model: str) -> Capabilities:
-        return dict(STATIC_BASE_CAPABILITIES)
+        """Return per-model capability overrides from cached build_capabilities() results.
+
+        Capabilities are cached during new_device() when a real miner instance is
+        available, and updated on device reconnect. Model strings from pyasic already
+        encode firmware variant (e.g. "S21 Pro (BOS+)" vs "S21 Pro"), so each variant
+        gets its own entry.
+        """
+        return dict(self._model_capabilities.get(model, {}))
 
     async def _probe_miner(self, ip_address: str) -> Any:
         """Probe an IP with pyasic and return the identified miner object.

@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 from proto_fleet_sdk.errors import InvalidConfigError
 
-from pyasic_driver.capabilities import FAMILY_TO_MAKE
+from pyasic_driver.capabilities import FAMILY_TO_MAKE, FIRMWARE_VARIANTS
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,17 @@ class PluginSettings:
 
 
 @dataclass(frozen=True)
-class MinerFamilyConfig:
+class FirmwareConfig:
     enabled: bool = False
+
+
+@dataclass(frozen=True)
+class MinerFamilyConfig:
+    firmware: dict[str, FirmwareConfig] = field(default_factory=dict)
+
+    @property
+    def is_enabled(self) -> bool:
+        return any(fw.enabled for fw in self.firmware.values())
 
 
 @dataclass(frozen=True)
@@ -37,13 +46,11 @@ class PluginConfig:
     plugin: PluginSettings = field(default_factory=PluginSettings)
     miners: dict[str, MinerFamilyConfig] = field(default_factory=dict)
 
-    def enabled_makes(self) -> set[str]:
-        """Return pyasic make strings for all enabled families."""
-        makes: set[str] = set()
-        for family_name, family_config in self.miners.items():
-            if family_config.enabled and family_name in FAMILY_TO_MAKE:
-                makes.add(FAMILY_TO_MAKE[family_name])
-        return makes
+    def enabled_firmware(self, family: str) -> set[str]:
+        cfg = self.miners.get(family)
+        if not cfg:
+            return set()
+        return {name for name, fw in cfg.firmware.items() if fw.enabled}
 
 
 def load_config(path: Path) -> PluginConfig:
@@ -59,7 +66,7 @@ def load_config(path: Path) -> PluginConfig:
     plugin_settings = _parse_plugin_settings(raw.get("plugin", {}))
     miners = _parse_miners(raw.get("miners", {}))
 
-    enabled_count = sum(1 for m in miners.values() if m.enabled)
+    enabled_count = sum(1 for m in miners.values() if m.is_enabled)
     if enabled_count == 0:
         raise InvalidConfigError("At least one miner family must be enabled")
 
@@ -99,7 +106,24 @@ def _parse_miners(raw: Any) -> dict[str, MinerFamilyConfig]:
             miners[family_name] = MinerFamilyConfig()
             continue
 
-        enabled = family_raw.get("enabled", False)
-        miners[family_name] = MinerFamilyConfig(enabled=bool(enabled))
+        firmware = _parse_firmware(family_name, family_raw)
+        miners[family_name] = MinerFamilyConfig(firmware=firmware)
 
     return miners
+
+
+def _parse_firmware(family_name: str, raw: dict[str, Any]) -> dict[str, FirmwareConfig]:
+    known_variants = FIRMWARE_VARIANTS.get(family_name, {})
+    firmware: dict[str, FirmwareConfig] = {}
+    for variant_name, variant_raw in raw.items():
+        if variant_name not in known_variants:
+            logger.warning(
+                "Unknown firmware variant '%s' for family '%s', skipping",
+                variant_name, family_name,
+            )
+            continue
+        if not isinstance(variant_raw, dict):
+            firmware[variant_name] = FirmwareConfig()
+            continue
+        firmware[variant_name] = FirmwareConfig(enabled=bool(variant_raw.get("enabled", False)))
+    return firmware

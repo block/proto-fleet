@@ -132,7 +132,7 @@ class TestFamilyMappings:
     def test_family_to_make_has_all_expected_families(self) -> None:
         expected = {
             "whatsminer", "antminer", "avalonminer", "goldshell", "auradine",
-            "bitaxe", "iceriver", "innosilicon", "braiins", "epic", "hammer",
+            "bitaxe", "iceriver", "innosilicon", "epic", "hammer",
             "volcminer", "elphapex", "luckyminer",
         }
 

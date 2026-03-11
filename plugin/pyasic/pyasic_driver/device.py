@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -185,6 +186,7 @@ class PyAsicDevice:
         cache_ttl_seconds: int = 5,
         probe_fn: Any | None = None,
         secret: Any | None = None,
+        on_caps_update: Callable[[str, Capabilities], None] | None = None,
     ) -> None:
         self._id = device_id
         self._miner = miner
@@ -193,6 +195,7 @@ class PyAsicDevice:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._probe_fn = probe_fn
         self._secret = secret
+        self._on_caps_update = on_caps_update
         self._last_status: DeviceMetrics | None = None
         self._last_status_at: datetime | None = None
 
@@ -214,10 +217,23 @@ class PyAsicDevice:
             return False
         miner_make = getattr(miner, "make", None) or ""
         miner_model = getattr(miner, "model", None) or ""
+        # Resolve effective manufacturer: aftermarket firmware (BOS/VNish)
+        # reports hardware make (e.g. "AntMiner") but we store the firmware
+        # vendor (e.g. "Braiins") as manufacturer. Use the same resolution
+        # so the identity check doesn't treat these as different devices.
+        from pyasic_driver.capabilities import (
+            FIRMWARE_MANUFACTURER,
+            FW_STOCK,
+            MAKE_TO_FAMILY,
+            detect_firmware_variant,
+        )
+        family = MAKE_TO_FAMILY.get(miner_make, "")
+        variant = detect_firmware_variant(miner, family) if family else FW_STOCK
+        effective_make = FIRMWARE_MANUFACTURER.get(variant, miner_make)
         if (
             self._info.manufacturer
-            and miner_make
-            and miner_make != self._info.manufacturer
+            and effective_make
+            and effective_make != self._info.manufacturer
         ) or (
             self._info.model
             and miner_model
@@ -237,6 +253,8 @@ class PyAsicDevice:
         self._miner = miner
         from pyasic_driver.capabilities import build_capabilities
         self._caps = build_capabilities(miner)
+        if self._on_caps_update and self._info.model:
+            self._on_caps_update(self._info.model, self._caps)
         logger.info("Reconnected device %s at %s", self._id, self._info.host)
         return True
 
