@@ -10,7 +10,7 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.7.6"
+    "version": "1.8.0"
   },
   "servers": [
     {
@@ -2462,7 +2462,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2486,7 +2486,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2506,7 +2506,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2536,7 +2536,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 44.8,
                             "outlet": 67.9,
                             "average": 56.35
@@ -2566,7 +2566,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.5,
                             "outlet": 69.1,
                             "average": 57.3
@@ -2609,7 +2609,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -2629,7 +2629,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2649,7 +2649,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2679,7 +2679,7 @@
                               ]
                             },
                             "temperature": {
-                              "unit": "°C",
+                              "unit": "\u00b0C",
                               "values": [
                                 72.5,
                                 73.0
@@ -2714,7 +2714,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -2732,6 +2732,102 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/pairing/info": {
+      "get": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Get pairing information including MAC address and serial number. This endpoint does not require authentication.",
+        "operationId": "GetPairingInfo",
+        "responses": {
+          "200": {
+            "description": "Pairing information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pairing/auth-key": {
+      "post": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Set the authentication public key for pairing. On first pair this endpoint does not require authentication. On key rotation, authentication is required.",
+        "operationId": "SetAuthKey",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAuthKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Auth key set successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAuthKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Clear the authentication public key. This endpoint requires authentication.",
+        "operationId": "ClearAuthKey",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth key cleared successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAuthKeyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -5044,9 +5140,9 @@
               ]
             },
             "example": [
-              95.00,
-              94.50,
-              94.80
+              95.0,
+              94.5,
+              94.8
             ]
           },
           "aggregates": {
@@ -5061,7 +5157,7 @@
           "min": {
             "type": "number",
             "description": "Minimum value in the series",
-            "example": 94.00
+            "example": 94.0
           },
           "avg": {
             "type": "number",
@@ -5071,7 +5167,7 @@
           "max": {
             "type": "number",
             "description": "Maximum value in the series",
-            "example": 95.50
+            "example": 95.5
           }
         }
       },
@@ -5103,7 +5199,7 @@
                   "unit": "TH/s"
                 },
                 "temperature": {
-                  "unit": "°C",
+                  "unit": "\u00b0C",
                   "inlet": 45.2,
                   "outlet": 68.5,
                   "average": 56.85
@@ -5133,7 +5229,7 @@
                     ]
                   },
                   "temperature": {
-                    "unit": "°C",
+                    "unit": "\u00b0C",
                     "values": [
                       72.5,
                       73.0
@@ -5169,7 +5265,7 @@
                   "output": 3250
                 },
                 "temperature": {
-                  "unit": "°C",
+                  "unit": "\u00b0C",
                   "hotspot": 65.5,
                   "ambient": 45.2,
                   "average": 55.4
@@ -5212,7 +5308,7 @@
           },
           "temperature": {
             "value": 65.5,
-            "unit": "°C"
+            "unit": "\u00b0C"
           },
           "power": {
             "value": 3250,
@@ -5397,7 +5493,7 @@
         "type": "string",
         "enum": [
           "TH/s",
-          "°C",
+          "\u00b0C",
           "W",
           "J/TH",
           "V",
@@ -5441,6 +5537,54 @@
         "required": [
           "unit",
           "values"
+        ]
+      },
+      "PairingInfoResponse": {
+        "description": "Pairing information response containing MAC address and serial number",
+        "type": "object",
+        "properties": {
+          "mac": {
+            "type": "string",
+            "description": "MAC address of the device",
+            "example": "00:11:22:33:44:55"
+          },
+          "cb_sn": {
+            "type": "string",
+            "description": "Control board serial number",
+            "example": "PROTO-B4-001"
+          }
+        },
+        "required": [
+          "mac",
+          "cb_sn"
+        ]
+      },
+      "SetAuthKeyRequest": {
+        "description": "Request to set the authentication public key",
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "EdDSA public key in PEM format",
+            "example": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----"
+          }
+        },
+        "required": [
+          "public_key"
+        ]
+      },
+      "SetAuthKeyResponse": {
+        "description": "Response after setting or clearing the auth key",
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Status message",
+            "example": "Auth key set successfully"
+          }
+        },
+        "required": [
+          "message"
         ]
       }
     },

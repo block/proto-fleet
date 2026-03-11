@@ -6,8 +6,6 @@ This directory contains vendored API specifications for the Proto miner devices.
 
 ```
 proto-rig-api/
-├── grpc/           # Protocol Buffer definitions for gRPC API
-│   └── *.proto     # 13 proto files defining miner services
 ├── openapi/        # OpenAPI specification for REST API
 │   └── MDK-API.json
 ├── VERSION.md      # Version tracking (single source of truth)
@@ -16,22 +14,12 @@ proto-rig-api/
 
 ## Usage
 
-### gRPC Proto Files
-
-Used by the server to generate Go code for communicating with Proto miners:
-
-```bash
-# Generate Go code from proto files
-cd server && just gen
-```
-
-The generated code is placed in `server/generated/miner-api/`.
-
 ### OpenAPI Specification
 
 Used by:
 1. **Client** - To generate TypeScript types for the ProtoOS dashboard
 2. **Simulator** - As reference for the fake-proto-rig REST API implementation
+3. **Plugin** - As reference for the proto plugin REST client
 
 ```bash
 # Generate TypeScript client
@@ -49,17 +37,14 @@ The `VERSION.md` file in this directory contains:
 - Extraction date
 - Update instructions
 
-Both gRPC and OpenAPI specs are always updated together from the same commit to maintain consistency.
-
 ## Updating
 
 When the miner API changes:
 
-1. Update the appropriate specification files
+1. Update the OpenAPI specification file
 2. Update the VERSION.md with new commit information
-3. Regenerate all dependent code:
+3. Regenerate dependent code:
    - `cd client && npm run generate-api-types` (TypeScript types)
-   - `cd server && just gen` (Go gRPC code)
 4. Update the simulator REST API if OpenAPI spec changed:
    - See `server/fake-proto-rig/README.md` for maintenance checklist
 5. Run tests to verify compatibility
