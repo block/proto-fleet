@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -68,16 +69,38 @@ func getBatchLogsDirPath(batchLogUUID string) string {
 }
 
 type Service struct {
+	maxFirmwareFileSize int64
+
+	mu            sync.Mutex
+	checksumIndex map[string][]string // SHA-256 hex -> fileIDs
 }
 
-func NewService() (*Service, error) {
+func NewService(cfg Config) (*Service, error) {
 	if err := os.MkdirAll(logsDir, 0750); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create logs dir: %v", err)
 	}
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create temp logs dir: %v", err)
 	}
-	return &Service{}, nil
+	if err := initFirmwareDir(); err != nil {
+		return nil, err
+	}
+
+	maxSize := cfg.MaxFirmwareFileSize
+	if maxSize <= 0 {
+		maxSize = defaultMaxFirmwareFileSize
+	}
+
+	svc := &Service{
+		maxFirmwareFileSize: maxSize,
+		checksumIndex:       make(map[string][]string),
+	}
+
+	if err := svc.initChecksumIndex(); err != nil {
+		slog.Warn("failed to rebuild firmware checksum index from disk", "error", err)
+	}
+
+	return svc, nil
 }
 
 func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error) {

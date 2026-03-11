@@ -14,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/timescaledb"
@@ -40,4 +41,5 @@ type Config struct {
 	Plugins     plugins.Config     `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
 	IPScanner   ipscanner.Config   `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
 	Diagnostics diagnostics.Config `embed:"" prefix:"diagnostics" envprefix:"DIAGNOSTICS_"`
+	Files       files.Config       `embed:"" prefix:"files" envprefix:"FILES_"`
 }

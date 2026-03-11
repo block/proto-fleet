@@ -18,7 +18,7 @@ func setupService(t *testing.T) *Service {
 	tmp := t.TempDir()
 	t.Chdir(tmp)
 
-	svc, err := NewService()
+	svc, err := NewService(Config{})
 	require.NoError(t, err)
 	return svc
 }

@@ -35,7 +35,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *toke
 	})
 	require.NoError(t, err, "Failed to create encrypt service")
 
-	filesService, err := files.NewService()
+	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err, "Failed to create files service")
 
 	tokenService, err := token.NewService(token.Config{

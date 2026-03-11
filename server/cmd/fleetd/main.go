@@ -192,7 +192,7 @@ func start(config *Config) error {
 		config.Scheduler,
 	)
 
-	filesService, err := files.NewService()
+	filesService, err := files.NewService(config.Files)
 	if err != nil {
 		return err
 	}

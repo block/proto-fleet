@@ -107,7 +107,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(db)
 
-	filesService, err := files.NewService()
+	filesService, err := files.NewService(files.Config{})
 	assert.NoError(t, err)
 
 	// Use mock proto pairer instead of legacy implementation
