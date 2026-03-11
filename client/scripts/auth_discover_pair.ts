@@ -140,7 +140,7 @@ async function main() {
     try {
       const ipListModeRequest = create(IPListModeRequestSchema, {
         ipAddresses: ["192.168.2.10", "192.168.2.11"],
-        ports: ["2121"],
+        ports: ["80"],
         timeoutSeconds: 10,
       });
 
@@ -207,7 +207,7 @@ async function main() {
     try {
       const nmapModeRequest = create(NmapModeRequestSchema, {
         target: "192.168.2.0/24",
-        ports: ["2121"],
+        ports: ["80"],
       });
 
       const discoverRequest = create(DiscoverRequestSchema, {

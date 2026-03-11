@@ -31,7 +31,7 @@ import (
 const (
 	fleetAPIURL      = "http://localhost:4000"
 	protoSimIP       = "127.0.0.1" // localhost since test runs on host
-	protoSimPort     = "2121"
+	protoSimPort     = "80"
 	protoSimHTTPPort = "8080"
 	testUsername     = "admin"
 	testPassword     = "proto"

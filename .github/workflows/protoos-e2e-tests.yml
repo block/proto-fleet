@@ -50,7 +50,7 @@ jobs:
         run: |
           docker run -d \
             --name fake-proto-rig \
-            -p 2121:2121 \
+            -p 80:80 \
             fake-proto-rig
 
       - name: Cache Node modules
@@ -76,7 +76,7 @@ jobs:
         run: |
           npm run preview:protoOS -- --port 8080 --host 0.0.0.0 --strictPort > /tmp/vite-preview.log 2>&1 &
         env:
-          PROXY_URL: http://localhost:2121
+          PROXY_URL: http://localhost:80
 
       - name: Install Playwright browsers
         working-directory: client/e2eTests/protoOS

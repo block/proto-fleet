@@ -14,7 +14,7 @@ import (
 //
 //	ctrl := gomock.NewController(t)
 //	mockDiscoverer := testutil.NewMockProtoDiscoverer(ctrl)
-//	mockDiscoverer.EXPECT().Discover(ctx, "192.168.1.1", "2121").Return(device, nil)
+//	mockDiscoverer.EXPECT().Discover(ctx, "192.168.1.1", "80").Return(device, nil)
 func NewMockProtoDiscoverer(ctrl *gomock.Controller) *discovererMocks.MockDiscoverer {
 	return discovererMocks.NewMockDiscoverer(ctrl)
 }

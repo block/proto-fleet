@@ -64,7 +64,7 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	}
 
 	// Create 2 paired devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -154,7 +154,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.
 			}
 
 			// Create paired devices
-			testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+			testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 			ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 			service := testContext.ServiceProvider.FleetManagementService
@@ -188,7 +188,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByDeviceStatus(t *testing.T
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create paired devices with different statuses
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 
 	// Set different device statuses
@@ -228,7 +228,7 @@ func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create 5 paired devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 5, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 5, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -272,7 +272,7 @@ func TestService_ListMinerStateSnapshots_ShouldUseDefaultPageSize(t *testing.T) 
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create 3 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -302,7 +302,7 @@ func TestService_ListMinerStateSnapshots_ShouldCapMaxPageSize(t *testing.T) {
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create 2 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -360,7 +360,7 @@ func TestService_ListMinerStateSnapshots_ShouldCombineMultipleFilters(t *testing
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create paired Proto miners
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 
 	// Set device status to ONLINE
@@ -467,7 +467,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 			testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 			// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
-			deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:2121")
+			deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
 
 			// Create error store
 			transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
@@ -574,7 +574,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	mockCapabilities := pairingmocks.NewMockCapabilitiesProvider(ctrl)
 
@@ -770,7 +770,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -861,7 +861,7 @@ func TestService_ListMinerStateSnapshots_IncludesFirmwareVersion(t *testing.T) {
 				Manufacturer:     "Proto",
 				DriverName:       "proto",
 				IpAddress:        "192.168.1.100",
-				Port:             "2121",
+				Port:             "80",
 				UrlScheme:        "https",
 				FirmwareVersion:  expectedFirmwareVersion,
 			},
@@ -980,7 +980,7 @@ func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.
 	user2 := testContext.DatabaseService.CreateSuperAdminUser2()
 
 	// Create a miner for user2's organization
-	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.1:2121")
+	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.1:80")
 
 	// Try to access user2's miner as user1
 	ctx := testutil.MockAuthContextForTesting(t.Context(), user1.DatabaseID, user1.OrganizationID)
@@ -1018,7 +1018,7 @@ func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1097,7 +1097,7 @@ func TestService_DeleteMiners_ShouldDenyAccessToOtherOrgDevices(t *testing.T) {
 	user2 := testContext.DatabaseService.CreateSuperAdminUser2()
 
 	// Create a miner for user2
-	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.2:2121")
+	user2DeviceIDs := testContext.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.2:80")
 
 	// user1 attempts to delete user2's miner
 	ctx := testutil.MockAuthContextForTesting(t.Context(), user1.DatabaseID, user1.OrganizationID)
@@ -1128,7 +1128,7 @@ func TestService_DeleteMiners_ShouldRejectAlreadyDeletedDevices(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1162,7 +1162,7 @@ func TestService_DeleteMiners_ShouldDeleteAllPairedDevicesWithEmptyFilter(t *tes
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	// Create 3 paired miners
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1194,7 +1194,7 @@ func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1216,7 +1216,7 @@ func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T
 	// Re-create a miner with the same IP (simulating re-discovery and re-pairing)
 	// This should succeed because partial unique indexes only enforce uniqueness
 	// among non-deleted rows.
-	newDeviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.5:2121")
+	newDeviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.5:80")
 	require.Len(t, newDeviceIDs, 1)
 
 	// Verify the new miner is visible
@@ -1233,7 +1233,7 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1274,7 +1274,7 @@ func TestService_RenameMiners_PersistsCustomName(t *testing.T) {
 	// Arrange
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1315,7 +1315,7 @@ func TestService_RenameMiners_CounterOrderByRequestedSort(t *testing.T) {
 	// Arrange
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1373,7 +1373,7 @@ func TestService_RenameMiners_BlankGeneratedNamesAreSkipped(t *testing.T) {
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1427,7 +1427,7 @@ func TestService_RenameMiners_BlankGeneratedNamesDoNotBlockOtherRenames(t *testi
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	_, err := testContext.ServiceProvider.DB.ExecContext(
 		t.Context(),
@@ -1496,7 +1496,7 @@ func TestService_RenameMiners_IdenticalGeneratedNamesAreUnchanged(t *testing.T) 
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1588,7 +1588,7 @@ func TestService_RenameMiners_InvalidGeneratedNamesAreCountedAsFailures(t *testi
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 
 	_, err := testContext.ServiceProvider.DB.ExecContext(
 		t.Context(),

@@ -1,6 +1,6 @@
 // TODO where to get ports?
 export const antminerPort = "4028";
-export const protoRigPort = "2121";
+export const protoRigPort = "80";
 export const defaultDiscoveryPorts = [antminerPort, protoRigPort];
 export const defaultTimeout = 10;
 

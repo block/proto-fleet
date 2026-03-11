@@ -255,7 +255,7 @@ func TestDeviceDiscovery(t *testing.T) {
     }
     
     driver := NewMyDriver()
-    device, err := driver.DiscoverDevice(context.Background(), "192.168.1.100", "2121")
+    device, err := driver.DiscoverDevice(context.Background(), "192.168.1.100", "80")
     assert.NoError(t, err)
     assert.NotEmpty(t, device.SerialNumber)
 }

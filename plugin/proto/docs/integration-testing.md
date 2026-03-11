@@ -205,7 +205,7 @@ defer device.Close(suite.ctx)
 suite.waitForMinerReady()
 
 // Parse port string to int32
-port := mustParsePort("2121")
+port := mustParsePort("80")
 ```
 
 ## Troubleshooting

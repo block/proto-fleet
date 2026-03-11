@@ -132,11 +132,11 @@ plugin/proto/                  # Plugin root
 
 ### Device Discovery
 
-The plugin discovers Proto miners on port 2121, trying HTTPS first, then HTTP:
+The plugin discovers Proto miners on port 80, trying HTTPS first, then HTTP:
 
 ```go
 // Automatic discovery
-deviceInfo, err := driver.DiscoverDevice(ctx, "192.168.1.100", "2121")
+deviceInfo, err := driver.DiscoverDevice(ctx, "192.168.1.100", "80")
 ```
 
 ### Authentication

@@ -32,7 +32,7 @@ flowchart TB
         db[("TimescaleDB<br/>(port 5433)")]
         proto-plugin["proto-plugin<br/>(gRPC)"]
         antminer-plugin["antminer-plugin<br/>(gRPC)"]
-        proto-sim["proto-sim<br/>(port 2121)"]
+        proto-sim["proto-sim<br/>(port 80)"]
 
         fleet <--> db
         fleet -- loads --> proto-plugin
@@ -233,7 +233,7 @@ go test -short ./...
           ▼
 ┌─────────────────────┐
 │ Discover Device     │  Stream /pairing.v1.PairingService/Discover
-│ (proto plugin)      │  - Scans 127.0.0.1:2121 (proto-sim)
+│ (proto plugin)      │  - Scans 127.0.0.1:80 (proto-sim)
 │                     │  - Plugin detects Proto firmware
 │                     │  - Returns device_identifier
 └─────────┬───────────┘
@@ -438,7 +438,7 @@ docker-compose logs
 
 ```bash
 # Check if proto-sim is accessible from host
-curl http://localhost:2121/health
+curl http://localhost:80/health
 
 # Check if fleet-api is accessible
 curl http://localhost:4000/health
@@ -593,7 +593,7 @@ jobs:
 const (
     fleetAPIURL       = "http://localhost:4000"
     protoSimIP        = "127.0.0.1"  // localhost since test runs on host
-    protoSimPort      = "2121"
+    protoSimPort      = "80"
     protoSimHTTPPort  = "8080"
     testUsername      = "admin"
     testPassword      = "proto"
@@ -607,7 +607,7 @@ const (
 | Container | Purpose | Exposed Port |
 |-----------|---------|--------------|
 | `server-fleet-api-1` | Fleet API service | 4000 |
-| `server-proto-sim-1` | Simulated Proto miner | 2121, 8080 |
+| `server-proto-sim-1` | Simulated Proto miner | 80, 8080 |
 | `server-timescaledb-1` | TimescaleDB database | 5433 |
 
 ### Related Documentation
