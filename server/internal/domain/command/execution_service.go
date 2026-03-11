@@ -24,7 +24,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 )
 
-//go:generate mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
+//go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }

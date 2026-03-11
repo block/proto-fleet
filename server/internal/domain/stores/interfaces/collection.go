@@ -6,7 +6,7 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
 )
 
-//go:generate mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
+//go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
 
 // CollectionStore provides database operations for device collections (groups and racks).
 //
@@ -37,10 +37,11 @@ type CollectionStore interface {
 	// Returns the number of rows affected (0 if not found).
 	SoftDeleteCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error)
 
-	// ListCollections returns paginated collections for an organization ordered by label.
+	// ListCollections returns paginated collections for an organization.
 	// If collectionType is UNSPECIFIED, returns all types.
-	// Returns the collections and a next page token (empty if no more results).
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string) ([]*pb.DeviceCollection, string, error)
+	// Sort controls ordering; nil defaults to name ascending.
+	// Returns the collections, a next page token (empty if no more results), and the total count.
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)

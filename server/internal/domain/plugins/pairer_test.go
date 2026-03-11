@@ -20,9 +20,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/btc-mining/proto-fleet/server/sdk/v1/mocks"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // Helper function to create test pairer with all required services

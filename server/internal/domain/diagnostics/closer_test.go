@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	storeMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )

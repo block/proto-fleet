@@ -9,9 +9,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/btc-mining/proto-fleet/server/sdk/v1/mocks"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNewMultiTypeDiscoverer(t *testing.T) {

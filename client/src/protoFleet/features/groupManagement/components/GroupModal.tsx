@@ -401,7 +401,6 @@ const GroupModal = ({ onDismiss, onSuccess, group }: GroupModalProps) => {
                 overflowContainer
                 stickyBgColor="bg-surface-elevated-base"
                 scrollRef={scrollRef}
-                renderFiltersOutsideScroll
                 footerContent={
                   !isLoading &&
                   totalMiners !== undefined &&

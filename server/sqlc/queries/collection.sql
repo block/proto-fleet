@@ -45,48 +45,6 @@ UPDATE device_collection
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
--- name: ListCollectionsPaginated :many
-SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count
-FROM device_collection dc
-LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
-WHERE dc.org_id = $1 AND dc.deleted_at IS NULL
-GROUP BY dc.id
-ORDER BY dc.label ASC, dc.id ASC
-LIMIT $2;
-
--- name: ListCollectionsPaginatedAfter :many
-SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count
-FROM device_collection dc
-LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
-WHERE dc.org_id = $1 AND dc.deleted_at IS NULL
-  AND (dc.label > @cursor_label::text OR (dc.label = @cursor_label::text AND dc.id > @cursor_id::bigint))
-GROUP BY dc.id
-ORDER BY dc.label ASC, dc.id ASC
-LIMIT $2;
-
--- name: ListCollectionsByTypePaginated :many
-SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count
-FROM device_collection dc
-LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
-WHERE dc.org_id = $1 AND dc.type = $2 AND dc.deleted_at IS NULL
-GROUP BY dc.id
-ORDER BY dc.label ASC, dc.id ASC
-LIMIT $3;
-
--- name: ListCollectionsByTypePaginatedAfter :many
-SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count
-FROM device_collection dc
-LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
-WHERE dc.org_id = $1 AND dc.type = $2 AND dc.deleted_at IS NULL
-  AND (dc.label > @cursor_label::text OR (dc.label = @cursor_label::text AND dc.id > @cursor_id::bigint))
-GROUP BY dc.id
-ORDER BY dc.label ASC, dc.id ASC
-LIMIT $3;
-
 -- name: CollectionBelongsToOrg :one
 SELECT EXISTS(
     SELECT 1 FROM device_collection
@@ -206,3 +164,4 @@ FROM rack_slot rs
 JOIN device_collection_membership dcm ON rs.collection_id = dcm.collection_id AND rs.device_id = dcm.device_id
 WHERE rs.collection_id = $1
 ORDER BY rs.row, rs.col;
+

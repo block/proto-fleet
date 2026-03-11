@@ -14,7 +14,7 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
-//go:generate mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
+//go:generate go run go.uber.org/mock/mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
 type MinerInfo interface {
 	GetDriverName() string
 	GetID() models.DeviceIdentifier

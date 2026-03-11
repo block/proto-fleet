@@ -1,6 +1,6 @@
 package interfaces
 
-//go:generate mockgen -source=user.go -destination=mocks/mock_user_store.go -package=mocks UserStore UserManagementStore
+//go:generate go run go.uber.org/mock/mockgen -source=user.go -destination=mocks/mock_user_store.go -package=mocks UserStore UserManagementStore
 
 import (
 	"context"

@@ -3,11 +3,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
 import {
-  type MinerSortConfig,
-  MinerSortConfigSchema,
+  type SortConfig,
+  SortConfigSchema,
   SortDirection,
   SortField,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+} from "@/protoFleet/api/generated/common/v1/sort_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import useFleet from "@/protoFleet/api/useFleet";
@@ -28,7 +28,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
 // Default sort: Name ascending (alphabetical A-Z)
-const DEFAULT_SORT_CONFIG: MinerSortConfig = create(MinerSortConfigSchema, {
+const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
   field: SortField.NAME,
   direction: SortDirection.ASC,
 });
@@ -120,7 +120,7 @@ const Fleet = () => {
       if (!sortField) return;
 
       const sortDirection = direction === SORT_ASC ? SortDirection.ASC : SortDirection.DESC;
-      const newSortConfig = create(MinerSortConfigSchema, { field: sortField, direction: sortDirection });
+      const newSortConfig = create(SortConfigSchema, { field: sortField, direction: sortDirection });
 
       // Update URL with new sort params (preserves existing filter params)
       const params = new URLSearchParams(searchParams);

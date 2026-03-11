@@ -16,7 +16,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-//go:generate mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
+//go:generate go run go.uber.org/mock/mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 
 type MinerFilter struct {
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
@@ -25,6 +25,14 @@ type MinerFilter struct {
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
+}
+
+// MinerStateCounts holds fleet health state counts for a collection.
+type MinerStateCounts struct {
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
 }
 
 // MinerModelGroupResult holds model group data with count.
@@ -96,6 +104,7 @@ type DeviceStore interface {
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
+	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error

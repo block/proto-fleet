@@ -3,12 +3,12 @@ import { create } from "@bufbuild/protobuf";
 
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type DeviceSelector,
   DeviceSelectorSchema,
   type MinerNameConfig,
   MinerNameConfigSchema,
-  type MinerSortConfig,
   NamePropertySchema,
   RenameMinersRequestSchema,
   type RenameMinersResponse,
@@ -23,7 +23,7 @@ const useRenameMiners = () => {
     async (
       deviceSelector: DeviceSelector,
       nameConfig: MinerNameConfig,
-      sort?: MinerSortConfig,
+      sort?: SortConfig,
     ): Promise<RenameMinersResponse> => {
       try {
         return await fleetManagementClient.renameMiners(

@@ -942,6 +942,74 @@ WHERE device.deleted_at IS NULL
 	return identifiers, nil
 }
 
+// GetMinerStateCountsByCollections returns miner state counts grouped by collection ID.
+// Uses the same bucket logic as CountMinersByState (offline/sleeping/broken/hashing)
+// but groups results by collection membership.
+func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]stores.MinerStateCounts, error) {
+	if len(collectionIDs) == 0 {
+		return make(map[int64]stores.MinerStateCounts), nil
+	}
+
+	query := `SELECT dcm.collection_id,
+    COALESCE(SUM(CASE WHEN ds.status = 'OFFLINE' OR ds.status IS NULL THEN 1 ELSE 0 END), 0)::int AS offline_count,
+    COALESCE(SUM(CASE WHEN ds.status IN ('MAINTENANCE', 'INACTIVE') THEN 1 ELSE 0 END), 0)::int AS sleeping_count,
+    COALESCE(SUM(CASE
+        WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
+             AND ds.status IS NOT NULL
+             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL')
+                  OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR open_errors.device_id IS NOT NULL)
+        THEN 1 ELSE 0
+    END), 0)::int AS broken_count,
+    COALESCE(SUM(CASE
+        WHEN ds.status = 'ACTIVE'
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND open_errors.device_id IS NULL
+        THEN 1 ELSE 0
+    END), 0)::int AS hashing_count
+FROM device_collection_membership dcm
+JOIN device_collection dc ON dcm.collection_id = dc.id
+JOIN device d ON dcm.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = $1
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3)
+) open_errors ON d.id = open_errors.device_id
+WHERE dcm.collection_id = ANY($2::bigint[])
+  AND dcm.org_id = $1
+  AND dc.deleted_at IS NULL
+  AND d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+GROUP BY dcm.collection_id`
+
+	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to count miner states by collections: %v", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]stores.MinerStateCounts)
+	for rows.Next() {
+		var collectionID int64
+		var counts stores.MinerStateCounts
+		if err := rows.Scan(&collectionID, &counts.OfflineCount, &counts.SleepingCount, &counts.BrokenCount, &counts.HashingCount); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to scan miner state counts: %v", err)
+		}
+		result[collectionID] = counts
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to iterate miner state counts: %v", err)
+	}
+
+	return result, nil
+}
+
 func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
 	err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
 		DeviceIdentifier: string(deviceIdentifier),

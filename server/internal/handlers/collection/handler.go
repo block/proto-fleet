@@ -130,3 +130,12 @@ func (h *Handler) GetRackSlots(ctx context.Context, r *connect.Request[pb.GetRac
 	}
 	return connect.NewResponse(result), nil
 }
+
+// GetCollectionStats returns aggregated telemetry stats for collections.
+func (h *Handler) GetCollectionStats(ctx context.Context, r *connect.Request[pb.GetCollectionStatsRequest]) (*connect.Response[pb.GetCollectionStatsResponse], error) {
+	result, err := h.collectionSvc.GetCollectionStats(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}

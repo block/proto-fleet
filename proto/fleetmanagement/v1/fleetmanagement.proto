@@ -9,6 +9,7 @@ import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
 import "errors/v1/errors.proto";
 import "common/v1/device_selector.proto";
+import "common/v1/sort.proto";
 import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
@@ -181,7 +182,7 @@ message ListMinerStateSnapshotsRequest {
   // Sort configuration for results ordering
   // If not specified or empty, uses default sort by name ASC (alphabetical)
   // Currently only the first element is used; multi-column sorting reserved for future
-  repeated MinerSortConfig sort = 4;
+  repeated common.v1.SortConfig sort = 4;
 }
 
 // Pairing status of a device
@@ -203,51 +204,6 @@ enum PairingStatus {
 
   // Devices that failed to pair
   PAIRING_STATUS_FAILED = 5;
-}
-
-// Field to sort miners by in list operations
-enum SortField {
-  // Unspecified sort field - uses default sort (name ASC)
-  SORT_FIELD_UNSPECIFIED = 0;
-  // Sort by miner name
-  SORT_FIELD_NAME = 1;
-  // Sort by IP address (numeric comparison)
-  SORT_FIELD_IP_ADDRESS = 2;
-  // Sort by MAC address
-  SORT_FIELD_MAC_ADDRESS = 3;
-  // Reserved: STATUS (4) and ISSUES (10) sorting removed
-  reserved 4, 10;
-  reserved "SORT_FIELD_STATUS", "SORT_FIELD_ISSUES";
-  // Sort by device model (e.g., "S21 XP", "M60")
-  SORT_FIELD_MODEL = 5;
-  // Sort by hashrate (TH/s)
-  SORT_FIELD_HASHRATE = 6;
-  // Sort by temperature (Celsius)
-  SORT_FIELD_TEMPERATURE = 7;
-  // Sort by power consumption (kW)
-  SORT_FIELD_POWER = 8;
-  // Sort by efficiency (J/TH)
-  SORT_FIELD_EFFICIENCY = 9;
-  // Sort by firmware version
-  SORT_FIELD_FIRMWARE = 11;
-}
-
-// Direction to sort results
-enum SortDirection {
-  // Unspecified direction - server defaults to ASC.
-  SORT_DIRECTION_UNSPECIFIED = 0;
-  // Ascending order (A-Z, 0-9, lowest first)
-  SORT_DIRECTION_ASC = 1;
-  // Descending order (Z-A, 9-0, highest first)
-  SORT_DIRECTION_DESC = 2;
-}
-
-// Configuration for sorting miner list results
-message MinerSortConfig {
-  // Field to sort by
-  SortField field = 1 [(buf.validate.field).enum.defined_only = true];
-  // Direction to sort
-  SortDirection direction = 2 [(buf.validate.field).enum.defined_only = true];
 }
 
 // Removed ComponentType enum and ComponentStatusFilter - now using errors.v1.ComponentType directly
@@ -422,7 +378,7 @@ message RenameMinersRequest {
 
   // Current fleet table sort used to assign counter order during rename.
   // If omitted, the backend falls back to the default name ascending order.
-  repeated MinerSortConfig sort = 3;
+  repeated common.v1.SortConfig sort = 3;
 }
 
 // Response from renaming miners with per-device outcome counts for the batch.

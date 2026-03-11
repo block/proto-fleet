@@ -7,11 +7,14 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 const (
@@ -19,6 +22,30 @@ const (
 	testUserID       = int64(100)
 	testCollectionID = int64(42)
 )
+
+// mockDeviceQueryer implements DeviceQueryer for tests.
+type mockDeviceQueryer struct {
+	devicesByFilter         map[int64][]string // collectionID -> device identifiers
+	stateCountsByCollection map[int64]interfaces.MinerStateCounts
+	err                     error
+}
+
+func (m *mockDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if filter != nil && len(filter.GroupIDs) == 1 {
+		return m.devicesByFilter[filter.GroupIDs[0]], nil
+	}
+	return nil, nil
+}
+
+func (m *mockDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.stateCountsByCollection, nil
+}
 
 func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.MockTransactor) {
 	t.Helper()
@@ -43,7 +70,7 @@ func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.
 		return nil, nil
 	}
 
-	svc := NewService(mockStore, mockTransactor, noopResolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil)
 	return svc, mockStore, mockTransactor
 }
 
@@ -146,7 +173,7 @@ func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), testCollectionID, testOrgID).
 		Return(false, nil)
@@ -249,7 +276,7 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("access denied")
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	// Act
 	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
@@ -277,7 +304,7 @@ func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *tes
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -319,7 +346,7 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("device not owned by org")
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	// Act
 	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
@@ -347,7 +374,7 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -386,7 +413,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -432,6 +459,171 @@ func TestService_UpdateCollection_WithoutDeviceSelectorLeavesMembers(t *testing.
 	assert.Equal(t, int32(3), resp.Collection.DeviceCount)
 }
 
+// mockTelemetryCollector implements TelemetryCollector for tests.
+type mockTelemetryCollector struct {
+	metrics map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics
+	err     error
+}
+
+func (m *mockTelemetryCollector) GetLatestDeviceMetrics(_ context.Context, _ []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
+	return m.metrics, m.err
+}
+
+func newTestServiceWithTelemetry(t *testing.T, telemetry TelemetryCollector, deviceQ DeviceQueryer) (*Service, *mocks.MockCollectionStore) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	).AnyTimes()
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+	svc := NewService(mockStore, deviceQ, mockTransactor, noopResolver, telemetry)
+	return svc, mockStore
+}
+
+func TestService_GetCollectionStats_EmptyRequest(t *testing.T) {
+	svc, _ := newTestServiceWithTelemetry(t, nil, &mockDeviceQueryer{})
+	ctx := testCtx(t)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Stats)
+}
+
+func TestService_GetCollectionStats_EmptyCollection(t *testing.T) {
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter:         map[int64][]string{testCollectionID: {}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{testCollectionID: {}},
+	}
+	svc, _ := newTestServiceWithTelemetry(t, &mockTelemetryCollector{
+		metrics: map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics{},
+	}, deviceQ)
+	ctx := testCtx(t)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
+		CollectionIds: []int64{testCollectionID},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 1)
+
+	cs := resp.Stats[0]
+	assert.Equal(t, testCollectionID, cs.CollectionId)
+	assert.Equal(t, int32(0), cs.DeviceCount)
+	assert.Equal(t, int32(0), cs.ReportingCount)
+	assert.Equal(t, float64(0), cs.TotalHashrateThs)
+}
+
+func TestService_GetCollectionStats_NilTelemetry(t *testing.T) {
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter: map[int64][]string{testCollectionID: {"dev-1", "dev-2"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{
+			testCollectionID: {HashingCount: 1, OfflineCount: 1},
+		},
+	}
+	svc, _ := newTestServiceWithTelemetry(t, nil, deviceQ)
+	ctx := testCtx(t)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
+		CollectionIds: []int64{testCollectionID},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 1)
+
+	cs := resp.Stats[0]
+	assert.Equal(t, int32(2), cs.DeviceCount)
+	assert.Equal(t, int32(1), cs.HashingCount)
+	assert.Equal(t, int32(1), cs.OfflineCount)
+	// Telemetry fields should be zero since telemetry is nil
+	assert.Equal(t, int32(0), cs.ReportingCount)
+	assert.Equal(t, float64(0), cs.TotalHashrateThs)
+}
+
+func TestService_GetCollectionStats_MixedMetrics(t *testing.T) {
+	collID := int64(10)
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter: map[int64][]string{collID: {"dev-1", "dev-2", "dev-3"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{
+			collID: {HashingCount: 2, BrokenCount: 0, OfflineCount: 1, SleepingCount: 0},
+		},
+	}
+	telemetry := &mockTelemetryCollector{
+		metrics: map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics{
+			"dev-1": {
+				HashrateHS:   &modelsV2.MetricValue{Value: 100e12}, // 100 TH/s
+				PowerW:       &modelsV2.MetricValue{Value: 3000},   // 3 kW
+				EfficiencyJH: &modelsV2.MetricValue{Value: 30e-12}, // 30 J/TH
+				TempC:        &modelsV2.MetricValue{Value: 65},
+			},
+			"dev-2": {
+				HashrateHS: &modelsV2.MetricValue{Value: 50e12}, // 50 TH/s
+				TempC:      &modelsV2.MetricValue{Value: 72},
+				// No power or efficiency for this device
+			},
+			// dev-3 has no telemetry at all (not in map)
+		},
+	}
+	svc, _ := newTestServiceWithTelemetry(t, telemetry, deviceQ)
+	ctx := testCtx(t)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
+		CollectionIds: []int64{collID},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 1)
+
+	cs := resp.Stats[0]
+	assert.Equal(t, int32(3), cs.DeviceCount)
+	assert.Equal(t, int32(2), cs.ReportingCount)
+	assert.Equal(t, int32(2), cs.HashingCount)
+	assert.Equal(t, int32(1), cs.OfflineCount)
+
+	// Hashrate: (100e12 + 50e12) / 1e12 = 150 TH/s
+	assert.InDelta(t, 150.0, cs.TotalHashrateThs, 0.01)
+
+	// Power: 3000 / 1000 = 3 kW (only dev-1)
+	assert.InDelta(t, 3.0, cs.TotalPowerKw, 0.01)
+
+	// Efficiency: 30e-12 * 1e12 = 30 J/TH (only dev-1)
+	assert.InDelta(t, 30.0, cs.AvgEfficiencyJth, 0.01)
+
+	// Temperature: min=65, max=72
+	assert.InDelta(t, 65.0, cs.MinTemperatureC, 0.01)
+	assert.InDelta(t, 72.0, cs.MaxTemperatureC, 0.01)
+}
+
+func TestService_GetCollectionStats_MultipleCollections(t *testing.T) {
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter: map[int64][]string{1: {"dev-1"}, 2: {"dev-2"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{
+			1: {HashingCount: 1},
+			2: {HashingCount: 1},
+		},
+	}
+	telemetry := &mockTelemetryCollector{
+		metrics: map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics{
+			"dev-1": {HashrateHS: &modelsV2.MetricValue{Value: 80e12}},
+			"dev-2": {HashrateHS: &modelsV2.MetricValue{Value: 60e12}},
+		},
+	}
+	svc, _ := newTestServiceWithTelemetry(t, telemetry, deviceQ)
+	ctx := testCtx(t)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{1, 2}})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 2)
+
+	assert.Equal(t, int64(1), resp.Stats[0].CollectionId)
+	assert.InDelta(t, 80.0, resp.Stats[0].TotalHashrateThs, 0.01)
+	assert.Equal(t, int64(2), resp.Stats[1].CollectionId)
+	assert.InDelta(t, 60.0, resp.Stats[1].TotalHashrateThs, 0.01)
+}
+
 func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)
@@ -446,7 +638,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 		}
 		return nil, nil
 	}
-	svc := NewService(mockStore, mockTransactor, resolver)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {

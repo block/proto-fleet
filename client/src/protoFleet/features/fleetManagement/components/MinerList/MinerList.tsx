@@ -14,11 +14,11 @@ import {
 import createMinerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
+import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
-  type MinerSortConfig,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -128,7 +128,7 @@ type MinerListProps = {
   /** Active server-side filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
   /** Current server-side sort — forwarded for bulk actions that depend on table order. */
-  currentSortConfig?: MinerSortConfig;
+  currentSortConfig?: SortConfig;
 };
 
 // TODO: move this to state when we

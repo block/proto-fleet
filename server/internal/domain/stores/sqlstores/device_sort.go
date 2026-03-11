@@ -90,7 +90,7 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 		field = sortConfig.Field
 	}
 
-	switch field {
+	switch field { //nolint:exhaustive // device_count not applicable to device rows
 	case stores.SortFieldUnspecified, stores.SortFieldName:
 		if row.CustomName.Valid && row.CustomName.String != "" {
 			return strings.TrimSpace(row.CustomName.String)

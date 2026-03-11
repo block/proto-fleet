@@ -293,7 +293,7 @@ func start(config *Config) error {
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, transactor, deviceResolver.Resolve)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),

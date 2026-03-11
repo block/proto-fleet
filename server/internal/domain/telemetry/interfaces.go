@@ -1,6 +1,6 @@
 package telemetry
 
-//go:generate mockgen -source=interfaces.go -destination=mocks/mock_interfaces.go -package=mock ErrorPoller
+//go:generate go run go.uber.org/mock/mockgen -source=interfaces.go -destination=mocks/mock_interfaces.go -package=mock ErrorPoller
 
 import (
 	"context"

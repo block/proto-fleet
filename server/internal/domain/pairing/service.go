@@ -107,7 +107,7 @@ func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
 	return ipAddr
 }
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener,CapabilitiesProvider
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener,CapabilitiesProvider
 type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
 }

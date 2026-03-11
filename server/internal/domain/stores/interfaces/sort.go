@@ -18,6 +18,7 @@ const (
 	SortFieldPower       SortField = 8
 	SortFieldEfficiency  SortField = 9
 	SortFieldFirmware    SortField = 11
+	SortFieldDeviceCount SortField = 12
 )
 
 // SortDirection represents the direction to sort results.
@@ -50,7 +51,8 @@ func (c *SortConfig) IsValid() bool {
 		c.Field == SortFieldTemperature ||
 		c.Field == SortFieldPower ||
 		c.Field == SortFieldEfficiency ||
-		c.Field == SortFieldFirmware
+		c.Field == SortFieldFirmware ||
+		c.Field == SortFieldDeviceCount
 
 	validDirection := c.Direction == SortDirectionAsc || c.Direction == SortDirectionDesc
 

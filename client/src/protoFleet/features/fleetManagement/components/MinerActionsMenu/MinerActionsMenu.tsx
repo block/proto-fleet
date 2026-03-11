@@ -9,10 +9,8 @@ import CoolingModeModal from "./CoolingModeModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
-import type {
-  MinerListFilter,
-  MinerSortConfig,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { ChevronDown, Edit } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -29,7 +27,7 @@ interface MinerActionsMenuProps {
   /** Active UI filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
-  currentSort?: MinerSortConfig;
+  currentSort?: SortConfig;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }

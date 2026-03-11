@@ -5,6 +5,7 @@ package collection.v1;
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
 import "common/v1/device_selector.proto";
+import "common/v1/sort.proto";
 
 // Service for managing device collections (groups and racks)
 // Collections allow grouping devices for filtering and bulk operations
@@ -44,6 +45,9 @@ service DeviceCollectionService {
 
     // Lists all occupied slot positions in a rack
     rpc GetRackSlots(GetRackSlotsRequest) returns (GetRackSlotsResponse);
+
+    // Returns aggregated telemetry stats for a list of collections
+    rpc GetCollectionStats(GetCollectionStatsRequest) returns (GetCollectionStatsResponse);
 }
 
 // Type of collection
@@ -232,6 +236,10 @@ message ListCollectionsRequest {
 
     // Pagination cursor from a previous response
     string page_token = 3;
+
+    // Sort configuration (defaults to name ascending).
+    // Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
+    common.v1.SortConfig sort = 4;
 }
 
 // Response containing collections
@@ -241,6 +249,9 @@ message ListCollectionsResponse {
 
     // Cursor for the next page, empty if no more results
     string next_page_token = 2;
+
+    // Total number of collections matching the request filters
+    int32 total_count = 3;
 }
 
 // Request to add devices to a collection
@@ -364,4 +375,45 @@ message RackSlot {
 message GetRackSlotsResponse {
     // Occupied slots ordered by row then column
     repeated RackSlot slots = 1;
+}
+
+// Aggregated telemetry stats for a single collection
+message CollectionStats {
+    // Collection identifier
+    int64 collection_id = 1;
+    // Total number of devices in the collection
+    int32 device_count = 2;
+    // Number of devices with recent telemetry data
+    int32 reporting_count = 3;
+
+    // Aggregated telemetry (totals/averages across reporting devices)
+    double total_hashrate_ths = 4;
+    double avg_efficiency_jth = 5;
+    double total_power_kw = 6;
+    double min_temperature_c = 7;
+    double max_temperature_c = 8;
+
+    // Fleet health state counts (mirrors dashboard FleetHealth buckets)
+    int32 hashing_count = 9;       // ACTIVE + no auth issues + no actionable errors
+    int32 broken_count = 10;       // ERROR/NEEDS_MINING_POOL/AUTH_NEEDED or has open errors
+    int32 offline_count = 11;      // OFFLINE or NULL status
+    int32 sleeping_count = 12;     // MAINTENANCE or INACTIVE
+
+    // Per-metric reporting counts (devices that report each specific metric)
+    int32 hashrate_reporting_count = 13;
+    int32 efficiency_reporting_count = 14;
+    int32 power_reporting_count = 15;
+    int32 temperature_reporting_count = 16;
+}
+
+// Request to get aggregated stats for collections
+message GetCollectionStatsRequest {
+    // Collection IDs to get stats for
+    repeated int64 collection_ids = 1;
+}
+
+// Response containing stats for each requested collection
+message GetCollectionStatsResponse {
+    // Stats per collection (one entry per requested collection ID)
+    repeated CollectionStats stats = 1;
 }

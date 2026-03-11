@@ -3,14 +3,14 @@ package fleetmanagement
 import (
 	"log/slog"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// parseSortConfig converts proto MinerSortConfig slice to domain SortConfig.
+// parseSortConfig converts proto SortConfig slice to domain SortConfig.
 // Currently only uses the first element; multi-column sorting reserved for future.
 // Returns nil if no sort is specified or if the config is invalid (uses default order).
-func parseSortConfig(pbSorts []*pb.MinerSortConfig) *interfaces.SortConfig {
+func parseSortConfig(pbSorts []*commonpb.SortConfig) *interfaces.SortConfig {
 	if len(pbSorts) == 0 {
 		return nil
 	}
@@ -21,7 +21,7 @@ func parseSortConfig(pbSorts []*pb.MinerSortConfig) *interfaces.SortConfig {
 	}
 
 	pbSort := pbSorts[0]
-	if pbSort == nil || pbSort.Field == pb.SortField_SORT_FIELD_UNSPECIFIED {
+	if pbSort == nil || pbSort.Field == commonpb.SortField_SORT_FIELD_UNSPECIFIED {
 		return nil
 	}
 

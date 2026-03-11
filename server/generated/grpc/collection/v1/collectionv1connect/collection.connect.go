@@ -70,6 +70,9 @@ const (
 	// DeviceCollectionServiceGetRackSlotsProcedure is the fully-qualified name of the
 	// DeviceCollectionService's GetRackSlots RPC.
 	DeviceCollectionServiceGetRackSlotsProcedure = "/collection.v1.DeviceCollectionService/GetRackSlots"
+	// DeviceCollectionServiceGetCollectionStatsProcedure is the fully-qualified name of the
+	// DeviceCollectionService's GetCollectionStats RPC.
+	DeviceCollectionServiceGetCollectionStatsProcedure = "/collection.v1.DeviceCollectionService/GetCollectionStats"
 )
 
 // DeviceCollectionServiceClient is a client for the collection.v1.DeviceCollectionService service.
@@ -98,6 +101,8 @@ type DeviceCollectionServiceClient interface {
 	ClearRackSlotPosition(context.Context, *connect.Request[v1.ClearRackSlotPositionRequest]) (*connect.Response[v1.ClearRackSlotPositionResponse], error)
 	// Lists all occupied slot positions in a rack
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
+	// Returns aggregated telemetry stats for a list of collections
+	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
 }
 
 // NewDeviceCollectionServiceClient constructs a client for the
@@ -170,6 +175,11 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceGetRackSlotsProcedure,
 			opts...,
 		),
+		getCollectionStats: connect.NewClient[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse](
+			httpClient,
+			baseURL+DeviceCollectionServiceGetCollectionStatsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -187,6 +197,7 @@ type deviceCollectionServiceClient struct {
 	setRackSlotPosition         *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
 	clearRackSlotPosition       *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
 	getRackSlots                *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
+	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
 }
 
 // CreateCollection calls collection.v1.DeviceCollectionService.CreateCollection.
@@ -250,6 +261,11 @@ func (c *deviceCollectionServiceClient) GetRackSlots(ctx context.Context, req *c
 	return c.getRackSlots.CallUnary(ctx, req)
 }
 
+// GetCollectionStats calls collection.v1.DeviceCollectionService.GetCollectionStats.
+func (c *deviceCollectionServiceClient) GetCollectionStats(ctx context.Context, req *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error) {
+	return c.getCollectionStats.CallUnary(ctx, req)
+}
+
 // DeviceCollectionServiceHandler is an implementation of the collection.v1.DeviceCollectionService
 // service.
 type DeviceCollectionServiceHandler interface {
@@ -277,6 +293,8 @@ type DeviceCollectionServiceHandler interface {
 	ClearRackSlotPosition(context.Context, *connect.Request[v1.ClearRackSlotPositionRequest]) (*connect.Response[v1.ClearRackSlotPositionResponse], error)
 	// Lists all occupied slot positions in a rack
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
+	// Returns aggregated telemetry stats for a list of collections
+	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
 }
 
 // NewDeviceCollectionServiceHandler builds an HTTP handler from the service implementation. It
@@ -345,6 +363,11 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 		svc.GetRackSlots,
 		opts...,
 	)
+	deviceCollectionServiceGetCollectionStatsHandler := connect.NewUnaryHandler(
+		DeviceCollectionServiceGetCollectionStatsProcedure,
+		svc.GetCollectionStats,
+		opts...,
+	)
 	return "/collection.v1.DeviceCollectionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceCollectionServiceCreateCollectionProcedure:
@@ -371,6 +394,8 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceClearRackSlotPositionHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceGetRackSlotsProcedure:
 			deviceCollectionServiceGetRackSlotsHandler.ServeHTTP(w, r)
+		case DeviceCollectionServiceGetCollectionStatsProcedure:
+			deviceCollectionServiceGetCollectionStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -426,4 +451,8 @@ func (UnimplementedDeviceCollectionServiceHandler) ClearRackSlotPosition(context
 
 func (UnimplementedDeviceCollectionServiceHandler) GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.GetRackSlots is not implemented"))
+}
+
+func (UnimplementedDeviceCollectionServiceHandler) GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.GetCollectionStats is not implemented"))
 }

@@ -3,7 +3,7 @@ package fleetmanagement
 import (
 	"testing"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
@@ -11,7 +11,7 @@ import (
 func TestParseSortConfig(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    []*pb.MinerSortConfig
+		input    []*commonpb.SortConfig
 		expected *interfaces.SortConfig
 	}{
 		{
@@ -21,32 +21,32 @@ func TestParseSortConfig(t *testing.T) {
 		},
 		{
 			name:     "empty slice",
-			input:    []*pb.MinerSortConfig{},
+			input:    []*commonpb.SortConfig{},
 			expected: nil,
 		},
 		{
 			name: "nil first element",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				nil,
 			},
 			expected: nil,
 		},
 		{
 			name: "unspecified field",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField_SORT_FIELD_UNSPECIFIED,
-					Direction: pb.SortDirection_SORT_DIRECTION_ASC,
+					Field:     commonpb.SortField_SORT_FIELD_UNSPECIFIED,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_ASC,
 				},
 			},
 			expected: nil,
 		},
 		{
 			name: "valid config",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField_SORT_FIELD_HASHRATE,
-					Direction: pb.SortDirection_SORT_DIRECTION_DESC,
+					Field:     commonpb.SortField_SORT_FIELD_HASHRATE,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_DESC,
 				},
 			},
 			expected: &interfaces.SortConfig{
@@ -56,10 +56,10 @@ func TestParseSortConfig(t *testing.T) {
 		},
 		{
 			name: "unspecified direction defaults to ASC",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField_SORT_FIELD_NAME,
-					Direction: pb.SortDirection_SORT_DIRECTION_UNSPECIFIED,
+					Field:     commonpb.SortField_SORT_FIELD_NAME,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_UNSPECIFIED,
 				},
 			},
 			expected: &interfaces.SortConfig{
@@ -69,20 +69,20 @@ func TestParseSortConfig(t *testing.T) {
 		},
 		{
 			name: "invalid field returns nil",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField(100),
-					Direction: pb.SortDirection_SORT_DIRECTION_ASC,
+					Field:     commonpb.SortField(100),
+					Direction: commonpb.SortDirection_SORT_DIRECTION_ASC,
 				},
 			},
 			expected: nil,
 		},
 		{
 			name: "valid config - firmware",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField_SORT_FIELD_FIRMWARE,
-					Direction: pb.SortDirection_SORT_DIRECTION_DESC,
+					Field:     commonpb.SortField_SORT_FIELD_FIRMWARE,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_DESC,
 				},
 			},
 			expected: &interfaces.SortConfig{
@@ -92,14 +92,14 @@ func TestParseSortConfig(t *testing.T) {
 		},
 		{
 			name: "uses first element only (multi-column reserved for future)",
-			input: []*pb.MinerSortConfig{
+			input: []*commonpb.SortConfig{
 				{
-					Field:     pb.SortField_SORT_FIELD_HASHRATE,
-					Direction: pb.SortDirection_SORT_DIRECTION_DESC,
+					Field:     commonpb.SortField_SORT_FIELD_HASHRATE,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_DESC,
 				},
 				{
-					Field:     pb.SortField_SORT_FIELD_NAME,
-					Direction: pb.SortDirection_SORT_DIRECTION_ASC,
+					Field:     commonpb.SortField_SORT_FIELD_NAME,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_ASC,
 				},
 			},
 			expected: &interfaces.SortConfig{

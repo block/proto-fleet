@@ -10,7 +10,7 @@ import (
 
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // MockPairer is a mock of Pairer interface.

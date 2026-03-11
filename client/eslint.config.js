@@ -2,7 +2,7 @@ import eslint from "@eslint/js";
 import { fixupPluginRules } from "@eslint/compat";
 import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import typescriptEslintParser from "@typescript-eslint/parser";
-import noImport from "eslint-plugin-import";
+import importX from "eslint-plugin-import-x";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import playwright from "eslint-plugin-playwright";
 import prettier from "eslint-plugin-prettier";
@@ -39,7 +39,7 @@ export default [
       },
     },
     plugins: {
-      import: noImport,
+      "import-x": importX,
       "jsx-a11y": jsxA11y,
       react,
       "react-hooks": fixupPluginRules(reactHooks),
@@ -62,7 +62,7 @@ export default [
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       quotes: ["error", "double"],
       "no-console": ["error", { allow: ["warn", "error"] }],
-      "import/no-unresolved": "off",
+      "import-x/no-unresolved": "off",
       "sort-imports": [
         "error",
         {
@@ -70,7 +70,7 @@ export default [
           ignoreDeclarationSort: true,
         },
       ],
-      "import/order": [
+      "import-x/order": [
         "error",
         {
           groups: ["external", "builtin", "internal", "parent", "sibling", "index"],

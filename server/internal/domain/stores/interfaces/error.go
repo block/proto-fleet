@@ -7,7 +7,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
-//go:generate mockgen -source=error.go -destination=mocks/mock_error_store.go -package=mocks ErrorStore
+//go:generate go run go.uber.org/mock/mockgen -source=error.go -destination=mocks/mock_error_store.go -package=mocks ErrorStore
 
 // ErrorStore defines the interface for error-related operations in the store layer.
 type ErrorStore interface {

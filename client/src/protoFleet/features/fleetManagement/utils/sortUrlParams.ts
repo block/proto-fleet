@@ -1,10 +1,10 @@
 import { create } from "@bufbuild/protobuf";
 import {
-  type MinerSortConfig,
-  MinerSortConfigSchema,
+  type SortConfig,
+  SortConfigSchema,
   SortDirection,
   SortField,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+} from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
 /**
@@ -55,7 +55,7 @@ const SORT_FIELD_TO_URL: Partial<Record<SortField, string>> = {
  * // URL: ?sort=hashrate&dir=desc
  * parseSortFromURL(params) // MinerSortConfig { field: HASHRATE, direction: DESC }
  */
-export function parseSortFromURL(params: URLSearchParams): MinerSortConfig | undefined {
+export function parseSortFromURL(params: URLSearchParams): SortConfig | undefined {
   const sortParam = params.get(URL_PARAMS.SORT);
   if (!sortParam) {
     return undefined;
@@ -70,7 +70,7 @@ export function parseSortFromURL(params: URLSearchParams): MinerSortConfig | und
   const dirParam = params.get(URL_PARAMS.DIR);
   const direction = dirParam === SORT_ASC ? SortDirection.ASC : SortDirection.DESC;
 
-  return create(MinerSortConfigSchema, { field, direction });
+  return create(SortConfigSchema, { field, direction });
 }
 
 /**
@@ -81,7 +81,7 @@ export function parseSortFromURL(params: URLSearchParams): MinerSortConfig | und
  * encodeSortToURL(params, { field: SortField.HASHRATE, direction: SortDirection.DESC })
  * // params now has: sort=hashrate&dir=desc
  */
-export function encodeSortToURL(params: URLSearchParams, sort: MinerSortConfig | undefined): void {
+export function encodeSortToURL(params: URLSearchParams, sort: SortConfig | undefined): void {
   if (!sort || sort.field === SortField.UNSPECIFIED) {
     params.delete(URL_PARAMS.SORT);
     params.delete(URL_PARAMS.DIR);

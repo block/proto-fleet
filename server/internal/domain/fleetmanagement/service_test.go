@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
@@ -1342,9 +1342,9 @@ func TestService_RenameMiners_CounterOrderByRequestedSort(t *testing.T) {
 			},
 			Separator: "",
 		},
-		Sort: []*pb.MinerSortConfig{{
-			Field:     pb.SortField_SORT_FIELD_NAME,
-			Direction: pb.SortDirection_SORT_DIRECTION_ASC,
+		Sort: []*commonv1.SortConfig{{
+			Field:     commonv1.SortField_SORT_FIELD_NAME,
+			Direction: commonv1.SortDirection_SORT_DIRECTION_ASC,
 		}},
 	}
 	_, err = service.RenameMiners(ctx, renameReq)

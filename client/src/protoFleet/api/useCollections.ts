@@ -2,11 +2,16 @@ import { useCallback } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { collectionClient } from "@/protoFleet/api/clients";
-import { CollectionType, type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import {
+  type CollectionStats,
+  CollectionType,
+  type DeviceCollection,
+} from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   DeviceIdentifierListSchema,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateGroupProps {
@@ -36,7 +41,10 @@ interface DeleteGroupProps {
 }
 
 interface ListCollectionsProps {
-  onSuccess?: (collections: DeviceCollection[]) => void;
+  pageSize?: number;
+  pageToken?: string;
+  sort?: SortConfig;
+  onSuccess?: (collections: DeviceCollection[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -46,6 +54,13 @@ interface AddDevicesToCollectionProps {
   deviceIdentifiers?: string[];
   allDevices?: boolean;
   onSuccess?: (addedCount: number) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface GetCollectionStatsProps {
+  collectionIds: bigint[];
+  onSuccess?: (stats: CollectionStats[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -170,13 +185,33 @@ const useCollections = () => {
   );
 
   const listGroups = useCallback(
-    async ({ onSuccess, onError, onFinally }: ListCollectionsProps) => {
+    async ({ pageSize, pageToken, sort, onSuccess, onError, onFinally }: ListCollectionsProps) => {
       try {
-        const response = await collectionClient.listCollections({
-          type: CollectionType.GROUP,
-          pageSize: 100,
-        });
-        onSuccess?.(response.collections);
+        if (pageSize) {
+          const response = await collectionClient.listCollections({
+            type: CollectionType.GROUP,
+            pageSize,
+            pageToken: pageToken ?? "",
+            sort,
+          });
+          onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
+        } else {
+          // Server caps pageSize at 1000, so we page through all results
+          // to support callers that need the full unpaginated list.
+          const all: DeviceCollection[] = [];
+          let nextToken = "";
+          do {
+            const response = await collectionClient.listCollections({
+              type: CollectionType.GROUP,
+              pageSize: 1000,
+              pageToken: nextToken,
+              sort,
+            });
+            all.push(...response.collections);
+            nextToken = response.nextPageToken;
+          } while (nextToken);
+          onSuccess?.(all, "", all.length);
+        }
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -198,7 +233,7 @@ const useCollections = () => {
           type: CollectionType.RACK,
           pageSize: 100,
         });
-        onSuccess?.(response.collections);
+        onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -232,6 +267,25 @@ const useCollections = () => {
         } while (pageToken !== "");
 
         onSuccess?.(allIdentifiers);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const getCollectionStats = useCallback(
+    async ({ collectionIds, onSuccess, onError, onFinally }: GetCollectionStatsProps) => {
+      try {
+        const response = await collectionClient.getCollectionStats({ collectionIds });
+        onSuccess?.(response.stats);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -288,6 +342,7 @@ const useCollections = () => {
     listGroups,
     listRacks,
     listGroupMembers,
+    getCollectionStats,
     addDevicesToCollection,
   };
 };

@@ -1,6 +1,6 @@
 import { minerCols, type MinerColumn } from "./constants";
 
-import { SortField } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 
 type SortColumnConfig = {

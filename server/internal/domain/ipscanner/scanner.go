@@ -9,7 +9,7 @@ import (
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
-//go:generate mockgen -source=scanner.go -destination=mocks/mock_scanner.go -package=mocks DeviceIdentityCheckService
+//go:generate go run go.uber.org/mock/mockgen -source=scanner.go -destination=mocks/mock_scanner.go -package=mocks DeviceIdentityCheckService
 
 // DeviceIdentityCheckService defines the interface for device identity verification
 type DeviceIdentityCheckService interface {

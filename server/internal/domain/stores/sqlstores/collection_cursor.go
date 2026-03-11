@@ -9,10 +9,15 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// collectionCursor holds pagination state for ListCollections (ordered by label ASC, id ASC).
+// collectionCursor holds pagination state for ListCollections.
+// SortField and SortDir track the ordering used when the cursor was created so
+// stale cursors from a different sort configuration are rejected.
 type collectionCursor struct {
-	Label string `json:"l"`
-	ID    int64  `json:"id"`
+	Label       string `json:"l"`
+	ID          int64  `json:"id"`
+	SortField   string `json:"sf,omitempty"`
+	SortDir     string `json:"sd,omitempty"`
+	DeviceCount *int32 `json:"dc,omitempty"`
 }
 
 // memberCursor holds pagination state for ListCollectionMembers (ordered by created_at DESC, id DESC).

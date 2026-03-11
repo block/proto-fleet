@@ -149,7 +149,8 @@ func lessDevicePropsForRename(
 	case interfaces.SortFieldUnspecified,
 		interfaces.SortFieldName,
 		interfaces.SortFieldIPAddress,
-		interfaces.SortFieldMACAddress:
+		interfaces.SortFieldMACAddress,
+		interfaces.SortFieldDeviceCount:
 	case interfaces.SortFieldHashrate:
 		return lessNullableFloat64(left.Hashrate, right.Hashrate, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
 	case interfaces.SortFieldTemperature:
@@ -207,6 +208,8 @@ func compareDevicePropsForRename(
 		return strings.Compare(left.MacAddress, right.MacAddress)
 	case interfaces.SortFieldModel:
 		return compareNullableString(left.ModelSortValue, right.ModelSortValue)
+	case interfaces.SortFieldDeviceCount:
+		return strings.Compare(getRenameSortName(left), getRenameSortName(right))
 	}
 
 	return strings.Compare(getRenameSortName(left), getRenameSortName(right))

@@ -15,7 +15,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { equals } from "@bufbuild/protobuf";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { SortConfig, SortConfigSchema } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   MinerListFilter,
   MinerListFilterSchema,
-  MinerSortConfig,
-  MinerSortConfigSchema,
   MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -24,7 +23,7 @@ type UseFleetOptions = {
    * Sort configuration for ordering miners.
    * When undefined, uses default server-side ordering (discovery order).
    */
-  sort?: MinerSortConfig;
+  sort?: SortConfig;
   pageSize?: number;
   pairingStatuses?: PairingStatus[];
   /**
@@ -116,7 +115,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const fetchMinerList = useCallback(
     async (
       filter: MinerListFilter | undefined,
-      sort: MinerSortConfig | undefined,
+      sort: SortConfig | undefined,
       pageCursor?: string,
       fetchedPage?: number,
       isRefresh: boolean = false,
@@ -335,7 +334,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const hasLoadedRef = useRef(false);
   const wasEnabledRef = useRef(enabled);
   const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
-  const previousSortRef = useRef<MinerSortConfig | undefined>(undefined);
+  const previousSortRef = useRef<SortConfig | undefined>(undefined);
 
   // Fetch data when filter or sort changes
   useEffect(() => {
@@ -358,7 +357,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
       previousSortRef.current === sort || // Both undefined or same reference
       (previousSortRef.current !== undefined &&
         sort !== undefined &&
-        equals(MinerSortConfigSchema, previousSortRef.current, sort));
+        equals(SortConfigSchema, previousSortRef.current, sort));
 
     const filterChanged = !filtersEqual;
     const sortChanged = !sortsEqual;

@@ -6,7 +6,7 @@ import (
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
-//go:generate mockgen -source=discovered_device.go -destination=mocks/mock_discovered_device_store.go -package=mocks DiscoveredDeviceStore
+//go:generate go run go.uber.org/mock/mockgen -source=discovered_device.go -destination=mocks/mock_discovered_device_store.go -package=mocks DiscoveredDeviceStore
 
 // DiscoveredDeviceStore defines the interface for discovered device operations in the store layer
 type DiscoveredDeviceStore interface {

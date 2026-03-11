@@ -17,7 +17,7 @@ import (
 	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/stretchr/testify/assert"

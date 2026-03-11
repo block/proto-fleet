@@ -3,7 +3,7 @@ package testutil
 import (
 	discovererMocks "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/mocks"
 	pairerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 )
 
 // NewMockProtoDiscoverer creates a mock discoverer for testing.

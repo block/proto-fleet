@@ -133,7 +133,7 @@ const (
 	defaultCombinedMetricsPageSize = 100
 )
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error

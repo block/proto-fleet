@@ -144,18 +144,42 @@ func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int
 	})
 }
 
-func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string) ([]*pb.DeviceCollection, string, error) {
+func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig) ([]*pb.DeviceCollection, string, int32, error) {
 	cursor, err := decodeCollectionCursor(pageToken)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 
-	// Fetch one extra row to determine if there's a next page
+	sortField, sortDir := resolveCollectionSort(sort)
+
+	// Validate cursor matches current sort (reject stale cursors from a different sort)
+	if cursor != nil && cursor.SortField != "" && cursor.SortField != sortField {
+		return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("cursor was created with sort field %q but request uses %q", cursor.SortField, sortField)
+	}
+	if cursor != nil && cursor.SortDir != "" && cursor.SortDir != sortDir {
+		return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("cursor was created with sort direction %q but request uses %q", cursor.SortDir, sortDir)
+	}
+
+	// Count total
+	var totalCount int32
+	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType)
+	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
+		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
+	}
+
+	// Build list query
 	fetchLimit := pageSize + 1
+	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit)
+
+	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", 0, fleeterror.NewInternalErrorf("failed to list collections: %v", err)
+	}
+	defer sqlRows.Close()
 
 	type collectionRow struct {
 		ID          int64
-		Type        sqlc.CollectionType
+		Type        string
 		Label       string
 		Description sql.NullString
 		DeviceCount int32
@@ -164,76 +188,33 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	}
 
 	var rows []collectionRow
-
-	if collectionType == pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
-		if cursor == nil {
-			sqlRows, err := s.GetQueries(ctx).ListCollectionsPaginated(ctx, sqlc.ListCollectionsPaginatedParams{
-				OrgID: orgID,
-				Limit: fetchLimit,
-			})
-			if err != nil {
-				return nil, "", fleeterror.NewInternalErrorf("failed to list collections: %v", err)
-			}
-			for _, r := range sqlRows {
-				rows = append(rows, collectionRow{r.ID, r.Type, r.Label, r.Description, r.DeviceCount, r.CreatedAt, r.UpdatedAt})
-			}
-		} else {
-			sqlRows, err := s.GetQueries(ctx).ListCollectionsPaginatedAfter(ctx, sqlc.ListCollectionsPaginatedAfterParams{
-				OrgID:       orgID,
-				Limit:       fetchLimit,
-				CursorLabel: cursor.Label,
-				CursorID:    cursor.ID,
-			})
-			if err != nil {
-				return nil, "", fleeterror.NewInternalErrorf("failed to list collections: %v", err)
-			}
-			for _, r := range sqlRows {
-				rows = append(rows, collectionRow{r.ID, r.Type, r.Label, r.Description, r.DeviceCount, r.CreatedAt, r.UpdatedAt})
-			}
+	for sqlRows.Next() {
+		var r collectionRow
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount); err != nil {
+			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
-	} else {
-		sqlType := protoCollectionTypeToSQL(collectionType)
-		if cursor == nil {
-			sqlRows, err := s.GetQueries(ctx).ListCollectionsByTypePaginated(ctx, sqlc.ListCollectionsByTypePaginatedParams{
-				OrgID: orgID,
-				Type:  sqlType,
-				Limit: fetchLimit,
-			})
-			if err != nil {
-				return nil, "", fleeterror.NewInternalErrorf("failed to list collections by type: %v", err)
-			}
-			for _, r := range sqlRows {
-				rows = append(rows, collectionRow{r.ID, r.Type, r.Label, r.Description, r.DeviceCount, r.CreatedAt, r.UpdatedAt})
-			}
-		} else {
-			sqlRows, err := s.GetQueries(ctx).ListCollectionsByTypePaginatedAfter(ctx, sqlc.ListCollectionsByTypePaginatedAfterParams{
-				OrgID:       orgID,
-				Type:        sqlType,
-				Limit:       fetchLimit,
-				CursorLabel: cursor.Label,
-				CursorID:    cursor.ID,
-			})
-			if err != nil {
-				return nil, "", fleeterror.NewInternalErrorf("failed to list collections by type: %v", err)
-			}
-			for _, r := range sqlRows {
-				rows = append(rows, collectionRow{r.ID, r.Type, r.Label, r.Description, r.DeviceCount, r.CreatedAt, r.UpdatedAt})
-			}
-		}
+		rows = append(rows, r)
+	}
+	if err := sqlRows.Err(); err != nil {
+		return nil, "", 0, fleeterror.NewInternalErrorf("failed to iterate collection rows: %v", err)
 	}
 
 	var nextPageToken string
 	if len(rows) > int(pageSize) {
 		rows = rows[:pageSize]
 		last := rows[len(rows)-1]
-		nextPageToken = encodeCollectionCursor(&collectionCursor{Label: last.Label, ID: last.ID})
+		cur := &collectionCursor{Label: last.Label, ID: last.ID, SortField: sortField, SortDir: sortDir}
+		if sortField == collectionSortFieldDeviceCount {
+			cur.DeviceCount = &last.DeviceCount
+		}
+		nextPageToken = encodeCollectionCursor(cur)
 	}
 
 	result := make([]*pb.DeviceCollection, len(rows))
 	for i, row := range rows {
-		result[i] = newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+		result[i] = newDeviceCollection(row.ID, sqlc.CollectionType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
 	}
-	return result, nextPageToken, nil
+	return result, nextPageToken, totalCount, nil
 }
 
 func (s *SQLCollectionStore) CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error) {

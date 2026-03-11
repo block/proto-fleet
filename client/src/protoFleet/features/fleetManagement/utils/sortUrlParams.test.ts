@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { encodeSortToURL, parseSortFromURL } from "./sortUrlParams";
-import { SortDirection, SortField } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { SortDirection, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 
 describe("sortUrlParams", () => {
   describe("parseSortFromURL", () => {
@@ -122,7 +122,7 @@ describe("sortUrlParams", () => {
       encodeSortToURL(params, {
         field: SortField.HASHRATE,
         direction: SortDirection.DESC,
-        $typeName: "fleetmanagement.v1.MinerSortConfig",
+        $typeName: "common.v1.SortConfig",
       } as any);
 
       // Assert
@@ -138,7 +138,7 @@ describe("sortUrlParams", () => {
       encodeSortToURL(params, {
         field: SortField.NAME,
         direction: SortDirection.ASC,
-        $typeName: "fleetmanagement.v1.MinerSortConfig",
+        $typeName: "common.v1.SortConfig",
       } as any);
 
       // Assert
@@ -154,7 +154,7 @@ describe("sortUrlParams", () => {
       encodeSortToURL(params, {
         field: SortField.HASHRATE,
         direction: SortDirection.DESC,
-        $typeName: "fleetmanagement.v1.MinerSortConfig",
+        $typeName: "common.v1.SortConfig",
       } as any);
 
       // Assert
@@ -184,7 +184,7 @@ describe("sortUrlParams", () => {
         encodeSortToURL(params, {
           field,
           direction: SortDirection.ASC,
-          $typeName: "fleetmanagement.v1.MinerSortConfig",
+          $typeName: "common.v1.SortConfig",
         } as any);
 
         // Assert

@@ -9,7 +9,7 @@ import (
 	reflect "reflect"
 
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // MockDiscoverer is a mock of Discoverer interface.

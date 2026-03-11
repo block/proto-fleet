@@ -140,7 +140,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * When true, renders filters outside/above the scroll container so they remain
    * visible while scrolling. Default is false (filters scroll with content).
    */
-  renderFiltersOutsideScroll?: boolean;
   /**
    * Ref forwarded to the scrollable container element.
    * Useful for programmatic scroll control (e.g., scroll-to-top on pagination).
@@ -210,7 +209,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onSort,
   getDefaultSortDirection,
   footerContent,
-  renderFiltersOutsideScroll = false,
   scrollRef,
   preserveOffPageSelection = false,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
@@ -502,7 +500,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const filtersElement = (filters?.length || headerControls) && (
-    <div className={clsx("relative z-3 flex w-full")}>
+    <div className={clsx("relative sticky left-0 z-3 flex w-full")}>
       <Filters<ListItem>
         key={JSON.stringify(initialActiveFilters ?? null)}
         className={clsx("gap-4 py-6", paddingClasses)}
@@ -519,17 +517,16 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   return (
     <div style={paddingCssVariables}>
-      {renderFiltersOutsideScroll && filtersElement}
+      {filtersElement}
 
       {!hideTotal && total !== undefined && (
-        <div className="flex">
+        <div className="sticky left-0 flex">
           <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
             {total} {total === 1 ? itemName.singular : itemName.plural}
           </div>
         </div>
       )}
       <div className={clsx("flex flex-col", containerClassName)}>
-        {!renderFiltersOutsideScroll && filtersElement}
         <div ref={scrollRef} className={clsx({ "overflow-x-auto": overflowContainer })}>
           {!noDataElement || (items && items.length > 0) ? (
             <>

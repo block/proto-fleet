@@ -2,12 +2,16 @@ package collection
 
 import (
 	"context"
+	"math"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
+	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 const (
@@ -15,26 +19,49 @@ const (
 	maxPageSize     int32 = 1000
 )
 
+const (
+	hashToTeraHashConversion                   = 1e12
+	wattsToKilowattsConversion                 = 1000.0
+	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
+)
+
+// TelemetryCollector fetches latest device metrics for telemetry aggregation.
+type TelemetryCollector interface {
+	GetLatestDeviceMetrics(ctx context.Context, deviceIDs []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
+}
+
+// DeviceQueryer provides device-level queries needed by collection stats.
+type DeviceQueryer interface {
+	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]string, error)
+	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]interfaces.MinerStateCounts, error)
+}
+
 // DeviceIdentifierResolver resolves a DeviceSelector into device identifiers for an org.
 type DeviceIdentifierResolver func(ctx context.Context, selector *commonpb.DeviceSelector, orgID int64) ([]string, error)
 
 // Service provides business logic for device collections (groups).
 type Service struct {
 	collectionStore          interfaces.CollectionStore
+	deviceQueryer            DeviceQueryer
 	transactor               interfaces.Transactor
 	resolveDeviceIdentifiers DeviceIdentifierResolver
+	telemetry                TelemetryCollector
 }
 
 // NewService creates a new collection service.
 func NewService(
 	collectionStore interfaces.CollectionStore,
+	deviceQueryer DeviceQueryer,
 	transactor interfaces.Transactor,
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
+	telemetry TelemetryCollector,
 ) *Service {
 	return &Service{
 		collectionStore:          collectionStore,
+		deviceQueryer:            deviceQueryer,
 		transactor:               transactor,
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
+		telemetry:                telemetry,
 	}
 }
 
@@ -229,12 +256,20 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 
 	pageSize := validatePageSize(req.PageSize)
 
-	collections, nextPageToken, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken)
+	var sort *interfaces.SortConfig
+	if req.Sort != nil {
+		sort = &interfaces.SortConfig{
+			Field:     interfaces.SortField(req.Sort.Field),
+			Direction: interfaces.SortDirection(req.Sort.Direction),
+		}
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken}, nil
+	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
 }
 
 // AddDevicesToCollection adds devices to a collection.
@@ -441,4 +476,138 @@ func (s *Service) GetRackSlots(ctx context.Context, req *pb.GetRackSlotsRequest)
 	}
 
 	return &pb.GetRackSlotsResponse{Slots: slots}, nil
+}
+
+// GetCollectionStats returns aggregated telemetry stats for a list of collections.
+func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionStatsRequest) (*pb.GetCollectionStatsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(req.CollectionIds) == 0 {
+		return &pb.GetCollectionStatsResponse{}, nil
+	}
+
+	// Get device identifiers per collection using existing device store filter
+	devicesByCollection := make(map[int64][]string, len(req.CollectionIds))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for _, collectionID := range req.CollectionIds {
+		ids, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, info.OrganizationID, &interfaces.MinerFilter{
+			GroupIDs: []int64{collectionID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		devicesByCollection[collectionID] = ids
+		for _, id := range ids {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+
+	// Batch-fetch telemetry for all devices
+	var telemetryData map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 && s.telemetry != nil {
+		deviceIDs := make([]minerModels.DeviceIdentifier, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			deviceIDs = append(deviceIDs, minerModels.DeviceIdentifier(id))
+		}
+
+		telemetryData, err = s.telemetry.GetLatestDeviceMetrics(ctx, deviceIDs)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to fetch telemetry: %v", err)
+		}
+	}
+
+	// Fetch miner state counts per collection using device store
+	stateCounts, err := s.deviceQueryer.GetMinerStateCountsByCollections(ctx, info.OrganizationID, req.CollectionIds)
+	if err != nil {
+		return nil, err
+	}
+
+	// Aggregate per collection
+	stats := make([]*pb.CollectionStats, 0, len(req.CollectionIds))
+	for _, collectionID := range req.CollectionIds {
+		deviceIDs := devicesByCollection[collectionID]
+		counts := stateCounts[collectionID]
+		// #nosec G115 -- len(deviceIDs) bounded by org device count which fits in int32
+		cs := &pb.CollectionStats{
+			CollectionId:  collectionID,
+			DeviceCount:   int32(len(deviceIDs)),
+			HashingCount:  counts.HashingCount,
+			BrokenCount:   counts.BrokenCount,
+			OfflineCount:  counts.OfflineCount,
+			SleepingCount: counts.SleepingCount,
+		}
+
+		var (
+			reportingCount    int32
+			hashrateReporting int32
+			powerReporting    int32
+			efficiencyN       int32
+			tempReporting     int32
+			totalHashrate     float64
+			totalPower        float64
+			efficiencySum     float64
+			minTemp           = math.MaxFloat64
+			maxTemp           = -math.MaxFloat64
+		)
+
+		for _, devID := range deviceIDs {
+			metrics, ok := telemetryData[minerModels.DeviceIdentifier(devID)]
+			if !ok {
+				continue
+			}
+			reportingCount++
+
+			if metrics.HashrateHS != nil {
+				totalHashrate += metrics.HashrateHS.Value
+				hashrateReporting++
+			}
+			if metrics.PowerW != nil {
+				totalPower += metrics.PowerW.Value
+				powerReporting++
+			}
+			if metrics.EfficiencyJH != nil {
+				efficiencySum += metrics.EfficiencyJH.Value
+				efficiencyN++
+			}
+			if metrics.TempC != nil {
+				if metrics.TempC.Value < minTemp {
+					minTemp = metrics.TempC.Value
+				}
+				if metrics.TempC.Value > maxTemp {
+					maxTemp = metrics.TempC.Value
+				}
+				tempReporting++
+			}
+		}
+
+		cs.ReportingCount = reportingCount
+		cs.HashrateReportingCount = hashrateReporting
+		cs.PowerReportingCount = powerReporting
+		cs.EfficiencyReportingCount = efficiencyN
+		cs.TemperatureReportingCount = tempReporting
+		if reportingCount > 0 {
+			cs.TotalHashrateThs = totalHashrate / hashToTeraHashConversion
+			cs.TotalPowerKw = totalPower / wattsToKilowattsConversion
+			if efficiencyN > 0 {
+				cs.AvgEfficiencyJth = (efficiencySum / float64(efficiencyN)) * joulesPerHashToJoulesPerTeraHashMultiplier
+			}
+			if minTemp != math.MaxFloat64 {
+				cs.MinTemperatureC = minTemp
+			}
+			if maxTemp != -math.MaxFloat64 {
+				cs.MaxTemperatureC = maxTemp
+			}
+		}
+
+		stats = append(stats, cs)
+	}
+
+	return &pb.GetCollectionStatsResponse{Stats: stats}, nil
 }

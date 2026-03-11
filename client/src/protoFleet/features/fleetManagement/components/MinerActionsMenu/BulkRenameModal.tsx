@@ -40,12 +40,14 @@ import {
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
-  DeviceSelectorSchema,
-  type MinerListFilter,
-  type MinerSortConfig,
-  MinerSortConfigSchema,
+  type SortConfig,
+  SortConfigSchema,
   SortDirection,
   SortField,
+} from "@/protoFleet/api/generated/common/v1/sort_pb";
+import {
+  DeviceSelectorSchema,
+  type MinerListFilter,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useRenameMiners from "@/protoFleet/api/useRenameMiners";
 import {
@@ -72,7 +74,7 @@ interface BulkRenameModalProps {
   selectionMode: SelectionMode;
   totalCount?: number;
   currentFilter?: MinerListFilter;
-  currentSort?: MinerSortConfig;
+  currentSort?: SortConfig;
   onDismiss: () => void;
 }
 
@@ -220,13 +222,13 @@ const BulkRenameModal = ({
     const sort = currentSort ? [currentSort] : [];
     const reverseSort = currentSort
       ? [
-          create(MinerSortConfigSchema, {
+          create(SortConfigSchema, {
             field: currentSort.field,
             direction: currentSort.direction === SortDirection.DESC ? SortDirection.ASC : SortDirection.DESC,
           }),
         ]
       : [
-          create(MinerSortConfigSchema, {
+          create(SortConfigSchema, {
             field: SortField.NAME,
             direction: SortDirection.DESC,
           }),

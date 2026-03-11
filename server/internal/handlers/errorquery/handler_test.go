@@ -7,8 +7,8 @@ import (
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"

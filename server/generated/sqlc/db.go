@@ -336,18 +336,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCollectionMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listCollectionMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCollectionMembersPaginatedAfter: %w", err)
 	}
-	if q.listCollectionsByTypePaginatedStmt, err = db.PrepareContext(ctx, listCollectionsByTypePaginated); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCollectionsByTypePaginated: %w", err)
-	}
-	if q.listCollectionsByTypePaginatedAfterStmt, err = db.PrepareContext(ctx, listCollectionsByTypePaginatedAfter); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCollectionsByTypePaginatedAfter: %w", err)
-	}
-	if q.listCollectionsPaginatedStmt, err = db.PrepareContext(ctx, listCollectionsPaginated); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCollectionsPaginated: %w", err)
-	}
-	if q.listCollectionsPaginatedAfterStmt, err = db.PrepareContext(ctx, listCollectionsPaginatedAfter); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCollectionsPaginatedAfter: %w", err)
-	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -1032,26 +1020,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCollectionMembersPaginatedAfterStmt: %w", cerr)
 		}
 	}
-	if q.listCollectionsByTypePaginatedStmt != nil {
-		if cerr := q.listCollectionsByTypePaginatedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCollectionsByTypePaginatedStmt: %w", cerr)
-		}
-	}
-	if q.listCollectionsByTypePaginatedAfterStmt != nil {
-		if cerr := q.listCollectionsByTypePaginatedAfterStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCollectionsByTypePaginatedAfterStmt: %w", cerr)
-		}
-	}
-	if q.listCollectionsPaginatedStmt != nil {
-		if cerr := q.listCollectionsPaginatedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCollectionsPaginatedStmt: %w", cerr)
-		}
-	}
-	if q.listCollectionsPaginatedAfterStmt != nil {
-		if cerr := q.listCollectionsPaginatedAfterStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCollectionsPaginatedAfterStmt: %w", cerr)
-		}
-	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -1460,10 +1428,6 @@ type Queries struct {
 	isBatchProcessingStmt                               *sql.Stmt
 	listCollectionMembersPaginatedStmt                  *sql.Stmt
 	listCollectionMembersPaginatedAfterStmt             *sql.Stmt
-	listCollectionsByTypePaginatedStmt                  *sql.Stmt
-	listCollectionsByTypePaginatedAfterStmt             *sql.Stmt
-	listCollectionsPaginatedStmt                        *sql.Stmt
-	listCollectionsPaginatedAfterStmt                   *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -1627,10 +1591,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listCollectionMembersPaginatedStmt:                  q.listCollectionMembersPaginatedStmt,
 		listCollectionMembersPaginatedAfterStmt:             q.listCollectionMembersPaginatedAfterStmt,
-		listCollectionsByTypePaginatedStmt:                  q.listCollectionsByTypePaginatedStmt,
-		listCollectionsByTypePaginatedAfterStmt:             q.listCollectionsByTypePaginatedAfterStmt,
-		listCollectionsPaginatedStmt:                        q.listCollectionsPaginatedStmt,
-		listCollectionsPaginatedAfterStmt:                   q.listCollectionsPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,

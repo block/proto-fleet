@@ -14,7 +14,7 @@ type Message struct {
 	Payload      []byte
 }
 
-//go:generate mockgen -source=interface.go -destination=mocks/mock_message_queue.go -package=mocks MessageQueue
+//go:generate go run go.uber.org/mock/mockgen -source=interface.go -destination=mocks/mock_message_queue.go -package=mocks MessageQueue
 type MessageQueue interface {
 	// Enqueue adds a command to the queue
 	Enqueue(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error
