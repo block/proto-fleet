@@ -19,6 +19,8 @@ const (
 	actionCheckFanCoolingReplace     = "Check fan and cooling, replace if consistent failure"
 	actionCheckACConnectorsReplace   = "Check AC connectors, replace if consistent failure"
 	actionRetestVerifyPSUFansReplace = "Retest and verify PSU fans work, replace if consistent failure"
+
+	sourceHashboard = "hashboard"
 )
 
 type errorMapping struct {
@@ -416,7 +418,7 @@ func convertNotificationError(notifErr proto.NotificationError, deviceID string)
 		componentID := fmt.Sprintf("%d", notifErr.Slot)
 		baseError.ComponentID = &componentID
 		baseError.ComponentType = sdkerrors.ComponentTypeFan
-	case "hashboard":
+	case sourceHashboard:
 		componentID := fmt.Sprintf("%d", notifErr.Slot)
 		baseError.ComponentID = &componentID
 		baseError.ComponentType = sdkerrors.ComponentTypeHashBoard
@@ -442,7 +444,7 @@ func lookupErrorMapping(source, errorCode string) (errorMapping, bool) {
 	case "fan":
 		m, ok := fanErrorMappings[errorCode]
 		return m, ok
-	case "hashboard":
+	case sourceHashboard:
 		m, ok := hashboardErrorMappings[errorCode]
 		return m, ok
 	case "psu":
@@ -459,7 +461,7 @@ func formatDefaultSummary(notifErr proto.NotificationError) string {
 		return fmt.Sprintf("Power supply %d detected an error: %s", notifErr.Slot, notifErr.ErrorCode)
 	case "fan":
 		return fmt.Sprintf("Fan %d detected an error: %s", notifErr.Slot, notifErr.ErrorCode)
-	case "hashboard":
+	case sourceHashboard:
 		return fmt.Sprintf("Hashboard %d detected an error: %s", notifErr.Slot, notifErr.ErrorCode)
 	case "rig":
 		return fmt.Sprintf("Control board detected an error: %s", notifErr.ErrorCode)

@@ -464,8 +464,8 @@ func (c *Client) doGet(ctx context.Context, path string, result any) error {
 }
 
 // doPost performs a POST request and checks the response.
-func (c *Client) doPost(ctx context.Context, path string, body any) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
+func (c *Client) doPost(ctx context.Context, path string) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return err
 	}
@@ -595,9 +595,9 @@ func (c *Client) GetPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
 	pools := make([]sdk.ConfiguredPool, 0, len(resp.Pools))
 	for _, pool := range resp.Pools {
 		if pool.URL != "" {
-			priority := int32(pool.ID)
+			priority := int32(pool.ID) // #nosec G115 -- pool ID is a small integer from the miner API
 			if pool.Priority != nil {
-				priority = int32(*pool.Priority)
+				priority = int32(*pool.Priority) // #nosec G115 -- pool priority is a small integer (typically 0-3)
 			}
 			pools = append(pools, sdk.ConfiguredPool{
 				Priority: priority,
@@ -807,19 +807,19 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 
 // StartMining starts mining operations.
 func (c *Client) StartMining(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/mining/start", nil)
+	return c.doPost(ctx, "/api/v1/mining/start")
 }
 
 // StopMining stops mining operations.
 func (c *Client) StopMining(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/mining/stop", nil)
+	return c.doPost(ctx, "/api/v1/mining/stop")
 }
 
 // SetCoolingMode configures the cooling system.
 func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error {
 	var apiMode string
 	switch mode {
-	case sdk.CoolingModeAirCooled:
+	case sdk.CoolingModeAirCooled, sdk.CoolingModeUnspecified:
 		apiMode = "Auto"
 	case sdk.CoolingModeManual:
 		apiMode = "Manual"
@@ -866,7 +866,7 @@ func (c *Client) GetCoolingMode(ctx context.Context) (sdk.CoolingMode, error) {
 func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, performanceMode sdk.PerformanceMode) error {
 	var apiMode string
 	switch performanceMode {
-	case sdk.PerformanceModeMaximumHashrate:
+	case sdk.PerformanceModeMaximumHashrate, sdk.PerformanceModeUnspecified:
 		apiMode = "MaximumHashrate"
 	case sdk.PerformanceModeEfficiency:
 		apiMode = "Efficiency"
@@ -958,7 +958,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 
 // BlinkLED triggers LED identification.
 func (c *Client) BlinkLED(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/system/locate", nil)
+	return c.doPost(ctx, "/api/v1/system/locate")
 }
 
 // GetLogs retrieves log data from the miner.
@@ -993,12 +993,12 @@ func (c *Client) GetErrors(ctx context.Context) (*ErrorsResponse, error) {
 
 // Reboot reboots the miner.
 func (c *Client) Reboot(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/system/reboot", nil)
+	return c.doPost(ctx, "/api/v1/system/reboot")
 }
 
 // UpdateFirmware initiates an OTA firmware update (no file upload).
 func (c *Client) UpdateFirmware(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/system/update", nil)
+	return c.doPost(ctx, "/api/v1/system/update")
 }
 
 // UploadFirmware uploads a firmware file to the miner via the MDK REST API
