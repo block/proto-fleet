@@ -12,6 +12,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_session_store.go -package=mocks Store
+
 // Store defines the interface for session persistence operations.
 type Store interface {
 	CreateSession(ctx context.Context, session *Session) error

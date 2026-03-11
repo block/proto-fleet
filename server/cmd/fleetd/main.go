@@ -58,6 +58,7 @@ import (
 	collectionHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/collection"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	errorqueryHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/errorquery"
+	firmwareHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/firmware"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
@@ -312,6 +313,8 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
+	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
+	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)

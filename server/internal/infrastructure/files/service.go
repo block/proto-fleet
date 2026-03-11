@@ -75,6 +75,14 @@ type Service struct {
 	checksumIndex map[string][]string // SHA-256 hex -> fileIDs
 }
 
+// MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
+func (s *Service) MaxFirmwareFileSize() int64 {
+	if s.maxFirmwareFileSize <= 0 {
+		return defaultMaxFirmwareFileSize
+	}
+	return s.maxFirmwareFileSize
+}
+
 func NewService(cfg Config) (*Service, error) {
 	if err := os.MkdirAll(logsDir, 0750); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create logs dir: %v", err)
