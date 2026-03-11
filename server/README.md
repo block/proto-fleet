@@ -36,7 +36,7 @@ go test ./internal/domain/pairing -v -run TestFunctionName
 ```bash
 just gen              # Run all code generation
 just gen-db-queries   # Generate database query bindings (sqlc)
-just gen-miner-protos # Generate protobuf/gRPC code
+just gen-sdk-protos   # Generate SDK protobuf code
 just gen-go           # Run go:generate directives
 ```
 
