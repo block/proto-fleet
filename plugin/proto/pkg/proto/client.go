@@ -130,7 +130,7 @@ type PowerTargetInfo struct {
 // NotificationError represents a single error from the REST /api/v1/errors endpoint.
 type NotificationError struct {
 	Source    string `json:"source"`
-	Slot     int    `json:"slot"`
+	Slot      int    `json:"slot"`
 	ErrorCode string `json:"error_code"`
 	Timestamp int64  `json:"timestamp"`
 	Message   string `json:"message"`
@@ -241,10 +241,10 @@ type telemetryResponse struct {
 }
 
 type telemetryMiner struct {
-	Hashrate   *telemetryValue `json:"hashrate,omitempty"`
+	Hashrate    *telemetryValue `json:"hashrate,omitempty"`
 	Temperature *telemetryValue `json:"temperature,omitempty"`
-	Power      *telemetryValue `json:"power,omitempty"`
-	Efficiency *telemetryValue `json:"efficiency,omitempty"`
+	Power       *telemetryValue `json:"power,omitempty"`
+	Efficiency  *telemetryValue `json:"efficiency,omitempty"`
 }
 
 type telemetryValue struct {
@@ -253,13 +253,13 @@ type telemetryValue struct {
 }
 
 type telemetryHashboard struct {
-	Index        uint32                    `json:"index"`
-	SerialNumber string                    `json:"serial_number"`
-	Hashrate     *telemetryValue           `json:"hashrate,omitempty"`
-	Temperature  *telemetryHashboardTemp   `json:"temperature,omitempty"`
-	Voltage      *telemetryValue           `json:"voltage,omitempty"`
-	Current      *telemetryValue           `json:"current,omitempty"`
-	ASICs        *telemetryASICs           `json:"asics,omitempty"`
+	Index        uint32                  `json:"index"`
+	SerialNumber string                  `json:"serial_number"`
+	Hashrate     *telemetryValue         `json:"hashrate,omitempty"`
+	Temperature  *telemetryHashboardTemp `json:"temperature,omitempty"`
+	Voltage      *telemetryValue         `json:"voltage,omitempty"`
+	Current      *telemetryValue         `json:"current,omitempty"`
+	ASICs        *telemetryASICs         `json:"asics,omitempty"`
 }
 
 type telemetryHashboardTemp struct {

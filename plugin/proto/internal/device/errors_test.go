@@ -557,11 +557,11 @@ func TestConvertErrorsResponse_LastSeenAtIsCurrentTime(t *testing.T) {
 
 func TestConvertNotificationError_ComponentInfo(t *testing.T) {
 	tests := []struct {
-		name              string
-		notifErr          proto.NotificationError
-		expectedCompType  sdkerrors.ComponentType
-		expectedCompID    string
-		hasComponentID    bool
+		name             string
+		notifErr         proto.NotificationError
+		expectedCompType sdkerrors.ComponentType
+		expectedCompID   string
+		hasComponentID   bool
 	}{
 		{
 			name: "fan sets component type and ID",

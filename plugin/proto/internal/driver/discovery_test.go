@@ -18,7 +18,7 @@ import (
 type simMinerContainer struct {
 	container testcontainers.Container
 	host      string
-	port80 string
+	port80    string
 }
 
 // startSimMiner starts a sim miner container and returns connection details

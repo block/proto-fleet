@@ -65,15 +65,15 @@ const (
 type MiningState string
 
 const (
-	MiningStateMining       MiningState = "mining"
-	MiningStateStopped      MiningState = "stopped"
-	MiningStateNoPools      MiningState = "no_pools"
-	MiningStatePoweringOn   MiningState = "powering_on"
-	MiningStateDegraded     MiningState = "degraded_mining"
-	MiningStatePoweringOff  MiningState = "powering_off"
-	MiningStateError        MiningState = "error"
+	MiningStateMining        MiningState = "mining"
+	MiningStateStopped       MiningState = "stopped"
+	MiningStateNoPools       MiningState = "no_pools"
+	MiningStatePoweringOn    MiningState = "powering_on"
+	MiningStateDegraded      MiningState = "degraded_mining"
+	MiningStatePoweringOff   MiningState = "powering_off"
+	MiningStateError         MiningState = "error"
 	MiningStateUninitialized MiningState = "uninitialized"
-	MiningStateUnknown      MiningState = "unknown"
+	MiningStateUnknown       MiningState = "unknown"
 )
 
 // CoolingMode represents the cooling mode as a string.
@@ -137,12 +137,12 @@ type MinerState struct {
 	Onboarded bool
 
 	// Mining state
-	MiningStateVal   MiningState
-	CoolingModeVal   CoolingMode
-	FanSpeedPct      uint32
-	PowerTargetW     uint32
+	MiningStateVal     MiningState
+	CoolingModeVal     CoolingMode
+	FanSpeedPct        uint32
+	PowerTargetW       uint32
 	PerformanceModeVal PerformanceMode
-	HashOnDisconnect bool
+	HashOnDisconnect   bool
 	TuningAlgorithmVal TuningAlgorithm
 
 	// Configured pools
