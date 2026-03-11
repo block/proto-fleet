@@ -16,15 +16,13 @@ package device
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
-
-	"connectrpc.com/connect"
 
 	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device/types"
 	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
@@ -122,18 +120,10 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 }
 
 // isAuthenticationError checks if the error is an authentication failure from the miner.
-// It uses Connect-RPC error codes when available, with string matching as fallback
-// for errors that have been wrapped or serialized.
+// It checks for HTTP 401 status codes in error messages and common auth error strings.
 func isAuthenticationError(err error) bool {
 	if err == nil {
 		return false
-	}
-
-	var connectErr *connect.Error
-	if errors.As(err, &connectErr) {
-		if connectErr.Code() == connect.CodeUnauthenticated || connectErr.Code() == connect.CodePermissionDenied {
-			return true
-		}
 	}
 
 	msg := strings.ToLower(err.Error())
@@ -141,7 +131,8 @@ func isAuthenticationError(err error) bool {
 		strings.Contains(msg, "missing api key") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "authentication failed") ||
-		strings.Contains(msg, "invalid credentials")
+		strings.Contains(msg, "invalid credentials") ||
+		strings.Contains(msg, fmt.Sprintf("status %d", http.StatusUnauthorized))
 }
 
 // ID implements the SDK Device interface.
@@ -171,11 +162,11 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
 	if d.deviceInfo.FirmwareVersion == "" {
-		swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+		fwVersion, err := d.client.GetSoftwareInfo(ctx)
 		if err != nil {
 			slog.Debug("failed to get software info during DescribeDevice", "error", err)
-		} else if swInfoResp.Msg.SwInfo != nil {
-			d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+		} else if fwVersion != "" {
+			d.deviceInfo.FirmwareVersion = fwVersion
 		}
 	}
 
@@ -227,14 +218,14 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		return
 	}
 	d.lastFirmwareCheckAt = time.Now()
-	swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+	fwVersion, err := d.client.GetSoftwareInfo(ctx)
 	if err != nil {
 		slog.Debug("failed to get software info during Status", "error", err)
 		return
 	}
-	if swInfoResp.Msg.SwInfo != nil {
-		d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
-		metrics.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+	if fwVersion != "" {
+		d.deviceInfo.FirmwareVersion = fwVersion
+		metrics.FirmwareVersion = fwVersion
 	}
 }
 

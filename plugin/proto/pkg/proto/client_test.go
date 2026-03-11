@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,9 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,10 +91,6 @@ func TestClientCreation(t *testing.T) {
 			// Verify client properties
 			assert.Contains(t, client.baseURL, tt.host, "BaseURL should contain host")
 			assert.NotNil(t, client.httpClient, "HTTP client should be set")
-			assert.NotNil(t, client.dataClient, "Data client should be set")
-			assert.NotNil(t, client.commandClient, "Command client should be set")
-			assert.NotNil(t, client.systemClient, "System client should be set")
-			assert.NotNil(t, client.pairingClient, "Pairing client should be set")
 
 			// Test Close method
 			err = client.Close()
@@ -257,159 +251,6 @@ func TestCredentialManagement(t *testing.T) {
 			err := client.SetCredentials(tt.token)
 			require.NoError(t, err, "SetCredentials() should not return error")
 			assert.Equal(t, tt.token.Token, client.bearerToken.Token, "Token should be set correctly")
-		})
-	}
-}
-
-// TestAuthTokenContextHandling tests auth token context operations
-func TestAuthTokenContextHandling(t *testing.T) {
-	tests := []struct {
-		name     string
-		token    string
-		expected string
-	}{
-		{
-			name:     "valid token",
-			token:    "test-token-123",
-			expected: "test-token-123",
-		},
-		{
-			name:     "empty token",
-			token:    "",
-			expected: "",
-		},
-		{
-			name:     "JWT token",
-			token:    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature",
-			expected: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test adding token to context
-			ctx := t.Context()
-			ctxWithToken := withAuthToken(ctx, tt.token)
-
-			// Test extracting token from context
-			extractedToken := getAuthTokenFromContext(ctxWithToken)
-			assert.Equal(t, tt.expected, extractedToken, "Extracted token should match expected")
-
-			// Test with context without token
-			emptyToken := getAuthTokenFromContext(t.Context())
-			assert.Empty(t, emptyToken, "Context without token should return empty string")
-
-			// Test with context without token (second check)
-			emptyToken2 := getAuthTokenFromContext(t.Context())
-			assert.Empty(t, emptyToken2, "Context without token should return empty string")
-		})
-	}
-}
-
-// TestWithAuthMethod tests the client's withAuth method
-func TestWithAuthMethod(t *testing.T) {
-	client, err := NewClient("localhost", 2121, "http")
-	require.NoError(t, err, "Failed to create client")
-
-	t.Run("with bearer token", func(t *testing.T) {
-		token := sdk.BearerToken{Token: "test-token"}
-		err := client.SetCredentials(token)
-		require.NoError(t, err, "SetCredentials should not return error")
-
-		ctx := t.Context()
-		authCtx := client.withAuth(ctx)
-
-		extractedToken := getAuthTokenFromContext(authCtx)
-		assert.Equal(t, token.Token, extractedToken, "Token should be extracted from context")
-	})
-
-	t.Run("without bearer token", func(t *testing.T) {
-		err := client.SetCredentials(sdk.BearerToken{Token: ""})
-		require.NoError(t, err, "SetCredentials should not return error")
-
-		ctx := t.Context()
-		authCtx := client.withAuth(ctx)
-
-		extractedToken := getAuthTokenFromContext(authCtx)
-		assert.Empty(t, extractedToken, "Token should be empty")
-	})
-}
-
-// TestAuthInterceptor tests the auth interceptor functionality
-func TestAuthInterceptor(t *testing.T) {
-	interceptor := newAuthInterceptor()
-	require.NotNil(t, interceptor, "Interceptor should be created")
-
-	// Test that it implements connect.Interceptor interface
-	_, ok := interceptor.(connect.Interceptor)
-	assert.True(t, ok, "Interceptor should implement connect.Interceptor")
-
-	// Test that WrapUnary method exists and returns a function
-	mockNext := func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-		return nil, nil
-	}
-
-	wrappedFunc := interceptor.WrapUnary(mockNext)
-	assert.NotNil(t, wrappedFunc, "Wrapped function should be returned")
-
-	// Test WrapStreamingClient method exists
-	mockStreamingNext := func(ctx context.Context, _ connect.Spec) connect.StreamingClientConn {
-		return nil
-	}
-
-	wrappedStreamingFunc := interceptor.WrapStreamingClient(mockStreamingNext)
-	assert.NotNil(t, wrappedStreamingFunc, "Wrapped streaming function should be returned")
-}
-
-// TestTimeToAPITimestamp tests timestamp conversion functionality
-func TestTimeToAPITimestamp(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     time.Time
-		wantNil   bool
-		wantSecs  uint64
-		wantNanos uint32
-	}{
-		{
-			name:    "zero time",
-			input:   time.Time{},
-			wantNil: true,
-		},
-		{
-			name:      "epoch time",
-			input:     time.Unix(0, 0),
-			wantNil:   false,
-			wantSecs:  0,
-			wantNanos: 0,
-		},
-		{
-			name:      "specific time",
-			input:     time.Unix(1234567890, 123456789),
-			wantNil:   false,
-			wantSecs:  1234567890,
-			wantNanos: 123456789,
-		},
-		{
-			name:      "negative time",
-			input:     time.Unix(-1, 0),
-			wantNil:   false,
-			wantSecs:  0, // Should be clamped to 0
-			wantNanos: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := timeToAPITimestamp(tt.input)
-
-			if tt.wantNil {
-				assert.Nil(t, result, "Result should be nil")
-				return
-			}
-
-			require.NotNil(t, result, "Result should not be nil")
-			assert.Equal(t, tt.wantSecs, result.Seconds, "Seconds should match")
-			assert.Equal(t, tt.wantNanos, result.Nanos, "Nanos should match")
 		})
 	}
 }
@@ -578,7 +419,6 @@ func TestClientCreationWithoutInsecureTLS(t *testing.T) {
 // newTestClient creates a Client pointed at the given httptest.Server.
 // The singleton HTTP/2 transport is replaced with a plain HTTP/1.1 client so
 // that the client works with httptest.Server (which only speaks HTTP/1.1).
-// webUIBaseURL is also pointed at the test server since tests use a random port.
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
 	u, err := url.Parse(server.URL)
@@ -588,9 +428,6 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	client, err := NewClient(u.Hostname(), int32(port), "http")
 	require.NoError(t, err)
 	client.httpClient = &http.Client{}
-	// In production webUIBaseURL uses the standard port (80/443); override here so
-	// loginWithPassword and ChangePassword hit the same test server handler.
-	client.webUIBaseURL = server.URL
 	return client
 }
 
@@ -719,95 +556,39 @@ func TestChangePassword(t *testing.T) {
 func resetClients() {
 	httpClientOnce = &sync.Once{}
 	httpsClientOnce = &sync.Once{}
-	httpClient = nil
-	httpsClient = nil
+	sharedHTTPClient = nil
+	sharedHTTPSClient = nil
 }
 
-// mockDataClient implements miner_data_apiconnect.MinerDataApiClient for testing
-type mockDataClient struct {
-	miningStatusResponse *miner_data_api.MiningStatusResponse
-	miningStatusError    error
-	poolsResponse        *miner_data_api.PoolsResponse
-	poolsError           error
-	softwareInfoResponse *miner_data_api.SoftwareInfoResponse
-	softwareInfoError    error
-	coolingModeResponse  *miner_data_api.CoolingModeResponse
-	coolingModeError     error
-}
-
-func (m *mockDataClient) GetMiningStatus(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
-	if m.miningStatusError != nil {
-		return nil, m.miningStatusError
-	}
-	return connect.NewResponse(m.miningStatusResponse), nil
-}
-
-func (m *mockDataClient) GetPools(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error) {
-	if m.poolsError != nil {
-		return nil, m.poolsError
-	}
-	return connect.NewResponse(m.poolsResponse), nil
-}
-
-func (m *mockDataClient) GetSoftwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error) {
-	if m.softwareInfoError != nil {
-		return nil, m.softwareInfoError
-	}
-	return connect.NewResponse(m.softwareInfoResponse), nil
-}
-
-func (m *mockDataClient) GetCoolingMode(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
-	if m.coolingModeError != nil {
-		return nil, m.coolingModeError
-	}
-	if m.coolingModeResponse != nil {
-		return connect.NewResponse(m.coolingModeResponse), nil
-	}
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPowerTarget(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetHardwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetHashboardStatus(_ context.Context, _ *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetAsicStatus(_ context.Context, _ *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetUnifiedTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetErrors(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.ErrorsResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPsuStatusList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPsuInfoList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuInfoListResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetTelemetryValues(_ context.Context, _ *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetAsicMetadata(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
+// newStatusTestServer creates an httptest.Server that serves JSON responses for
+// /api/v1/mining, /api/v1/pools, and /api/v1/system endpoints.
+func newStatusTestServer(t *testing.T, miningStatus string, pools []poolData, systemErr bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/mining":
+			resp := miningStatusResponse{
+				MiningStatus: miningStatusInner{Status: miningStatus},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/pools":
+			resp := poolsList{Pools: pools}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/system":
+			if systemErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			resp := systemInfoResponse{}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
 }
 
 // TestGetStatusPoolStateOverride tests that the actual pool list is the source of truth
@@ -815,76 +596,68 @@ func (m *mockDataClient) GetAsicMetadata(_ context.Context, _ *connect.Request[m
 func TestGetStatusPoolStateOverride(t *testing.T) {
 	tests := []struct {
 		name          string
-		miningState   miner_data_api.MiningState
-		pools         []*miner_data_api.Pool
+		miningStatus  string
+		pools         []poolData
 		expectedState sdk.HealthStatus
 	}{
 		{
-			name:        "firmware reports NO_POOLS but pools are configured",
-			miningState: miner_data_api.MiningState_MINING_STATE_NO_POOLS,
-			pools: []*miner_data_api.Pool{
-				{Url: "stratum+tcp://pool.example.com:3333"},
+			name:         "firmware reports no_pools but pools are configured",
+			miningStatus: "no_pools",
+			pools: []poolData{
+				{URL: "stratum+tcp://pool.example.com:3333"},
 			},
 			expectedState: sdk.HealthHealthyInactive,
 		},
 		{
-			name:          "firmware reports MINING but no pools configured",
-			miningState:   miner_data_api.MiningState_MINING_STATE_MINING,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports mining but no pools configured",
+			miningStatus:  "mining",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:        "firmware reports MINING but all pools have empty URLs",
-			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
-			pools: []*miner_data_api.Pool{
-				{Url: ""},
-				{Url: ""},
+			name:         "firmware reports mining but all pools have empty URLs",
+			miningStatus: "mining",
+			pools: []poolData{
+				{URL: ""},
+				{URL: ""},
 			},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:          "firmware reports NO_POOLS and no pools configured",
-			miningState:   miner_data_api.MiningState_MINING_STATE_NO_POOLS,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports no_pools and no pools configured",
+			miningStatus:  "no_pools",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:        "firmware reports MINING and pools are configured",
-			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
-			pools: []*miner_data_api.Pool{
-				{Url: "stratum+tcp://pool.example.com:3333"},
+			name:         "firmware reports mining and pools are configured",
+			miningStatus: "mining",
+			pools: []poolData{
+				{URL: "stratum+tcp://pool.example.com:3333"},
 			},
 			expectedState: sdk.HealthHealthyActive,
 		},
 		{
-			name:          "firmware reports STOPPED but no pools",
-			miningState:   miner_data_api.MiningState_MINING_STATE_STOPPED,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports stopped but no pools",
+			miningStatus:  "stopped",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:          "firmware reports DEGRADED_MINING but no pools",
-			miningState:   miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports degraded_mining but no pools",
+			miningStatus:  "degraded_mining",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockDataClient{
-				miningStatusResponse: &miner_data_api.MiningStatusResponse{
-					State: tt.miningState,
-				},
-				poolsResponse: &miner_data_api.PoolsResponse{
-					Pools: tt.pools,
-				},
-				softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
-			}
+			server := newStatusTestServer(t, tt.miningStatus, tt.pools, false)
+			defer server.Close()
 
-			client := &Client{
-				dataClient: mockClient,
-			}
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
 
 			status, err := client.GetStatus(t.Context())
 
@@ -899,26 +672,30 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 func TestGetCoolingMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		apiMode     miner_data_api.CoolingMode
+		fanMode     string
 		expectedSDK sdk.CoolingMode
 	}{
-		{"auto maps to air cooled", miner_data_api.CoolingMode_COOLING_MODE_AUTO, sdk.CoolingModeAirCooled},
-		{"off maps to immersion cooled", miner_data_api.CoolingMode_COOLING_MODE_OFF, sdk.CoolingModeImmersionCooled},
-		{"manual maps to manual", miner_data_api.CoolingMode_COOLING_MODE_MANUAL, sdk.CoolingModeManual},
-		{"unknown maps to unspecified", miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN, sdk.CoolingModeUnspecified},
+		{"auto maps to air cooled", "auto", sdk.CoolingModeAirCooled},
+		{"off maps to immersion cooled", "off", sdk.CoolingModeImmersionCooled},
+		{"manual maps to manual", "manual", sdk.CoolingModeManual},
+		{"unknown maps to unspecified", "unknown", sdk.CoolingModeUnspecified},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockDataClient{
-				coolingModeResponse: &miner_data_api.CoolingModeResponse{
-					Mode: tt.apiMode,
-				},
-			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/api/v1/cooling", r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				resp := coolingStatusResponse{
+					CoolingStatus: coolingStatusInner{FanMode: tt.fanMode},
+				}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
 
-			client := &Client{
-				dataClient: mockClient,
-			}
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
 
 			mode, err := client.GetCoolingMode(t.Context())
 
@@ -929,13 +706,14 @@ func TestGetCoolingMode(t *testing.T) {
 }
 
 func TestGetCoolingMode_Error(t *testing.T) {
-	mockClient := &mockDataClient{
-		coolingModeError: fmt.Errorf("connection refused"),
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("connection refused"))
+	}))
+	defer server.Close()
 
-	client := &Client{
-		dataClient: mockClient,
-	}
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
 
 	mode, err := client.GetCoolingMode(t.Context())
 
@@ -946,17 +724,31 @@ func TestGetCoolingMode_Error(t *testing.T) {
 
 // TestGetStatusPoolCheckError tests behavior when pool check fails
 func TestGetStatusPoolCheckError(t *testing.T) {
-	mockClient := &mockDataClient{
-		miningStatusResponse: &miner_data_api.MiningStatusResponse{
-			State: miner_data_api.MiningState_MINING_STATE_MINING,
-		},
-		poolsError:           fmt.Errorf("connection refused"),
-		softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/mining":
+			resp := miningStatusResponse{
+				MiningStatus: miningStatusInner{Status: "mining"},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/pools":
+			// Simulate pool endpoint failure
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("connection refused"))
+		case "/api/v1/system":
+			resp := systemInfoResponse{}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
 
-	client := &Client{
-		dataClient: mockClient,
-	}
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
 
 	status, err := client.GetStatus(t.Context())
 

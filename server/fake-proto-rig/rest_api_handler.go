@@ -9,9 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 const minPasswordLength = 8
@@ -506,6 +503,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Telemetry
 	mux.HandleFunc("/api/v1/telemetry", h.handleTelemetry)
 	mux.HandleFunc("/api/v1/timeseries", h.handleTimeseries)
+
+	// Pairing
+	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo)
+	mux.HandleFunc("/api/v1/pairing/auth-key", h.handlePairingAuthKey)
 }
 
 // Helper functions
@@ -525,54 +526,54 @@ func (h *RESTApiHandler) writeError(w http.ResponseWriter, status int, code, mes
 	h.writeJSON(w, status, resp)
 }
 
-func (h *RESTApiHandler) miningStateToString(state miner_data_api.MiningState) string {
+func (h *RESTApiHandler) miningStateToString(state MiningState) string {
 	switch state {
-	case miner_data_api.MiningState_MINING_STATE_MINING:
+	case MiningStateMining:
 		return "Mining"
-	case miner_data_api.MiningState_MINING_STATE_STOPPED:
+	case MiningStateStopped:
 		return "Stopped"
-	case miner_data_api.MiningState_MINING_STATE_NO_POOLS:
+	case MiningStateNoPools:
 		return "NoPools"
-	case miner_data_api.MiningState_MINING_STATE_POWERING_ON:
+	case MiningStatePoweringOn:
 		return "PoweringOn"
-	case miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING:
+	case MiningStateDegraded:
 		return "DegradedMining"
-	case miner_data_api.MiningState_MINING_STATE_POWERING_OFF:
+	case MiningStatePoweringOff:
 		return "PoweringOff"
-	case miner_data_api.MiningState_MINING_STATE_ERROR:
+	case MiningStateError:
 		return "Error"
-	case miner_data_api.MiningState_MINING_STATE_UNINITIALIZED:
+	case MiningStateUninitialized:
 		return "Uninitialized"
-	case miner_data_api.MiningState_MINING_STATE_UNKNOWN:
+	case MiningStateUnknown:
 		return "Uninitialized"
 	default:
 		return "Uninitialized"
 	}
 }
 
-func (h *RESTApiHandler) coolingModeToString(mode miner_data_api.CoolingMode) string {
+func (h *RESTApiHandler) coolingModeToString(mode CoolingMode) string {
 	switch mode {
-	case miner_data_api.CoolingMode_COOLING_MODE_AUTO:
+	case CoolingModeAuto:
 		return "Auto"
-	case miner_data_api.CoolingMode_COOLING_MODE_MANUAL:
+	case CoolingModeManual:
 		return "Manual"
-	case miner_data_api.CoolingMode_COOLING_MODE_OFF:
+	case CoolingModeOff:
 		return "Off"
 	default:
 		return "Unknown"
 	}
 }
 
-func (h *RESTApiHandler) stringToCoolingMode(s string) miner_data_api.CoolingMode {
+func (h *RESTApiHandler) stringToCoolingMode(s string) CoolingMode {
 	switch strings.ToLower(s) {
 	case "auto":
-		return miner_data_api.CoolingMode_COOLING_MODE_AUTO
+		return CoolingModeAuto
 	case "manual":
-		return miner_data_api.CoolingMode_COOLING_MODE_MANUAL
+		return CoolingModeManual
 	case "off":
-		return miner_data_api.CoolingMode_COOLING_MODE_OFF
+		return CoolingModeOff
 	default:
-		return miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN
+		return CoolingModeUnknown
 	}
 }
 
@@ -644,17 +645,17 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 
 	// Clear existing pools
 	h.state.mu.Lock()
-	h.state.Pools = make([]*miner_data_api.Pool, 0)
+	h.state.Pools = make([]*Pool, 0)
 	h.state.mu.Unlock()
 
 	// Add new pools
 	for i, p := range pools {
-		pool := &miner_data_api.Pool{
+		pool := &Pool{
 			Idx:      uint32(i),
 			Url:      p.URL,
 			Username: p.Username,
 			Password: p.Password,
-			Statistics: &miner_data_api.PoolStatistics{
+			Statistics: &PoolStatistics{
 				AcceptedShares:    defaultPoolAcceptedShares,
 				RejectedShares:    defaultPoolRejectedShares,
 				CurrentDifficulty: defaultPoolDifficulty,
@@ -1194,19 +1195,19 @@ func (h *RESTApiHandler) handleMining(w http.ResponseWriter, r *http.Request) {
 }
 
 // parsePerformanceMode maps an OpenAPI performance mode string to its protobuf enum.
-func parsePerformanceMode(s string) (miner_data_api.PerformanceMode, bool) {
+func parsePerformanceMode(s string) (PerformanceMode, bool) {
 	switch s {
 	case "MaximumHashrate":
-		return miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE, true
+		return PerformanceModeMaxHashrate, true
 	case "Efficiency":
-		return miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, true
+		return PerformanceModeEfficiency, true
 	default:
-		return 0, false
+		return "", false
 	}
 }
 
-func performanceModeToString(mode miner_data_api.PerformanceMode) string {
-	if mode == miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY {
+func performanceModeToString(mode PerformanceMode) string {
+	if mode == PerformanceModeEfficiency {
 		return "Efficiency"
 	}
 	return "MaximumHashrate"
@@ -1217,7 +1218,7 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		h.state.mu.RLock()
 		powerTarget := h.state.PowerTargetW
-		perfMode := h.state.PerformanceMode
+		perfMode := h.state.PerformanceModeVal
 		hashOnDisconnect := h.state.HashOnDisconnect
 		h.state.mu.RUnlock()
 
@@ -1252,7 +1253,7 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Validate and parse performance mode when provided
-		var perfMode miner_data_api.PerformanceMode
+		var perfMode PerformanceMode
 		if req.PerformanceMode != "" {
 			var ok bool
 			perfMode, ok = parsePerformanceMode(req.PerformanceMode)
@@ -1266,7 +1267,7 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 		// Read current values, apply only the fields that were provided, then persist
 		h.state.mu.RLock()
 		powerW := h.state.PowerTargetW
-		mode := h.state.PerformanceMode
+		mode := h.state.PerformanceModeVal
 		h.state.mu.RUnlock()
 
 		if req.PowerTargetWatts != nil {
@@ -1281,7 +1282,7 @@ func (h *RESTApiHandler) handleMiningTarget(w http.ResponseWriter, r *http.Reque
 		// Read back the updated values
 		h.state.mu.RLock()
 		updatedPowerTarget := h.state.PowerTargetW
-		updatedPerfMode := h.state.PerformanceMode
+		updatedPerfMode := h.state.PerformanceModeVal
 		updatedHashOnDisconnect := h.state.HashOnDisconnect
 		h.state.mu.RUnlock()
 
@@ -1304,7 +1305,7 @@ func (h *RESTApiHandler) handleMiningStart(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.state.SetMiningState(miner_data_api.MiningState_MINING_STATE_MINING)
+	h.state.SetMiningState(MiningStateMining)
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Mining started"})
 }
 
@@ -1313,7 +1314,7 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.state.SetMiningState(miner_data_api.MiningState_MINING_STATE_STOPPED)
+	h.state.SetMiningState(MiningStateStopped)
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Mining stopped"})
 }
 
@@ -1329,10 +1330,10 @@ func (h *RESTApiHandler) handleMiningTuning(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	algorithmMap := map[string]miner_command_api.TuningAlgorithm{
-		"None":                         miner_command_api.TuningAlgorithm_None,
-		"VoltageImbalanceCompensation": miner_command_api.TuningAlgorithm_VoltageImbalanceCompensation,
-		"Fuzzing":                      miner_command_api.TuningAlgorithm_Fuzzing,
+	algorithmMap := map[string]TuningAlgorithm{
+		"None":                         TuningAlgorithmNone,
+		"VoltageImbalanceCompensation": TuningAlgorithmVoltageImbalanceCompensation,
+		"Fuzzing":                      TuningAlgorithmFuzzing,
 	}
 	algo, ok := algorithmMap[req.Algorithm]
 	if !ok {
@@ -1501,7 +1502,7 @@ func (h *RESTApiHandler) handleHashboardByID(w http.ResponseWriter, r *http.Requ
 	state := "Running"
 	if h.state.IsHashboardInError(idx) {
 		state = "Error"
-	} else if miningState != miner_data_api.MiningState_MINING_STATE_MINING {
+	} else if miningState != MiningStateMining {
 		state = "Stopped"
 	}
 
@@ -1704,7 +1705,7 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.state.mu.RLock()
-		mode := h.state.CoolingMode
+		mode := h.state.CoolingModeVal
 		speedPct := h.state.FanSpeedPct
 		h.state.mu.RUnlock()
 
@@ -1841,7 +1842,7 @@ func (h *RESTApiHandler) handleTelemetry(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-func (h *RESTApiHandler) generateHashboardsTelemetry(miningState miner_data_api.MiningState, includeASICs bool) []HashboardTelemetry {
+func (h *RESTApiHandler) generateHashboardsTelemetry(miningState MiningState, includeASICs bool) []HashboardTelemetry {
 	hashboards := make([]HashboardTelemetry, 0, defaultHashboardCount)
 
 	for i := range defaultHashboardCount {
@@ -1850,7 +1851,7 @@ func (h *RESTApiHandler) generateHashboardsTelemetry(miningState miner_data_api.
 		}
 
 		hbHashrate := applyVariation(defaultHashboardHashrate, telemetryVariation)
-		if miningState != miner_data_api.MiningState_MINING_STATE_MINING || h.state.IsHashboardInError(i) {
+		if miningState != MiningStateMining || h.state.IsHashboardInError(i) {
 			hbHashrate = 0
 		}
 
@@ -1880,13 +1881,13 @@ func (h *RESTApiHandler) generateHashboardsTelemetry(miningState miner_data_api.
 	return hashboards
 }
 
-func (h *RESTApiHandler) generateASICsTelemetry(miningState miner_data_api.MiningState, hashboardIdx int) *ASICTelemetry {
+func (h *RESTApiHandler) generateASICsTelemetry(miningState MiningState, hashboardIdx int) *ASICTelemetry {
 	hashrates := make([]float64, defaultASICCount)
 	temps := make([]float64, defaultASICCount)
 
 	for i := range defaultASICCount {
 		asicHashrate := applyVariation(defaultASICHashrate, telemetryVariation)
-		if miningState != miner_data_api.MiningState_MINING_STATE_MINING || h.state.IsHashboardInError(hashboardIdx) {
+		if miningState != MiningStateMining || h.state.IsHashboardInError(hashboardIdx) {
 			asicHashrate = 0
 		}
 		hashrates[i] = asicHashrate
@@ -2426,4 +2427,59 @@ func (h *RESTApiHandler) generatePSUTimeSeries(fields []string, indexes []int, n
 	}
 
 	return result
+}
+
+// handlePairingInfo handles GET /api/v1/pairing/info
+func (h *RESTApiHandler) handlePairingInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+
+	resp := map[string]string{
+		"mac":   h.state.MacAddress,
+		"cb_sn": h.state.SerialNumber,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handlePairingAuthKey handles POST and DELETE /api/v1/pairing/auth-key
+func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		var req struct {
+			PublicKey string `json:"public_key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+			return
+		}
+
+		if req.PublicKey == "" {
+			h.writeError(w, http.StatusBadRequest, "invalid_request", "public_key is required")
+			return
+		}
+
+		h.state.SetAuthKey(req.PublicKey)
+		log.Printf("Auth key set via REST (SN: %s)", h.state.SerialNumber)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Auth key set successfully",
+		})
+
+	case http.MethodDelete:
+		h.state.ClearAuthKey()
+		log.Printf("Auth key cleared via REST (SN: %s)", h.state.SerialNumber)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Auth key cleared successfully",
+		})
+
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+	}
 }

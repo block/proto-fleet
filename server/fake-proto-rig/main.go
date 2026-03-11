@@ -1,10 +1,10 @@
 // Package main implements a fake Proto miner simulator for testing.
 //
-// This simulator implements the same gRPC/Connect-RPC interfaces as real Proto miners,
+// This simulator implements the same REST API interfaces as real Proto miners,
 // allowing the fleet management system to be tested without physical hardware.
 //
 // The simulator supports:
-//   - All MinerDataApi, MinerCommandApi, MinerSystemApi, and MinerPairingApi endpoints
+//   - All REST API endpoints matching the MDK-API OpenAPI spec
 //   - Stateful simulation of mining state, pools, and configuration
 //   - Error injection via environment variables for testing error handling
 //   - Realistic telemetry data with random variation
@@ -24,17 +24,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
-	"connectrpc.com/connect"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 )
 
 const (
-	defaultGRPCPort       = 2121
+	defaultHTTPPort       = 80
 	serverShutdownTimeout = 10 * time.Second
 )
 
@@ -59,37 +52,25 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start gRPC server
-	port := getEnvInt("GRPC_PORT", defaultGRPCPort)
-	if err := startGRPCServer(ctx, state, port); err != nil {
-		log.Fatalf("Failed to start gRPC server: %v", err)
+	// Start HTTP server
+	port := getEnvInt("HTTP_PORT", defaultHTTPPort)
+	// Support legacy GRPC_PORT env var for backwards compatibility during migration
+	if legacyPort := os.Getenv("GRPC_PORT"); legacyPort != "" {
+		if p, err := strconv.Atoi(legacyPort); err == nil {
+			port = p
+		}
+	}
+	if err := startHTTPServer(ctx, state, port); err != nil {
+		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
 
-func startGRPCServer(ctx context.Context, state *MinerState, port int) error {
+func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 	mux := http.NewServeMux()
 
-	// Create service handlers
-	dataHandler := NewDataApiHandler(state)
-	commandHandler := NewCommandApiHandler(state)
-	systemHandler := NewSystemApiHandler(state)
-	pairingHandler := NewPairingApiHandler(state)
-
-	// Create REST API handler for ProtoOS compatibility
+	// Create REST API handler
 	restHandler := NewRESTApiHandler(state)
 	restHandler.RegisterRoutes(mux)
-
-	// Create interceptors for auth handling
-	interceptors := connect.WithInterceptors(
-		newAuthInterceptor(state),
-	)
-
-	// Register service handlers with interceptors (auth for protected endpoints)
-	mux.Handle(miner_data_apiconnect.NewMinerDataApiHandler(dataHandler, interceptors))
-	mux.Handle(miner_command_apiconnect.NewMinerCommandApiHandler(commandHandler, interceptors))
-	mux.Handle(miner_system_apiconnect.NewMinerSystemApiHandler(systemHandler, interceptors))
-	// Pairing API does NOT require auth
-	mux.Handle(miner_system_apiconnect.NewMinerPairingApiHandler(pairingHandler))
 
 	// Add health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -97,13 +78,9 @@ func startGRPCServer(ctx context.Context, state *MinerState, port int) error {
 		w.Write([]byte("OK"))
 	})
 
-	// Create HTTP/2 cleartext server (h2c)
-	h2s := &http2.Server{}
-	handler := h2c.NewHandler(mux, h2s)
-
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: handler,
+		Handler: mux,
 	}
 
 	// Start listening
@@ -131,57 +108,12 @@ func startGRPCServer(ctx context.Context, state *MinerState, port int) error {
 		}
 	}()
 
-	log.Printf("gRPC server listening on :%d", port)
+	log.Printf("HTTP server listening on :%d", port)
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", err)
 	}
 
 	return nil
-}
-
-// authInterceptor validates Bearer tokens for protected endpoints.
-type authInterceptor struct {
-	state *MinerState
-}
-
-func newAuthInterceptor(state *MinerState) connect.Interceptor {
-	return &authInterceptor{state: state}
-}
-
-func (i *authInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		// Get auth header
-		authHeader := req.Header().Get("Authorization")
-
-		// Check if we require auth (auth key is set)
-		if i.state.GetAuthKey() != "" {
-			if authHeader == "" {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing API key"))
-			}
-
-			// Extract bearer token
-			if !strings.HasPrefix(authHeader, "Bearer ") {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid authorization header format"))
-			}
-
-			// For simulation purposes, we accept any non-empty token
-			// In a real implementation, this would validate the JWT signature
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			if token == "" {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("empty bearer token"))
-			}
-		}
-
-		return next(ctx, req)
-	}
-}
-
-func (i *authInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (i *authInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return next
 }
 
 // applyErrorConfig reads error configuration from environment variables.

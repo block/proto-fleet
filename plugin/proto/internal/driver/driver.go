@@ -155,7 +155,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	// Note: In integration tests, we may use different ports due to Docker port mapping
 	if portInt != d.requiredPort && d.requiredPort != 0 {
-		return sdk.DeviceInfo{}, fmt.Errorf("proto miners typically use port 2121, got %s", port)
+		return sdk.DeviceInfo{}, fmt.Errorf("proto miners typically use port 80, got %s", port)
 	}
 
 	if strings.TrimSpace(ipAddress) == "" {
@@ -221,12 +221,10 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 	}
 
 	// Get firmware version during discovery
-	firmwareVersion := ""
-	swInfoResp, err := client.GetSoftwareInfo(ctx)
+	firmwareVersion, err := client.GetSoftwareInfo(ctx)
 	if err != nil {
 		slog.Debug("failed to get software info during discovery", "error", err)
-	} else if swInfoResp.Msg.SwInfo != nil {
-		firmwareVersion = swInfoResp.Msg.SwInfo.Version
+		firmwareVersion = ""
 	}
 
 	return sdk.DeviceInfo{

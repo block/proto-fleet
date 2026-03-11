@@ -6,9 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
@@ -203,7 +200,7 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 
 func TestCreatePools_InvalidURL_DoesNotClearExistingPools(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55") // seed with an existing pool
-	state.AddPool(&miner_data_api.Pool{Idx: 0, Url: "stratum+tcp://mine.ocean.xyz:3334", Username: "u"})
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://mine.ocean.xyz:3334", Username: "u"})
 
 	h := NewRESTApiHandler(state)
 
@@ -300,9 +297,9 @@ func TestHandleMiningTuning_ValidAlgorithm_PersistsToState(t *testing.T) {
 	}
 
 	state.mu.RLock()
-	algo := state.TuningAlgorithm
+	algo := state.TuningAlgorithmVal
 	state.mu.RUnlock()
-	if algo != miner_command_api.TuningAlgorithm_VoltageImbalanceCompensation {
+	if algo != TuningAlgorithmVoltageImbalanceCompensation {
 		t.Fatalf("expected state to have VoltageImbalanceCompensation, got %v", algo)
 	}
 }
@@ -391,7 +388,7 @@ func TestHandleMiningTarget_InvalidPerformanceMode_Returns422(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
 	}
 
-	if state.PerformanceMode != miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE {
+	if state.PerformanceModeVal != PerformanceModeMaxHashrate {
 		t.Fatal("expected performance mode to remain MaximumHashrate")
 	}
 }
