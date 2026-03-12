@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING, Protocol
 import grpc
 
 from proto_fleet_sdk.enums import CoolingMode, PerformanceMode
-from proto_fleet_sdk.types import Capabilities, ConfiguredPool, DeviceInfo, MiningPoolConfig
+from proto_fleet_sdk.types import (
+    Capabilities,
+    ConfiguredPool,
+    DeviceInfo,
+    FirmwareFile,
+    MiningPoolConfig,
+)
 
 if TYPE_CHECKING:
     from proto_fleet_sdk.error_codes import DeviceErrors
@@ -108,7 +114,7 @@ class DeviceMaintenance(Protocol):
         """
         ...
 
-    async def firmware_update(self, ctx: grpc.ServicerContext) -> None:
+    async def firmware_update(self, ctx: grpc.ServicerContext, firmware: FirmwareFile) -> None:
         ...
 
     async def unpair(self, ctx: grpc.ServicerContext) -> None:

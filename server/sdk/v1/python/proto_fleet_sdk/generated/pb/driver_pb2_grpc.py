@@ -133,7 +133,7 @@ class DriverStub(object):
                 _registered_method=True)
         self.UpdateFirmware = channel.unary_unary(
                 '/sdk.v1.Driver/UpdateFirmware',
-                request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
+                request_serializer=pb_dot_driver__pb2.UpdateFirmwareRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
         self.Unpair = channel.unary_unary(
@@ -462,7 +462,7 @@ def add_DriverServicer_to_server(servicer, server):
             ),
             'UpdateFirmware': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateFirmware,
-                    request_deserializer=pb_dot_driver__pb2.DeviceRef.FromString,
+                    request_deserializer=pb_dot_driver__pb2.UpdateFirmwareRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'Unpair': grpc.unary_unary_rpc_method_handler(
@@ -1045,7 +1045,7 @@ class Driver(object):
             request,
             target,
             '/sdk.v1.Driver/UpdateFirmware',
-            pb_dot_driver__pb2.DeviceRef.SerializeToString,
+            pb_dot_driver__pb2.UpdateFirmwareRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,

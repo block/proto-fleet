@@ -384,6 +384,7 @@ type FirmwareFile struct {
 	Reader   io.Reader
 	Filename string
 	Size     int64
+	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
 }
 
 // DeviceMaintenance represents device maintenance operations

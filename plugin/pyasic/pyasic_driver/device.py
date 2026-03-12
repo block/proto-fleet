@@ -574,7 +574,7 @@ class PyAsicDevice:
     ) -> tuple[str, bool]:
         raise UnsupportedCapabilityError("download_logs", device_id=self._id)
 
-    async def firmware_update(self, ctx: grpc.ServicerContext) -> None:
+    async def firmware_update(self, ctx: grpc.ServicerContext, firmware: Any) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "firmware", self._id)

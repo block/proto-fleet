@@ -80,7 +80,7 @@ type DriverClient interface {
 	UpdateMiningPools(ctx context.Context, in *UpdateMiningPoolsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error)
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
-	UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	UpdateFirmware(ctx context.Context, in *UpdateFirmwareRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
@@ -275,7 +275,7 @@ func (c *driverClient) DownloadLogs(ctx context.Context, in *DownloadLogsRequest
 	return out, nil
 }
 
-func (c *driverClient) UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *driverClient) UpdateFirmware(ctx context.Context, in *UpdateFirmwareRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_UpdateFirmware_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -409,7 +409,7 @@ type DriverServer interface {
 	UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error)
 	GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error)
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
-	UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error)
+	UpdateFirmware(context.Context, *UpdateFirmwareRequest) (*emptypb.Empty, error)
 	Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
@@ -487,7 +487,7 @@ func (UnimplementedDriverServer) GetMiningPools(context.Context, *GetMiningPools
 func (UnimplementedDriverServer) DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DownloadLogs not implemented")
 }
-func (UnimplementedDriverServer) UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error) {
+func (UnimplementedDriverServer) UpdateFirmware(context.Context, *UpdateFirmwareRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateFirmware not implemented")
 }
 func (UnimplementedDriverServer) Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error) {
@@ -870,7 +870,7 @@ func _Driver_DownloadLogs_Handler(srv interface{}, ctx context.Context, dec func
 }
 
 func _Driver_UpdateFirmware_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeviceRef)
+	in := new(UpdateFirmwareRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -882,7 +882,7 @@ func _Driver_UpdateFirmware_Handler(srv interface{}, ctx context.Context, dec fu
 		FullMethod: Driver_UpdateFirmware_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).UpdateFirmware(ctx, req.(*DeviceRef))
+		return srv.(DriverServer).UpdateFirmware(ctx, req.(*UpdateFirmwareRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

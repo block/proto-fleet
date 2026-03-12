@@ -48,6 +48,7 @@ from proto_fleet_sdk.types import (
     Capabilities,
     ConfiguredPool,
     DeviceInfo,
+    FirmwareFile,
     MiningPoolConfig,
 )
 
@@ -644,10 +645,16 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
 
     @_rpc_handler
     async def UpdateFirmware(
-        self, request: driver_pb2.DeviceRef, context: grpc.ServicerContext
+        self, request: driver_pb2.UpdateFirmwareRequest, context: grpc.ServicerContext
     ) -> Empty:
-        device = self._get_device(request.device_id)
-        await device.firmware_update(context)
+        device = self._get_device(request.ref.device_id)
+        fw = request.firmware
+        firmware = FirmwareFile(
+            file_path=fw.file_path,
+            filename=fw.original_filename,
+            size=fw.file_size,
+        )
+        await device.firmware_update(context, firmware)
         return Empty()
 
     @_rpc_handler

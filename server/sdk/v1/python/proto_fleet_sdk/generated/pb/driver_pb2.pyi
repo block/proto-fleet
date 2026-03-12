@@ -705,6 +705,24 @@ class UpdateMinerPasswordRequest(_message.Message):
     new_password: str
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., current_password: _Optional[str] = ..., new_password: _Optional[str] = ...) -> None: ...
 
+class FirmwareFileInfo(_message.Message):
+    __slots__ = ("file_path", "original_filename", "file_size")
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_FILENAME_FIELD_NUMBER: _ClassVar[int]
+    FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    file_path: str
+    original_filename: str
+    file_size: int
+    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ...) -> None: ...
+
+class UpdateFirmwareRequest(_message.Message):
+    __slots__ = ("ref", "firmware")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    FIRMWARE_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    firmware: FirmwareFileInfo
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., firmware: _Optional[_Union[FirmwareFileInfo, _Mapping]] = ...) -> None: ...
+
 class DeviceError(_message.Message):
     __slots__ = ("miner_error", "cause_summary", "recommended_action", "severity", "first_seen_at", "last_seen_at", "closed_at", "vendor_attributes", "device_id", "component_id", "impact", "summary", "component_type")
     class VendorAttributesEntry(_message.Message):

@@ -19,8 +19,11 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 )
 
@@ -39,6 +42,7 @@ type ExecutionService struct {
 	minerService      MinerGetter
 	deviceStore       stores.DeviceStore
 	telemetryListener TelemetryListener
+	filesService      *files.Service
 
 	workerSemaphore chan struct{}
 
@@ -46,7 +50,7 @@ type ExecutionService struct {
 	queueProcessorRunning bool
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener) *ExecutionService {
+func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	return &ExecutionService{
 		config:                config,
 		conn:                  conn,
@@ -56,6 +60,7 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		minerService:          minerService,
 		deviceStore:           deviceStore,
 		telemetryListener:     telemetryListener,
+		filesService:          filesService,
 		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
 		queueProcessorRunning: false,
 	}
@@ -225,8 +230,28 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	case commandtype.BlinkLED:
 		err = minerInfo.BlinkLED(ctx)
 	case commandtype.FirmwareUpdate:
-		// TODO: unmarshal FirmwareUpdatePayload, open firmware file, pass to miner
-		err = fleeterror.NewInternalErrorf("firmware update command execution is not yet implemented")
+		var p dto.FirmwareUpdatePayload
+		if fwErr := json.Unmarshal(message.Payload, &p); fwErr != nil {
+			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
+			break
+		}
+		reader, filename, size, openErr := es.filesService.OpenFirmwareFile(p.FirmwareFileID)
+		if openErr != nil {
+			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
+			break
+		}
+		defer reader.Close()
+		filePath, pathErr := es.filesService.GetFirmwareFilePath(p.FirmwareFileID)
+		if pathErr != nil {
+			err = fleeterror.NewInternalErrorf("error resolving firmware file path: %v", pathErr)
+			break
+		}
+		err = minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
+			Reader:   reader,
+			Filename: filename,
+			Size:     size,
+			FilePath: filePath,
+		})
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
 		if err == nil {

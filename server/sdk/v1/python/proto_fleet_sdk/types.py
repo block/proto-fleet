@@ -19,6 +19,7 @@ __all__ = [
     "DriverIdentifier",
     "Capabilities",
     "DeviceInfo",
+    "FirmwareFile",
     "MiningPoolConfig",
     "ConfiguredPool",
     "NewDeviceResult",
@@ -98,6 +99,19 @@ class ConfiguredPool:
     priority: int
     url: str
     username: str
+
+
+@dataclass(frozen=True)
+class FirmwareFile:
+    """Firmware file reference for file-based firmware updates.
+
+    The file_path points to a firmware file on the shared filesystem
+    between the server and plugin processes.
+    """
+
+    file_path: str
+    filename: str
+    size: int
 
 
 @dataclass(frozen=True)

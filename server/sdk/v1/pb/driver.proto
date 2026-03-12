@@ -427,6 +427,22 @@ message UpdateMinerPasswordRequest {
   string new_password = 3;  // New password for web UI access
 }
 
+// Firmware file metadata passed from server to plugin via the shared filesystem.
+// Plugins run as child processes on the same host (exec.Command), so they can
+// open the file directly by path without streaming over gRPC.
+message FirmwareFileInfo {
+  string file_path = 1;
+  string original_filename = 2;
+  int64 file_size = 3;
+}
+
+// Uploads firmware to a device. The server resolves the firmware file on disk
+// and passes its location to the plugin process.
+message UpdateFirmwareRequest {
+  DeviceRef ref = 1;
+  FirmwareFileInfo firmware = 2;
+}
+
 // ============================================================================
 // Error System - Miner Error Taxonomy
 // ============================================================================
@@ -591,7 +607,7 @@ service Driver {
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
-  rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
+  rpc UpdateFirmware(UpdateFirmwareRequest) returns (google.protobuf.Empty);
   rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
   rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (google.protobuf.Empty);
 

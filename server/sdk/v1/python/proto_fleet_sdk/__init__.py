@@ -126,6 +126,7 @@ from proto_fleet_sdk.types import (
     ConfiguredPool,
     DeviceInfo,
     DriverIdentifier,
+    FirmwareFile,
     MiningPoolConfig,
     NewDeviceResult,
 )
@@ -141,6 +142,7 @@ __all__ = [
     "Capabilities",
     "DeviceInfo",
     "DeviceMetrics",
+    "FirmwareFile",
     "NewDeviceResult",
     "MiningPoolConfig",
     "ConfiguredPool",

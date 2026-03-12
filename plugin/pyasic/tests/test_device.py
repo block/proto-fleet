@@ -398,7 +398,7 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="upgrade_firmware"):
-            await device.firmware_update(mock_ctx)
+            await device.firmware_update(mock_ctx, None)
 
 
 class TestSetPowerTarget:

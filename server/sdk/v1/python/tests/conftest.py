@@ -115,7 +115,7 @@ class StubDevice:
     ) -> tuple[str, bool]:
         return "Mock log data", False
 
-    async def firmware_update(self, ctx: grpc.ServicerContext) -> None:
+    async def firmware_update(self, ctx: grpc.ServicerContext, firmware: Any) -> None:
         pass
 
     async def unpair(self, ctx: grpc.ServicerContext) -> None:

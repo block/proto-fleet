@@ -127,7 +127,7 @@ func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLED
 }
 
 func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.FirmwareUpdateRequest]) (*connect.Response[pb.FirmwareUpdateResponse], error) {
-	resp, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector)
+	resp, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
 	if err != nil {
 		return nil, err
 	}

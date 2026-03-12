@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -559,13 +560,29 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
-func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.FirmwareUpdateResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.FirmwareUpdate, deviceSelector: deviceSelector, payload: nil})
+func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) (*pb.FirmwareUpdateResponse, error) {
+	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
+	}
+
+	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
+	commandBatchLogUUID, err := s.processCommand(ctx, &Command{
+		commandType:    commandtype.FirmwareUpdate,
+		deviceSelector: deviceSelector,
+		payload:        payload,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	callback := func() error {
+		if err := s.filesService.DeleteFirmwareFile(firmwareFileID); err != nil {
+			slog.Error("failed to delete firmware file after batch completed",
+				"firmware_file_id", firmwareFileID, "error", err)
+		}
+		return nil
+	}
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
