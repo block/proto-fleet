@@ -643,10 +643,19 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 	return nil
 }
 
-// UpdateFirmware initiates firmware update
+// Deprecated: use UploadFirmware instead.
 func (c *Client) UpdateFirmware(ctx context.Context) error {
-	// This would typically involve web API calls for firmware management
 	return fmt.Errorf("firmware update not implemented for Antminer")
+}
+
+// UploadFirmware uploads a firmware file to the Antminer via the CGI upgrade endpoint.
+func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) error {
+	if c.credentials == nil {
+		return fmt.Errorf("credentials required for firmware upload")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	return c.webClient.UploadFirmware(ctx, connInfo, firmware)
 }
 
 func (c *Client) SetCredentials(creds sdk.UsernamePassword) error {

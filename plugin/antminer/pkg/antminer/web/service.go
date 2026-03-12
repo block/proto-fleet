@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strings"
@@ -32,6 +33,7 @@ const (
 	endpointLegacyLog    = "/cgi-bin/log.cgi"
 	//#nosec G101 -- API endpoint path, not credentials
 	endpointPassword = "/cgi-bin/passwd.cgi"
+	endpointUpgrade  = "/cgi-bin/upgrade.cgi"
 )
 
 // errEndpointNotFound is returned when a CGI endpoint returns HTTP 404.
@@ -47,7 +49,7 @@ const (
 	BitmainWorkModeLowPower BitmainWorkMode = "2" // Low power mode
 )
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_web_api_client.go -package=mocks WebAPIClient
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_web_api_client.go -package=mocks WebAPIClient
 //nolint:interfacebloat // Antminer web API has many endpoints
 type WebAPIClient interface {
 	GetSystemInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*SystemInfo, error)
@@ -61,6 +63,7 @@ type WebAPIClient interface {
 	StopBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	GetKernelLog(ctx context.Context, connInfo *AntminerConnectionInfo) (string, error)
 	ChangePassword(ctx context.Context, connInfo *AntminerConnectionInfo, currentPassword, newPassword string) error
+	UploadFirmware(ctx context.Context, connInfo *AntminerConnectionInfo, firmware sdk.FirmwareFile) error
 }
 
 var _ WebAPIClient = &Service{}
@@ -71,6 +74,9 @@ const (
 
 	// cnonceBufferSize is the size of the buffer for generating client nonce in digest auth
 	cnonceBufferSize = 16
+
+	// Firmware upload can transfer hundreds of megabytes over slow links.
+	firmwareUploadTimeout = 30 * time.Minute
 )
 
 type ServiceOptions func(*Service)
@@ -473,6 +479,94 @@ func (s *Service) ChangePassword(ctx context.Context, connInfo *AntminerConnecti
 
 	if result.Stats != "success" {
 		return fmt.Errorf("password change failed: %s (code: %s)", result.Msg, result.Code)
+	}
+
+	return nil
+}
+
+// UploadFirmware uploads a firmware file to the Antminer via the CGI upgrade
+// endpoint (POST /cgi-bin/upgrade.cgi, multipart/form-data with digest auth).
+// The file is streamed from firmware.Reader without buffering in memory.
+func (s *Service) UploadFirmware(ctx context.Context, connInfo *AntminerConnectionInfo, firmware sdk.FirmwareFile) error {
+	if firmware.Reader == nil {
+		return fmt.Errorf("firmware reader is required")
+	}
+
+	reqURL := s.buildURL(connInfo, endpointUpgrade)
+
+	ctx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
+	defer cancel()
+
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	mw := multipart.NewWriter(pw)
+
+	// Channel captures the goroutine's outcome so we can confirm the entire
+	// multipart body was written before reporting success.
+	writerDone := make(chan error, 1)
+
+	go func() {
+		defer pw.Close()
+
+		part, err := mw.CreateFormFile("file", firmware.Filename)
+		if err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to create multipart form file: %w", err))
+			writerDone <- err
+			return
+		}
+
+		if _, err := io.Copy(part, firmware.Reader); err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to write firmware data: %w", err))
+			writerDone <- err
+			return
+		}
+
+		if err := mw.Close(); err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to close multipart writer: %w", err))
+			writerDone <- err
+			return
+		}
+
+		writerDone <- nil
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, pr)
+	if err != nil {
+		return fmt.Errorf("failed to create firmware upload request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	if connInfo.Creds.Username != "" && connInfo.Creds.Password != "" {
+		if err := s.addDigestAuth(req, connInfo.Creds); err != nil {
+			return fmt.Errorf("failed to add digest auth for firmware upload: %w", err)
+		}
+	}
+
+	// Use a client without the default 30s timeout — firmware uploads can take
+	// much longer. The context timeout above controls the overall deadline.
+	transport := s.httpClient.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	uploadClient := &http.Client{Transport: transport}
+
+	resp, err := uploadClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload firmware: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return sdk.NewErrorAuthenticationFailed(connInfo.GetURL().String())
+		}
+		return fmt.Errorf("firmware upload failed with status %d", resp.StatusCode)
+	}
+
+	if err := <-writerDone; err != nil {
+		return fmt.Errorf("firmware upload: multipart writer failed: %w", err)
 	}
 
 	return nil

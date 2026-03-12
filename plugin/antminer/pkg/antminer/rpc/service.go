@@ -20,7 +20,7 @@ const (
 	MaxResponseSize    = 1 << 20 // 1MB
 )
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_rpc_client.go -package=mocks RPCClient
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_rpc_client.go -package=mocks RPCClient
 type RPCClient interface {
 	GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error)
 	GetPools(ctx context.Context, connInfo *networking.ConnectionInfo) (*PoolsResponse, error)

@@ -12,7 +12,7 @@ import (
 // AntminerClient defines the interface for communicating with Antminer devices
 // This interface allows for easy mocking and testing
 //
-//go:generate mockgen -source=interface.go -destination=mocks/mock_client.go -package=mocks AntminerClient
+//go:generate go run go.uber.org/mock/mockgen -source=interface.go -destination=mocks/mock_client.go -package=mocks AntminerClient
 //nolint:interfacebloat // This interface represents a complete device client with necessary operations
 type AntminerClient interface {
 	// RPC operations
@@ -42,6 +42,7 @@ type AntminerClient interface {
 	BlinkLED(ctx context.Context, duration time.Duration) error
 	Reboot(ctx context.Context) error
 	ChangePassword(ctx context.Context, currentPassword, newPassword string) error
+	UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) error
 
 	// Lifecycle
 	Close()

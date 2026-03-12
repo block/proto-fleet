@@ -565,3 +565,25 @@ func createKernelLogHandler(state *MinerState) http.HandlerFunc {
 		}
 	}
 }
+
+func createUpgradeHandler(_ *MinerState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "Missing or invalid 'file' field", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		log.Printf("Firmware upgrade received: filename=%s, size=%d", header.Filename, header.Size)
+
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "<html><body>System Upgrade Successed</body></html>")
+	}
+}

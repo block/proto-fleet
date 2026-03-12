@@ -1,11 +1,14 @@
 package web_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/networking"
@@ -646,5 +649,160 @@ func TestChangePassword(t *testing.T) {
 		// Assert
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "password change failed")
+	})
+}
+
+func TestUploadFirmware(t *testing.T) {
+	firmwareContent := []byte("fake-firmware-content-for-test")
+
+	t.Run("successful upload with digest auth", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/cgi-bin/upgrade.cgi", r.URL.Path)
+
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data"))
+
+			file, header, err := r.FormFile("file")
+			require.NoError(t, err, "should be able to read 'file' field")
+			defer file.Close()
+
+			assert.Equal(t, "firmware.tar.gz", header.Filename)
+			body, err := io.ReadAll(file)
+			require.NoError(t, err)
+			assert.Equal(t, firmwareContent, body)
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("System Upgrade Successed"))
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		firmware := sdk.FirmwareFile{
+			Reader:   bytes.NewReader(firmwareContent),
+			Filename: "firmware.tar.gz",
+			Size:     int64(len(firmwareContent)),
+		}
+
+		err := service.UploadFirmware(t.Context(), connInfo, firmware)
+		require.NoError(t, err)
+	})
+
+	t.Run("auth failure (401)", func(t *testing.T) {
+		challengeSent := false
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !challengeSent {
+				challengeSent = true
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "wrong"})
+
+		firmware := sdk.FirmwareFile{
+			Reader:   bytes.NewReader(firmwareContent),
+			Filename: "firmware.tar.gz",
+			Size:     int64(len(firmwareContent)),
+		}
+
+		err := service.UploadFirmware(t.Context(), connInfo, firmware)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authentication")
+	})
+
+	t.Run("server error (500)", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		firmware := sdk.FirmwareFile{
+			Reader:   bytes.NewReader(firmwareContent),
+			Filename: "firmware.tar.gz",
+			Size:     int64(len(firmwareContent)),
+		}
+
+		err := service.UploadFirmware(t.Context(), connInfo, firmware)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "firmware upload failed with status 500")
+	})
+
+	t.Run("no credentials skips auth", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Empty(t, r.Header.Get("Authorization"), "no auth header when credentials are empty")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{})
+
+		firmware := sdk.FirmwareFile{
+			Reader:   bytes.NewReader(firmwareContent),
+			Filename: "firmware.tar.gz",
+			Size:     int64(len(firmwareContent)),
+		}
+
+		err := service.UploadFirmware(t.Context(), connInfo, firmware)
+		require.NoError(t, err)
+	})
+
+	t.Run("nil reader returns error", func(t *testing.T) {
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, "http://localhost", sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		firmware := sdk.FirmwareFile{
+			Filename: "firmware.tar.gz",
+			Size:     100,
+		}
+
+		err := service.UploadFirmware(t.Context(), connInfo, firmware)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "firmware reader is required")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="1234567890abcdef", algorithm=MD5, qop="auth"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer server.Close()
+
+		service := web.NewService()
+		connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		firmware := sdk.FirmwareFile{
+			Reader:   bytes.NewReader(firmwareContent),
+			Filename: "firmware.tar.gz",
+			Size:     int64(len(firmwareContent)),
+		}
+
+		err := service.UploadFirmware(ctx, connInfo, firmware)
+		require.Error(t, err)
 	})
 }

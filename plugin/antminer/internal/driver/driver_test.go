@@ -9,9 +9,9 @@ import (
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/mocks"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 const (

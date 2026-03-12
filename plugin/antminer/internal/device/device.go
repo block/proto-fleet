@@ -498,13 +498,15 @@ func (d *Device) Reboot(ctx context.Context) error {
 }
 
 // FirmwareUpdate implements the SDK Device interface.
+//
+// The firmware file is uploaded to the Antminer via the CGI upgrade endpoint
+// (POST /cgi-bin/upgrade.cgi, multipart/form-data with digest auth).
 func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	if firmware.Reader == nil {
 		return fmt.Errorf("firmware file is required for file-based firmware update")
 	}
 
-	// TODO: upload firmware file to miner via POST /cgi-bin/upgrade.cgi
-	return fmt.Errorf("file-based firmware upload not yet implemented for antminer")
+	return d.client.UploadFirmware(ctx, firmware)
 }
 
 func (d *Device) Unpair(ctx context.Context) error {

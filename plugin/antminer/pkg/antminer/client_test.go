@@ -10,9 +10,9 @@ import (
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
 	webmocks "github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web/mocks"
 	"github.com/btc-mining/proto-fleet/server/sdk/v1"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNewClient(t *testing.T) {
