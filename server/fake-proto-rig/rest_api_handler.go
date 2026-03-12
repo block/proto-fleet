@@ -1076,8 +1076,26 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case http.MethodPost, http.MethodPut:
-		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Update started"})
+	case http.MethodPost:
+		// OTA update (no file upload)
+		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
+	case http.MethodPut:
+		// File-based firmware upload (multipart/form-data)
+		contentType := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "multipart/form-data") {
+			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Content-Type must be multipart/form-data")
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
+			return
+		}
+		defer file.Close()
+
+		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
+		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}

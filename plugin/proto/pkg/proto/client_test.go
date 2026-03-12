@@ -1,13 +1,16 @@
 package proto
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -960,4 +963,191 @@ func TestGetStatusPoolCheckError(t *testing.T) {
 	require.NoError(t, err, "GetStatus should not fail when pool check fails")
 	assert.Equal(t, sdk.HealthHealthyActive, status.State,
 		"Should fall back to firmware-reported state when pool check fails")
+}
+
+// TestUploadFirmware tests the multipart firmware upload to the MDK REST API.
+func TestUploadFirmware(t *testing.T) {
+	const testToken = "fleet-bearer-token"
+	firmwareContent := []byte("fake-swu-firmware-content-for-test")
+
+	tests := []struct {
+		name        string
+		handler     func(t *testing.T) http.HandlerFunc
+		token       string
+		expectErr   bool
+		errContains string
+	}{
+		{
+			name: "successful upload",
+			handler: func(t *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, http.MethodPut, r.Method)
+					assert.Equal(t, "/api/v1/system/update", r.URL.Path)
+					assert.Equal(t, "Bearer "+testToken, r.Header.Get("Authorization"))
+					assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data"))
+
+					file, header, err := r.FormFile("file")
+					require.NoError(t, err, "should be able to read 'file' field")
+					defer file.Close()
+
+					assert.Equal(t, "firmware.swu", header.Filename)
+					body, err := io.ReadAll(file)
+					require.NoError(t, err)
+					assert.Equal(t, firmwareContent, body)
+
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{"message":"Firmware uploaded successfully"}`))
+				}
+			},
+			token:     testToken,
+			expectErr: false,
+		},
+		{
+			name: "unauthorized (401)",
+			handler: func(_ *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(`{"error":"invalid token"}`))
+				}
+			},
+			token:       testToken,
+			expectErr:   true,
+			errContains: "invalid token",
+		},
+		{
+			name: "unauthorized (401) with empty body falls back",
+			handler: func(_ *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusUnauthorized)
+				}
+			},
+			token:       testToken,
+			expectErr:   true,
+			errContains: "check bearer token",
+		},
+		{
+			name: "update already in progress (409)",
+			handler: func(_ *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":"update in progress"}`))
+				}
+			},
+			token:       testToken,
+			expectErr:   true,
+			errContains: "update in progress",
+		},
+		{
+			name: "bad request (400)",
+			handler: func(_ *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"error":"unsupported firmware"}`))
+				}
+			},
+			token:       testToken,
+			expectErr:   true,
+			errContains: "unsupported firmware",
+		},
+		{
+			name: "server error (500)",
+			handler: func(_ *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(`{"error":"internal failure"}`))
+				}
+			},
+			token:       testToken,
+			expectErr:   true,
+			errContains: "internal failure",
+		},
+		{
+			name: "no bearer token omits auth header",
+			handler: func(t *testing.T) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					assert.Empty(t, r.Header.Get("Authorization"), "no auth header when token is empty")
+					w.WriteHeader(http.StatusOK)
+				}
+			},
+			token:     "",
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(tt.handler(t))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			if tt.token != "" {
+				err := client.SetCredentials(sdk.BearerToken{Token: tt.token})
+				require.NoError(t, err)
+			}
+
+			firmware := sdk.FirmwareFile{
+				Reader:   bytes.NewReader(firmwareContent),
+				Filename: "firmware.swu",
+				Size:     int64(len(firmwareContent)),
+			}
+
+			err := client.UploadFirmware(context.Background(), firmware)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestUploadFirmware_ContextCancellation tests that firmware upload respects context cancellation.
+func TestUploadFirmware_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Simulate a slow server that responds only after a significant delay
+		time.Sleep(10 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	firmware := sdk.FirmwareFile{
+		Reader:   bytes.NewReader([]byte("firmware-data")),
+		Filename: "firmware.swu",
+		Size:     13,
+	}
+
+	err := client.UploadFirmware(ctx, firmware)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+// TestUploadFirmware_NilReader tests that a nil firmware reader returns a clear error.
+func TestUploadFirmware_NilReader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("server should not be called when reader is nil")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+
+	firmware := sdk.FirmwareFile{
+		Reader:   nil,
+		Filename: "firmware.swu",
+		Size:     100,
+	}
+
+	err := client.UploadFirmware(context.Background(), firmware)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firmware reader is required")
 }

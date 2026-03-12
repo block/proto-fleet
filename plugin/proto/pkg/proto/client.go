@@ -20,6 +20,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"os"
@@ -56,6 +57,9 @@ const (
 	http2ReadIdleTimeout  = 30 * time.Second
 	http2PingTimeout      = 15 * time.Second
 	http2WriteByteTimeout = 10 * time.Second
+
+	// Firmware upload can transfer hundreds of megabytes over slow links.
+	firmwareUploadTimeout = 30 * time.Minute
 )
 
 var (
@@ -971,7 +975,7 @@ func (c *Client) Reboot(ctx context.Context) error {
 	return nil
 }
 
-// UpdateFirmware initiates a firmware update.
+// UpdateFirmware initiates an OTA firmware update (no file upload).
 func (c *Client) UpdateFirmware(ctx context.Context) error {
 	ctx = c.withAuth(ctx)
 
@@ -981,6 +985,104 @@ func (c *Client) UpdateFirmware(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// UploadFirmware uploads a firmware file to the miner via the MDK REST API
+// (PUT /api/v1/system/update, multipart/form-data). The file is streamed
+// from firmware.Reader without buffering the entire payload in memory.
+func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) error {
+	if firmware.Reader == nil {
+		return fmt.Errorf("firmware reader is required")
+	}
+
+	uploadURL := fmt.Sprintf("%s/api/v1/system/update", c.webUIBaseURL)
+
+	ctx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
+	defer cancel()
+
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	mw := multipart.NewWriter(pw)
+
+	// Channel captures the goroutine's outcome so we can confirm the entire
+	// multipart body was written before reporting success.
+	writerDone := make(chan error, 1)
+
+	go func() {
+		defer pw.Close()
+
+		part, err := mw.CreateFormFile("file", firmware.Filename)
+		if err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to create multipart form file: %w", err))
+			writerDone <- err
+			return
+		}
+
+		if _, err := io.Copy(part, firmware.Reader); err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to write firmware data: %w", err))
+			writerDone <- err
+			return
+		}
+
+		if err := mw.Close(); err != nil {
+			pw.CloseWithError(fmt.Errorf("failed to close multipart writer: %w", err))
+			writerDone <- err
+			return
+		}
+
+		writerDone <- nil
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, pr)
+	if err != nil {
+		return fmt.Errorf("failed to create firmware upload request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if c.bearerToken.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearerToken.Token)
+	}
+
+	// Use a client without the default 30s timeout — firmware uploads can take
+	// much longer. The context timeout above controls the overall deadline.
+	transport := c.webUIClient.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	uploadClient := &http.Client{Transport: transport}
+
+	resp, err := uploadClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload firmware: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	detail := strings.TrimSpace(string(respBody))
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if err := <-writerDone; err != nil {
+			return fmt.Errorf("firmware upload: multipart writer failed: %w", err)
+		}
+		return nil
+	case http.StatusUnauthorized:
+		return fmt.Errorf("firmware upload unauthorized: %s", withDetail("check bearer token", detail))
+	case http.StatusConflict:
+		return fmt.Errorf("firmware update already in progress: %s", withDetail("try again later", detail))
+	case http.StatusBadRequest:
+		return fmt.Errorf("firmware upload rejected by device: %s", withDetail("bad request", detail))
+	default:
+		return fmt.Errorf("firmware upload failed with status %d: %s", resp.StatusCode, withDetail("unknown error", detail))
+	}
+}
+
+// withDetail returns detail if non-empty, otherwise falls back to fallback.
+func withDetail(fallback, detail string) string {
+	if detail != "" {
+		return detail
+	}
+	return fallback
 }
 
 // withAuth adds authentication to the context if credentials are available.

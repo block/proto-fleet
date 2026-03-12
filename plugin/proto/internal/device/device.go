@@ -625,8 +625,8 @@ func (d *Device) Reboot(ctx context.Context) error {
 
 // FirmwareUpdate implements the SDK Device interface.
 //
-// When a firmware file is provided, it is uploaded to the miner
-// via the MDK REST API. This will be implemented in a subsequent ticket.
+// The firmware file is uploaded to the miner via the MDK REST API
+// (PUT /api/v1/system/update, multipart/form-data).
 func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	slog.Info("Plugin device starting firmware update",
 		"device_id", d.id,
@@ -638,8 +638,16 @@ func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) 
 		return fmt.Errorf("firmware file is required for file-based firmware update")
 	}
 
-	// TODO: upload firmware file to miner via MDK PUT /api/v1/system/update
-	return fmt.Errorf("file-based firmware upload not yet implemented for proto rig")
+	if err := d.client.UploadFirmware(ctx, firmware); err != nil {
+		return fmt.Errorf("device firmware upload: %w", err)
+	}
+
+	slog.Info("Plugin device firmware upload completed",
+		"device_id", d.id,
+		"host", d.deviceInfo.Host,
+		"filename", firmware.Filename)
+
+	return nil
 }
 
 // Unpair implements the SDK Device interface.
