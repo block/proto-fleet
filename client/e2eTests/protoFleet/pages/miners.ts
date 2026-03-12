@@ -225,15 +225,13 @@ export class MinersPage extends BasePage {
   async waitForMinersListToLoad() {
     const rows = this.page.getByTestId("list-body").locator("tr");
     await expect(rows).not.toHaveCount(0);
-    /* eslint-disable playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized */
     await expect(async () => {
       const rowCount = await rows.count();
       await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
       const rowCountAfterDelay = await rows.count();
-
+      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(rowCountAfterDelay).toBe(rowCount);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
-    /* eslint-enable playwright/prefer-to-have-count */
   }
 
   async validateAllMinersStatus(status: string, expected: boolean = true) {

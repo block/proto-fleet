@@ -359,7 +359,10 @@ const GroupModal = ({ onDismiss, onSuccess, group }: GroupModalProps) => {
       >
         <div>
           {errorMsg ? (
-            <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+            <div
+              className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text"
+              data-testid="error-msg"
+            >
               {errorMsg}
             </div>
           ) : null}

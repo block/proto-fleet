@@ -19,7 +19,7 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Validate null states", async ({ homePage, commonSteps, minersPage, settingsPoolsPage }) => {
+  test("Validate null states", async ({ homePage, commonSteps, minersPage, groupsPage, settingsPoolsPage }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Validate Home screen null state due to no miners added", async () => {
@@ -35,8 +35,14 @@ test.describe("Proto Fleet - Onboarding", () => {
       await minersPage.validateButtonIsVisible("Get Started");
     });
 
+    await test.step("Validate Groups screen null state due to no groups added", async () => {
+      await minersPage.navigateToGroupsPage();
+      await groupsPage.validateTextIsVisible("Organize your miners into groups.");
+      await groupsPage.validateButtonIsVisible("Add group");
+    });
+
     await test.step("Validate Pools screen null state due to no pools added", async () => {
-      await minersPage.navigateToMiningPoolsSettings();
+      await groupsPage.navigateToMiningPoolsSettings();
       await settingsPoolsPage.validateTitle("Pools");
       await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
       await settingsPoolsPage.validateButtonIsVisible("Add pool");

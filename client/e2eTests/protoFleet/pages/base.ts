@@ -25,25 +25,25 @@ export class BasePage {
   }
 
   async validateTitle(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
+    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()='${expectedTitle}']`);
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleInModal(expectedTitle: string) {
     const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()="${expectedTitle}"]`,
+      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
     );
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
+    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()='${expectedTitle}']`);
     await expect(titleLocator).toBeHidden();
   }
 
   async validateTitleInModalNotVisible(expectedTitle: string) {
     const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()="${expectedTitle}"]`,
+      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
     );
     await expect(titleLocator).toBeHidden();
   }
@@ -102,7 +102,7 @@ export class BasePage {
 
   async clickExpandSettingsIfMobile() {
     if (this.isMobile && !this.page.url().includes("/settings")) {
-      await this.clickIn("Settings", "navigation-menu");
+      await this.page.getByTestId("navigation-menu").getByText("Settings").click();
     }
   }
 
@@ -116,6 +116,12 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/miners"]').click();
     await expect(this.page).toHaveURL(/.*\/miners/);
+  }
+
+  async navigateToGroupsPage() {
+    await this.clickNavigationMenuIfMobile();
+    await this.page.getByTestId("navigation-menu").locator('a[href="/groups"]').click();
+    await expect(this.page).toHaveURL(/.*\/groups/);
   }
 
   async navigateToSettingsPage() {
@@ -161,11 +167,11 @@ export class BasePage {
   }
 
   async clickButton(text: string) {
-    await this.page.getByRole("button", { name: text, disabled: false }).click();
+    await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
 
   async clickUntilNotVisible(text: string) {
-    const button = this.page.getByRole("button", { name: text, disabled: false });
+    const button = this.page.getByRole("button", { name: text, disabled: false, exact: true });
 
     await expect(button).toBeVisible();
     await expect(async () => {
@@ -178,7 +184,7 @@ export class BasePage {
   }
 
   async clickIn(text: string, testId: string) {
-    await this.page.getByTestId(testId).getByRole("button", { name: text, disabled: false }).click();
+    await this.page.getByTestId(testId).getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
 
   async validateModalIsOpen() {
