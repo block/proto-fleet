@@ -252,7 +252,7 @@ jobs:
       - name: Build ProtoOS .ipk package
         working-directory: ./client
         run: |
-          nfpm package --config nfpm-proto-os.yaml --packager ipk
+          nfpm package --config nfpm-proto-os.yaml --packager ipk --target "proto-os_${VERSION}.ipk"
         env:
           VERSION: ${{ github.event.release.tag_name }}
 
