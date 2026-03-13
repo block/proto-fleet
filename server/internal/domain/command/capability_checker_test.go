@@ -27,7 +27,7 @@ func TestHasAnyCapability(t *testing.T) {
 			RebootSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityReboot})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityReboot})
 
 		assert.True(t, result)
 	})
@@ -37,7 +37,7 @@ func TestHasAnyCapability(t *testing.T) {
 			MiningStartSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityMiningStart})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityMiningStart})
 
 		assert.True(t, result)
 	})
@@ -47,7 +47,7 @@ func TestHasAnyCapability(t *testing.T) {
 			MiningStopSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityMiningStop})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityMiningStop})
 
 		assert.True(t, result)
 	})
@@ -57,7 +57,7 @@ func TestHasAnyCapability(t *testing.T) {
 			LedBlinkSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityLEDBlink})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityLEDBlink})
 
 		assert.True(t, result)
 	})
@@ -67,7 +67,7 @@ func TestHasAnyCapability(t *testing.T) {
 			AirCoolingSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityCoolingModeAir, sdk.CapabilityCoolingModeImmerse})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCoolingModeAir, sdk.CapabilityCoolingModeImmerse})
 
 		assert.True(t, result)
 	})
@@ -77,7 +77,7 @@ func TestHasAnyCapability(t *testing.T) {
 			ImmersionCoolingSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityCoolingModeAir, sdk.CapabilityCoolingModeImmerse})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCoolingModeAir, sdk.CapabilityCoolingModeImmerse})
 
 		assert.True(t, result)
 	})
@@ -87,7 +87,7 @@ func TestHasAnyCapability(t *testing.T) {
 			PoolSwitchingSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityPoolConfig})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityPoolConfig})
 
 		assert.True(t, result)
 	})
@@ -97,7 +97,7 @@ func TestHasAnyCapability(t *testing.T) {
 			LogsDownloadSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityLogsDownload})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityLogsDownload})
 
 		assert.True(t, result)
 	})
@@ -107,7 +107,7 @@ func TestHasAnyCapability(t *testing.T) {
 			FactoryResetSupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityFactoryReset})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityFactoryReset})
 
 		assert.True(t, result)
 	})
@@ -117,7 +117,7 @@ func TestHasAnyCapability(t *testing.T) {
 			PowerModeEfficiencySupported: true,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityPowerModeEfficiency})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityPowerModeEfficiency})
 
 		assert.True(t, result)
 	})
@@ -127,7 +127,7 @@ func TestHasAnyCapability(t *testing.T) {
 			PowerModeEfficiencySupported: false,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityPowerModeEfficiency})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityPowerModeEfficiency})
 
 		assert.False(t, result)
 	})
@@ -137,7 +137,7 @@ func TestHasAnyCapability(t *testing.T) {
 			RebootSupported: false,
 		}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityReboot})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityReboot})
 
 		assert.False(t, result)
 	})
@@ -145,17 +145,35 @@ func TestHasAnyCapability(t *testing.T) {
 	t.Run("returns false when no capabilities are supported", func(t *testing.T) {
 		commands := &capabilitiespb.CommandCapabilities{}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityReboot, sdk.CapabilityMiningStart})
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityReboot, sdk.CapabilityMiningStart})
 
 		assert.False(t, result)
 	})
 
-	t.Run("returns true for OTA update capability", func(t *testing.T) {
+	t.Run("returns true when manual upload is supported", func(t *testing.T) {
 		commands := &capabilitiespb.CommandCapabilities{}
+		firmware := &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true}
 
-		result := hasAnyCapability(commands, []string{sdk.CapabilityOTAUpdate})
+		result := hasAnyCapability(commands, firmware, []string{sdk.CapabilityManualUpload})
 
 		assert.True(t, result)
+	})
+
+	t.Run("returns false when manual upload is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{}
+		firmware := &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: false}
+
+		result := hasAnyCapability(commands, firmware, []string{sdk.CapabilityManualUpload})
+
+		assert.False(t, result)
+	})
+
+	t.Run("returns false for manual upload when firmware capabilities is nil", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityManualUpload})
+
+		assert.False(t, result)
 	})
 }
 
@@ -323,6 +341,60 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		assert.True(t, result.NoneSupported)
 	})
 
+	t.Run("checks firmware capabilities for manual upload", func(t *testing.T) {
+		provider := &mockCapabilitiesProvider{
+			capabilities: map[string]*capabilitiespb.MinerCapabilities{
+				"proto|Proto|Rig1": {
+					Commands: &capabilitiespb.CommandCapabilities{},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
+				},
+				"antminer|Bitmain|S19": {
+					Commands: &capabilitiespb.CommandCapabilities{},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
+				},
+				"virtual|Virtual|Miner": {
+					Commands: &capabilitiespb.CommandCapabilities{},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: false},
+				},
+			},
+		}
+		checker := NewCapabilityChecker(nil, provider)
+
+		devices := []deviceInfo{
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Rig1", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "virtual", Manufacturer: "Virtual", Model: "Miner", FirmwareVersion: "0.0.1"},
+		}
+
+		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityManualUpload})
+
+		assert.Equal(t, int32(2), result.SupportedCount)
+		assert.Equal(t, int32(1), result.UnsupportedCount)
+		assert.Equal(t, int32(3), result.TotalCount)
+		assert.False(t, result.AllSupported)
+		assert.False(t, result.NoneSupported)
+		assert.ElementsMatch(t, []string{"device-1", "device-2"}, result.SupportedDeviceIdentifiers)
+	})
+
+	t.Run("returns unsupported for manual upload when firmware capabilities is nil", func(t *testing.T) {
+		provider := &mockCapabilitiesProvider{
+			capabilities: map[string]*capabilitiespb.MinerCapabilities{
+				"proto|Proto|Model1": {Commands: &capabilitiespb.CommandCapabilities{}},
+			},
+		}
+		checker := NewCapabilityChecker(nil, provider)
+
+		devices := []deviceInfo{
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Model1"},
+		}
+
+		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityManualUpload})
+
+		assert.Equal(t, int32(0), result.SupportedCount)
+		assert.Equal(t, int32(1), result.UnsupportedCount)
+		assert.True(t, result.NoneSupported)
+	})
+
 	t.Run("returns unsupported when commands is nil", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
@@ -389,7 +461,7 @@ func TestGetRequiredCapabilities(t *testing.T) {
 	t.Run("returns correct capabilities for firmware update command", func(t *testing.T) {
 		caps := GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE)
 
-		assert.Equal(t, []string{sdk.CapabilityOTAUpdate}, caps)
+		assert.Equal(t, []string{sdk.CapabilityManualUpload}, caps)
 	})
 
 	t.Run("returns nil for unknown command type", func(t *testing.T) {

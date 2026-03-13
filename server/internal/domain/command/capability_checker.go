@@ -209,11 +209,11 @@ func (c *CapabilityChecker) deviceSupportsCommand(
 		return false
 	}
 
-	return hasAnyCapability(capabilities.Commands, requiredCaps)
+	return hasAnyCapability(capabilities.Commands, capabilities.Firmware, requiredCaps)
 }
 
-// hasAnyCapability checks if the commands capabilities has any of the required capabilities.
-func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, requiredCaps []string) bool {
+// hasAnyCapability checks if the device capabilities include any of the required capabilities.
+func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, firmware *capabilitiespb.FirmwareCapabilities, requiredCaps []string) bool {
 	for _, cap := range requiredCaps {
 		switch cap {
 		case sdk.CapabilityReboot:
@@ -248,10 +248,10 @@ func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, requiredCaps
 			if commands.LogsDownloadSupported {
 				return true
 			}
-		case sdk.CapabilityOTAUpdate:
-			// OTA update doesn't have a specific proto field yet
-			// Default to supported if firmware capability exists
-			return true
+		case sdk.CapabilityManualUpload:
+			if firmware != nil && firmware.ManualUploadSupported {
+				return true
+			}
 		case sdk.CapabilityFactoryReset:
 			if commands.FactoryResetSupported {
 				return true
