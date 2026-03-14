@@ -417,6 +417,51 @@ func TestCollectionStore_UpdateCollection(t *testing.T) {
 	assert.Equal(t, "Old desc", fetched.Description)
 }
 
+func TestCollectionStore_CreateCollection_DuplicateName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, _ := setupCollectionTestData(t, 0)
+	store := newCollectionStore(db)
+	ctx := t.Context()
+
+	// Arrange - create a collection
+	_, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "My Group", "")
+	require.NoError(t, err)
+
+	// Act - create another with the same name
+	_, err = store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "My Group", "")
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a collection with this name already exists")
+}
+
+func TestCollectionStore_UpdateCollection_DuplicateName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, _ := setupCollectionTestData(t, 0)
+	store := newCollectionStore(db)
+	ctx := t.Context()
+
+	// Arrange - create two collections
+	_, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Group A", "")
+	require.NoError(t, err)
+	collB, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Group B", "")
+	require.NoError(t, err)
+
+	// Act - rename B to A
+	newLabel := "Group A"
+	err = store.UpdateCollection(ctx, orgID, collB.Id, &newLabel, nil)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a collection with this name already exists")
+}
+
 func TestCollectionStore_RackSlotPositions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

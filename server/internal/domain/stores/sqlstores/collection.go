@@ -6,6 +6,9 @@ import (
 	"errors"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -35,6 +38,10 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 		Description: toNullString(description),
 	})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, fleeterror.NewPlainError("a collection with this name already exists", connect.CodeAlreadyExists)
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to create collection: %v", err)
 	}
 
@@ -99,22 +106,23 @@ func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64
 func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, collectionID int64, label, description *string) error {
 	q := s.GetQueries(ctx)
 
+	var err error
 	switch {
 	case label != nil && description != nil:
-		return q.UpdateCollectionLabelAndDescription(ctx, sqlc.UpdateCollectionLabelAndDescriptionParams{
+		err = q.UpdateCollectionLabelAndDescription(ctx, sqlc.UpdateCollectionLabelAndDescriptionParams{
 			Label:       *label,
 			Description: toNullString(*description),
 			ID:          collectionID,
 			OrgID:       orgID,
 		})
 	case label != nil:
-		return q.UpdateCollectionLabel(ctx, sqlc.UpdateCollectionLabelParams{
+		err = q.UpdateCollectionLabel(ctx, sqlc.UpdateCollectionLabelParams{
 			Label: *label,
 			ID:    collectionID,
 			OrgID: orgID,
 		})
 	case description != nil:
-		return q.UpdateCollectionDescription(ctx, sqlc.UpdateCollectionDescriptionParams{
+		err = q.UpdateCollectionDescription(ctx, sqlc.UpdateCollectionDescriptionParams{
 			Description: toNullString(*description),
 			ID:          collectionID,
 			OrgID:       orgID,
@@ -122,6 +130,14 @@ func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, 
 	default:
 		return nil
 	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fleeterror.NewPlainError("a collection with this name already exists", connect.CodeAlreadyExists)
+		}
+		return fleeterror.NewInternalErrorf("failed to update collection: %v", err)
+	}
+	return nil
 }
 
 func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32) error {
