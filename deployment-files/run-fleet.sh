@@ -115,9 +115,10 @@ copy_nginx_config() {
     fi
 }
 
-# Fix runc sysctl permission issue on older Docker versions (Debian 12)
-# Affected versions fail with: "open sysctl net.ipv4.ip_unprivileged_port_start file: permission denied"
-# when running containers as non-root users (e.g. our TimescaleDB/postgres container).
+# Fix runc/AppArmor sysctl permission issue (Proxmox LXC, Debian 12)
+# Newer containerd (1.7.28-2+) includes a CVE-2025-52881 fix that uses detached procfs
+# mounts, which AppArmor inside LXC containers denies. This causes:
+#   "open sysctl net.ipv4.ip_unprivileged_port_start file: permission denied"
 fix_runc_sysctl() {
     local current_value
     current_value=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null)
@@ -136,8 +137,6 @@ fix_runc_sysctl() {
     fi
 
     echo "Fix applied."
-    echo "  TIP: Upgrading Docker to the latest version permanently resolves this issue."
-    echo "       Run: sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io"
 }
 
 # Detect if running inside WSL
