@@ -84,8 +84,8 @@ func TestDescribeDriver(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityPoolPriority])
 	assert.True(t, capabilities[sdk.CapabilityLogsDownload])
 
-	// Check power mode capabilities (base capability is true, model-specific check may override)
-	assert.True(t, capabilities[sdk.CapabilityPowerModeEfficiency])
+	// Power mode is model-specific, base is false
+	assert.False(t, capabilities[sdk.CapabilityPowerModeEfficiency])
 
 	// Check telemetry capabilities
 	assert.True(t, capabilities[sdk.CapabilityRealtimeTelemetry])
@@ -303,7 +303,7 @@ func TestDiscoverDevice_Success(t *testing.T) {
 
 	// Verify results
 	assert.Equal(t, testIPAddress, result.Host)
-	assert.Equal(t, int32(80), result.Port)
+	assert.Equal(t, int32(4028), result.Port)
 	assert.Equal(t, "http", result.URLScheme)
 	assert.Equal(t, "Antminer S19j Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
@@ -316,7 +316,9 @@ func TestDiscoverDevice_WrongPort(t *testing.T) {
 	ctx := t.Context()
 	_, err = d.DiscoverDevice(ctx, testIPAddress, "80")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "antminers use port 4028")
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 func TestDiscoverDevice_InvalidPort(t *testing.T) {
@@ -326,8 +328,10 @@ func TestDiscoverDevice_InvalidPort(t *testing.T) {
 	ctx := t.Context()
 	_, err = d.DiscoverDevice(ctx, testIPAddress, "invalid")
 	require.Error(t, err)
-	// The driver validates port is 4028, so it will fail with port validation error
-	assert.Contains(t, err.Error(), "antminers use port 4028")
+	// The driver validates port is 4028, so it will fail with device not found error
+	var sdkErr sdk.SDKError
+	assert.ErrorAs(t, err, &sdkErr)
+	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
 }
 
 func TestDiscoverDevice_NotAntminer(t *testing.T) {

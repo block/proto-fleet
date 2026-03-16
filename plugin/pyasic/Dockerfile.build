@@ -1,10 +1,11 @@
-FROM python:3.13-alpine AS builder
+FROM python:3.13-slim AS builder
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    musl-dev \
+    libc6-dev \
     libffi-dev \
-    binutils
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 

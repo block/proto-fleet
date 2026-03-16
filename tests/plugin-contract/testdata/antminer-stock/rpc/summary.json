@@ -1,0 +1,43 @@
+{
+  "STATUS": [
+    {
+      "STATUS": "S",
+      "When": 1741500000,
+      "Code": 11,
+      "Msg": "Summary",
+      "Description": "bmminer"
+    }
+  ],
+  "SUMMARY": [
+    {
+      "Elapsed": 501234,
+      "GHS 5s": 88422.0,
+      "GHS av": 87900.0,
+      "GHS 30m": 88100.0,
+      "Found Blocks": 0,
+      "Getwork": 25000,
+      "Accepted": 120000,
+      "Rejected": 50,
+      "Hardware Errors": 12,
+      "Utility": 14.35,
+      "Discarded": 500,
+      "Stale": 3,
+      "Get Failures": 0,
+      "Local Work": 3200000,
+      "Remote Failures": 0,
+      "Network Blocks": 800,
+      "Total MH": 4.4e16,
+      "Work Utility": 250000.0,
+      "Difficulty Accepted": 1.5e10,
+      "Difficulty Rejected": 6000000.0,
+      "Difficulty Stale": 400000.0,
+      "Best Share": 5000000000,
+      "Device Hardware%": 0.0001,
+      "Device Rejected%": 0.04,
+      "Pool Rejected%": 0.04,
+      "Pool Stale%": 0.002,
+      "Last getwork": 1741500000
+    }
+  ],
+  "id": 1
+}

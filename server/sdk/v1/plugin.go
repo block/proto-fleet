@@ -186,7 +186,7 @@ func (s *DriverGRPCServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty)
 func (s *DriverGRPCServer) DiscoverDevice(ctx context.Context, req *pb.DiscoverDeviceRequest) (*pb.DiscoverDeviceResponse, error) {
 	deviceInfo, err := s.Impl.DiscoverDevice(ctx, req.IpAddress, req.Port)
 	if err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 
 	return &pb.DiscoverDeviceResponse{

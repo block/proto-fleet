@@ -108,6 +108,23 @@ build-pyasic-plugin-multi-arch:
   cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
   chmod +x deployment-files/server/pyasic-plugin-*
 
+# Run plugin contract tests
+contract-tests: build-pyasic-plugin
+  #!/usr/bin/env bash
+  set -euo pipefail
+  GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
+  docker run --rm \
+    -v "$(pwd)":/work \
+    -w /work \
+    -e GOFLAGS=-buildvcs=false \
+    "golang:${GO_VERSION}" \
+    sh -c '\
+      mkdir -p server/plugins && \
+      (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
+      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
+      go test -v -count=1 -timeout=5m ./tests/plugin-contract/... \
+    '
+
 # Update all Go dependencies across workspace
 update-go-deps:
   #!/usr/bin/env bash

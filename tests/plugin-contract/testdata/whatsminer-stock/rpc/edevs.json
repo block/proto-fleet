@@ -1,0 +1,56 @@
+{
+  "STATUS": [
+    {"STATUS": "S", "When": 1741500000, "Code": 9, "Msg": "3 ASC(s)", "Description": "btminer"}
+  ],
+  "DEVS": [
+    {
+      "ASC": 0,
+      "Name": "SM",
+      "ID": 0,
+      "Slot": 0,
+      "Enabled": "Y",
+      "Status": "Alive",
+      "Temperature": 65.0,
+      "Chip Temp Avg": 68.0,
+      "MHS av": 36620000.0,
+      "MHS 1m": 37000000.0,
+      "Effective Chips": 114,
+      "PCB SN": "HBa0123456789",
+      "Factory GHS": 36700,
+      "Upfreq Complete": 1
+    },
+    {
+      "ASC": 1,
+      "Name": "SM",
+      "ID": 1,
+      "Slot": 1,
+      "Enabled": "Y",
+      "Status": "Alive",
+      "Temperature": 67.0,
+      "Chip Temp Avg": 70.0,
+      "MHS av": 36580000.0,
+      "MHS 1m": 36500000.0,
+      "Effective Chips": 114,
+      "PCB SN": "HBb0123456789",
+      "Factory GHS": 36700,
+      "Upfreq Complete": 1
+    },
+    {
+      "ASC": 2,
+      "Name": "SM",
+      "ID": 2,
+      "Slot": 2,
+      "Enabled": "Y",
+      "Status": "Alive",
+      "Temperature": 63.0,
+      "Chip Temp Avg": 66.0,
+      "MHS av": 36670000.0,
+      "MHS 1m": 37020000.0,
+      "Effective Chips": 114,
+      "PCB SN": "HBc0123456789",
+      "Factory GHS": 36700,
+      "Upfreq Complete": 1
+    }
+  ],
+  "id": 1
+}

@@ -18,9 +18,7 @@ import (
 )
 
 const (
-	statusCacheTTL          = 5 * time.Second  // Cache status for 5 seconds
 	rpcPort                 = 4028             // Default RPC port for Antminers
-	webPort                 = 80               // Default web API port for Antminers
 	newDeviceTimeout        = 10 * time.Second // Timeout for new device creation
 	blinkLEDDuration        = 30 * time.Second // Duration to blink LED for identification
 	firmwareRefreshInterval = 5 * time.Minute
@@ -88,7 +86,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 		id:          deviceID,
 		deviceInfo:  deviceInfo,
 		credentials: credentials,
-		statusTTL:   statusCacheTTL,
+		statusTTL:   types.StatusCacheTTL(),
 	}
 
 	// If firmware version is already known from pairing, start the refresh
@@ -97,7 +95,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 		device.lastFirmwareCheckAt = time.Now()
 	}
 
-	client, err := clientFactory(deviceInfo.Host, rpcPort, webPort, deviceInfo.URLScheme)
+	client, err := clientFactory(deviceInfo.Host, rpcPort, types.WebPort(), deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -335,6 +333,43 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 		metrics.HashrateHS = setMetricIfNotNil(telemetry.HashrateHS)
 		metrics.TempC = setMetricIfNotNil(telemetry.TemperatureCelsius)
 		metrics.FanRPM = setMetricIfNotNil(telemetry.FanRPM)
+
+		// Map per-hashboard telemetry to SDK metrics
+		for _, hb := range telemetry.HashBoards {
+			// #nosec G115 -- ChipCount and chain Index are small hardware constants (0-255)
+			chipCount := int32(hb.ChipCount)
+			sdkHB := sdk.HashBoardMetrics{
+				ComponentInfo: sdk.ComponentInfo{
+					// #nosec G115 -- chain Index is a small hardware constant (0-2 for typical miners)
+					Index:  int32(hb.Index),
+					Name:   fmt.Sprintf("Chain %d", hb.Index),
+					Status: sdk.ComponentStatusHealthy,
+				},
+				HashRateHS:       setMetricIfNotNil(hb.HashrateHS),
+				TempC:            setMetricIfNotNil(hb.Temperature),
+				InletTempC:       setMetricIfNotNil(hb.InletTemp),
+				OutletTempC:      setMetricIfNotNil(hb.OutletTemp),
+				ChipCount:        &chipCount,
+				ChipFrequencyMHz: toMetricValue(float64(hb.ChipFrequencyMHz)),
+			}
+			if hb.SerialNumber != "" {
+				sdkHB.SerialNumber = &hb.SerialNumber
+			}
+			metrics.HashBoards = append(metrics.HashBoards, sdkHB)
+		}
+
+		// Map per-fan telemetry to SDK metrics
+		for _, fan := range telemetry.Fans {
+			metrics.FanMetrics = append(metrics.FanMetrics, sdk.FanMetrics{
+				ComponentInfo: sdk.ComponentInfo{
+					// #nosec G115 -- fan Index is a small hardware constant (0-7 for typical miners)
+					Index:  int32(fan.Index),
+					Name:   fmt.Sprintf("Fan %d", fan.Index),
+					Status: sdk.ComponentStatusHealthy,
+				},
+				RPM: toMetricValue(float64(fan.RPM)),
+			})
+		}
 
 		// Add uptime as a sensor metric if available
 		// Uptime is a counter (monotonically increasing) rather than a gauge

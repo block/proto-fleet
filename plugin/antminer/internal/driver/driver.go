@@ -31,7 +31,6 @@ const (
 	driverName        = "antminer"
 	apiVersion        = "v1"
 	requiredRPCPort   = 4028
-	defaultWebPort    = "80"
 	manufacturer      = "Bitmain"
 	versionTypePrefix = "Antminer"
 )
@@ -121,8 +120,8 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityPoolPriority:       true,
 		sdk.CapabilityLogsDownload:       true,
 
-		// Power mode capabilities (model-specific overrides may apply via GetCapabilitiesForModel)
-		sdk.CapabilityPowerModeEfficiency: true,
+		// Power mode capabilities are model-specific; see GetCapabilitiesForModel.
+		sdk.CapabilityPowerModeEfficiency: false,
 
 		// Security capabilities
 		sdk.CapabilityUpdateMinerPassword: true,
@@ -171,7 +170,8 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	slog.Debug("Discovering Antminer device", "ip", ipAddress, "port", port)
 
 	if port != fmt.Sprint(requiredRPCPort) {
-		return sdk.DeviceInfo{}, fmt.Errorf("antminers use port %d for RPC, got %s", requiredRPCPort, port)
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress,
+			fmt.Errorf("antminers use port %d for RPC, got %s", requiredRPCPort, port))
 	}
 
 	rpcPort, err := sdk.ParsePort(port)
@@ -179,10 +179,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, fmt.Errorf("invalid RPC port number: %w", err)
 	}
 
-	webPort, err := sdk.ParsePort(defaultWebPort)
-	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("invalid web port number: %w", err)
-	}
+	webPort := types.WebPort()
 
 	client, err := d.clientFactory(ipAddress, rpcPort, webPort, "http")
 	if err != nil {
@@ -218,7 +215,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	return sdk.DeviceInfo{
 		Host:            ipAddress,
-		Port:            webPort,
+		Port:            rpcPort,
 		URLScheme:       "http",
 		SerialNumber:    "",
 		Model:           model,
@@ -240,11 +237,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to extract credentials: %w", err)
 	}
 
-	webPort, err := sdk.ParsePort(defaultWebPort)
-	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("invalid web port number: %w", err)
-	}
-
+	webPort := types.WebPort()
 	client, err := d.clientFactory(deviceInfo.Host, requiredRPCPort, webPort, deviceInfo.URLScheme)
 	if err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
@@ -343,9 +336,11 @@ func (d *Driver) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword
 // Different Antminer models have different capabilities - for example,
 // S21 does not support efficiency mode while S17/S19 do.
 func (d *Driver) GetCapabilitiesForModel(_ context.Context, model string) sdk.Capabilities {
-	return sdk.Capabilities{
-		sdk.CapabilityPowerModeEfficiency: d.modelSupportsEfficiencyMode(model),
+	caps := sdk.Capabilities{}
+	if d.modelSupportsEfficiencyMode(model) {
+		caps[sdk.CapabilityPowerModeEfficiency] = true
 	}
+	return caps
 }
 
 // modelSupportsEfficiencyMode checks if the given model supports efficiency/low power mode.

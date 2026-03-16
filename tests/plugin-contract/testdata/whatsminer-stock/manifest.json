@@ -1,0 +1,12 @@
+{
+  "model": "M60S VK40 (Stock)",
+  "manufacturer": "WhatsMiner",
+  "firmware": "stock",
+  "firmware_version": "20251209.16.Rel2",
+  "plugin": "pyasic",
+  "recorded_from": "172.16.2.58",
+  "recorded_at": "2026-03-11T10:00:00Z",
+  "ports": {
+    "rpc": 4028
+  }
+}

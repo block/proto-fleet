@@ -7,6 +7,7 @@ on:
       - "server/**"
       - "plugin/**"
       - "proto/**"
+      - "tests/plugin-contract/**"
       - "go.work"
       - "go.work.sum"
   push:
@@ -17,6 +18,7 @@ on:
       - "server/**"
       - "plugin/**"
       - "proto/**"
+      - "tests/plugin-contract/**"
       - "go.work"
       - "go.work.sum"
   workflow_dispatch:
@@ -98,3 +100,4 @@ jobs:
           go build ./server/...
           go build ./plugin/proto/...
           go build ./plugin/antminer/...
+          go build ./tests/plugin-contract/...

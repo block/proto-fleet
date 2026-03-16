@@ -1,0 +1,15 @@
+{
+  "minertype": "Antminer S19",
+  "nettype": "DHCP",
+  "netdevice": "eth0",
+  "macaddr": "02:B3:B9:8C:1E:C8",
+  "hostname": "Antminer",
+  "ipaddress": "172.16.26.253",
+  "netmask": "255.255.255.0",
+  "gateway": "172.16.26.1",
+  "dnsservers": "8.8.8.8",
+  "system_mode": "GNU/Linux",
+  "system_kernel_version": "4.6.0",
+  "system_filesystem_version": "Fri Nov 17 17:37:21 CST 2023",
+  "firmware_type": "release"
+}

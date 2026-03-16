@@ -1,0 +1,47 @@
+name: ProtoFleet Plugin Contract Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-contract-tests.yml"
+      - "tests/plugin-contract/**"
+      - "server/sdk/**"
+      - "plugin/pyasic/**"
+      - "plugin/antminer/**"
+      - "go.work"
+      - "justfile"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-contract-tests.yml"
+      - "tests/plugin-contract/**"
+      - "server/sdk/**"
+      - "plugin/pyasic/**"
+      - "plugin/antminer/**"
+      - "go.work"
+      - "justfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-tests:
+    name: Contract Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build plugins
+        run: just build-plugins
+
+      - name: Run contract tests
+        run: go test -v -count=1 -timeout=5m ./tests/plugin-contract/...
