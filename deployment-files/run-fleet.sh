@@ -136,6 +136,8 @@ fix_runc_sysctl() {
     fi
 
     echo "Fix applied."
+    echo "  TIP: Upgrading Docker to the latest version permanently resolves this issue."
+    echo "       Run: sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io"
 }
 
 # Detect if running inside WSL
