@@ -58,8 +58,8 @@ const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) =>
       {popoverRect &&
         createPortal(
           <div
-            className="fixed z-[9999] min-w-60 rounded-lg px-3 py-2 shadow-lg"
-            style={{ top: popoverRect.bottom + 4, left: popoverRect.left, background: "#fff" }}
+            className="fixed z-[9999] min-w-60 rounded-lg bg-surface-elevated-base px-3 py-2 shadow-lg"
+            style={{ top: popoverRect.bottom + 4, left: popoverRect.left }}
             onMouseEnter={open}
             onMouseLeave={closeWithDelay}
           >

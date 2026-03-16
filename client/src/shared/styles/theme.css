@@ -347,6 +347,7 @@ WOuld be best to switch over to mobile first stying  */
     --color-border-primary: rgb(var(--base_white_100) / 90%);
     --color-core-accent-text: rgb(var(--base_text_accent_contrast));
     --color-intent-info-text: rgb(var(--base_blue_100));
+    --color-intent-critical-text: rgb(var(--base_red_100));
     --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.5);
     --color-elevation-100:
       0px 4px 24px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.16),
