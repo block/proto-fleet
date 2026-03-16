@@ -22,6 +22,8 @@ import (
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 var _ interfaces.Miner = &PluginMiner{}
@@ -494,6 +496,16 @@ func isNetworkError(err error) bool {
 
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
+	}
+
+	// Check for gRPC status codes that indicate device unreachability.
+	// When errors cross the plugin gRPC boundary, Go net/syscall type info is lost;
+	// the SDK maps device-unreachable conditions to specific gRPC codes.
+	if st, ok := grpcstatus.FromError(err); ok {
+		c := st.Code()
+		if c == codes.Unavailable || c == codes.NotFound || c == codes.DeadlineExceeded {
+			return true
+		}
 	}
 
 	var urlErr *url.Error

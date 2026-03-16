@@ -20,6 +20,8 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // mockSDKDevice is a mock implementation of sdk.Device for testing
@@ -1089,6 +1091,31 @@ func TestIsNetworkError(t *testing.T) {
 		{
 			name:     "generic authentication error",
 			err:      errors.New("authentication failed: invalid credentials"),
+			expected: false,
+		},
+		{
+			name:     "gRPC NotFound status (DEVICE_NOT_FOUND from plugin)",
+			err:      grpcstatus.Error(codes.NotFound, "DEVICE_NOT_FOUND: Device not found: 172.16.2.103"),
+			expected: true,
+		},
+		{
+			name:     "gRPC Unavailable status (device unreachable from plugin)",
+			err:      grpcstatus.Error(codes.Unavailable, "DEVICE_UNAVAILABLE: device not responding"),
+			expected: true,
+		},
+		{
+			name:     "gRPC DeadlineExceeded status",
+			err:      grpcstatus.Error(codes.DeadlineExceeded, "context deadline exceeded"),
+			expected: true,
+		},
+		{
+			name:     "gRPC Unauthenticated status is not a network error",
+			err:      grpcstatus.Error(codes.Unauthenticated, "authentication failed"),
+			expected: false,
+		},
+		{
+			name:     "gRPC Internal status is not a network error",
+			err:      grpcstatus.Error(codes.Internal, "internal error"),
 			expected: false,
 		},
 	}
