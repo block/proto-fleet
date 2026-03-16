@@ -39,6 +39,12 @@ public sealed class WslSetupService : IWslSetupService
         if (!status.IsSuccess || LooksNotInstalled(status.StandardOutput + Environment.NewLine + status.StandardError))
         {
             var install = await _executor.RunWslAsync("--install --no-launch", cancellationToken);
+            if (!install.IsSuccess && LooksNoLaunchUnsupported(install))
+            {
+                _logSink.Warn("--no-launch not supported by this WSL version. Retrying without it.");
+                install = await _executor.RunWslAsync("--install", cancellationToken);
+            }
+
             if (!install.IsSuccess)
             {
                 var details = CommandDetails(install);
@@ -221,9 +227,28 @@ public sealed class WslSetupService : IWslSetupService
             return false;
         }
 
-        return output.Contains("update", StringComparison.OrdinalIgnoreCase) &&
-               output.Contains("wsl", StringComparison.OrdinalIgnoreCase) &&
-               output.Contains("required", StringComparison.OrdinalIgnoreCase);
+        // Standard pattern: "WSL update required" style messages.
+        if (output.Contains("update", StringComparison.OrdinalIgnoreCase) &&
+            output.Contains("wsl", StringComparison.OrdinalIgnoreCase) &&
+            output.Contains("required", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Older WSL on Win10: "The WSL2 kernel file is not found"
+        if (output.Contains("kernel", StringComparison.OrdinalIgnoreCase) &&
+            output.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Older WSL on Win10: "please run 'wsl --update'"
+        if (output.Contains("wsl --update", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static bool LooksRebootRequired(string output)
@@ -248,6 +273,13 @@ public sealed class WslSetupService : IWslSetupService
 
         return output.Contains("already installed", StringComparison.OrdinalIgnoreCase) ||
                output.Contains("already exists", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksNoLaunchUnsupported(CommandResult result)
+    {
+        var output = $"{result.StandardOutput}{Environment.NewLine}{result.StandardError}";
+        return output.Contains("unrecognized option", StringComparison.OrdinalIgnoreCase) ||
+               output.Contains("unknown option", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldTryWebCatalogFallback(CommandResult? result)
@@ -407,7 +439,11 @@ public sealed class WslSetupService : IWslSetupService
         {
             $"--install {web}--no-launch -d {quoted}",
             $"--install {web}--no-launch --distribution {quoted}",
-            $"--install {web}--no-launch {quoted}"
+            $"--install {web}--no-launch {quoted}",
+            // Fallback for older WSL versions that do not support --no-launch.
+            $"--install {web}-d {quoted}",
+            $"--install {web}--distribution {quoted}",
+            $"--install {web}{quoted}"
         };
     }
 
