@@ -1,5 +1,5 @@
 /* eslint-disable playwright/expect-expect */
-import { testConfig } from "../config/test.config";
+import { DEFAULT_INTERVAL, testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomText } from "../helpers/testDataHelper";
 
@@ -175,6 +175,7 @@ if (testConfig.target !== "real") {
       });
 
       await test.step("Save pool changes", async () => {
+        await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
         await editPoolPage.clickAssignToXMiners(1);
         await editPoolPage.validateTextInToastGroup("Assigned pools");
       });

@@ -139,7 +139,7 @@ const BulkRenamePropertyForm = ({
         <div className="flex flex-wrap gap-x-4 gap-y-0 lg:gap-6">
           {Object.entries(bulkRenameSeparators).map(([separatorId, separator]) => (
             <label key={separatorId} className="flex h-12 items-center">
-              <div className="flex w-8 items-center">
+              <div className="flex w-8 items-center" data-testid={`bulk-rename-separator-${separatorId}`}>
                 <Radio
                   name="bulk-rename-separator"
                   value={separatorId}

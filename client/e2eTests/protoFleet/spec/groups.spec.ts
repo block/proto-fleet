@@ -222,9 +222,7 @@ test.describe("Groups", () => {
     });
 
     await test.step("Validate duplicate group name error", async () => {
-      await groupsPage.validateErrorMessage(
-        '[internal] failed to create collection: ERROR: duplicate key value violates unique constraint "uk_device_collection_org_type_label" (SQLSTATE 23505)',
-      );
+      await groupsPage.validateErrorMessage("[already_exists] a collection with this name already exists");
     });
 
     await test.step("Finish creating a second valid group", async () => {

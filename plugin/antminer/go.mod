@@ -4,9 +4,9 @@ go 1.25.4
 
 require (
 	github.com/btc-mining/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
-	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/stretchr/testify v1.11.1
+	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.19.0
 )
 

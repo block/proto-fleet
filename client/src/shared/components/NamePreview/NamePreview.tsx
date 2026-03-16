@@ -110,6 +110,7 @@ const NamePreview = (props: NamePreviewProps) => {
                 "min-w-0 justify-self-start text-left text-300 [overflow-wrap:anywhere] text-text-primary",
                 "text-300 text-text-primary",
               )}
+              data-testid="active-new-name"
             >
               {props.newName}
             </span>
