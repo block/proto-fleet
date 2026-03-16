@@ -115,6 +115,29 @@ copy_nginx_config() {
     fi
 }
 
+# Fix runc sysctl permission issue on older Docker versions (Debian 12)
+# Affected versions fail with: "open sysctl net.ipv4.ip_unprivileged_port_start file: permission denied"
+# when running containers as non-root users (e.g. our TimescaleDB/postgres container).
+fix_runc_sysctl() {
+    local current_value
+    current_value=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null)
+
+    if [ "$current_value" = "0" ]; then
+        return 0
+    fi
+
+    echo "Applying container runtime compatibility fix (net.ipv4.ip_unprivileged_port_start)..."
+    sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0 >/dev/null 2>&1
+
+    # Make it persistent across reboots
+    local sysctl_file="/etc/sysctl.d/99-fleet-docker.conf"
+    if ! grep -q "net.ipv4.ip_unprivileged_port_start" "$sysctl_file" 2>/dev/null; then
+        sudo bash -c "echo 'net.ipv4.ip_unprivileged_port_start=0' >> $sysctl_file"
+    fi
+
+    echo "Fix applied."
+}
+
 # Detect if running inside WSL
 is_wsl() {
     grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null
@@ -299,6 +322,15 @@ fi
 # Fix WSL networking issues (IPv6/DNS) if running in WSL
 if is_wsl; then
     fix_wsl_networking
+fi
+
+# ----------------------------------------------------------------------------
+# Container Runtime Compatibility Fix
+# ----------------------------------------------------------------------------
+
+# Fix runc sysctl issue that affects non-root containers on some Debian/Ubuntu systems
+if [ "$(uname)" == "Linux" ]; then
+    fix_runc_sysctl
 fi
 
 # ----------------------------------------------------------------------------
