@@ -5,6 +5,7 @@ node_modules/
 server/influx_config/.env
 **/.goose/
 .claude/
+.mcp.json
 
 **private.env**
 .env*
