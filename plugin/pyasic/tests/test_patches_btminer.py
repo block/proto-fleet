@@ -200,7 +200,7 @@ class TestPatchHashboards:
 
 
 class TestPatchPrivilegedCommands:
-    """Verify privileged commands treat empty/error responses as success."""
+    """Verify privileged commands treat empty responses as success."""
 
     @pytest.mark.asyncio
     async def test_empty_response_is_success(self):
@@ -212,21 +212,6 @@ class TestPatchPrivilegedCommands:
 
         # Act
         result = await BTMinerV2.reboot(miner)
-
-        # Assert
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_api_error_is_success(self):
-        # Arrange
-        from pyasic.errors import APIError
-        from pyasic.miners.backends.btminer import BTMinerV2
-
-        miner = MagicMock()
-        miner.rpc.power_off = AsyncMock(side_effect=APIError("timeout"))
-
-        # Act
-        result = await BTMinerV2.stop_mining(miner)
 
         # Assert
         assert result is True

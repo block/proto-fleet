@@ -198,21 +198,17 @@ def _patch_hashboards() -> None:
 
 
 def _patch_privileged_commands() -> None:
-    """Treat empty responses and APIErrors as success for reboot, stop_mining,
-    resume_mining, and restart_backend — the miner drops the connection
-    mid-response so pyasic parses it as {} and returns False.
+    """Fix BTMinerV2 privileged commands that return empty dicts on success.
+
+    pyasic's stock implementations check for data["Msg"] == "API command OK",
+    but reboot/power_off/power_on/restart return {} when the miner drops the
+    connection mid-response. The stock code sees no "Msg" key and returns False.
     """
-    from pyasic.errors import APIError
     from pyasic.miners.backends.btminer import BTMinerV2
 
     def _make_fixed(rpc_method_name: str, **rpc_kwargs: Any) -> Any:
         async def fixed(self: Any) -> bool:
-            try:
-                data = await getattr(self.rpc, rpc_method_name)(**rpc_kwargs)
-            except APIError as exc:
-                if "auth" in str(exc).lower() or "password" in str(exc).lower():
-                    raise
-                return True
+            data = await getattr(self.rpc, rpc_method_name)(**rpc_kwargs)
             if not data:
                 return True
             if data.get("Msg") == "API command OK":

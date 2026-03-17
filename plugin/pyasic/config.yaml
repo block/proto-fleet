@@ -14,7 +14,7 @@ miners:
     braiins:
       enabled: true
     vnish:
-      enabled: false
+      enabled: true
 
   avalonminer:
     stock:

@@ -177,7 +177,7 @@ class PyAsicDriver:
         _apply_credentials(miner, secret)
 
         try:
-            data = await miner.get_data()
+            data = await miner.get_data(exclude=["config"])
         except (OSError, asyncio.TimeoutError) as exc:
             raise DeviceUnavailableError(device_info.host, cause=exc) from exc
         except Exception as exc:
