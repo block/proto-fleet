@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from pyasic_driver.patches import btminer
+from pyasic_driver.patches import btminer, vnish
 
 logger = logging.getLogger(__name__)
 
@@ -22,5 +22,6 @@ def apply() -> None:
         return
 
     btminer.apply()
+    vnish.apply()
     _applied = True
     logger.info("Applied all pyasic patches")

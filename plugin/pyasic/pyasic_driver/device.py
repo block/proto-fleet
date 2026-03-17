@@ -41,11 +41,13 @@ from proto_fleet_sdk.telemetry.components import (
 )
 from proto_fleet_sdk.telemetry.metrics import MetricValue
 from proto_fleet_sdk.types import Capabilities, ConfiguredPool, DeviceInfo, MiningPoolConfig
+from pyasic.errors import APIError
 
 logger = logging.getLogger(__name__)
 
 _BLINK_LED_DURATION_SECS = 30
 _DEFAULT_STRATUM_PASSWORD = "x"
+_DISRUPTIVE_CONTROL_COMMANDS = frozenset({"resume_mining", "stop_mining", "reboot"})
 
 
 def _metric_gauge(value: float) -> MetricValue:
@@ -78,6 +80,23 @@ def _to_float(val: object) -> float:
 def _require_cap(caps: Capabilities, cap: str, device_id: str) -> None:
     if not caps.get(cap):
         raise UnsupportedCapabilityError(cap, device_id=device_id)
+
+
+def _is_timeout_exception(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+
+    if exc.__class__.__name__ in {
+        "ReadTimeout",
+        "WriteTimeout",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "TimeoutException",
+    }:
+        return True
+
+    nested = exc.__cause__ or exc.__context__
+    return nested is not None and nested is not exc and _is_timeout_exception(nested)
 
 
 _KEYWORD_TO_MINER_ERROR: list[tuple[str, MinerError]] = [
@@ -282,7 +301,7 @@ class PyAsicDevice:
         assert self._miner is not None
 
         try:
-            data = await self._miner.get_data()
+            data = await self._miner.get_data(exclude=["config"])
         except SDKError:
             raise
         except Exception:
@@ -435,9 +454,51 @@ class PyAsicDevice:
 
     # --- Control ---
 
+    # Benign APIError patterns from pyasic that indicate the device accepted
+    # the command but didn't return a clean response.
+    _BENIGN_API_ERROR_PATTERNS = (
+        # Empty response body — pyasic fails to JSON-parse it
+        "JSON decode error",
+        # Device drops TCP connection mid-response during disruptive commands
+        "HTTP error sending",
+        # Response object partially initialized when connection drops
+        "Attribute error sending",
+        # Non-200 status after retries — device accepted command but returned error page
+        "Failed to send command",
+        # RPC socket closed before response on disruptive commands (reboot, power off)
+        "No data was returned",
+    )
+
+    def _is_benign_command_error(self, command_name: str, exc: BaseException) -> bool:
+        if command_name not in _DISRUPTIVE_CONTROL_COMMANDS:
+            return False
+
+        if isinstance(exc, APIError):
+            msg = str(exc)
+            return any(p in msg for p in self._BENIGN_API_ERROR_PATTERNS)
+
+        return _is_timeout_exception(exc)
+
     async def _exec_pyasic_command(self, command_name: str, coro: Any) -> None:
-        """Execute a pyasic command that returns bool, raising on failure."""
-        result = await coro
+        """Execute a pyasic command that returns bool, raising on failure.
+
+        Privileged commands (reboot, stop/start mining) often produce broken
+        responses because the device restarts mid-reply. Known-benign APIError
+        patterns and transport timeouts for disruptive commands are treated as
+        success; anything else propagates.
+        """
+        try:
+            result = await coro
+        except Exception as exc:
+            if self._is_benign_command_error(command_name, exc):
+                logger.info(
+                    "Privileged command %s for %s returned benign %s, treating as success: %s",
+                    command_name, self._id, exc.__class__.__name__, exc,
+                )
+                return
+            if isinstance(exc, APIError):
+                raise DeviceUnavailableError(device_id=self._id, cause=exc) from exc
+            raise
         if result is False:
             raise DeviceCommandFailedError(
                 command_name,
@@ -537,6 +598,69 @@ class PyAsicDevice:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "power_mode_efficiency", self._id)
+
+        if getattr(self._miner, "supports_presets", False):
+            await self._set_power_target_preset(performance_mode)
+        else:
+            await self._set_power_target_mode(performance_mode)
+
+    async def _set_power_target_preset(self, performance_mode: PerformanceMode) -> None:
+        """Set power target on preset-based miners by selecting the appropriate preset.
+
+        Works regardless of current mining mode — the patched set_power_limit
+        fetches presets directly from the API and switches the miner to preset
+        mode if needed.
+        """
+        assert self._miner is not None
+
+        from pyasic.errors import APIError
+
+        try:
+            raw = await self._miner.web.autotune_presets()
+        except APIError:
+            raise DeviceCommandFailedError(
+                "set_power_target", self._id,
+                miner_type=type(self._miner).__name__,
+                miner_ip=getattr(self._miner, "ip", "?"),
+            )
+
+        presets = raw if isinstance(raw, list) else raw.get("presets", []) if isinstance(raw, dict) else []
+
+        tuned_powers: list[int] = []
+        for p in presets:
+            if p.get("status") != "tuned":
+                continue
+            try:
+                pw = int(p["pretty"].split("~")[0].replace("watt", "").strip())
+            except (KeyError, ValueError, IndexError):
+                continue
+            tuned_powers.append(pw)
+
+        if not tuned_powers:
+            raise UnsupportedCapabilityError(
+                "set_power_target (no tuned presets — run autotuning first)",
+                device_id=self._id,
+            )
+
+        if performance_mode == PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE:
+            target_wattage = max(tuned_powers)
+        elif performance_mode == PerformanceMode.PERFORMANCE_MODE_EFFICIENCY:
+            target_wattage = min(tuned_powers)
+        else:
+            sorted_powers = sorted(tuned_powers)
+            target_wattage = sorted_powers[len(sorted_powers) // 2]
+
+        logger.info(
+            "Setting preset power limit to %dW for %s (mode=%s)",
+            target_wattage, self._id, performance_mode,
+        )
+        await self._exec_pyasic_command(
+            "set_power_target", self._miner.set_power_limit(target_wattage),
+        )
+
+    async def _set_power_target_mode(self, performance_mode: PerformanceMode) -> None:
+        """Set power target on mode-based miners using HPM/LPM/Normal."""
+        assert self._miner is not None
 
         from pyasic.config import MinerConfig as PyasicMinerConfig
         from pyasic.config.mining import MiningModeHPM, MiningModeLPM, MiningModeNormal

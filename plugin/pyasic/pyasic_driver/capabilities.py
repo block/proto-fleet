@@ -210,7 +210,10 @@ def build_capabilities(miner: Any) -> Capabilities:
         CAP_UPDATE_MINING_POOLS: _is_implemented(miner, "send_config"),
         CAP_POOL_CONFIG: _is_implemented(miner, "get_config"),
         CAP_POOL_PRIORITY: _is_implemented(miner, "send_config"),
-        CAP_POWER_MODE_EFFICIENCY: getattr(miner, "supports_power_modes", False),
+        CAP_POWER_MODE_EFFICIENCY: (
+            getattr(miner, "supports_power_modes", False)
+            or getattr(miner, "supports_presets", False)
+        ),
         CAP_FIRMWARE: _is_implemented(miner, "upgrade_firmware"),
         # Not available through pyasic's API
         CAP_SET_COOLING_MODE: False,

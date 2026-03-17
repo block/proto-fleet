@@ -401,6 +401,92 @@ class TestControlFailure:
             await device.firmware_update(mock_ctx, None)
 
 
+class TestBenignAPIErrorHandling:
+    """Verify that _exec_pyasic_command treats known-benign APIErrors as success."""
+
+    @pytest.mark.parametrize("error_msg", [
+        "JSON decode error for 'mining/stop' from 172.16.2.103: Expecting value",
+        "HTTP error sending 'mining/stop' to 172.16.2.103: ReadTimeout",
+        "Attribute error sending 'reboot' to 172.16.2.103: NoneType",
+        "Failed to send command to miner: 172.16.2.103",
+        "No data was returned from the API.",
+    ])
+    async def test_benign_api_error_treated_as_success(self, mock_ctx: MagicMock, error_msg: str) -> None:
+        # Arrange
+        from pyasic.errors import APIError
+
+        miner = make_mock_miner()
+        miner.stop_mining = AsyncMock(side_effect=APIError(error_msg))
+        device = _make_device(miner)
+
+        # Act — should not raise
+        await device.stop_mining(mock_ctx)
+
+    async def test_unknown_api_error_raises_device_unavailable(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        from pyasic.errors import APIError
+
+        miner = make_mock_miner()
+        miner.reboot = AsyncMock(
+            side_effect=APIError("Could not authenticate web token with miner: 172.16.2.103"),
+        )
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceUnavailableError):
+            await device.reboot(mock_ctx)
+
+    async def test_non_disruptive_benign_api_error_still_raises_device_unavailable(
+        self, mock_ctx: MagicMock,
+    ) -> None:
+        # Arrange
+        from pyasic.errors import APIError
+
+        miner = make_mock_miner()
+        miner.upgrade_firmware = AsyncMock(
+            side_effect=APIError("Failed to send command to miner: 172.16.2.103"),
+        )
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceUnavailableError):
+            await device.firmware_update(mock_ctx, None)
+
+    @pytest.mark.parametrize("method_name, device_call", [
+        ("resume_mining", lambda device, ctx: device.start_mining(ctx)),
+        ("stop_mining", lambda device, ctx: device.stop_mining(ctx)),
+        ("reboot", lambda device, ctx: device.reboot(ctx)),
+    ])
+    @pytest.mark.parametrize("error_factory", [
+        lambda: TimeoutError("timeout"),
+        lambda: type("ReadTimeout", (Exception,), {})("read timed out"),
+    ])
+    async def test_disruptive_timeout_exception_treated_as_success(
+        self,
+        mock_ctx: MagicMock,
+        method_name: str,
+        device_call: object,
+        error_factory: object,
+    ) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        getattr(miner, method_name).side_effect = error_factory()
+        device = _make_device(miner)
+
+        # Act - should not raise
+        await device_call(device, mock_ctx)
+
+    async def test_non_disruptive_timeout_exception_still_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.fault_light_on = AsyncMock(side_effect=TimeoutError("timeout"))
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(TimeoutError):
+            await device.blink_led(mock_ctx)
+
+
 class TestSetPowerTarget:
     async def test_maximum_hashrate_sends_hpm(self, mock_ctx: MagicMock) -> None:
         # Arrange
@@ -451,6 +537,118 @@ class TestSetPowerTarget:
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
             await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+
+
+class TestSetPowerTargetPreset:
+    """Verify set_power_target for preset-based miners (VNish).
+
+    Presets are fetched directly from the web API (autotune_presets),
+    so these tests mock miner.web.autotune_presets() with raw API dicts.
+    """
+
+    def _make_api_preset(self, power: int, tuned: bool = True) -> dict:
+        return {
+            "name": f"preset_{power}",
+            "pretty": f"{power} watt ~ 100 TH",
+            "status": "tuned" if tuned else "not_tuned",
+            "modded_psu_required": False,
+        }
+
+    def _make_preset_miner(self, api_presets: list[dict]) -> MagicMock:
+        miner = make_mock_miner(supports_presets=True)
+        miner.web.autotune_presets = AsyncMock(return_value=api_presets)
+        miner.set_power_limit = AsyncMock(return_value=True)
+        return miner
+
+    async def test_max_hashrate_selects_highest_preset(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(2000)
+
+    async def test_efficiency_selects_lowest_preset(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(1000)
+
+    async def test_unspecified_selects_median_preset(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_UNSPECIFIED)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(1500)
+
+    async def test_ignores_untuned_presets(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        presets = [
+            self._make_api_preset(500, tuned=False),
+            self._make_api_preset(1000),
+            self._make_api_preset(2000),
+        ]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(1000)
+
+    async def test_fails_when_no_tuned_presets(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        presets = [self._make_api_preset(1000, tuned=False)]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(UnsupportedCapabilityError):
+            await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+
+    async def test_works_when_miner_in_manual_mode(self, mock_ctx: MagicMock) -> None:
+        """Presets are fetched from API directly, so manual mode doesn't matter."""
+        # Arrange
+        presets = [self._make_api_preset(1000), self._make_api_preset(2000)]
+        miner = self._make_preset_miner(presets)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(2000)
+
+    async def test_handles_presets_wrapped_in_dict(self, mock_ctx: MagicMock) -> None:
+        """Some firmware versions wrap presets in {"presets": [...]}."""
+        # Arrange
+        raw_presets = [self._make_api_preset(1000), self._make_api_preset(1500)]
+        miner = make_mock_miner(supports_presets=True)
+        miner.web.autotune_presets = AsyncMock(return_value={"presets": raw_presets})
+        miner.set_power_limit = AsyncMock(return_value=True)
+        device = _make_device(miner)
+
+        # Act
+        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+
+        # Assert
+        miner.set_power_limit.assert_called_once_with(1000)
 
 
 class TestCapabilityGating:
