@@ -117,7 +117,7 @@ contract-tests: build-pyasic-plugin
     -v "$(pwd)":/work \
     -w /work \
     -e GOFLAGS=-buildvcs=false \
-    "golang:${GO_VERSION}" \
+    "golang:${GO_VERSION}-alpine" \
     sh -c '\
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
