@@ -244,6 +244,7 @@ export const AUTH_ACTIONS = {
   update: "update",
   miningTarget: "miningTarget",
   locate: "locate",
+  systemTag: "systemTag",
 } as const;
 
 export type AuthAction = keyof typeof AUTH_ACTIONS | null;
