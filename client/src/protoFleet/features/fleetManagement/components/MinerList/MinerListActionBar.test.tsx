@@ -73,4 +73,37 @@ describe("Miner list action bar", () => {
     // Should not throw error when clicking close without onClearSelection prop
     expect(() => fireEvent.click(closeButton)).not.toThrow();
   });
+
+  test("renders select all and select none controls", () => {
+    const onSelectAll = vi.fn();
+    const onSelectNone = vi.fn();
+
+    const { getAllByTestId } = render(
+      <MinerListActionBar {...actionBarProps} onSelectAll={onSelectAll} onSelectNone={onSelectNone} />,
+    );
+
+    fireEvent.click(getAllByTestId("select-all-miners-button")[0]);
+    fireEvent.click(getAllByTestId("select-none-miners-button")[0]);
+
+    expect(onSelectAll).toHaveBeenCalledTimes(1);
+    expect(onSelectNone).toHaveBeenCalledTimes(1);
+  });
+
+  test("only renders selection controls that have handlers", () => {
+    const onClearSelection = vi.fn();
+    const { queryAllByTestId, rerender } = render(<MinerListActionBar {...actionBarProps} />);
+
+    expect(queryAllByTestId("select-all-miners-button")).toHaveLength(0);
+    expect(queryAllByTestId("select-none-miners-button")).toHaveLength(0);
+
+    rerender(<MinerListActionBar {...actionBarProps} onClearSelection={onClearSelection} />);
+
+    expect(queryAllByTestId("select-all-miners-button")).toHaveLength(0);
+    expect(queryAllByTestId("select-none-miners-button")).toHaveLength(0);
+
+    rerender(<MinerListActionBar {...actionBarProps} onSelectNone={onClearSelection} />);
+
+    expect(queryAllByTestId("select-all-miners-button")).toHaveLength(0);
+    expect(queryAllByTestId("select-none-miners-button")).toHaveLength(1);
+  });
 });

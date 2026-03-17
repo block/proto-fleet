@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
+import { useShallow } from "zustand/react/shallow";
 import {
   componentIssues,
   deviceStatusFilterStates,
@@ -39,6 +40,7 @@ import { ChevronDown, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
+import { type SelectionMode } from "@/shared/components/List";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -153,11 +155,191 @@ const activeCols: MinerColumn[] = [
   minerCols.firmware,
 ];
 
+type ScopedMinerListBodyProps = {
+  deviceItems: DeviceListItem[];
+  minerColConfig: ReturnType<typeof createMinerColConfig>;
+  filters: FilterItem[];
+  handleServerFilter: (filters: ActiveFilters) => Promise<void>;
+  initialActiveFilters: ActiveFilters;
+  listClassName?: string;
+  paddingLeft?: Partial<Record<Breakpoint, string>>;
+  overflowContainer: boolean;
+  totalMiners?: number;
+  totalDisabledMiners: number;
+  itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
+  hasActiveFilters: boolean;
+  onAddMiners: () => void;
+  handleClearFilters: () => void;
+  isRowDisabled: (item: DeviceListItem) => boolean;
+  currentFilter?: MinerListFilter;
+  currentSortConfig?: SortConfig;
+  currentSort?: { field: MinerColumn; direction: SortDirection };
+  onSort?: (field: MinerColumn, direction: SortDirection) => void;
+  firstItemIndex: number;
+  lastItemIndex: number;
+  shouldRenderPagination: boolean;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+  handlePrevPage: () => void;
+  handleNextPage: () => void;
+};
+
+const ScopedMinerListBody = ({
+  deviceItems,
+  minerColConfig,
+  filters,
+  handleServerFilter,
+  initialActiveFilters,
+  listClassName,
+  paddingLeft,
+  overflowContainer,
+  totalMiners,
+  totalDisabledMiners,
+  itemRef,
+  hasActiveFilters,
+  onAddMiners,
+  handleClearFilters,
+  isRowDisabled,
+  currentFilter,
+  currentSortConfig,
+  currentSort,
+  onSort,
+  firstItemIndex,
+  lastItemIndex,
+  shouldRenderPagination,
+  hasPreviousPage,
+  hasNextPage,
+  handlePrevPage,
+  handleNextPage,
+}: ScopedMinerListBodyProps) => {
+  const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
+
+  const currentPageSelectableMinerIds = deviceItems
+    .filter((item) => !isRowDisabled(item))
+    .map((item) => item.deviceIdentifier);
+
+  const handleSelectAllMiners = useCallback(() => {
+    setSelectedMinerIds(currentPageSelectableMinerIds);
+    setSelectionMode("all");
+  }, [currentPageSelectableMinerIds]);
+
+  const handleSelectNoneMiners = useCallback(() => {
+    setSelectedMinerIds([]);
+    setSelectionMode("none");
+  }, []);
+
+  return (
+    <>
+      <List<DeviceListItem, string, MinerColumn>
+        activeCols={activeCols}
+        colTitles={minerColTitles}
+        colConfig={minerColConfig}
+        filters={filters}
+        onServerFilter={handleServerFilter}
+        items={deviceItems}
+        itemKey={"deviceIdentifier"}
+        customSelectedItems={selectedMinerIds}
+        customSetSelectedItems={setSelectedMinerIds}
+        customSelectionMode={selectionMode}
+        itemSelectable
+        pageScopedSelection
+        hasActiveFilters={hasActiveFilters}
+        headerControls={
+          <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+        }
+        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
+          <div className="flex w-full justify-center">
+            <MinerListActionBar
+              selectedMiners={selectedItems}
+              onClearSelection={clearSelection}
+              onSelectAll={hasActiveFilters ? undefined : handleSelectAllMiners}
+              onSelectNone={hasActiveFilters ? undefined : handleSelectNoneMiners}
+              selectionMode={currentSelectionMode}
+              totalCount={totalSelectable}
+              currentFilter={currentFilter}
+              currentSort={currentSortConfig}
+            />
+          </div>
+        )}
+        containerClassName={listClassName}
+        tableClassName="mb-4"
+        paddingLeft={paddingLeft}
+        overflowContainer={overflowContainer}
+        total={totalMiners}
+        totalDisabled={totalDisabledMiners}
+        hideTotal
+        itemName={{ singular: "miner", plural: "miners" }}
+        itemRef={itemRef}
+        initialActiveFilters={initialActiveFilters}
+        onSelectionModeChange={setSelectionMode}
+        isRowDisabled={isRowDisabled}
+        columnsExemptFromDisabledStyling={new Set([minerCols.status, minerCols.issues])}
+        sortableColumns={sortableColumnsSet}
+        currentSort={currentSort}
+        onSort={onSort}
+        getDefaultSortDirection={getDefaultSortDirection}
+        emptyStateRow={
+          hasActiveFilters && totalMiners === 0 ? (
+            <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+              <div className="text-heading-200 text-text-primary">No results</div>
+              <p className="mt-1 text-400 text-text-primary-70">Try adjusting or clearing your filters.</p>
+              <Button
+                className="mt-6"
+                variant={variants.secondary}
+                size={sizes.base}
+                testId="clear-all-filters-button"
+                onClick={handleClearFilters}
+              >
+                Clear all filters
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
+
+      {shouldRenderPagination && (
+        <div
+          className={clsx("flex flex-col items-center gap-4 pt-6", {
+            "pb-24": selectionMode !== "none",
+            "pb-6": selectionMode === "none",
+          })}
+          data-testid="miners-pagination"
+        >
+          <span className="text-300 text-text-primary">
+            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} miners
+          </span>
+          <div className="flex gap-3">
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              ariaLabel="Previous page"
+              prefixIcon={<ChevronDown className="rotate-90" />}
+              onClick={handlePrevPage}
+              disabled={!hasPreviousPage}
+            />
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              ariaLabel="Next page"
+              prefixIcon={<ChevronDown className="rotate-270" />}
+              onClick={handleNextPage}
+              disabled={!hasNextPage}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const MinerList = ({
   title,
   minerIds = [],
   listClassName,
   paddingLeft,
+  overflowContainer = true,
   onAddMiners,
   totalMiners,
   totalUnfilteredMiners,
@@ -203,13 +385,21 @@ const MinerList = ({
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
-  const isRowDisabled = useCallback((item: DeviceListItem) => {
-    const miner = useFleetStore.getState().fleet.miners[item.deviceIdentifier];
-    return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  }, []);
+  const disabledMinerIds = useFleetStore(
+    useShallow((state) =>
+      minerIds.filter((deviceIdentifier) => {
+        const miner = state.fleet.miners[deviceIdentifier];
+        return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+      }),
+    ),
+  );
+  const disabledMinerIdSet = useMemo(() => new Set(disabledMinerIds), [disabledMinerIds]);
+  const isRowDisabled = useCallback(
+    (item: DeviceListItem) => disabledMinerIdSet.has(item.deviceIdentifier),
+    [disabledMinerIdSet],
+  );
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
-  const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
@@ -264,6 +454,17 @@ const MinerList = ({
       searchParams.has("status") || searchParams.has("issues") || searchParams.has("model") || searchParams.has("group")
     );
   }, [searchParams]);
+  const selectionFilterKey = useMemo(() => {
+    const params = new URLSearchParams();
+    ["status", "issues", "model"].forEach((key) => {
+      searchParams
+        .getAll(key)
+        .sort()
+        .forEach((value) => params.append(key, value));
+    });
+    return params.toString();
+  }, [searchParams]);
+  const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -450,91 +651,35 @@ const MinerList = ({
           <ProgressCircular indeterminate />
         </div>
       ) : (
-        <List<DeviceListItem, string, MinerColumn>
-          activeCols={activeCols}
-          colTitles={minerColTitles}
-          colConfig={minerColConfig}
+        <ScopedMinerListBody
+          key={selectionScopeKey}
+          deviceItems={deviceItems}
+          minerColConfig={minerColConfig}
           filters={filters}
-          onServerFilter={handleServerFilter}
-          items={deviceItems}
-          itemKey={"deviceIdentifier"}
-          itemSelectable
-          hasActiveFilters={hasActiveFilters}
-          headerControls={
-            <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
-          }
-          renderActionBar={(selectedItems, clearSelection, selectionMode, totalSelectable) => (
-            <div className="flex w-full justify-center">
-              <MinerListActionBar
-                selectedMiners={selectedItems}
-                onClearSelection={clearSelection}
-                selectionMode={selectionMode}
-                totalCount={totalSelectable}
-                currentFilter={currentFilter}
-                currentSort={currentSortConfig}
-              />
-            </div>
-          )}
-          containerClassName={listClassName}
-          tableClassName="mb-4"
-          paddingLeft={paddingLeft}
-          overflowContainer={false}
-          total={totalMiners}
-          totalDisabled={totalDisabledMiners}
-          hideTotal
-          itemName={{ singular: "miner", plural: "miners" }}
-          itemRef={itemRef}
+          handleServerFilter={handleServerFilter}
           initialActiveFilters={initialActiveFilters}
+          listClassName={listClassName}
+          paddingLeft={paddingLeft}
+          overflowContainer={overflowContainer}
+          totalMiners={totalMiners}
+          totalDisabledMiners={totalDisabledMiners}
+          itemRef={itemRef}
+          hasActiveFilters={hasActiveFilters}
+          onAddMiners={onAddMiners}
+          handleClearFilters={handleClearFilters}
           isRowDisabled={isRowDisabled}
-          columnsExemptFromDisabledStyling={new Set([minerCols.status, minerCols.issues])}
-          sortableColumns={sortableColumnsSet}
+          currentFilter={currentFilter}
+          currentSortConfig={currentSortConfig}
           currentSort={currentSort}
           onSort={onSort}
-          getDefaultSortDirection={getDefaultSortDirection}
-          emptyStateRow={
-            !loading && hasActiveFilters && totalMiners === 0 ? (
-              <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-                <div className="text-heading-200 text-text-primary">No results</div>
-                <p className="mt-1 text-400 text-text-primary-70">Try adjusting or clearing your filters.</p>
-                <Button
-                  className="mt-6"
-                  variant={variants.secondary}
-                  size={sizes.base}
-                  testId="clear-all-filters-button"
-                  onClick={handleClearFilters}
-                >
-                  Clear all filters
-                </Button>
-              </div>
-            ) : undefined
-          }
+          firstItemIndex={firstItemIndex}
+          lastItemIndex={lastItemIndex}
+          shouldRenderPagination={shouldRenderPagination}
+          hasPreviousPage={hasPreviousPage}
+          hasNextPage={hasNextPage}
+          handlePrevPage={handlePrevPage}
+          handleNextPage={handleNextPage}
         />
-      )}
-
-      {shouldRenderPagination && (
-        <div className="flex flex-col items-center gap-4 py-6">
-          <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} miners
-          </span>
-          <div className="flex gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Previous page"
-              prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={handlePrevPage}
-              disabled={!hasPreviousPage}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Next page"
-              prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={handleNextPage}
-              disabled={!hasNextPage}
-            />
-          </div>
-        </div>
       )}
 
       {modalFlow.kind === "authenticate-miners" && <AuthenticateMiners open onClose={closeModalFlow} />}

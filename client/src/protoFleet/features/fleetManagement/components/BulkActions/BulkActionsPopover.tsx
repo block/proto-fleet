@@ -3,6 +3,7 @@ import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface BulkActionsPopoverProps<ActionType> {
   actions: BulkAction<ActionType>[];
@@ -36,6 +37,7 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
 };
 
 const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkActionsPopoverProps<ActionType>) => {
+  const { isPhone, isTablet } = useWindowDimensions();
   const onAction = (action: BulkAction<ActionType>) => {
     beforeEach(action.requiresConfirmation);
     action.actionHandler();
@@ -46,6 +48,7 @@ const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkAc
       position={positions["top left"]}
       size={popoverSizes.small}
       offset={20}
+      yOffset={isPhone || isTablet ? -32 : 0}
       testId={testId}
     >
       {actions.map((action) => (

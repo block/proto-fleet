@@ -396,6 +396,30 @@ describe("List", () => {
       expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
     });
 
+    it("keeps mode at 'none' when Select All finds no selectable rows", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          isRowDisabled={() => true}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      expect(onSelectionModeChange).toHaveBeenCalledWith("none");
+      expect(selectAllCheckbox.checked).toBe(false);
+    });
+
     it("sets mode to 'subset' when individual item is selected", () => {
       const onSelectionModeChange = vi.fn();
 
@@ -584,6 +608,33 @@ describe("List", () => {
       // Verify selection mode was reset to 'none'
       expect(onSelectionModeChange).toHaveBeenCalledWith("none");
     });
+
+    it("uses customSelectionMode when the full controlled-selection props are provided", () => {
+      const renderActionBar = vi.fn(
+        (_selectedItems: TestItemKey[], _clearSelection: () => void, selectionMode: string) => (
+          <div data-testid="controlled-selection-mode">{selectionMode}</div>
+        ),
+      );
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          customSelectedItems={[testItems[0].id]}
+          customSetSelectedItems={vi.fn()}
+          onSelectionModeChange={vi.fn()}
+          customSelectionMode="all"
+          renderActionBar={renderActionBar}
+        />,
+      );
+
+      expect(renderActionBar).toHaveBeenCalled();
+      expect(screen.getByTestId("controlled-selection-mode")).toHaveTextContent("all");
+    });
   });
 
   it("preserves customSelectedItems for items not in current page when preserveOffPageSelection is true", () => {
@@ -606,6 +657,28 @@ describe("List", () => {
     );
 
     expect(customSetSelectedItems).not.toHaveBeenCalled();
+  });
+
+  it("does not show the header checkbox as partially checked for off-page selections", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={[testItems[0], testItems[1]]}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={[testItems[2].id]}
+        customSetSelectedItems={vi.fn()}
+        preserveOffPageSelection
+      />,
+    );
+
+    const selectAllCheckbox = screen
+      .getByTestId("list-header")
+      .querySelector("input[type='checkbox']") as HTMLInputElement;
+    expect(selectAllCheckbox.checked).toBe(false);
+    expect(screen.getByTestId("select-all-checkbox").querySelector('[class*="bg-core-primary-fill/40"]')).toBeNull();
   });
 
   describe("Shift+click range selection", () => {
@@ -829,7 +902,7 @@ describe("List", () => {
       expect(selectItemCheckboxes[3].disabled).toBe(false);
     });
 
-    it("applies opacity-50 class to cells in disabled rows", () => {
+    it("applies opacity-50 class to disabled row cell content", () => {
       const isRowDisabled = (item: TestItem) => item.id === testItems[0].id;
 
       const { getByTestId } = render(
@@ -850,17 +923,39 @@ describe("List", () => {
       expect(rows[0].className).not.toContain("opacity-50");
       expect(rows[1].className).not.toContain("opacity-50");
 
-      // Cells in the first (disabled) row should have opacity-50
-      const disabledRowCells = Array.from(rows[0].querySelectorAll("td"));
-      disabledRowCells.forEach((cell) => {
-        expect(cell.className).toContain("opacity-50");
+      // Cell content in the first (disabled) row should have opacity-50
+      const disabledRowCellContents = Array.from(rows[0].querySelectorAll("td > div"));
+      disabledRowCellContents.forEach((content) => {
+        expect(content.className).toContain("opacity-50");
       });
 
-      // Cells in the second (enabled) row should not have opacity-50
-      const enabledRowCells = Array.from(rows[1].querySelectorAll("td"));
-      enabledRowCells.forEach((cell) => {
-        expect(cell.className).not.toContain("opacity-50");
+      // Enabled row content should not have opacity-50
+      const enabledRowCellContents = Array.from(rows[1].querySelectorAll("td > div"));
+      enabledRowCellContents.forEach((content) => {
+        expect(content.className).not.toContain("opacity-50");
       });
+    });
+
+    it("keeps selection mode as subset when pageScopedSelection is enabled", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          pageScopedSelection
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
     });
 
     it("excludes disabled rows when Select All is clicked", () => {

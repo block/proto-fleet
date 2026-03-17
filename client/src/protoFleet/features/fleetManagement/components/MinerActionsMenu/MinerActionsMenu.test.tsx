@@ -287,7 +287,7 @@ describe("MinerActionsMenu", () => {
     expect(widgetCall?.[0].buttonTitle).toBe("More");
   });
 
-  test("hides quick actions on mobile and keeps the all actions trigger copy", () => {
+  test("hides quick actions on mobile and keeps the actions trigger copy", () => {
     mockUseWindowDimensions.mockReturnValue({
       isPhone: true,
       isTablet: false,
@@ -318,7 +318,7 @@ describe("MinerActionsMenu", () => {
     expect(screen.queryByTestId("actions-menu-quick-action-blink-leds")).not.toBeInTheDocument();
     const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<[{ buttonTitle: string }]>;
     const widgetCall = widgetCalls[widgetCalls.length - 1];
-    expect(widgetCall?.[0].buttonTitle).toBe("All actions");
+    expect(widgetCall?.[0].buttonTitle).toBe("Actions");
   });
 
   test("passes totalCount as poolNeededCount when rendering PoolSelectionPageWrapper", async () => {

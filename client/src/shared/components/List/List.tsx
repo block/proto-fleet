@@ -15,6 +15,37 @@ import { useStickyState } from "@/shared/hooks/useStickyState";
 
 type SelectionMode = "none" | "all" | "subset";
 
+type ControlledSelectionModeProps<ItemKeyValueType> = {
+  customSelectedItems: ItemKeyValueType[];
+  customSetSelectedItems: (selected: ItemKeyValueType[]) => void;
+  /**
+   * Callback when selection mode changes.
+   * Called with "all" when Select All is clicked with no filters,
+   * "subset" for individual selections or Select All with filters,
+   * "none" when selection is cleared.
+   */
+  onSelectionModeChange: (mode: SelectionMode) => void;
+  /**
+   * Controlled selection mode value.
+   * Use with customSelectedItems/customSetSelectedItems when the parent owns
+   * selection state and needs to keep the list's derived mode in sync.
+   */
+  customSelectionMode: SelectionMode;
+};
+
+type UncontrolledSelectionModeProps<ItemKeyValueType> = {
+  customSelectedItems?: ItemKeyValueType[];
+  customSetSelectedItems?: (selected: ItemKeyValueType[]) => void;
+  /**
+   * Callback when selection mode changes.
+   * Called with "all" when Select All is clicked with no filters,
+   * "subset" for individual selections or Select All with filters,
+   * "none" when selection is cleared.
+   */
+  onSelectionModeChange?: (mode: SelectionMode) => void;
+  customSelectionMode?: undefined;
+};
+
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
@@ -28,8 +59,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
   initialSelectedItems?: ItemKeyValueType[];
-  customSelectedItems?: ItemKeyValueType[];
-  customSetSelectedItems?: (selected: ItemKeyValueType[]) => void;
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
   noDataElement?: ReactNode;
@@ -78,13 +107,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * Called with the current active filters whenever the user modifies filters.
    */
   onFilterChange?: (filters: ActiveFilters) => void;
-  /**
-   * Callback when selection mode changes.
-   * Called with "all" when Select All is clicked with no filters,
-   * "subset" for individual selections or Select All with filters,
-   * "none" when selection is cleared.
-   */
-  onSelectionModeChange?: (mode: SelectionMode) => void;
   /*
    * Optional callback for infinite scroll. Called when the user scrolls
    * near the bottom of the list.
@@ -151,7 +173,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * manages selections across pages.
    */
   preserveOffPageSelection?: boolean;
-};
+  /**
+   * When true, header and row checkbox behavior stays scoped to the current
+   * page instead of promoting selection into a dataset-wide "all" state.
+   */
+  pageScopedSelection?: boolean;
+} & (ControlledSelectionModeProps<ItemKeyValueType> | UncontrolledSelectionModeProps<ItemKeyValueType>);
 
 const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
@@ -199,6 +226,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   hasActiveFilters = false,
   onFilterChange,
   onSelectionModeChange,
+  customSelectionMode,
   onLoadMore,
   hasMore = false,
   isLoadingMore = false,
@@ -211,6 +239,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   footerContent,
   scrollRef,
   preserveOffPageSelection = false,
+  pageScopedSelection = false,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -222,6 +251,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const [hoveredHeader, setHoveredHeader] = useState<ColKey | null>(null);
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
   const prevCustomSelectedLengthRef = useRef<number | undefined>(undefined);
+  const currentSelectionMode = customSelectionMode ?? selectionMode;
+  const currentSelectedItems = customSelectedItems ?? selectedItems;
 
   // Helper to get selectable items (excludes disabled rows)
   const getSelectableItems = useCallback(
@@ -250,10 +281,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       // Select only filtered items (respects both client-side and server-side filters)
       const selectableItems = getSelectableItems(filteredItems);
       const selection = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
+      if (selection.length === 0) {
+        clearSelection();
+        return;
+      }
       customSetSelectedItems ? customSetSelectedItems(selection) : setSelectedItems(selection);
       // If we're selecting filtered items, it's a subset (unless all items match the filter)
       const allItemsMatchFilter = filteredItems.length === items.length;
-      const newMode = hasActiveFilters || !allItemsMatchFilter ? "subset" : "all";
+      const newMode = pageScopedSelection || hasActiveFilters || !allItemsMatchFilter ? "subset" : "all";
       setSelectionMode(newMode);
       onSelectionModeChange?.(newMode);
     } else {
@@ -263,10 +298,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   // Clear selection anchor when bulk selection changes (Select All or Clear Selection)
   useEffect(() => {
-    if (selectionMode === "all" || selectionMode === "none") {
+    if (currentSelectionMode === "all" || currentSelectionMode === "none") {
       lastClickedIndexRef.current = null;
     }
-  }, [selectionMode]);
+  }, [currentSelectionMode]);
 
   // Reset selectionMode when customSelectedItems is externally changed from non-empty to empty
   // This handles "Select none" from external controls like ModalSelectAllFooter
@@ -275,14 +310,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const currentLength = customSelectedItems?.length;
 
     // Only reset when selection changed from non-empty to empty
-    if (prevLength !== undefined && prevLength > 0 && currentLength === 0 && selectionMode !== "none") {
+    if (prevLength !== undefined && prevLength > 0 && currentLength === 0 && currentSelectionMode !== "none") {
       setSelectionMode("none");
       onSelectionModeChange?.("none");
     }
 
     // Update ref for next render
     prevCustomSelectedLengthRef.current = currentLength;
-  }, [customSelectedItems?.length, selectionMode, onSelectionModeChange]);
+  }, [customSelectedItems?.length, currentSelectionMode, onSelectionModeChange]);
 
   const selectRange = (anchorIndex: number, targetIndex: number, currentSelected: ItemKeyValueType[]) => {
     const start = Math.min(anchorIndex, targetIndex);
@@ -311,7 +346,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     index: number,
     event: ChangeEvent<HTMLInputElement>,
   ) => {
-    const currentSelected = customSelectedItems ?? selectedItems;
+    const currentSelected =
+      pageScopedSelection && currentSelectionMode === "all"
+        ? getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType)
+        : currentSelectedItems;
     const isShiftClick = event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey;
     const canRangeSelect = isShiftClick && lastClickedIndexRef.current !== null && checked;
 
@@ -333,7 +371,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
     const selectableItems = getSelectableItems(items);
     const allItemsSelected = newSelectedItems.length === selectableItems.length && selectableItems.length > 0;
-    const newMode = newSelectedItems.length === 0 ? "none" : allItemsSelected && !hasActiveFilters ? "all" : "subset";
+    const newMode =
+      newSelectedItems.length === 0
+        ? "none"
+        : pageScopedSelection
+          ? "subset"
+          : allItemsSelected && !hasActiveFilters
+            ? "all"
+            : "subset";
     setSelectionMode(newMode);
     onSelectionModeChange?.(newMode);
   };
@@ -343,11 +388,23 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const selectableItems = getSelectableItems(filteredItems);
     const selectableCount = selectableItems.length;
     if (selectableCount === 0) return false;
-    const currentSelected = customSelectedItems ?? selectedItems;
+    if (pageScopedSelection && currentSelectionMode === "all") {
+      return selectableCount > 0;
+    }
+
+    const currentSelected = currentSelectedItems;
     // Use Set for O(1) lookups instead of O(n) array.includes()
     const selectedSet = new Set<ItemKeyValueType>(currentSelected);
     return selectableItems.every((item) => selectedSet.has(item[itemKey] as ItemKeyValueType));
-  }, [selectedItems, filteredItems, customSelectedItems, getSelectableItems, itemKey]);
+  }, [currentSelectedItems, currentSelectionMode, filteredItems, getSelectableItems, itemKey, pageScopedSelection]);
+
+  const visibleSelectedCount = useMemo(() => {
+    const selectableItems = getSelectableItems(filteredItems);
+    if (selectableItems.length === 0) return 0;
+
+    const selectedSet = new Set<ItemKeyValueType>(currentSelectedItems);
+    return selectableItems.filter((item) => selectedSet.has(item[itemKey] as ItemKeyValueType)).length;
+  }, [currentSelectedItems, filteredItems, getSelectableItems, itemKey]);
 
   const handleServerFiltering = useCallback(
     (activeFilters: ActiveFilters) => {
@@ -394,10 +451,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   useEffect(() => {
     const selectableItems = getSelectableItems(items);
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
-    const currentSelected = customSelectedItems ?? selectedItems;
+    const currentSelected = currentSelectedItems;
 
     // In "all" mode, ensure all selectable current items are selected (handles Load More)
-    if (selectionMode === "all") {
+    if (currentSelectionMode === "all") {
       const allSelectableItemKeys = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       const currentSelectedSet = new Set(currentSelected);
       const needsUpdate = allSelectableItemKeys.some((key) => !currentSelectedSet.has(key));
@@ -436,7 +493,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, itemKey, customSetSelectedItems, onSelectionModeChange, isRowDisabled]);
+  }, [
+    items,
+    itemKey,
+    customSetSelectedItems,
+    onSelectionModeChange,
+    isRowDisabled,
+    currentSelectedItems,
+    currentSelectionMode,
+  ]);
 
   // Infinite scroll: trigger loadMore when scroll reaches near bottom
   useEffect(() => {
@@ -551,12 +616,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                         <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
                           <Checkbox
                             checked={allSelected}
-                            partiallyChecked={
-                              (selectedItems.length > 0 && selectedItems.length < filteredItems.length) ||
-                              (customSelectedItems &&
-                                customSelectedItems.length > 0 &&
-                                customSelectedItems.length < filteredItems.length)
-                            }
+                            partiallyChecked={visibleSelectedCount > 0 && !allSelected}
                             onChange={(e) => handleSelectAll(e.target.checked)}
                           />
                         </div>
@@ -649,17 +709,20 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                           >
                             {itemSelectable && (
                               <td
-                                className={clsx(tdClassList, firstStickyClasses, "w-9", {
-                                  "opacity-50": rowDisabled,
-                                })}
+                                className={clsx(tdClassList, firstStickyClasses, "w-9")}
                                 style={paddingCssVariables}
                                 data-testid="checkbox"
                               >
-                                <div className={clsx("w-9 truncate overflow-hidden", "py-4")}>
+                                <div
+                                  className={clsx("w-9 truncate overflow-hidden py-4", {
+                                    "opacity-50": rowDisabled,
+                                  })}
+                                >
                                   <Checkbox
                                     checked={
-                                      customSelectedItems?.includes(item[itemKey] as ItemKeyValueType) ||
-                                      selectedItems.includes(item[itemKey] as ItemKeyValueType)
+                                      pageScopedSelection && currentSelectionMode === "all"
+                                        ? !rowDisabled
+                                        : currentSelectedItems.includes(item[itemKey] as ItemKeyValueType)
                                     }
                                     onChange={(e) =>
                                       handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked, i, e)
@@ -679,9 +742,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                                     j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
                                     j === 0 && columnShadowBaseClassList,
                                     j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
-                                    {
-                                      "opacity-50": rowDisabled && !isExempt,
-                                    },
                                   )}
                                   key={j}
                                   style={paddingCssVariables}
@@ -693,12 +753,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                                       tdPaddingClassList,
                                       colConfig[row]?.width,
                                       {
+                                        "opacity-50": rowDisabled && !isExempt,
+                                      },
+                                      {
                                         "text-core-primary-50": disabled,
                                       },
                                     )}
                                   >
                                     {colConfig[row]?.component
-                                      ? colConfig[row].component(item, selectedItems)
+                                      ? colConfig[row].component(item, currentSelectedItems)
                                       : typeof item === "object" && item !== null && row in item
                                         ? ((item as Record<string, unknown>)[row as string] as ReactNode)
                                         : null}
@@ -763,7 +826,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems, clearSelection, selectionMode, totalSelectable)}</div>
+          <div className="w-full">
+            {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
+          </div>
         )}
       </div>
     </div>

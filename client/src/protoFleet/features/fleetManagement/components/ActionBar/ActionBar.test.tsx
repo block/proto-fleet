@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import ActionBar from ".";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
@@ -111,5 +111,26 @@ describe("Action Bar", () => {
 
     // Should not throw error when clicking close without onClose prop
     expect(() => fireEvent.click(closeButton)).not.toThrow();
+  });
+
+  test("renders selection controls only once", () => {
+    const onSelectAll = vi.fn();
+
+    render(
+      <ActionBar
+        {...actionBarProps}
+        selectionControls={
+          <button type="button" data-testid="select-all-control" onClick={onSelectAll}>
+            Select all
+          </button>
+        }
+      />,
+    );
+
+    const controls = screen.getAllByTestId("select-all-control");
+    expect(controls).toHaveLength(1);
+
+    fireEvent.click(controls[0]);
+    expect(onSelectAll).toHaveBeenCalledOnce();
   });
 });

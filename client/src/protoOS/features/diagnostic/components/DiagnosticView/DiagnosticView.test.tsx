@@ -6,9 +6,13 @@ import DiagnosticView from "./DiagnosticView";
 const mockUseTelemetry = vi.fn();
 // Mock the cooling status API hook
 const mockUseCoolingStatus = vi.fn();
+const mockUseMiningStart = vi.fn();
+const mockUseMiningStatus = vi.fn();
 vi.mock("@/protoOS/api", () => ({
   useTelemetry: () => mockUseTelemetry(),
   useCoolingStatus: () => mockUseCoolingStatus(),
+  useMiningStart: () => mockUseMiningStart(),
+  useMiningStatus: () => mockUseMiningStatus(),
   TOTAL_FAN_SLOTS: 3,
   TOTAL_PSU_SLOTS: 3,
 }));
@@ -42,6 +46,8 @@ describe("DiagnosticView - Fans Section", () => {
 
     // Default mock implementations
     mockUseTelemetry.mockReturnValue({});
+    mockUseMiningStart.mockReturnValue({ startMining: vi.fn() });
+    mockUseMiningStatus.mockReturnValue({ fetchData: vi.fn() });
     mockUseFanIds.mockReturnValue([1, 2, 3]);
     mockUseCoolingMode.mockReturnValue("Auto");
     mockUseBayCount.mockReturnValue(3);

@@ -22,6 +22,7 @@ interface ActionBarProps {
    * selectionMode is "all", since selectedItems only contains visible page items.
    */
   totalCount?: number;
+  selectionControls?: ReactNode;
   renderActions: (setHidden: (hidden: boolean) => void) => ReactNode;
   onClose?: () => void;
 }
@@ -31,6 +32,7 @@ const ActionBar = ({
   selectedItems,
   selectionMode = "subset",
   totalCount,
+  selectionControls,
   renderActions,
   onClose,
 }: ActionBarProps) => {
@@ -42,11 +44,8 @@ const ActionBar = ({
   }, [selectedItems]);
 
   const selectionText = useMemo(() => {
-    if (selectionMode === "all") {
-      const count = totalCount ?? selectedItems.length;
-      return `All ${count} miner${count === 1 ? "" : "s"} selected`;
-    }
-    return `${selectedItems.length} miner${selectedItems.length === 1 ? "" : "s"} selected`;
+    const count = selectionMode === "all" ? (totalCount ?? selectedItems.length) : selectedItems.length;
+    return `${count} miner${count === 1 ? "" : "s"} selected`;
   }, [selectionMode, selectedItems.length, totalCount]);
 
   const handleClose = () => {
@@ -57,6 +56,13 @@ const ActionBar = ({
   if (!show) {
     return null;
   }
+
+  const actionsClassName = clsx(
+    "ml-auto flex items-center justify-end gap-3",
+    "phone:col-start-2 phone:row-start-2 phone:ml-0 phone:justify-end",
+    "tablet:col-start-2 tablet:row-start-2 tablet:ml-0 tablet:justify-end",
+    selectionControls ? "" : "phone:col-span-2 tablet:col-span-2",
+  );
 
   return (
     <div
@@ -69,8 +75,8 @@ const ActionBar = ({
       )}
       data-testid="action-bar"
     >
-      <div className="flex w-[calc(100vw-theme(spacing.24))] items-center justify-between gap-4 rounded-2xl bg-black p-3 shadow-300 dark:bg-surface-elevated-base phone:w-[calc(100vw-theme(spacing.4))]">
-        <div className="flex items-center space-x-2">
+      <div className="flex w-[calc(100vw-theme(spacing.24))] items-center gap-2 rounded-2xl bg-black px-3 py-3 shadow-300 dark:bg-surface-elevated-base phone:grid phone:w-[calc(100vw-theme(spacing.4))] phone:grid-cols-[minmax(0,1fr),auto] phone:gap-x-3 phone:gap-y-1 phone:py-2 tablet:grid tablet:w-[calc(100vw-theme(spacing.12))] tablet:grid-cols-[minmax(0,1fr),auto] tablet:gap-x-3 tablet:gap-y-1 tablet:py-2">
+        <div className="flex min-w-0 items-center gap-2 phone:col-span-2 tablet:col-span-2">
           <Button
             className="bg-grayscale-white-10! text-grayscale-white-90!"
             prefixIcon={<DismissTiny />}
@@ -79,9 +85,14 @@ const ActionBar = ({
             testId="close-button"
             onClick={handleClose}
           />
-          <div className="w-full text-emphasis-300 text-grayscale-white-90">{selectionText}</div>
+          <div className="text-emphasis-300 text-grayscale-white-90">{selectionText}</div>
         </div>
-        <div className="flex flex-wrap justify-start gap-3">{renderActions(setHidden)}</div>
+        {selectionControls ? (
+          <div className="flex flex-wrap items-center gap-2 phone:row-start-2 phone:ml-10 tablet:row-start-2 tablet:ml-10">
+            {selectionControls}
+          </div>
+        ) : null}
+        <div className={actionsClassName}>{renderActions(setHidden)}</div>
       </div>
     </div>
   );

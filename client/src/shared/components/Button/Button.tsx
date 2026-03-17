@@ -22,6 +22,7 @@ interface ButtonProps {
   testId?: string;
   text?: string;
   textColor?: string;
+  textOnlyUnderlineOnHover?: boolean;
   variant: ButtonVariant;
 }
 
@@ -41,6 +42,7 @@ const Button = ({
   testId,
   text,
   textColor = "text-text-emphasis",
+  textOnlyUnderlineOnHover = true,
   variant,
 }: ButtonProps) => {
   const primary = variant === variants.primary;
@@ -117,6 +119,7 @@ const Button = ({
         {
           [textColor]: textOnly && !disabledState,
           [`${textColor}/40`]: textOnly && disabledState,
+          "hover:opacity-70": textOnly && !textOnlyUnderlineOnHover && !disabledState,
         },
         className,
       )}
@@ -127,11 +130,11 @@ const Button = ({
       {prefix}
       {(text || children) && prefix && <div className={gap} />}
       <div className="flex flex-col">
-        <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly })}>
+        <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly && textOnlyUnderlineOnHover })}>
           {text}
           {children}
         </div>
-        {textOnly && !disabledState && (
+        {textOnly && !disabledState && textOnlyUnderlineOnHover && (
           <div className={clsx("-mt-[2px] w-full opacity-20 group-hover:border-b-2", borderColor)} />
         )}
       </div>

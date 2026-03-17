@@ -1,9 +1,63 @@
 import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import MinerList from "./MinerList";
+import {
+  MinerStateSnapshotSchema,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus, MinerStateCountsSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/store/slices/fleetSlice";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+
+const { mockMinerListActionBar } = vi.hoisted(() => ({
+  mockMinerListActionBar: vi.fn(
+    ({
+      selectedMiners,
+      selectionMode,
+      totalCount,
+      onSelectAll,
+      onSelectNone,
+    }: {
+      selectedMiners: string[];
+      selectionMode: string;
+      totalCount?: number;
+      onSelectAll?: () => void;
+      onSelectNone?: () => void;
+    }) => {
+      if (selectionMode === "none" && selectedMiners.length === 0) {
+        return null;
+      }
+
+      return (
+        <div data-testid="mock-miner-list-action-bar">
+          <span data-testid="mock-miner-list-selection-mode">{selectionMode}</span>
+          <span data-testid="mock-miner-list-selected-miners">{selectedMiners.join(",")}</span>
+          <span data-testid="mock-miner-list-selection-count">
+            {selectionMode === "all" ? (totalCount ?? selectedMiners.length) : selectedMiners.length}
+          </span>
+          {onSelectAll ? (
+            <button type="button" data-testid="mock-action-bar-select-all" onClick={onSelectAll}>
+              Select all
+            </button>
+          ) : null}
+          {onSelectNone ? (
+            <button type="button" data-testid="mock-action-bar-select-none" onClick={onSelectNone}>
+              Select none
+            </button>
+          ) : null}
+        </div>
+      );
+    },
+  ),
+}));
+
+vi.mock("./MinerListActionBar", () => ({
+  default: mockMinerListActionBar,
+}));
 
 const renderMinerList = (props: Parameters<typeof MinerList>[0], initialEntries?: string[]) => {
   const Router = initialEntries ? MemoryRouter : BrowserRouter;
@@ -23,6 +77,37 @@ const LocationDisplay = () => {
 };
 
 describe("MinerList", () => {
+  const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
+    create(MinerStateSnapshotSchema, {
+      deviceIdentifier,
+      name: deviceIdentifier,
+      macAddress: "",
+      ipAddress: "",
+      deviceStatus: DeviceStatus.ONLINE,
+      pairingStatus,
+      hashrate: [],
+      efficiency: [],
+      powerUsage: [],
+      temperature: [],
+      url: "",
+      model: "",
+      firmwareVersion: "",
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.history.pushState({}, "", "/");
+    useFleetStore.setState((state) => ({
+      fleet: {
+        ...state.fleet,
+        miners: {},
+        minerIds: [],
+        totalMiners: 0,
+        deviceStatusCounts: create(MinerStateCountsSchema, {}),
+      },
+    }));
+  });
+
   describe("miner count subtitle", () => {
     it("shows total miner count", () => {
       renderMinerList({
@@ -229,6 +314,170 @@ describe("MinerList", () => {
       await user.click(screen.getByRole("button", { name: "Previous page" }));
 
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    });
+
+    it("adds bottom padding to pagination when miners are selected", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        totalMiners: 10,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+
+      expect(screen.getByTestId("miners-pagination")).toHaveClass("pb-24");
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    });
+
+    it("keeps header checkbox selection scoped to the current page", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        totalMiners: 10,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const selectAllCheckbox = screen
+        .getByTestId("list-header")
+        .querySelector("input[type='checkbox']") as HTMLInputElement;
+
+      await user.click(selectAllCheckbox);
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1,m2");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
+    });
+
+    it("hides action-bar select controls when filters are active", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1", "m2"],
+          totalMiners: 10,
+          currentPage: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+
+      expect(screen.getByTestId("mock-miner-list-action-bar")).toBeInTheDocument();
+      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("mock-action-bar-select-none")).not.toBeInTheDocument();
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    });
+
+    it("clears bulk selection when the page changes and does not restore it when returning", async () => {
+      const user = userEvent.setup();
+
+      const { rerender } = renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        totalMiners: 4,
+        currentPage: 0,
+        pageSize: 2,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("4");
+
+      rerender(
+        <BrowserRouter>
+          <MinerList
+            title="Miners"
+            minerIds={["m3", "m4"]}
+            totalMiners={4}
+            currentPage={1}
+            pageSize={2}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
+        </BrowserRouter>,
+      );
+
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+
+      rerender(
+        <BrowserRouter>
+          <MinerList
+            title="Miners"
+            minerIds={["m1", "m2"]}
+            totalMiners={4}
+            currentPage={0}
+            pageSize={2}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
+        </BrowserRouter>,
+      );
+
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+    });
+
+    it("recomputes selectable miners when a row becomes disabled between renders", async () => {
+      const user = userEvent.setup();
+
+      useFleetStore.setState((state) => ({
+        fleet: {
+          ...state.fleet,
+          miners: {
+            m1: createMinerSnapshot("m1"),
+            m2: createMinerSnapshot("m2"),
+          },
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        totalMiners: 2,
+        totalDisabledMiners: 0,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+
+      await act(async () => {
+        useFleetStore.setState((state) => ({
+          fleet: {
+            ...state.fleet,
+            miners: {
+              ...state.fleet.miners,
+              m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
+            },
+          },
+        }));
+      });
+
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
     });
   });
 

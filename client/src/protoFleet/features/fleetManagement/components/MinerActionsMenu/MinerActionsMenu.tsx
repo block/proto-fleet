@@ -152,7 +152,7 @@ const MinerActionsMenu = ({
       <div className="flex flex-wrap justify-start gap-3">
         <BulkActionsWidget<SupportedAction>
           buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
-          buttonTitle={showQuickActions ? "More" : "All actions"}
+          buttonTitle={showQuickActions ? "More" : "Actions"}
           actions={actionsWithBulkRename}
           onConfirmation={handleConfirmation}
           onCancel={handleCancel}
