@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	errorsv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 // ============================================================================

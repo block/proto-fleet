@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	diagnostics "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
-	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	diagnostics "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
+	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
 	gomock "go.uber.org/mock/gomock"
 )
 

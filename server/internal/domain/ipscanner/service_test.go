@@ -8,9 +8,9 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner/mocks"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	storemocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/ipscanner/mocks"
+	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	storemocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // noopDiscoverer is a discoverer that returns nil for all discovery requests

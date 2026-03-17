@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 type ErrorStackTraceLoggingInterceptor struct {

@@ -28,9 +28,9 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 )
 
 const (

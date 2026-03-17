@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	minermodels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
 

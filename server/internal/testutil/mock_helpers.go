@@ -1,8 +1,8 @@
 package testutil
 
 import (
-	discovererMocks "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/mocks"
-	pairerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
+	discovererMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/mocks"
+	pairerMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
 	"go.uber.org/mock/gomock"
 )
 

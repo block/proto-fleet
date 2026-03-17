@@ -1,8 +1,8 @@
 package mappers
 
 import (
-	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/btc-mining/proto-fleet/server/sdk/v1"
+	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 // SDKDeviceMetricsToV2 converts SDK DeviceMetrics to telemetry V2 DeviceMetrics.

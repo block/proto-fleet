@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	sqlc "github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	sqlc "github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -3,8 +3,8 @@ package sqlstores
 import (
 	"testing"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
 

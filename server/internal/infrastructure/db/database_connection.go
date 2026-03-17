@@ -13,7 +13,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 
-	"github.com/btc-mining/proto-fleet/server/migrations"
+	"github.com/proto-at-block/proto-fleet/server/migrations"
 )
 
 const (

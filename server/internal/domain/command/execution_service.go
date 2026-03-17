@@ -9,22 +9,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	tokenDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter

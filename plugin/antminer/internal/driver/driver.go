@@ -22,9 +22,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/device"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/device"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/types"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

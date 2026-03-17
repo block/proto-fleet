@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"io"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 type Service struct {

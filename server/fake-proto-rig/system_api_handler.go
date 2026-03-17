@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 )
 
 var _ miner_system_apiconnect.MinerSystemApiHandler = (*SystemApiHandler)(nil)

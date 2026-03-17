@@ -1,4 +1,4 @@
-module github.com/btc-mining/proto-fleet/server
+module github.com/proto-at-block/proto-fleet/server
 
 go 1.25.4
 

@@ -16,7 +16,7 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 func pluginBinDir() string {

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

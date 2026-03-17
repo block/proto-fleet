@@ -13,14 +13,14 @@ import (
 	context "context"
 	reflect "reflect"
 
-	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	sqlc "github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	secrets "github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	pairingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
+	telemetryv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
+	sqlc "github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	models "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	models0 "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	models1 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	secrets "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -138,7 +138,7 @@ To deploy the latest code from the `main` branch to a Raspberry Pi:
 To add a new Raspberry Pi deployment location:
 
 1. **Set up the Pi as a self-hosted runner**:
-   - Navigate to Settings → Actions → Runners → [New self-hosted runner](https://github.com/btc-mining/proto-fleet/settings/actions/runners/new?arch=arm64&os=linux)
+   - Navigate to Settings → Actions → Runners → [New self-hosted runner](https://github.com/proto-at-block/proto-fleet/settings/actions/runners/new?arch=arm64&os=linux)
    - Follow the instructions to install ARM64 Architecture and configure the runner on the Pi
    - In addition to the default labels, add the following labels to the runner (comma separated):
      - `proto-fleet-rpi`

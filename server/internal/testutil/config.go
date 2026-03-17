@@ -3,8 +3,8 @@ package testutil
 import (
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
 type Config struct {

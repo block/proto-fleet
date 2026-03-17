@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/command"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
 	"go.uber.org/mock/gomock"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/onboarding"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
 
-	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
+	pairingMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
 )
 
 const (

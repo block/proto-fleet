@@ -7,10 +7,10 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
 )
 
 type DatabaseMessageQueue struct {

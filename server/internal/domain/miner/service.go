@@ -6,20 +6,20 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 var _ telemetry.MinerGetter = &Service{}

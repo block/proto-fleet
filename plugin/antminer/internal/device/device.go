@@ -10,11 +10,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/types"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/web"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

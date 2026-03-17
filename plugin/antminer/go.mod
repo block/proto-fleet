@@ -1,16 +1,16 @@
-module github.com/btc-mining/proto-fleet/plugin/antminer
+module github.com/proto-at-block/proto-fleet/plugin/antminer
 
 go 1.25.4
 
 require (
-	github.com/btc-mining/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
+	github.com/proto-at-block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.19.0
 )
 
-replace github.com/btc-mining/proto-fleet/server => ../../server
+replace github.com/proto-at-block/proto-fleet/server => ../../server
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

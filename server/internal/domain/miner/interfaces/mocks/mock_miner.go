@@ -14,14 +14,14 @@ import (
 	url "net/url"
 	reflect "reflect"
 
-	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
-	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
-	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	commonv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	models "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	dto "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
+	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	models0 "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	models1 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	networking "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	gomock "go.uber.org/mock/gomock"
 )
 

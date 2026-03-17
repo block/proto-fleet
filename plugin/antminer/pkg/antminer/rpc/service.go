@@ -10,7 +10,7 @@ import (
 
 	"bufio"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/networking"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/networking"
 )
 
 // timeouts and max response size to prevent large responses from causing issues

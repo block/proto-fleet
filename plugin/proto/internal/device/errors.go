@@ -5,13 +5,13 @@ import (
 	"math"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_hb_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_psu_api"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
-	sdkerrors "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_error_code"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_fan_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_hb_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_api"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
 )
 
 const (

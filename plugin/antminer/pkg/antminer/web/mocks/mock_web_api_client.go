@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	web "github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	web "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/web"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	gomock "go.uber.org/mock/gomock"
 )
 

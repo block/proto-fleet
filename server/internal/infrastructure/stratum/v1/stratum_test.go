@@ -5,12 +5,12 @@ import (
 	"net"
 	"testing"
 
-	testingtools "github.com/btc-mining/proto-fleet/server/internal/infrastructure/stratum/v1/testing"
+	testingtools "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/stratum/v1/testing"
 	"github.com/sourcegraph/jsonrpc2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 func NewSecret(s string) *secrets.Text {

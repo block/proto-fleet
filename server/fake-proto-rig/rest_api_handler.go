@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 const minPasswordLength = 8

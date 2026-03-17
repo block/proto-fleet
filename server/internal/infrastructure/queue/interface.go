@@ -3,7 +3,7 @@ package queue
 import (
 	"context"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
 )
 
 type Message struct {

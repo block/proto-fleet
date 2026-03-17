@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	models "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 	gomock "go.uber.org/mock/gomock"
 )
 

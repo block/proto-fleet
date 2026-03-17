@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
-	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	storeMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	minerMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	storeMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 const (

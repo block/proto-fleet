@@ -6,10 +6,10 @@ import (
 	"log"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 var _ miner_command_apiconnect.MinerCommandApiHandler = (*CommandApiHandler)(nil)

@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_psu_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_fan_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_api"
 )
 
 var _ miner_data_apiconnect.MinerDataApiHandler = (*DataApiHandler)(nil)

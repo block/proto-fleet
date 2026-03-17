@@ -11,16 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
 
-	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
-	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	telemetryv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	minerMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	storesMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	mock "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 func TestNewTelemetryService(t *testing.T) {

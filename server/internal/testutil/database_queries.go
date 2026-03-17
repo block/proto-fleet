@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	db2 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	db2 "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	id "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
 	"golang.org/x/crypto/bcrypt"
 )
 

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 const (

@@ -360,7 +360,7 @@ $ go test -v .
 --- PASS: TestProtoPluginIntegration (45.67s)
 
 PASS
-ok  	github.com/btc-mining/proto-fleet/plugin/proto/tests/integration	60.90s
+ok  	github.com/proto-at-block/proto-fleet/plugin/proto/tests/integration	60.90s
 ```
 
 This comprehensive integration testing setup ensures the Proto plugin works correctly in real-world scenarios and provides confidence for production deployments.

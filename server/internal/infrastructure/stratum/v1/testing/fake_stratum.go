@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/sourcegraph/jsonrpc2"
 )
 

@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // DeviceMetrics represents the complete telemetry snapshot for a mining device.

@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/command"
 )
 
 // Handler handles the Connect-RPC endpoints

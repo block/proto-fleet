@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	sdkerrors "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
-	pb "github.com/btc-mining/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/hashicorp/go-plugin"
+	sdkerrors "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
+	pb "github.com/proto-at-block/proto-fleet/server/sdk/v1/pb/generated"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

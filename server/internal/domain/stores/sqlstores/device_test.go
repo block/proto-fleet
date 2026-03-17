@@ -3,8 +3,8 @@ package sqlstores
 import (
 	"testing"
 
-	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
 	"github.com/stretchr/testify/require"
 )
 

@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
 )
 
 // DeviceIdentifier is a type alias for backward compatibility - no breaking changes

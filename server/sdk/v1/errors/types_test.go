@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/btc-mining/proto-fleet/server/sdk/v1/pb/generated"
+	pb "github.com/proto-at-block/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

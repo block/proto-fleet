@@ -1,7 +1,7 @@
 package stratum
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 const (

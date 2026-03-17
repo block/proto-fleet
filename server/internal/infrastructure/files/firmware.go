@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"github.com/google/uuid"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
 )
 
 const firmwareDir = "firmware"

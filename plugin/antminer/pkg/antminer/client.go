@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/networking"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
-	"github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/networking"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/web"
+	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

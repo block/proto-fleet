@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/command/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue/mocks"
+	minerMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/command/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -74,7 +74,7 @@ linters:
       min-complexity: 20
     wrapcheck:
       ignore-package-globs:
-        - github.com/btc-mining/proto-fleet/*
+        - github.com/proto-at-block/proto-fleet/*
   exclusions:
     generated: lax
     rules:

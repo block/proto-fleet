@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/server"
 	"github.com/rs/cors"
 )
 

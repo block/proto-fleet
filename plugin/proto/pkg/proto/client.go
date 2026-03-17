@@ -29,14 +29,14 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"golang.org/x/net/http2"
 )
 

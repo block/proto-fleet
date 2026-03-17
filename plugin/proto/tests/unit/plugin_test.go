@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/plugin/proto/internal/driver"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/driver"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

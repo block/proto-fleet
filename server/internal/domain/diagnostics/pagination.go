@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 // Re-export pagination constants from models for backward compatibility.

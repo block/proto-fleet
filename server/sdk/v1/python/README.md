@@ -200,4 +200,4 @@ See the main Proto Fleet repository for contribution guidelines.
 ## Support
 
 For questions, issues, or feedback:
-- GitHub Issues: [proto-fleet/issues](https://github.com/btc-mining/proto-fleet/issues)
+- GitHub Issues: [proto-fleet/issues](https://github.com/proto-at-block/proto-fleet/issues)

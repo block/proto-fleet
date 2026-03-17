@@ -1,10 +1,10 @@
-module github.com/btc-mining/proto-fleet/plugin/proto
+module github.com/proto-at-block/proto-fleet/plugin/proto
 
 go 1.25.4
 
 require (
 	connectrpc.com/connect v1.19.1
-	github.com/btc-mining/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
+	github.com/proto-at-block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hashicorp/go-plugin v1.7.0
@@ -13,7 +13,7 @@ require (
 	golang.org/x/net v0.51.0
 )
 
-replace github.com/btc-mining/proto-fleet/server => ../../server
+replace github.com/proto-at-block/proto-fleet/server => ../../server
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

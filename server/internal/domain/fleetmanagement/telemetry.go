@@ -3,8 +3,8 @@ package fleetmanagement
 import (
 	"context"
 
-	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // TelemetryCollector defines the interface for collecting miner telemetry data

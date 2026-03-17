@@ -11,23 +11,23 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
-	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	id "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
 
-	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
 // TelemetryListener provides interface for telemetry registration/unregistration

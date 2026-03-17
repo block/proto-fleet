@@ -14,10 +14,10 @@ import (
 	reflect "reflect"
 	time "time"
 
-	antminer "github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
-	rpc "github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
-	web "github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	antminer "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer"
+	rpc "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	web "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/web"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	gomock "go.uber.org/mock/gomock"
 )
 

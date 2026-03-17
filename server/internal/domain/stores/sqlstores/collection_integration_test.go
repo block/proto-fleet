@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"testing"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

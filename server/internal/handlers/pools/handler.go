@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/pools"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 type Handler struct {

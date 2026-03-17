@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/plugin/virtual/internal/config"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/virtual/internal/config"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

@@ -12,15 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/deviceresolver"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	storemocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/deviceresolver"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	minerInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 func int32Ptr(v int32) *int32 { return &v }

@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 	"github.com/google/uuid"
 
-	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	onboardingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
 )
 
 func TestHandler_CreateAdminLogin(t *testing.T) {

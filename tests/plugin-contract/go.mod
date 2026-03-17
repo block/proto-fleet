@@ -1,9 +1,9 @@
-module github.com/btc-mining/proto-fleet/tests/plugin-contract
+module github.com/proto-at-block/proto-fleet/tests/plugin-contract
 
 go 1.25.4
 
 require (
-	github.com/btc-mining/proto-fleet/server v0.0.0
+	github.com/proto-at-block/proto-fleet/server v0.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/stretchr/testify v1.11.1
@@ -29,4 +29,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/btc-mining/proto-fleet/server => ../../server
+replace github.com/proto-at-block/proto-fleet/server => ../../server

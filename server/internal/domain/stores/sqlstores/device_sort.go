@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func getSortExpression(field stores.SortField) string {

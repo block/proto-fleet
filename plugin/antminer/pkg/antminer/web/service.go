@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

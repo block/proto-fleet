@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 type authorizeRequest struct {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

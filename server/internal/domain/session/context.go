@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"connectrpc.com/authn"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // GetInfo extracts session information from the context.

@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"strconv"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 var _ interfaces.DiscoveredDeviceStore = &SQLDiscoveredDeviceStore{}

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 type scheduler struct {

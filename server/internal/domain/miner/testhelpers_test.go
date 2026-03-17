@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
 // Global counter for generating unique test IPs

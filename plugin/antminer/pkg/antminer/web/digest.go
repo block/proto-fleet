@@ -1,6 +1,6 @@
 package web
 
-import "github.com/btc-mining/proto-fleet/server/sdk/v1"
+import "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 
 type DigestAuth struct {
 	creds     sdk.UsernamePassword

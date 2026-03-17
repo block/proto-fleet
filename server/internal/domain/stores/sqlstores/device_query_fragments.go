@@ -1,7 +1,7 @@
 package sqlstores
 
 import (
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // SQL fragments for dynamically building miner queries.

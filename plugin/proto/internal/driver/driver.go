@@ -21,9 +21,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btc-mining/proto-fleet/plugin/proto/internal/device"
-	"github.com/btc-mining/proto-fleet/plugin/proto/pkg/proto"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

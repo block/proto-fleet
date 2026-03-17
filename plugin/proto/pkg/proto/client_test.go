@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

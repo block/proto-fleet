@@ -83,12 +83,12 @@ module github.com/yourorg/my-miner-plugin
 go 1.21
 
 require (
-    github.com/btc-mining/proto-fleet/server v0.0.0-latest
+    github.com/proto-at-block/proto-fleet/server v0.0.0-latest
     github.com/hashicorp/go-plugin v1.7.0
 )
 
 // Use local development version if needed
-replace github.com/btc-mining/proto-fleet/server => /path/to/local/server
+replace github.com/proto-at-block/proto-fleet/server => /path/to/local/server
 ```
 
 ### 3. Implement the Driver Interface
@@ -98,7 +98,7 @@ replace github.com/btc-mining/proto-fleet/server => /path/to/local/server
 package main
 
 import (
-    "github.com/btc-mining/proto-fleet/server/sdk/v1"
+    "github.com/proto-at-block/proto-fleet/server/sdk/v1"
     "github.com/hashicorp/go-plugin"
 )
 
@@ -121,7 +121,7 @@ package main
 import (
     "context"
     "fmt"
-    sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+    sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 type MyDriver struct {
@@ -270,7 +270,7 @@ import (
     "fmt"
     "sync"
     "time"
-    sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+    sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 type MyDriver struct {
@@ -573,7 +573,7 @@ import (
     "context"
     "testing"
     "time"
-    sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+    sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 func TestDriverHandshake(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
+	commonv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
 )
 
 // FleetError represents a custom error type that can be converted to a gRPC ConnectError

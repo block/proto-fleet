@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	storeMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	storeMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // ============================================================================

@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

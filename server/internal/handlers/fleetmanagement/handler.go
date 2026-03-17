@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleetmanagement"
 )
 
 // Handler handles the Connect-RPC endpoints

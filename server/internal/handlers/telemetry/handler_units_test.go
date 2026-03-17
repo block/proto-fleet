@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
-	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	telemetryv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
+	storesMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
+	mock "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/mocks"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // Unit conversion test constants - raw storage values

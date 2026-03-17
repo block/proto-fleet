@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 // StartAntminer starts the Antminer plugin binary with the given web port override

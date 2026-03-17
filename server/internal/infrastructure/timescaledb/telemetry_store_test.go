@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/timescaledb"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/timescaledb"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 func TestEncodeCursor_WithValidData_ShouldReturnBase64Token(t *testing.T) {

@@ -11,12 +11,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	minerInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 var defaultRenameSortConfig = &interfaces.SortConfig{

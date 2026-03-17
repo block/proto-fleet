@@ -26,9 +26,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/btc-mining/proto-fleet/plugin/proto/internal/device/types"
-	"github.com/btc-mining/proto-fleet/plugin/proto/pkg/proto"
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device/types"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 var _ sdk.Device = (*Device)(nil)

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/networking"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/networking"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

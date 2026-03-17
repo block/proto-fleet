@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
 // DeviceOrgIdentifier uniquely identifies a device within an organization

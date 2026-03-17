@@ -20,4 +20,4 @@ managed:
     - module: buf.build/bufbuild/protovalidate
   override:
     - file_option: go_package_prefix
-      value: github.com/btc-mining/proto-fleet/server/generated/grpc
+      value: github.com/proto-at-block/proto-fleet/server/generated/grpc

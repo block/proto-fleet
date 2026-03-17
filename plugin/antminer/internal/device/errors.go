@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
-	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
-	sdkerrors "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/web"
+	sdkerrors "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
 )
 
 // Temperature thresholds (Celsius)

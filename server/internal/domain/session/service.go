@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_session_store.go -package=mocks Store

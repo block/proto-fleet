@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {

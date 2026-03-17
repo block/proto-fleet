@@ -26,9 +26,9 @@ import (
 	strings "strings"
 
 	connect "connectrpc.com/connect"
-	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	miner_debug_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api"
-	miner_error_code "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
+	miner_common_api "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	miner_debug_api "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_debug_api"
+	miner_error_code "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_error_code"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

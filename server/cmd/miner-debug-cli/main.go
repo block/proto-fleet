@@ -17,12 +17,12 @@ import (
 	"connectrpc.com/connect"
 	"golang.org/x/net/http2"
 
-	common "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
-	debugconnect "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api/miner_debug_apiconnect"
-	errorcode "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
-	fanapi "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api"
-	hbapi "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_hb_api"
-	psuapi "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_psu_api"
+	common "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
+	debugconnect "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_debug_api/miner_debug_apiconnect"
+	errorcode "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_error_code"
+	fanapi "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_fan_api"
+	hbapi "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_hb_api"
+	psuapi "github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_api"
 )
 
 const (

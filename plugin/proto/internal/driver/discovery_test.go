@@ -11,7 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 // simMinerContainer represents a running sim miner container for testing

@@ -6,10 +6,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 
-	pingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
+	pingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/ping/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 )
 
 func TestAuthInterceptor(t *testing.T) {

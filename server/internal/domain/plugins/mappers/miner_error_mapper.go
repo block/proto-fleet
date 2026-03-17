@@ -1,9 +1,9 @@
 package mappers
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
-	sdkv1 "github.com/btc-mining/proto-fleet/server/sdk/v1"
-	sdkv1models "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	sdkv1 "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdkv1models "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
 )
 
 const (

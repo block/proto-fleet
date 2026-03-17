@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/tests/plugin-contract/mockapi"
+	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi"
 )
 
 type Server struct {

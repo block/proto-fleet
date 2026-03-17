@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	poolspb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	poolspb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 func TestFindMatchingFleetPoolID(t *testing.T) {

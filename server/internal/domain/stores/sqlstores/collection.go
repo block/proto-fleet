@@ -9,10 +9,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/collection/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
+	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // Service orchestrates automatic IP address discovery for offline devices
