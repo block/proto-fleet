@@ -427,7 +427,9 @@ class TestBenignAPIErrorHandling:
         from pyasic.errors import APIError
 
         miner = make_mock_miner()
-        miner.reboot = AsyncMock(side_effect=APIError("Could not authenticate web token with miner: 172.16.2.103"))
+        miner.reboot = AsyncMock(
+            side_effect=APIError("Could not authenticate web token with miner: 172.16.2.103"),
+        )
         device = _make_device(miner)
 
         # Act & Assert
@@ -546,7 +548,11 @@ class TestSetPowerTargetPreset:
 
     async def test_ignores_untuned_presets(self, mock_ctx: MagicMock) -> None:
         # Arrange
-        presets = [self._make_api_preset(500, tuned=False), self._make_api_preset(1000), self._make_api_preset(2000)]
+        presets = [
+            self._make_api_preset(500, tuned=False),
+            self._make_api_preset(1000),
+            self._make_api_preset(2000),
+        ]
         miner = self._make_preset_miner(presets)
         device = _make_device(miner)
 

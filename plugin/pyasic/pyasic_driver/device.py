@@ -27,7 +27,6 @@ from proto_fleet_sdk.error_codes import (
     MinerError,
     Severity,
 )
-from pyasic.errors import APIError
 from proto_fleet_sdk.errors import (
     DeviceUnavailableError,
     SDKError,
@@ -42,6 +41,7 @@ from proto_fleet_sdk.telemetry.components import (
 )
 from proto_fleet_sdk.telemetry.metrics import MetricValue
 from proto_fleet_sdk.types import Capabilities, ConfiguredPool, DeviceInfo, MiningPoolConfig
+from pyasic.errors import APIError
 
 logger = logging.getLogger(__name__)
 
