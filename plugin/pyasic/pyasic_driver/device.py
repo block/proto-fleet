@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _BLINK_LED_DURATION_SECS = 30
 _DEFAULT_STRATUM_PASSWORD = "x"
+_DISRUPTIVE_CONTROL_COMMANDS = frozenset({"resume_mining", "stop_mining", "reboot"})
 
 
 def _metric_gauge(value: float) -> MetricValue:
@@ -79,6 +80,23 @@ def _to_float(val: object) -> float:
 def _require_cap(caps: Capabilities, cap: str, device_id: str) -> None:
     if not caps.get(cap):
         raise UnsupportedCapabilityError(cap, device_id=device_id)
+
+
+def _is_timeout_exception(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+
+    if exc.__class__.__name__ in {
+        "ReadTimeout",
+        "WriteTimeout",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "TimeoutException",
+    }:
+        return True
+
+    nested = exc.__cause__ or exc.__context__
+    return nested is not None and nested is not exc and _is_timeout_exception(nested)
 
 
 _KEYWORD_TO_MINER_ERROR: list[tuple[str, MinerError]] = [
@@ -451,24 +469,36 @@ class PyAsicDevice:
         "No data was returned",
     )
 
+    def _is_benign_command_error(self, command_name: str, exc: BaseException) -> bool:
+        if command_name not in _DISRUPTIVE_CONTROL_COMMANDS:
+            return False
+
+        if isinstance(exc, APIError):
+            msg = str(exc)
+            return any(p in msg for p in self._BENIGN_API_ERROR_PATTERNS)
+
+        return _is_timeout_exception(exc)
+
     async def _exec_pyasic_command(self, command_name: str, coro: Any) -> None:
         """Execute a pyasic command that returns bool, raising on failure.
 
         Privileged commands (reboot, stop/start mining) often produce broken
         responses because the device restarts mid-reply. Known-benign APIError
-        patterns are treated as success; anything else propagates.
+        patterns and transport timeouts for disruptive commands are treated as
+        success; anything else propagates.
         """
         try:
             result = await coro
-        except APIError as exc:
-            msg = str(exc)
-            if any(p in msg for p in self._BENIGN_API_ERROR_PATTERNS):
+        except Exception as exc:
+            if self._is_benign_command_error(command_name, exc):
                 logger.info(
-                    "Privileged command %s for %s returned benign APIError, treating as success: %s",
-                    command_name, self._id, msg,
+                    "Privileged command %s for %s returned benign %s, treating as success: %s",
+                    command_name, self._id, exc.__class__.__name__, exc,
                 )
                 return
-            raise DeviceUnavailableError(device_id=self._id, cause=exc) from exc
+            if isinstance(exc, APIError):
+                raise DeviceUnavailableError(device_id=self._id, cause=exc) from exc
+            raise
         if result is False:
             raise DeviceCommandFailedError(
                 command_name,

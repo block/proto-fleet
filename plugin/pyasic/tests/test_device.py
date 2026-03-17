@@ -436,6 +436,56 @@ class TestBenignAPIErrorHandling:
         with pytest.raises(DeviceUnavailableError):
             await device.reboot(mock_ctx)
 
+    async def test_non_disruptive_benign_api_error_still_raises_device_unavailable(
+        self, mock_ctx: MagicMock,
+    ) -> None:
+        # Arrange
+        from pyasic.errors import APIError
+
+        miner = make_mock_miner()
+        miner.upgrade_firmware = AsyncMock(
+            side_effect=APIError("Failed to send command to miner: 172.16.2.103"),
+        )
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(DeviceUnavailableError):
+            await device.firmware_update(mock_ctx, None)
+
+    @pytest.mark.parametrize("method_name, device_call", [
+        ("resume_mining", lambda device, ctx: device.start_mining(ctx)),
+        ("stop_mining", lambda device, ctx: device.stop_mining(ctx)),
+        ("reboot", lambda device, ctx: device.reboot(ctx)),
+    ])
+    @pytest.mark.parametrize("error_factory", [
+        lambda: TimeoutError("timeout"),
+        lambda: type("ReadTimeout", (Exception,), {})("read timed out"),
+    ])
+    async def test_disruptive_timeout_exception_treated_as_success(
+        self,
+        mock_ctx: MagicMock,
+        method_name: str,
+        device_call: object,
+        error_factory: object,
+    ) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        getattr(miner, method_name).side_effect = error_factory()
+        device = _make_device(miner)
+
+        # Act - should not raise
+        await device_call(device, mock_ctx)
+
+    async def test_non_disruptive_timeout_exception_still_raises(self, mock_ctx: MagicMock) -> None:
+        # Arrange
+        miner = make_mock_miner()
+        miner.fault_light_on = AsyncMock(side_effect=TimeoutError("timeout"))
+        device = _make_device(miner)
+
+        # Act & Assert
+        with pytest.raises(TimeoutError):
+            await device.blink_led(mock_ctx)
+
 
 class TestSetPowerTarget:
     async def test_maximum_hashrate_sends_hpm(self, mock_ctx: MagicMock) -> None:
