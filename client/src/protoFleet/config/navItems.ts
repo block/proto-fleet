@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Fleet, Groups, Home, IconProps, Settings } from "@/shared/assets/icons";
+import { Fleet, Groups, Home, IconProps, Racks, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -31,6 +31,15 @@ export const primaryNavItems: NavItem[] = [
     label: "Groups",
     icon: Groups,
   },
+  ...(import.meta.env.VITE_FEATURE_RACKS === "true"
+    ? [
+        {
+          path: "/racks",
+          label: "Racks",
+          icon: Racks,
+        },
+      ]
+    : []),
   {
     path: "/settings",
     label: "Settings",

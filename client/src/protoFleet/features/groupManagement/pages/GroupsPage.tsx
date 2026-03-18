@@ -1,169 +1,100 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { useCallback, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
-import type { CollectionStats, DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import {
-  SortDirection as ProtoSortDirection,
-  type SortConfig,
-  SortConfigSchema,
-  SortField,
-} from "@/protoFleet/api/generated/common/v1/sort_pb";
+import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useCollections } from "@/protoFleet/api/useCollections";
+import {
+  CollectionList,
+  type CollectionListItem,
+  issueOptions,
+  useIssueFilter,
+} from "@/protoFleet/components/CollectionList";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
-import { GroupsTable } from "@/protoFleet/features/groupManagement/components/GroupsTable";
-import { groupCols, GROUPS_PAGE_SIZE } from "@/protoFleet/features/groupManagement/components/GroupsTable/constants";
-import type { GroupColumn } from "@/protoFleet/features/groupManagement/components/GroupsTable/constants";
+import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
+import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
 
-import { Groups } from "@/shared/assets/icons";
+import { DismissTiny, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
-import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
+import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
-const SORT_FIELD_MAP: Partial<Record<GroupColumn, SortField>> = {
-  [groupCols.name]: SortField.NAME,
-  [groupCols.miners]: SortField.DEVICE_COUNT,
-};
-
-const SORT_FIELD_REVERSE_MAP: Partial<Record<SortField, GroupColumn>> = {
-  [SortField.NAME]: groupCols.name,
-  [SortField.DEVICE_COUNT]: groupCols.miners,
-};
-
-function toProtoSort(field: GroupColumn, direction: SortDirection): SortConfig {
-  return create(SortConfigSchema, {
-    field: SORT_FIELD_MAP[field] ?? SortField.NAME,
-    direction: direction === SORT_ASC ? ProtoSortDirection.ASC : ProtoSortDirection.DESC,
-  });
-}
-
-function fromProtoSort(sort: SortConfig): { field: GroupColumn; direction: SortDirection } {
-  const field = SORT_FIELD_REVERSE_MAP[sort.field] ?? groupCols.name;
-  const direction: SortDirection = sort.direction === ProtoSortDirection.DESC ? "desc" : "asc";
-  return { field, direction };
-}
-
-const DEFAULT_SORT = toProtoSort(groupCols.name, SORT_ASC);
+const GROUPS_PAGE_SIZE = 50;
 
 const GroupsPage = () => {
-  const { listGroups, getCollectionStats } = useCollections();
-  const [groups, setGroups] = useState<DeviceCollection[]>([]);
-  const [statsMap, setStatsMap] = useState<Map<bigint, CollectionStats>>(new Map());
-  const [isLoading, setIsLoading] = useState(true);
+  const { listGroups } = useCollections();
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<DeviceCollection | null>(null);
+  const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(0);
-  const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
-  const [hasNextPage, setHasNextPage] = useState(false);
-  const [totalGroups, setTotalGroups] = useState(0);
+  const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
-  // Sort state (proto format, passed directly to API)
-  const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT);
-  const sortRef = useRef(sortConfig);
-  useEffect(() => {
-    sortRef.current = sortConfig;
-  }, [sortConfig]);
+  const {
+    collections: groups,
+    statsMap,
+    isLoading,
+    hasEverLoaded,
+    error,
+    currentSort,
+    currentPage,
+    hasNextPage,
+    totalCount,
+    handleSort,
+    handleNextPage,
+    handlePrevPage,
+    resetAndFetch,
+  } = useCollectionListState(listGroups, GROUPS_PAGE_SIZE, getErrorComponentTypes);
 
-  const listRequestId = useRef(0);
-  const statsRequestId = useRef(0);
-
-  const fetchStats = useCallback(
-    (collections: DeviceCollection[]) => {
-      if (collections.length === 0) return;
-      const requestId = ++statsRequestId.current;
-      const ids = collections.map((c) => c.id);
-      getCollectionStats({
-        collectionIds: ids,
-        onSuccess: (stats) => {
-          if (requestId !== statsRequestId.current) return;
-          const map = new Map<bigint, CollectionStats>();
-          for (const s of stats) {
-            map.set(s.collectionId, s);
-          }
-          setStatsMap(map);
-        },
-      });
+  const handleIssuesChange = useCallback(
+    (issues: string[]) => {
+      setSelectedIssues(issues);
+      selectedIssuesRef.current = issues;
+      resetAndFetch();
     },
-    [getCollectionStats],
+    [resetAndFetch, selectedIssuesRef],
   );
 
-  const fetchPage = useCallback(
-    (page: number, pageToken?: string) => {
-      const requestId = ++listRequestId.current;
-      setIsLoading(true);
-      listGroups({
-        pageSize: GROUPS_PAGE_SIZE,
-        pageToken,
-        sort: sortRef.current,
-        onSuccess: (collections, nextPageToken, totalCount) => {
-          if (requestId !== listRequestId.current) return;
-          setGroups(collections);
-          fetchStats(collections);
-          setCurrentPage(page);
-          setHasNextPage(!!nextPageToken);
-          setTotalGroups(totalCount);
-          if (nextPageToken) {
-            setCursorHistory((prev) => {
-              const next = [...prev];
-              next[page + 1] = nextPageToken;
-              return next;
-            });
-          }
-        },
-        onFinally: () => {
-          if (requestId !== listRequestId.current) return;
-          setIsLoading(false);
-        },
-      });
+  const handleRemoveIssue = useCallback(
+    (issueId: string) => {
+      const next = selectedIssues.filter((id) => id !== issueId);
+      setSelectedIssues(next);
+      selectedIssuesRef.current = next;
+      resetAndFetch();
     },
-    [listGroups, fetchStats],
+    [selectedIssues, resetAndFetch, selectedIssuesRef],
   );
 
-  const fetchGroups = useCallback(() => {
-    setCurrentPage(0);
-    setCursorHistory([undefined]);
-    setHasNextPage(false);
-    fetchPage(0, undefined);
-  }, [fetchPage]);
+  const activeFilterPills = useMemo(() => {
+    return selectedIssues
+      .map((issueId) => {
+        const issue = issueOptions.find((o) => o.id === issueId);
+        if (!issue) return null;
+        return { key: `issue-${issueId}`, label: issue.label, onRemove: () => handleRemoveIssue(issueId) };
+      })
+      .filter(Boolean) as { key: string; label: string; onRemove: () => void }[];
+  }, [selectedIssues, handleRemoveIssue]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    fetchGroups();
-  }, [fetchGroups]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  const handleSort = useCallback(
-    (field: GroupColumn, direction: SortDirection) => {
-      const newSort = toProtoSort(field, direction);
-      setSortConfig(newSort);
-      sortRef.current = newSort;
-      // Reset pagination and re-fetch from first page
-      setCurrentPage(0);
-      setCursorHistory([undefined]);
-      setHasNextPage(false);
-      fetchPage(0, undefined);
-    },
-    [fetchPage],
+  const renderName = useCallback(
+    (item: CollectionListItem) => (
+      <GroupNameCell group={item.collection} onEdit={setEditGroup} onActionComplete={resetAndFetch} />
+    ),
+    [resetAndFetch],
   );
 
-  const handleNextPage = useCallback(() => {
-    const nextCursor = cursorHistory[currentPage + 1];
-    if (nextCursor) {
-      fetchPage(currentPage + 1, nextCursor);
-    }
-  }, [cursorHistory, currentPage, fetchPage]);
+  const renderMiners = useCallback(
+    (item: CollectionListItem) => (
+      <Link
+        to={`/miners?group=${item.collection.id}`}
+        className="hover:underline"
+        aria-label={`View miners in ${item.collection.label}`}
+      >
+        {item.collection.deviceCount}
+      </Link>
+    ),
+    [],
+  );
 
-  const handlePrevPage = useCallback(() => {
-    if (currentPage > 0) {
-      fetchPage(currentPage - 1, cursorHistory[currentPage - 1]);
-    }
-  }, [currentPage, cursorHistory, fetchPage]);
-
-  const currentSort = fromProtoSort(sortConfig);
-
-  if (isLoading && groups.length === 0) {
+  if (isLoading && !hasEverLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
         <ProgressCircular indeterminate />
@@ -171,7 +102,15 @@ const GroupsPage = () => {
     );
   }
 
-  const hasGroups = groups.length > 0 || currentPage > 0;
+  if (error && !hasEverLoaded) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-body-200 text-text-secondary">{error}</p>
+      </div>
+    );
+  }
+
+  const hasGroups = groups.length > 0 || hasEverLoaded;
 
   return (
     <>
@@ -195,36 +134,72 @@ const GroupsPage = () => {
         </div>
       ) : (
         <>
-          <div className="sticky left-0 flex items-center justify-between px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
-            <h1 className="text-heading-300 text-text-primary">Groups</h1>
-            <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowGroupModal(true)}>
-              Add group
-            </Button>
+          <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+            <h1 className="pb-4 text-heading-300 text-text-primary">Groups</h1>
+            <div className="flex flex-col gap-2 pb-6">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <DropdownFilter
+                    title="Issues"
+                    options={issueOptions}
+                    selectedOptions={selectedIssues}
+                    onSelect={handleIssuesChange}
+                    withButtons
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowGroupModal(true)}>
+                    Add group
+                  </Button>
+                </div>
+              </div>
+              {activeFilterPills.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {activeFilterPills.map((pill) => (
+                    <Button
+                      key={pill.key}
+                      size={sizes.compact}
+                      variant={variants.secondary}
+                      prefixIcon={<DismissTiny />}
+                      onClick={pill.onRemove}
+                    >
+                      {pill.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="p-10 pt-6 phone:p-6 phone:pt-6 tablet:p-6 tablet:pt-6">
-            <GroupsTable
-              groups={groups}
+          {error && (
+            <div className="text-body-200 text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 phone:mx-6 tablet:mx-6">
+              {error}
+            </div>
+          )}
+          <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
+            <CollectionList
+              collections={groups}
               statsMap={statsMap}
-              onEditGroup={setEditGroup}
-              onActionComplete={fetchGroups}
+              renderName={renderName}
+              renderMiners={renderMiners}
+              currentSort={currentSort}
+              onSort={handleSort}
+              itemName={{ singular: "group", plural: "groups" }}
               loading={isLoading}
-              totalGroups={totalGroups}
+              total={totalCount}
               pageSize={GROUPS_PAGE_SIZE}
               currentPage={currentPage}
               hasPreviousPage={currentPage > 0}
               hasNextPage={hasNextPage}
               onNextPage={handleNextPage}
               onPrevPage={handlePrevPage}
-              currentSort={currentSort}
-              onSort={handleSort}
             />
           </div>
         </>
       )}
 
-      {showGroupModal && <GroupModal onDismiss={() => setShowGroupModal(false)} onSuccess={fetchGroups} />}
+      {showGroupModal && <GroupModal onDismiss={() => setShowGroupModal(false)} onSuccess={resetAndFetch} />}
 
-      {editGroup && <GroupModal group={editGroup} onDismiss={() => setEditGroup(null)} onSuccess={fetchGroups} />}
+      {editGroup && <GroupModal group={editGroup} onDismiss={() => setEditGroup(null)} onSuccess={resetAndFetch} />}
     </>
   );
 };

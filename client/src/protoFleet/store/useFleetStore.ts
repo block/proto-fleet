@@ -27,7 +27,7 @@ export interface FleetStore {
 // Type for the partial state that we persist
 type PersistedFleetState = {
   auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
-  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences">;
+  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences" | "racksViewMode">;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
@@ -92,6 +92,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 temperatureUnit: state.ui.temperatureUnit,
                 duration: state.ui.duration,
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
+                racksViewMode: state.ui.racksViewMode,
               },
             },
             version: value.version,
@@ -137,6 +138,7 @@ export const useFleetStore = create<FleetStore>()(
               temperatureUnit: state.ui.temperatureUnit,
               duration: state.ui.duration,
               bulkRenamePreferences: state.ui.bulkRenamePreferences,
+              racksViewMode: state.ui.racksViewMode,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -159,6 +161,7 @@ export const useFleetStore = create<FleetStore>()(
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
                 duration: persisted?.ui?.duration ?? currentState.ui.duration,
+                racksViewMode: persisted?.ui?.racksViewMode ?? currentState.ui.racksViewMode,
                 bulkRenamePreferences: normalizeBulkRenamePreferences(
                   persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,
                 ),

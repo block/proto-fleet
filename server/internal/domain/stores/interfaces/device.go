@@ -36,6 +36,13 @@ type MinerStateCounts struct {
 	SleepingCount int32
 }
 
+// ComponentErrorCount holds error counts by component type for a collection.
+type ComponentErrorCount struct {
+	CollectionID  int64
+	ComponentType int32
+	DeviceCount   int32
+}
+
 // MinerModelGroupResult holds model group data with count.
 type MinerModelGroupResult struct {
 	Model        string

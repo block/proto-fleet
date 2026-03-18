@@ -10,6 +10,7 @@ import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
 import { GroupOverviewPage, GroupsPage } from "@/protoFleet/features/groupManagement";
 import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFleet/features/onboarding";
+import { RacksPage } from "@/protoFleet/features/rackManagement";
 import {
   Authentication as AuthSettings,
   General,
@@ -100,6 +101,9 @@ const router = createBrowserRouter([
   // Groups
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />),
+
+  // Racks
+  createRoute("/racks", <RacksPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout)
   {

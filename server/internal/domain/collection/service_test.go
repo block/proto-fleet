@@ -37,6 +37,9 @@ func (m *mockDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Contex
 	if filter != nil && len(filter.GroupIDs) == 1 {
 		return m.devicesByFilter[filter.GroupIDs[0]], nil
 	}
+	if filter != nil && len(filter.RackIDs) == 1 {
+		return m.devicesByFilter[filter.RackIDs[0]], nil
+	}
 	return nil, nil
 }
 
@@ -45,6 +48,13 @@ func (m *mockDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, 
 		return nil, m.err
 	}
 	return m.stateCountsByCollection, nil
+}
+
+func (m *mockDeviceQueryer) GetComponentErrorCountsByCollections(_ context.Context, _ int64, _ []int64) ([]interfaces.ComponentErrorCount, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, nil
 }
 
 func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.MockTransactor) {
@@ -501,10 +511,13 @@ func TestService_GetCollectionStats_EmptyCollection(t *testing.T) {
 		devicesByFilter:         map[int64][]string{testCollectionID: {}},
 		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{testCollectionID: {}},
 	}
-	svc, _ := newTestServiceWithTelemetry(t, &mockTelemetryCollector{
+	svc, mockStore := newTestServiceWithTelemetry(t, &mockTelemetryCollector{
 		metrics: map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics{},
 	}, deviceQ)
 	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{testCollectionID}).
+		Return(map[int64]pb.CollectionType{testCollectionID: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 
 	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
 		CollectionIds: []int64{testCollectionID},
@@ -526,8 +539,11 @@ func TestService_GetCollectionStats_NilTelemetry(t *testing.T) {
 			testCollectionID: {HashingCount: 1, OfflineCount: 1},
 		},
 	}
-	svc, _ := newTestServiceWithTelemetry(t, nil, deviceQ)
+	svc, mockStore := newTestServiceWithTelemetry(t, nil, deviceQ)
 	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{testCollectionID}).
+		Return(map[int64]pb.CollectionType{testCollectionID: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 
 	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
 		CollectionIds: []int64{testCollectionID},
@@ -568,8 +584,11 @@ func TestService_GetCollectionStats_MixedMetrics(t *testing.T) {
 			// dev-3 has no telemetry at all (not in map)
 		},
 	}
-	svc, _ := newTestServiceWithTelemetry(t, telemetry, deviceQ)
+	svc, mockStore := newTestServiceWithTelemetry(t, telemetry, deviceQ)
 	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{collID}).
+		Return(map[int64]pb.CollectionType{collID: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 
 	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{
 		CollectionIds: []int64{collID},
@@ -611,8 +630,14 @@ func TestService_GetCollectionStats_MultipleCollections(t *testing.T) {
 			"dev-2": {HashrateHS: &modelsV2.MetricValue{Value: 60e12}},
 		},
 	}
-	svc, _ := newTestServiceWithTelemetry(t, telemetry, deviceQ)
+	svc, mockStore := newTestServiceWithTelemetry(t, telemetry, deviceQ)
 	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{1, 2}).
+		Return(map[int64]pb.CollectionType{
+			1: pb.CollectionType_COLLECTION_TYPE_GROUP,
+			2: pb.CollectionType_COLLECTION_TYPE_GROUP,
+		}, nil)
 
 	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{1, 2}})
 	require.NoError(t, err)

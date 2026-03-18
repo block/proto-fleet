@@ -34,6 +34,7 @@ type TelemetryCollector interface {
 type DeviceQueryer interface {
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]interfaces.MinerStateCounts, error)
+	GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]interfaces.ComponentErrorCount, error)
 }
 
 // DeviceIdentifierResolver resolves a DeviceSelector into device identifiers for an org.
@@ -264,7 +265,12 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		}
 	}
 
-	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort)
+	errorComponentTypes := make([]int32, len(req.ErrorComponentTypes))
+	for i, ct := range req.ErrorComponentTypes {
+		errorComponentTypes[i] = int32(ct)
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -489,17 +495,33 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 		return &pb.GetCollectionStatsResponse{}, nil
 	}
 
-	// Get device identifiers per collection using existing device store filter
+	// Batch-fetch collection types to avoid per-ID lookups.
+	collectionTypes, err := s.collectionStore.GetCollectionTypes(ctx, info.OrganizationID, req.CollectionIds)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get device identifiers per collection using existing device store filter.
 	devicesByCollection := make(map[int64][]string, len(req.CollectionIds))
 	uniqueDeviceIDs := make(map[string]struct{})
 	for _, collectionID := range req.CollectionIds {
-		ids, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, info.OrganizationID, &interfaces.MinerFilter{
-			GroupIDs: []int64{collectionID},
+		collectionType, ok := collectionTypes[collectionID]
+		if !ok {
+			// Collection was deleted between list and stats call; skip it.
+			continue
+		}
+		filter := &interfaces.MinerFilter{
 			PairingStatuses: []fm.PairingStatus{
 				fm.PairingStatus_PAIRING_STATUS_PAIRED,
 				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 			},
-		})
+		}
+		if collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
+			filter.RackIDs = []int64{collectionID}
+		} else {
+			filter.GroupIDs = []int64{collectionID}
+		}
+		ids, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, info.OrganizationID, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -527,6 +549,21 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 	stateCounts, err := s.deviceQueryer.GetMinerStateCountsByCollections(ctx, info.OrganizationID, req.CollectionIds)
 	if err != nil {
 		return nil, err
+	}
+
+	// Fetch component error counts per collection
+	componentErrors, err := s.deviceQueryer.GetComponentErrorCountsByCollections(ctx, info.OrganizationID, req.CollectionIds)
+	if err != nil {
+		return nil, err
+	}
+	// Build a map of (collectionID, componentType) -> deviceCount
+	type componentKey struct {
+		collectionID  int64
+		componentType int32
+	}
+	componentErrorMap := make(map[componentKey]int32, len(componentErrors))
+	for _, ce := range componentErrors {
+		componentErrorMap[componentKey{ce.CollectionID, ce.ComponentType}] = ce.DeviceCount
 	}
 
 	// Aggregate per collection
@@ -606,8 +643,29 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 			}
 		}
 
+		// Populate component issue counts
+		cs.ControlBoardIssueCount = componentErrorMap[componentKey{collectionID, 4}]
+		cs.FanIssueCount = componentErrorMap[componentKey{collectionID, 3}]
+		cs.HashBoardIssueCount = componentErrorMap[componentKey{collectionID, 2}]
+		cs.PsuIssueCount = componentErrorMap[componentKey{collectionID, 1}]
+
 		stats = append(stats, cs)
 	}
 
 	return &pb.GetCollectionStatsResponse{Stats: stats}, nil
+}
+
+// ListRackLocations returns all distinct rack locations for the organization.
+func (s *Service) ListRackLocations(ctx context.Context, _ *pb.ListRackLocationsRequest) (*pb.ListRackLocationsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	locations, err := s.collectionStore.ListRackLocations(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.ListRackLocationsResponse{Locations: locations}, nil
 }

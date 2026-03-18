@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
+import "errors/v1/errors.proto";
 
 // Service for managing device collections (groups and racks)
 // Collections allow grouping devices for filtering and bulk operations
@@ -48,6 +49,9 @@ service DeviceCollectionService {
 
     // Returns aggregated telemetry stats for a list of collections
     rpc GetCollectionStats(GetCollectionStatsRequest) returns (GetCollectionStatsResponse);
+
+    // Returns all distinct rack locations for the organization
+    rpc ListRackLocations(ListRackLocationsRequest) returns (ListRackLocationsResponse);
 }
 
 // Type of collection
@@ -240,6 +244,11 @@ message ListCollectionsRequest {
     // Sort configuration (defaults to name ascending).
     // Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
     common.v1.SortConfig sort = 4;
+
+    // Filter by collections containing devices with open errors of these component types.
+    // When non-empty, only collections with at least one device having an open error
+    // matching any of the specified component types are returned.
+    repeated errors.v1.ComponentType error_component_types = 5;
 }
 
 // Response containing collections
@@ -404,6 +413,12 @@ message CollectionStats {
     int32 efficiency_reporting_count = 14;
     int32 power_reporting_count = 15;
     int32 temperature_reporting_count = 16;
+
+    // Component issue counts (number of devices with open errors by component type)
+    int32 control_board_issue_count = 17;
+    int32 fan_issue_count = 18;
+    int32 hash_board_issue_count = 19;
+    int32 psu_issue_count = 20;
 }
 
 // Request to get aggregated stats for collections
@@ -416,4 +431,13 @@ message GetCollectionStatsRequest {
 message GetCollectionStatsResponse {
     // Stats per collection (one entry per requested collection ID)
     repeated CollectionStats stats = 1;
+}
+
+// Request to list all distinct rack locations for the organization
+message ListRackLocationsRequest {}
+
+// Response containing all distinct rack locations
+message ListRackLocationsResponse {
+    // Distinct location strings across all racks, sorted alphabetically
+    repeated string locations = 1;
 }

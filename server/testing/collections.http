@@ -188,3 +188,89 @@ Cookie: {{session_cookie}}
 {
   "collection_id": "1"
 }
+
+###############################################
+# Bootstrap Racks
+# Run "Authenticate" first, then run each
+# create request below to seed the racks list.
+###############################################
+
+### Bootstrap Rack 1
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack A-1",
+  "description": "Primary intake rack",
+  "rack_info": {
+    "rows": 4,
+    "columns": 10,
+    "location": "Building A, Room 101"
+  }
+}
+
+### Bootstrap Rack 2
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack A-2",
+  "description": "Secondary intake rack",
+  "rack_info": {
+    "rows": 4,
+    "columns": 10,
+    "location": "Building A, Room 101"
+  }
+}
+
+### Bootstrap Rack 3
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack B-1",
+  "description": "Overflow rack",
+  "rack_info": {
+    "rows": 6,
+    "columns": 8,
+    "location": "Building B, Room 201"
+  }
+}
+
+### Bootstrap Rack 4
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack B-2",
+  "description": "High-density rack",
+  "rack_info": {
+    "rows": 8,
+    "columns": 12,
+    "location": "Building B, Room 201"
+  }
+}
+
+### Bootstrap Rack 5
+POST {{host}}/collection.v1.DeviceCollectionService/CreateCollection
+Content-Type: application/json
+Cookie: {{session_cookie}}
+
+{
+  "type": "COLLECTION_TYPE_RACK",
+  "label": "Rack C-1",
+  "description": "Testing rack",
+  "rack_info": {
+    "rows": 2,
+    "columns": 5,
+    "location": "Building C, Lab 1"
+  }
+}

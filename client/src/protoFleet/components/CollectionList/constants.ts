@@ -1,8 +1,6 @@
-import { ColTitles } from "@/shared/components/List/types";
+import type { ColTitles } from "@/shared/components/List/types";
 
-export const GROUPS_PAGE_SIZE = 50;
-
-export const groupCols = {
+export const collectionCols = {
   name: "name",
   miners: "miners",
   issues: "issues",
@@ -13,9 +11,9 @@ export const groupCols = {
   health: "health",
 } as const;
 
-export type GroupColumn = (typeof groupCols)[keyof typeof groupCols];
+export type CollectionColumn = (typeof collectionCols)[keyof typeof collectionCols];
 
-export const groupColTitles: ColTitles<GroupColumn> = {
+export const collectionColTitles: ColTitles<CollectionColumn> = {
   name: "Name",
   miners: "Miners",
   issues: "Issues",
@@ -25,3 +23,5 @@ export const groupColTitles: ColTitles<GroupColumn> = {
   temperature: "Temperature",
   health: "Health",
 };
+
+export const DEFAULT_PAGE_SIZE = 50;

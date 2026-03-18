@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lib/pq"
+
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
 	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -43,17 +45,43 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 }
 
 // buildCollectionCountQuery returns the SQL and args for counting collections.
-func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType) (string, []any) {
-	if collectionType == pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
-		return "SELECT COUNT(*)::int FROM device_collection WHERE org_id = $1 AND deleted_at IS NULL", []any{orgID}
+func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, errorComponentTypes []int32) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	sb.WriteString("SELECT COUNT(*)::int FROM device_collection dc WHERE dc.org_id = $1 AND dc.deleted_at IS NULL")
+
+	if collectionType != pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
+		sqlType := protoCollectionTypeToSQL(collectionType)
+		sb.WriteString(fmt.Sprintf(" AND dc.type = $%d", argNum))
+		args = append(args, sqlType)
+		argNum++
 	}
-	sqlType := protoCollectionTypeToSQL(collectionType)
-	return "SELECT COUNT(*)::int FROM device_collection WHERE org_id = $1 AND type = $2 AND deleted_at IS NULL", []any{orgID, sqlType}
+
+	if len(errorComponentTypes) > 0 {
+		sb.WriteString(fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM device_collection_membership dcm_err
+			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
+			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
+			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
+				AND dp_err.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+			JOIN errors e ON d_err.id = e.device_id
+				AND e.org_id = dcm_err.org_id
+				AND e.closed_at IS NULL
+				AND e.severity IN (1, 2, 3)
+				AND e.component_type = ANY($%d::int[])
+			WHERE dcm_err.collection_id = dc.id AND dcm_err.org_id = $1
+		)`, argNum))
+		args = append(args, pq.Array(errorComponentTypes))
+	}
+
+	return sb.String(), args
 }
 
 // buildCollectionListQuery generates a dynamic SQL query for listing collections
 // with sort and cursor-based keyset pagination.
-func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32) (string, []any) {
+func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, errorComponentTypes []int32) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
@@ -70,6 +98,26 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		sqlType := protoCollectionTypeToSQL(collectionType)
 		sb.WriteString(fmt.Sprintf(" AND dc.type = $%d", argNum))
 		args = append(args, sqlType)
+		argNum++
+	}
+
+	// Error component types filter — matches the device/error criteria used by stats
+	// (active, non-deleted, paired devices with actionable severity errors)
+	if len(errorComponentTypes) > 0 {
+		sb.WriteString(fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM device_collection_membership dcm_err
+			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
+			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
+			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
+				AND dp_err.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+			JOIN errors e ON d_err.id = e.device_id
+				AND e.org_id = dcm_err.org_id
+				AND e.closed_at IS NULL
+				AND e.severity IN (1, 2, 3)
+				AND e.component_type = ANY($%d::int[])
+			WHERE dcm_err.collection_id = dc.id AND dcm_err.org_id = $1
+		)`, argNum))
+		args = append(args, pq.Array(errorComponentTypes))
 		argNum++
 	}
 

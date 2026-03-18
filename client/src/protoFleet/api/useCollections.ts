@@ -44,6 +44,7 @@ interface ListCollectionsProps {
   pageSize?: number;
   pageToken?: string;
   sort?: SortConfig;
+  errorComponentTypes?: number[];
   onSuccess?: (collections: DeviceCollection[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -61,6 +62,12 @@ interface AddDevicesToCollectionProps {
 interface GetCollectionStatsProps {
   collectionIds: bigint[];
   onSuccess?: (stats: CollectionStats[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface ListRackLocationsProps {
+  onSuccess?: (locations: string[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -185,7 +192,7 @@ const useCollections = () => {
   );
 
   const listGroups = useCallback(
-    async ({ pageSize, pageToken, sort, onSuccess, onError, onFinally }: ListCollectionsProps) => {
+    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListCollectionsProps) => {
       try {
         if (pageSize) {
           const response = await collectionClient.listCollections({
@@ -193,6 +200,7 @@ const useCollections = () => {
             pageSize,
             pageToken: pageToken ?? "",
             sort,
+            errorComponentTypes: errorComponentTypes ?? [],
           });
           onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
         } else {
@@ -227,11 +235,14 @@ const useCollections = () => {
   );
 
   const listRacks = useCallback(
-    async ({ onSuccess, onError, onFinally }: ListCollectionsProps) => {
+    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListCollectionsProps) => {
       try {
         const response = await collectionClient.listCollections({
           type: CollectionType.RACK,
-          pageSize: 100,
+          pageSize: pageSize ?? 100,
+          pageToken: pageToken ?? "",
+          sort,
+          errorComponentTypes: errorComponentTypes ?? [],
         });
         onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
       } catch (err) {
@@ -335,12 +346,32 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const listRackLocations = useCallback(
+    async ({ onSuccess, onError, onFinally }: ListRackLocationsProps) => {
+      try {
+        const response = await collectionClient.listRackLocations({});
+        onSuccess?.(response.locations);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
     updateGroup,
     deleteGroup,
     listGroups,
     listRacks,
+    listRackLocations,
     listGroupMembers,
     getCollectionStats,
     addDevicesToCollection,
@@ -348,3 +379,4 @@ const useCollections = () => {
 };
 
 export { useCollections };
+export type { ListCollectionsProps };

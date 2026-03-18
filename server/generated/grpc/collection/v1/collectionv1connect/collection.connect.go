@@ -73,6 +73,9 @@ const (
 	// DeviceCollectionServiceGetCollectionStatsProcedure is the fully-qualified name of the
 	// DeviceCollectionService's GetCollectionStats RPC.
 	DeviceCollectionServiceGetCollectionStatsProcedure = "/collection.v1.DeviceCollectionService/GetCollectionStats"
+	// DeviceCollectionServiceListRackLocationsProcedure is the fully-qualified name of the
+	// DeviceCollectionService's ListRackLocations RPC.
+	DeviceCollectionServiceListRackLocationsProcedure = "/collection.v1.DeviceCollectionService/ListRackLocations"
 )
 
 // DeviceCollectionServiceClient is a client for the collection.v1.DeviceCollectionService service.
@@ -103,6 +106,8 @@ type DeviceCollectionServiceClient interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of collections
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
+	// Returns all distinct rack locations for the organization
+	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
 }
 
 // NewDeviceCollectionServiceClient constructs a client for the
@@ -180,6 +185,11 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceGetCollectionStatsProcedure,
 			opts...,
 		),
+		listRackLocations: connect.NewClient[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse](
+			httpClient,
+			baseURL+DeviceCollectionServiceListRackLocationsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -198,6 +208,7 @@ type deviceCollectionServiceClient struct {
 	clearRackSlotPosition       *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
 	getRackSlots                *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
 	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
+	listRackLocations           *connect.Client[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse]
 }
 
 // CreateCollection calls collection.v1.DeviceCollectionService.CreateCollection.
@@ -266,6 +277,11 @@ func (c *deviceCollectionServiceClient) GetCollectionStats(ctx context.Context, 
 	return c.getCollectionStats.CallUnary(ctx, req)
 }
 
+// ListRackLocations calls collection.v1.DeviceCollectionService.ListRackLocations.
+func (c *deviceCollectionServiceClient) ListRackLocations(ctx context.Context, req *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error) {
+	return c.listRackLocations.CallUnary(ctx, req)
+}
+
 // DeviceCollectionServiceHandler is an implementation of the collection.v1.DeviceCollectionService
 // service.
 type DeviceCollectionServiceHandler interface {
@@ -295,6 +311,8 @@ type DeviceCollectionServiceHandler interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of collections
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
+	// Returns all distinct rack locations for the organization
+	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
 }
 
 // NewDeviceCollectionServiceHandler builds an HTTP handler from the service implementation. It
@@ -368,6 +386,11 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 		svc.GetCollectionStats,
 		opts...,
 	)
+	deviceCollectionServiceListRackLocationsHandler := connect.NewUnaryHandler(
+		DeviceCollectionServiceListRackLocationsProcedure,
+		svc.ListRackLocations,
+		opts...,
+	)
 	return "/collection.v1.DeviceCollectionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceCollectionServiceCreateCollectionProcedure:
@@ -396,6 +419,8 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceGetRackSlotsHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceGetCollectionStatsProcedure:
 			deviceCollectionServiceGetCollectionStatsHandler.ServeHTTP(w, r)
+		case DeviceCollectionServiceListRackLocationsProcedure:
+			deviceCollectionServiceListRackLocationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -455,4 +480,8 @@ func (UnimplementedDeviceCollectionServiceHandler) GetRackSlots(context.Context,
 
 func (UnimplementedDeviceCollectionServiceHandler) GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.GetCollectionStats is not implemented"))
+}
+
+func (UnimplementedDeviceCollectionServiceHandler) ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackLocations is not implemented"))
 }

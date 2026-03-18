@@ -41,13 +41,17 @@ type CollectionStore interface {
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.
 	// Returns the collections, a next page token (empty if no more results), and the total count.
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig) ([]*pb.DeviceCollection, string, int32, error)
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)
 
 	// GetCollectionType returns the type of a collection.
 	GetCollectionType(ctx context.Context, orgID int64, collectionID int64) (pb.CollectionType, error)
+
+	// GetCollectionTypes returns the types for multiple collections in a single query.
+	// Returns a map of collectionID -> CollectionType.
+	GetCollectionTypes(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]pb.CollectionType, error)
 
 	// AddDevicesToCollection adds devices to a collection.
 	// Returns the number of devices actually added (excludes duplicates and non-existent devices).
@@ -85,4 +89,7 @@ type CollectionStore interface {
 
 	// GetRackSlots returns all occupied slot positions in a rack.
 	GetRackSlots(ctx context.Context, collectionID int64) ([]*pb.RackSlot, error)
+
+	// ListRackLocations returns all distinct non-empty rack locations for an organization.
+	ListRackLocations(ctx context.Context, orgID int64) ([]string, error)
 }

@@ -1,1 +1,1 @@
-export { default as GroupsTable } from "./GroupsTable";
+export { default as GroupNameCell } from "./GroupNameCell";

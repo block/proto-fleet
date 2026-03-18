@@ -11,12 +11,15 @@ import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/prefe
 // UI Slice Interface
 // =============================================================================
 
+export type RacksViewMode = "grid" | "list";
+
 export interface UISlice {
   theme: Theme;
   deviceTheme: ThemeColor | undefined;
   temperatureUnit: TemperatureUnit;
   duration: FleetDuration;
   bulkRenamePreferences: BulkRenamePreferences;
+  racksViewMode: RacksViewMode;
 
   // Actions
   setTheme: (theme: Theme) => void;
@@ -24,6 +27,7 @@ export interface UISlice {
   setTemperatureUnit: (unit: TemperatureUnit) => void;
   setDuration: (duration: FleetDuration) => void;
   setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
+  setRacksViewMode: (mode: RacksViewMode) => void;
 }
 
 // =============================================================================
@@ -37,6 +41,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   temperatureUnit: "C",
   duration: "24h",
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
+  racksViewMode: "grid",
 
   // Actions
   setTheme: (theme) =>
@@ -62,5 +67,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setBulkRenamePreferences: (preferences) =>
     set((state) => {
       state.ui.bulkRenamePreferences = preferences;
+    }),
+
+  setRacksViewMode: (mode) =>
+    set((state) => {
+      state.ui.racksViewMode = mode;
     }),
 });

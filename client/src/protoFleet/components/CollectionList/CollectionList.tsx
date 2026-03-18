@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 
-import { groupCols, groupColTitles, type GroupColumn, GROUPS_PAGE_SIZE } from "./constants";
-import { createGroupColConfig } from "./groupColConfig";
+import { createCollectionColConfig } from "./collectionColConfig";
+import { collectionColTitles, type CollectionColumn, DEFAULT_PAGE_SIZE } from "./constants";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import type { CollectionStats, DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -9,67 +9,67 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { type SortDirection } from "@/shared/components/List/types";
 
-type GroupListItem = {
+export type CollectionListItem = {
   id: string;
-  group: DeviceCollection;
+  collection: DeviceCollection;
   stats?: CollectionStats;
 };
 
-const activeCols: GroupColumn[] = [
-  groupCols.name,
-  groupCols.miners,
-  groupCols.issues,
-  groupCols.hashrate,
-  groupCols.efficiency,
-  groupCols.power,
-  groupCols.temperature,
-  groupCols.health,
+const activeCols: CollectionColumn[] = [
+  "name",
+  "miners",
+  "issues",
+  "hashrate",
+  "efficiency",
+  "power",
+  "temperature",
+  "health",
 ];
 
-type GroupsTableProps = {
-  groups: DeviceCollection[];
+type CollectionListProps = {
+  collections: DeviceCollection[];
   statsMap: Map<bigint, CollectionStats>;
-  onEditGroup: (group: DeviceCollection) => void;
-  onActionComplete?: () => void;
+  renderName: (item: CollectionListItem) => ReactNode;
+  renderMiners: (item: CollectionListItem) => ReactNode;
+  currentSort: { field: CollectionColumn; direction: SortDirection };
+  onSort: (field: CollectionColumn, direction: SortDirection) => void;
+  itemName: { singular: string; plural: string };
   loading?: boolean;
-  totalGroups?: number;
+  total?: number;
   pageSize?: number;
   currentPage?: number;
   hasPreviousPage?: boolean;
   hasNextPage?: boolean;
   onNextPage?: () => void;
   onPrevPage?: () => void;
-  currentSort: { field: GroupColumn; direction: SortDirection };
-  onSort: (field: GroupColumn, direction: SortDirection) => void;
 };
 
-const GroupsTable = ({
-  groups,
+const CollectionList = ({
+  collections,
   statsMap,
-  onEditGroup,
-  onActionComplete,
+  renderName,
+  renderMiners,
+  currentSort,
+  onSort,
+  itemName,
   loading,
-  totalGroups,
-  pageSize = GROUPS_PAGE_SIZE,
+  total,
+  pageSize = DEFAULT_PAGE_SIZE,
   currentPage = 0,
   hasPreviousPage = false,
   hasNextPage = false,
   onNextPage,
   onPrevPage,
-  currentSort,
-  onSort,
-}: GroupsTableProps) => {
+}: CollectionListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
 
-  const items: GroupListItem[] = useMemo(
-    () => groups.map((group) => ({ id: String(group.id), group, stats: statsMap.get(group.id) })),
-    [groups, statsMap],
+  const items: CollectionListItem[] = useMemo(
+    () =>
+      collections.map((collection) => ({ id: String(collection.id), collection, stats: statsMap.get(collection.id) })),
+    [collections, statsMap],
   );
 
-  const colConfig = useMemo(
-    () => createGroupColConfig({ onEditGroup, onActionComplete }),
-    [onEditGroup, onActionComplete],
-  );
+  const colConfig = useMemo(() => createCollectionColConfig({ renderName, renderMiners }), [renderName, renderMiners]);
 
   const handleNextPage = useCallback(() => {
     onNextPage?.();
@@ -82,15 +82,15 @@ const GroupsTable = ({
   }, [onPrevPage]);
 
   const firstItemIndex = currentPage * pageSize + 1;
-  const lastItemIndex = currentPage * pageSize + groups.length;
-  const shouldRenderPagination = !loading && totalGroups !== undefined && totalGroups > 0;
+  const lastItemIndex = currentPage * pageSize + collections.length;
+  const shouldRenderPagination = !loading && total !== undefined && total > 0;
 
   return (
     <>
       <div ref={topRef} />
-      <List<GroupListItem, string, GroupColumn>
+      <List<CollectionListItem, string, CollectionColumn>
         activeCols={activeCols}
-        colTitles={groupColTitles}
+        colTitles={collectionColTitles}
         colConfig={colConfig}
         items={items}
         itemKey="id"
@@ -105,7 +105,7 @@ const GroupsTable = ({
       {shouldRenderPagination && (
         <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
           <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalGroups} groups
+            Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
           </span>
           <div className="flex gap-3">
             <Button
@@ -131,5 +131,4 @@ const GroupsTable = ({
   );
 };
 
-export default GroupsTable;
-export type { GroupListItem };
+export default CollectionList;
