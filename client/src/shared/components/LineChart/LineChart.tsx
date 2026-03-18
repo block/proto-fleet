@@ -3,6 +3,7 @@ import {
   CartesianGrid,
   Line,
   LineChart as RechartsLineChart,
+  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -111,6 +112,7 @@ export interface LineChartProps {
   segmentsLabel?: string;
   aggregateKey: string;
   activeKeys?: string[];
+  tooltipKeys?: string[];
   highestValue?: string | number;
   tickCount?: number;
   minTickInterval?: number;
@@ -123,6 +125,7 @@ export interface LineChartProps {
   tooltipXOffset?: number;
   xAxisDomainOverride?: [number, number];
   connectNulls?: boolean;
+  referenceLines?: { value: number; color: string; strokeDasharray?: string }[];
 }
 
 const LineChart = ({
@@ -130,6 +133,7 @@ const LineChart = ({
   aggregateKey,
   colorMap,
   activeKeys,
+  tooltipKeys,
   highestValue,
   units,
   segmentsLabel = "Hashboards",
@@ -143,6 +147,7 @@ const LineChart = ({
   tooltipXOffset = TOOLTIP_OFFSET,
   xAxisDomainOverride,
   connectNulls = false,
+  referenceLines,
 }: LineChartProps) => {
   const [chartRef, _, chartBoundingRect] = useMeasure<HTMLDivElement>();
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -435,7 +440,7 @@ const LineChart = ({
         aggregateLabel="Summary"
         onHover={setTooltipData}
         tooltipData={tooltipData}
-        activeKeys={activeKeys}
+        activeKeys={tooltipKeys ?? activeKeys}
         units={units}
         segmentsLabel={segmentsLabel}
         colorMap={colorMap}
@@ -443,7 +448,7 @@ const LineChart = ({
         toolTipItemIcon={toolTipItemIcon}
       />
     ),
-    [aggregateKey, tooltipData, activeKeys, units, segmentsLabel, colorMap, isPhone, toolTipItemIcon],
+    [aggregateKey, tooltipData, tooltipKeys, activeKeys, units, segmentsLabel, colorMap, isPhone, toolTipItemIcon],
   );
 
   return (
@@ -505,6 +510,19 @@ const LineChart = ({
               allowDecimals={false}
               allowDataOverflow
             />
+
+            {referenceLines?.map((line, i) => (
+              <ReferenceLine
+                key={i}
+                y={line.value}
+                stroke={`var(${line.color})`}
+                strokeWidth={3}
+                strokeDasharray={line.strokeDasharray ?? "1 6"}
+                strokeOpacity={0.5}
+                strokeLinecap="round"
+                ifOverflow="extendDomain"
+              />
+            ))}
           </RechartsLineChart>
         ) : (
           <></>

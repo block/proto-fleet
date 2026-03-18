@@ -2,13 +2,15 @@ import { BulkAction } from "./types";
 import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
-import { positions } from "@/shared/constants";
+import { type Position, positions } from "@/shared/constants";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface BulkActionsPopoverProps<ActionType> {
   actions: BulkAction<ActionType>[];
   beforeEach: (requiresConfirmation: boolean) => void;
   testId: string;
+  position?: Position;
+  className?: string;
 }
 
 interface ActionItemProps<ActionType> {
@@ -36,7 +38,13 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
   );
 };
 
-const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkActionsPopoverProps<ActionType>) => {
+const BulkActionsPopover = <ActionType,>({
+  actions,
+  beforeEach,
+  testId,
+  position = positions["top left"],
+  className,
+}: BulkActionsPopoverProps<ActionType>) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const onAction = (action: BulkAction<ActionType>) => {
     beforeEach(action.requiresConfirmation);
@@ -44,8 +52,8 @@ const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkAc
   };
   return (
     <Popover
-      className="-mr-3 !space-y-0 !rounded-2xl px-0 pt-2 pb-1 phone:w-[calc(100vw-theme(spacing.4))]"
-      position={positions["top left"]}
+      className={className ?? "-mr-3 !space-y-0 !rounded-2xl px-0 pt-2 pb-1 phone:w-[calc(100vw-theme(spacing.4))]"}
+      position={position}
       size={popoverSizes.small}
       offset={20}
       yOffset={isPhone || isTablet ? -32 : 0}

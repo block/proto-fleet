@@ -9,10 +9,10 @@ import { Triangle } from "@/shared/assets/icons";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
-const FleetHealthSkeleton = () => (
+const FleetHealthSkeleton = ({ title = "Your fleet" }: { title?: string }) => (
   <ChartWidget
     stats={[
-      { label: "Your fleet", value: undefined },
+      { label: title, value: undefined },
       { label: "Healthy", value: undefined },
       { label: "Needs Attention", value: undefined },
       { label: "Offline", value: undefined },
@@ -43,6 +43,12 @@ interface FleetHealthProps {
   needsAttentionMiners?: number;
   offlineMiners?: number;
   sleepingMiners?: number;
+  /** Override the default "Your fleet" title (e.g., group name) */
+  title?: string;
+  /** Extra URL search params to append to miner list links (e.g., "group=123") */
+  extraFilterParams?: string;
+  /** Link URL for the total miners count (e.g., "/miners?group=123") */
+  totalMinersLink?: string;
 }
 
 const FleetHealth = ({
@@ -51,6 +57,9 @@ const FleetHealth = ({
   needsAttentionMiners,
   offlineMiners,
   sleepingMiners,
+  title = "Your fleet",
+  extraFilterParams,
+  totalMinersLink,
 }: FleetHealthProps) => {
   // Determine loading state - undefined means data hasn't loaded yet
   const isLoading =
@@ -109,12 +118,18 @@ const FleetHealth = ({
     ];
 
     // Add filter URL and percentage to each segment
-    return segmentConfigs.map((segment) => ({
-      ...segment,
-      filterUrl: `/miners?${encodeFilterToURL(segment.filter).toString()}`,
-      percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
-    }));
-  }, [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners, isLoading]);
+    return segmentConfigs.map((segment) => {
+      const params = encodeFilterToURL(segment.filter);
+      if (extraFilterParams) {
+        new URLSearchParams(extraFilterParams).forEach((value, key) => params.set(key, value));
+      }
+      return {
+        ...segment,
+        filterUrl: `/miners?${params.toString()}`,
+        percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
+      };
+    });
+  }, [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners, isLoading, extraFilterParams]);
 
   // Extract basic segments for CompositionBar (without extra props)
   const segments = useMemo<Segment[]>(
@@ -160,14 +175,25 @@ const FleetHealth = ({
   // Create the title stat for ChartWidget title area
   const titleStat = useMemo(
     () => ({
-      label: "Your fleet",
-      value: fleetSize !== undefined ? `${fleetSize} ${fleetSize === 1 ? "miner" : "miners"}` : undefined,
+      label: title,
+      value:
+        fleetSize !== undefined
+          ? totalMinersLink
+            ? `${fleetSize}\u200B`
+            : `${fleetSize} ${fleetSize === 1 ? "miner" : "miners"}`
+          : undefined,
+      text:
+        totalMinersLink && fleetSize !== undefined ? (
+          <Link to={totalMinersLink} className="underline">
+            View all
+          </Link>
+        ) : undefined,
     }),
-    [fleetSize],
+    [fleetSize, title, totalMinersLink],
   );
 
   if (isLoading) {
-    return <FleetHealthSkeleton />;
+    return <FleetHealthSkeleton title={title} />;
   }
 
   return (

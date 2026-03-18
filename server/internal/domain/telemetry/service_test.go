@@ -1792,3 +1792,99 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 	})
 }
+
+func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {
+	t.Run("non-empty DeviceIDs passes MinerFilter with those identifiers", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, nil, nil, mockDeviceStore, nil)
+
+		deviceIDs := []models.DeviceIdentifier{"device-a", "device-b"}
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:      deviceIDs,
+			Granularity:    5 * time.Minute,
+			UpdateInterval: 5 * time.Minute,
+			OrganizationID: 42,
+		}
+
+		// GetCombinedMetrics returns empty metrics
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(models.CombinedMetric{Metrics: []models.Metric{}}, nil)
+
+		// Expect GetMinerStateCounts called with a MinerFilter containing exactly those device IDs
+		expectedFilter := &stores.MinerFilter{
+			DeviceIdentifiers: []string{"device-a", "device-b"},
+		}
+		mockDeviceStore.EXPECT().
+			GetMinerStateCounts(gomock.Any(), int64(42), expectedFilter).
+			Return(&telemetryv1.MinerStateCounts{
+				HashingCount: 1,
+				BrokenCount:  1,
+			}, nil)
+
+		updateChan := make(chan models.CombinedMetric, 1)
+		err := service.sendCombinedMetricUpdate(t.Context(), updateChan, query, 5*time.Minute)
+		require.NoError(t, err)
+
+		result := <-updateChan
+		require.NotNil(t, result.MinerStateCounts)
+		assert.Equal(t, int32(1), result.MinerStateCounts.Hashing)
+		assert.Equal(t, int32(1), result.MinerStateCounts.Broken)
+	})
+
+	t.Run("empty DeviceIDs passes nil MinerFilter", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, nil, nil, mockDeviceStore, nil)
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:      nil,
+			Granularity:    5 * time.Minute,
+			UpdateInterval: 5 * time.Minute,
+			OrganizationID: 42,
+		}
+
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(models.CombinedMetric{Metrics: []models.Metric{}}, nil)
+
+		// Expect nil filter when no device IDs provided
+		mockDeviceStore.EXPECT().
+			GetMinerStateCounts(gomock.Any(), int64(42), nil).
+			Return(&telemetryv1.MinerStateCounts{
+				HashingCount:  5,
+				BrokenCount:   2,
+				OfflineCount:  1,
+				SleepingCount: 3,
+			}, nil)
+
+		updateChan := make(chan models.CombinedMetric, 1)
+		err := service.sendCombinedMetricUpdate(t.Context(), updateChan, query, 5*time.Minute)
+		require.NoError(t, err)
+
+		result := <-updateChan
+		require.NotNil(t, result.MinerStateCounts)
+		assert.Equal(t, int32(5), result.MinerStateCounts.Hashing)
+		assert.Equal(t, int32(2), result.MinerStateCounts.Broken)
+		assert.Equal(t, int32(1), result.MinerStateCounts.Offline)
+		assert.Equal(t, int32(3), result.MinerStateCounts.Sleeping)
+	})
+}

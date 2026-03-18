@@ -25,6 +25,7 @@ type MinerFilter struct {
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
+	DeviceIdentifiers   []string                          // Filter by specific device identifiers (e.g., for group-scoped queries)
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

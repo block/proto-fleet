@@ -15,7 +15,7 @@ type Props = {
 const AppLayout = ({ children }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
-  const isDashboard = location.pathname === "/";
+  const isDashboard = location.pathname === "/" || location.pathname.startsWith("/groups/");
   const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 

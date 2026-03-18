@@ -28,12 +28,28 @@ interface UseComponentErrorsReturn extends ComponentErrorCounts {
   refetch: () => Promise<void>;
 }
 
+interface UseComponentErrorsOptions {
+  /** Optional device identifiers to scope errors to specific devices (e.g., a group's members) */
+  deviceIdentifiers?: string[];
+}
+
 /**
  * Hook to fetch and stream component error counts for the dashboard.
  * Performs an initial query and then subscribes to real-time updates.
  * Uses the dashboard slice for component error count tracking.
+ *
+ * @param options.deviceIdentifiers - When provided, only errors for these devices are fetched/streamed.
  */
-export const useComponentErrors = (): UseComponentErrorsReturn => {
+export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComponentErrorsReturn => {
+  const deviceIdentifiers = options?.deviceIdentifiers;
+  // When an explicit empty array is provided, there are no devices to query — treat as empty scope
+  const isEmptyScope = deviceIdentifiers !== undefined && deviceIdentifiers.length === 0;
+  // Stable key to detect when deviceIdentifiers change (avoids array reference issues).
+  // Use a sentinel to distinguish undefined (still loading) from [] (resolved empty group).
+  const deviceIdentifiersKey = deviceIdentifiers === undefined ? "__undefined__" : deviceIdentifiers.join(",");
+  // Ref so startStreaming always reads the latest value without needing it as a dependency
+  const deviceIdentifiersRef = useRef(deviceIdentifiers);
+  deviceIdentifiersRef.current = deviceIdentifiers;
   // Get auth loading state
   const authLoading = useFleetStore((state) => state.auth.authLoading);
 
@@ -59,8 +75,8 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
   // Abort controller for streaming
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Track if streaming has started
-  const streamingStartedRef = useRef(false);
+  // Request versioning to guard against stale fetch responses
+  const fetchVersionRef = useRef(0);
 
   // Auth error handler
   const { handleAuthErrors } = useAuthErrors();
@@ -147,6 +163,7 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
 
   // Initial fetch function
   const fetchComponentErrors = useCallback(async () => {
+    const version = ++fetchVersionRef.current;
     setIsLoading(true);
     setError(null);
 
@@ -154,7 +171,9 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
       const request = create(QueryRequestSchema, {
         resultView: ResultView.COMPONENT,
         filter: {
-          simple: {},
+          simple: {
+            ...(deviceIdentifiers && deviceIdentifiers.length > 0 && { deviceIdentifiers }),
+          },
           includeClosed: false,
         },
         pageSize: 1000, // Should be enough for all component groups
@@ -162,11 +181,15 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
 
       const response = await errorQueryClient.query(request);
 
+      // Discard stale response if scope changed while fetching
+      if (version !== fetchVersionRef.current) return;
+
       // Process the response based on result type
       if (response.result?.case === "components" && response.result.value) {
         processComponentErrors(response.result.value.items);
       }
     } catch (err) {
+      if (version !== fetchVersionRef.current) return;
       handleAuthErrors({
         error: err,
         onError: (error) => {
@@ -175,9 +198,11 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
         },
       });
     } finally {
-      setIsLoading(false);
+      if (version === fetchVersionRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [handleAuthErrors, processComponentErrors]);
+  }, [handleAuthErrors, processComponentErrors, deviceIdentifiers]);
 
   // Start streaming function - no dependencies to avoid infinite loops
   const startStreaming = useCallback(async () => {
@@ -195,9 +220,13 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
     setIsStreaming(true);
 
     try {
+      const currentDeviceIdentifiers = deviceIdentifiersRef.current;
       const request = create(WatchRequestSchema, {
         filter: {
-          simple: {},
+          simple: {
+            ...(currentDeviceIdentifiers &&
+              currentDeviceIdentifiers.length > 0 && { deviceIdentifiers: currentDeviceIdentifiers }),
+          },
           includeClosed: false,
         },
       });
@@ -248,36 +277,36 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
     setIsStreaming(false);
   }, []);
 
-  // Initial fetch on mount, but wait for auth to be ready
+  // Initial fetch on mount and when deviceIdentifiers change, but wait for auth to be ready
   useEffect(() => {
     // Don't fetch if auth is still loading
     if (authLoading) {
       return;
     }
 
-    // Clear component errors and fetch fresh data when dashboard mounts
+    // Clear component errors and fetch fresh data when dashboard mounts or device scope changes
     clearComponentErrors();
-    fetchComponentErrors();
-    // Only run once on mount after auth is ready
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading]);
 
-  // Start streaming after initial fetch completes
+    // Skip fetch when scope is explicitly empty (e.g., a group with zero members)
+    if (!isEmptyScope) {
+      fetchComponentErrors();
+    } else {
+      // Bump fetch version to invalidate any in-flight requests from the previous scope
+      ++fetchVersionRef.current;
+      setIsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, deviceIdentifiersKey]);
+
+  // Start streaming after initial fetch completes, restart when device scope changes
   useEffect(() => {
     // Track if component is mounted to prevent state updates after unmount
     let isMounted = true;
 
-    // Don't start streaming if auth is still loading or data is still loading
-    if (authLoading || isLoading) {
+    // Don't start streaming if auth is still loading, data is still loading, or scope is empty
+    if (authLoading || isLoading || isEmptyScope) {
       return;
     }
-
-    // Only start streaming once
-    if (streamingStartedRef.current) {
-      return;
-    }
-
-    streamingStartedRef.current = true;
 
     // Start stream asynchronously to avoid blocking render
     (async () => {
@@ -289,11 +318,9 @@ export const useComponentErrors = (): UseComponentErrorsReturn => {
     return () => {
       isMounted = false;
       stopStreaming();
-      streamingStartedRef.current = false;
     };
-    // Only depend on authLoading and isLoading to avoid loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isLoading]);
+  }, [authLoading, isLoading, deviceIdentifiersKey]);
 
   return {
     ...errorCounts,

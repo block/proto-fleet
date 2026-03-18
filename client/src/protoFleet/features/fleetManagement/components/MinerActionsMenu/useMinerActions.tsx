@@ -63,11 +63,11 @@ import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
+  Groups,
   LEDIndicator,
   Lock,
   MiningPools,
   Play,
-  Plus,
   Power,
   Reboot,
   Speedometer,
@@ -1246,7 +1246,7 @@ export const useMinerActions = ({
       {
         action: groupActions.addToGroup,
         title: "Add to group",
-        icon: <Plus />,
+        icon: <Groups />,
         actionHandler: handleAddToGroup,
         requiresConfirmation: false,
         showGroupDivider: true,

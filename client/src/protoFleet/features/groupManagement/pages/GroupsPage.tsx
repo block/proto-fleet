@@ -206,6 +206,7 @@ const GroupsPage = () => {
               groups={groups}
               statsMap={statsMap}
               onEditGroup={setEditGroup}
+              onActionComplete={fetchGroups}
               loading={isLoading}
               totalGroups={totalGroups}
               pageSize={GROUPS_PAGE_SIZE}

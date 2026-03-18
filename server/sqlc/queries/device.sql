@@ -229,7 +229,8 @@ WHERE d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
-  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')));
+  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+  AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(string_to_array(sqlc.narg('device_identifiers_filter'), ',')));
 
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (

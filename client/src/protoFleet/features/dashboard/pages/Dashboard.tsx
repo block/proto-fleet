@@ -183,18 +183,18 @@ const Dashboard = () => {
           <section className="p-10 phone:p-6 tablet:p-6">
             <SectionHeading heading="Overview" />
             <div className="mt-6 flex flex-col gap-1">
-              <FleetErrors
-                controlBoardErrors={controlBoardErrors}
-                fanErrors={fanErrors}
-                hashboardErrors={hashboardErrors}
-                psuErrors={psuErrors}
-              />
               <FleetHealth
                 fleetSize={streamingStateCounts || hasInitialLoadCompleted ? totalMiners : undefined}
                 healthyMiners={stateCounts?.hashingCount}
                 needsAttentionMiners={stateCounts?.brokenCount}
                 offlineMiners={stateCounts?.offlineCount}
                 sleepingMiners={stateCounts?.sleepingCount}
+              />
+              <FleetErrors
+                controlBoardErrors={controlBoardErrors}
+                fanErrors={fanErrors}
+                hashboardErrors={hashboardErrors}
+                psuErrors={psuErrors}
               />
             </div>
           </section>

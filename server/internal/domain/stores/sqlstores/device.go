@@ -290,7 +290,7 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 }
 
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
-	statusFilter, modelFilter := buildFilterParams(filter)
+	statusFilter, modelFilter, _ := buildFilterParams(filter)
 
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
 		OrgID:        orgID,
@@ -321,12 +321,13 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // The SQL query handles bucket assignment with status-first priority:
 // Offline > Sleeping > Needs Attention > Hashing
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
-	statusFilter, modelFilter := buildFilterParams(filter)
+	statusFilter, modelFilter, deviceIdentifiersFilter := buildFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
-		OrgID:        orgID,
-		StatusFilter: statusFilter,
-		ModelFilter:  modelFilter,
+		OrgID:                   orgID,
+		StatusFilter:            statusFilter,
+		ModelFilter:             modelFilter,
+		DeviceIdentifiersFilter: deviceIdentifiersFilter,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
@@ -355,7 +356,7 @@ func (s *SQLDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
-	statusFilter, modelFilter := buildFilterParams(filter)
+	statusFilter, modelFilter, _ := buildFilterParams(filter)
 
 	rows, err := s.getQueries(ctx).GetMinerModelGroups(ctx, sqlc.GetMinerModelGroupsParams{
 		OrgID:        orgID,
@@ -377,7 +378,7 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	return results, nil
 }
 
-func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter sql.NullString) {
+func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter, deviceIdentifiersFilter sql.NullString) {
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
 		for _, status := range filter.DeviceStatusFilter {
@@ -390,7 +391,11 @@ func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter sq
 		modelFilter = sql.NullString{String: strings.Join(filter.ModelNames, ","), Valid: true}
 	}
 
-	return statusFilter, modelFilter
+	if filter != nil && len(filter.DeviceIdentifiers) > 0 {
+		deviceIdentifiersFilter = sql.NullString{String: strings.Join(filter.DeviceIdentifiers, ","), Valid: true}
+	}
+
+	return statusFilter, modelFilter, deviceIdentifiersFilter
 }
 
 func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {

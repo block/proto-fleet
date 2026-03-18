@@ -88,12 +88,14 @@ WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
   AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
+  AND ($4::text IS NULL OR d.device_identifier = ANY(string_to_array($4, ',')))
 `
 
 type CountMinersByStateParams struct {
-	OrgID        int64
-	StatusFilter sql.NullString
-	ModelFilter  sql.NullString
+	OrgID                   int64
+	StatusFilter            sql.NullString
+	ModelFilter             sql.NullString
+	DeviceIdentifiersFilter sql.NullString
 }
 
 type CountMinersByStateRow struct {
@@ -129,7 +131,12 @@ type CountMinersByStateRow struct {
 // - Offline/sleeping status takes precedence over errors
 // Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
 func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
-	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState, arg.OrgID, arg.StatusFilter, arg.ModelFilter)
+	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
+		arg.OrgID,
+		arg.StatusFilter,
+		arg.ModelFilter,
+		arg.DeviceIdentifiersFilter,
+	)
 	var i CountMinersByStateRow
 	err := row.Scan(
 		&i.OfflineCount,

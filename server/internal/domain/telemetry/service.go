@@ -894,8 +894,18 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	// Fetch miner state counts (OrganizationID is always set by the handler from authenticated session)
-	counts, err := s.deviceStore.GetMinerStateCounts(ctx, query.OrganizationID, nil)
+	// Fetch miner state counts scoped to the requested devices (or all if no filter)
+	var minerFilter *stores.MinerFilter
+	if len(query.DeviceIDs) > 0 {
+		deviceIdentifiers := make([]string, len(query.DeviceIDs))
+		for i, id := range query.DeviceIDs {
+			deviceIdentifiers[i] = string(id)
+		}
+		minerFilter = &stores.MinerFilter{
+			DeviceIdentifiers: deviceIdentifiers,
+		}
+	}
+	counts, err := s.deviceStore.GetMinerStateCounts(ctx, query.OrganizationID, minerFilter)
 	if err != nil {
 		return fmt.Errorf("failed to get miner state counts: %w", err)
 	}

@@ -18,6 +18,7 @@ const HEALTH_COLOR_MAP = {
 
 type CreateGroupColConfigParams = {
   onEditGroup: (group: DeviceCollection) => void;
+  onActionComplete?: () => void;
 };
 
 const formatTempRange = (min: number, max: number): string => {
@@ -26,9 +27,12 @@ const formatTempRange = (min: number, max: number): string => {
 
 const createGroupColConfig = ({
   onEditGroup,
+  onActionComplete,
 }: CreateGroupColConfigParams): ColConfig<GroupListItem, string, GroupColumn> => ({
   [groupCols.name]: {
-    component: (item: GroupListItem) => <GroupNameCell group={item.group} onEdit={onEditGroup} />,
+    component: (item: GroupListItem) => (
+      <GroupNameCell group={item.group} onEdit={onEditGroup} onActionComplete={onActionComplete} />
+    ),
     width: "min-w-44",
   },
   [groupCols.miners]: {

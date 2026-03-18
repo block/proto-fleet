@@ -12,15 +12,18 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface EfficiencyPanelProps {
   duration: FleetDuration;
+  /** Override total miner count for "X of Y miners reporting" subtitle (e.g., group size) */
+  totalMiners?: number;
 }
 
-export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
+export function EfficiencyPanel({ duration, totalMiners: totalMinersProp }: EfficiencyPanelProps) {
   // Read efficiency metrics from store - only subscribes to EFFICIENCY updates
   // undefined = not loaded yet, array = loaded (empty or populated)
   const metrics = usePanelMetrics(MeasurementType.EFFICIENCY);
 
-  // Get total fleet size for "X of Y miners reporting"
-  const { totalMiners } = useFleetCounts();
+  // Get total fleet size for "X of Y miners reporting" — use prop override when provided
+  const { totalMiners: fleetTotalMiners } = useFleetCounts();
+  const totalMiners = totalMinersProp ?? fleetTotalMiners;
 
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {

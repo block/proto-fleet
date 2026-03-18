@@ -36,9 +36,7 @@ const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) =>
 
   const getGroupLink = (label: string) => {
     const groupId = availableGroups.find((g) => g.label === label)?.id;
-    // TODO: link to group overview page once implemented
-    // return groupId ? `/groups/${groupId}` : undefined;
-    return groupId ? "#" : undefined;
+    return groupId ? `/groups/${encodeURIComponent(label)}` : undefined;
   };
 
   if (groupLabels.length === 1) {

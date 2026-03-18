@@ -30,6 +30,7 @@ type GroupsTableProps = {
   groups: DeviceCollection[];
   statsMap: Map<bigint, CollectionStats>;
   onEditGroup: (group: DeviceCollection) => void;
+  onActionComplete?: () => void;
   loading?: boolean;
   totalGroups?: number;
   pageSize?: number;
@@ -46,6 +47,7 @@ const GroupsTable = ({
   groups,
   statsMap,
   onEditGroup,
+  onActionComplete,
   loading,
   totalGroups,
   pageSize = GROUPS_PAGE_SIZE,
@@ -64,7 +66,10 @@ const GroupsTable = ({
     [groups, statsMap],
   );
 
-  const colConfig = useMemo(() => createGroupColConfig({ onEditGroup }), [onEditGroup]);
+  const colConfig = useMemo(
+    () => createGroupColConfig({ onEditGroup, onActionComplete }),
+    [onEditGroup, onActionComplete],
+  );
 
   const handleNextPage = useCallback(() => {
     onNextPage?.();

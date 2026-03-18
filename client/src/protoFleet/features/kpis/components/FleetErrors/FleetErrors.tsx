@@ -10,9 +10,18 @@ type FleetErrorsProps = {
   hashboardErrors?: number;
   psuErrors?: number;
   className?: string;
+  extraFilterParams?: string;
 };
 
-const FleetErrors = ({ controlBoardErrors, fanErrors, hashboardErrors, psuErrors, className }: FleetErrorsProps) => {
+const FleetErrors = ({
+  controlBoardErrors,
+  fanErrors,
+  hashboardErrors,
+  psuErrors,
+  className,
+  extraFilterParams,
+}: FleetErrorsProps) => {
+  const suffix = extraFilterParams ? `&${extraFilterParams}` : "";
   return (
     <div className={className}>
       <div className="grid grid-cols-4 gap-1 phone:grid-cols-1 tablet:grid-cols-2">
@@ -20,20 +29,20 @@ const FleetErrors = ({ controlBoardErrors, fanErrors, hashboardErrors, psuErrors
           icon={<ControlBoard />}
           heading="Control Boards"
           errorCount={controlBoardErrors}
-          href="/miners?issues=control-board"
+          href={`/miners?issues=control-board${suffix}`}
         />
-        <ComponentErrors icon={<Fan />} heading="Fans" errorCount={fanErrors} href="/miners?issues=fans" />
+        <ComponentErrors icon={<Fan />} heading="Fans" errorCount={fanErrors} href={`/miners?issues=fans${suffix}`} />
         <ComponentErrors
           icon={<Hashboard />}
           heading="Hashboards"
           errorCount={hashboardErrors}
-          href="/miners?issues=hash-boards"
+          href={`/miners?issues=hash-boards${suffix}`}
         />
         <ComponentErrors
           icon={<LightningAlt />}
           heading="Power supplies"
           errorCount={psuErrors}
-          href="/miners?issues=psu"
+          href={`/miners?issues=psu${suffix}`}
         />
       </div>
     </div>

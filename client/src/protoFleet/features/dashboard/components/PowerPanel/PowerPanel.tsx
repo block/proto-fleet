@@ -12,15 +12,18 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface PowerPanelProps {
   duration: FleetDuration;
+  /** Override total miner count for "X of Y miners reporting" subtitle (e.g., group size) */
+  totalMiners?: number;
 }
 
-export function PowerPanel({ duration }: PowerPanelProps) {
+export function PowerPanel({ duration, totalMiners: totalMinersProp }: PowerPanelProps) {
   // Read power metrics from store - only subscribes to POWER updates
   // undefined = not loaded yet, array = loaded (empty or populated)
   const metrics = usePanelMetrics(MeasurementType.POWER);
 
-  // Get total fleet size for "X of Y miners reporting"
-  const { totalMiners } = useFleetCounts();
+  // Get total fleet size for "X of Y miners reporting" — use prop override when provided
+  const { totalMiners: fleetTotalMiners } = useFleetCounts();
+  const totalMiners = totalMinersProp ?? fleetTotalMiners;
 
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
