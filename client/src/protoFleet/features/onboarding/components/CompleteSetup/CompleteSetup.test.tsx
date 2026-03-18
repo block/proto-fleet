@@ -95,6 +95,7 @@ beforeEach(async () => {
     updateMinerPassword: vi.fn(),
     checkCommandCapabilities: vi.fn(),
     downloadLogs: vi.fn(),
+    firmwareUpdate: vi.fn(),
     getCommandBatchLogBundle: vi.fn(),
   });
 

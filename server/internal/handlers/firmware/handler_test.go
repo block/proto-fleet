@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -97,6 +98,15 @@ func (e *testEnv) checkHandler() *checkHandler {
 		filesService:   e.fileSvc,
 		sessionService: e.sessionSvc,
 		userStore:      e.userStoreMock,
+	}
+}
+
+func (e *testEnv) configHandler() *configHandler {
+	return &configHandler{
+		filesService:   e.fileSvc,
+		sessionService: e.sessionSvc,
+		userStore:      e.userStoreMock,
+		cfg:            files.Config{ChunkSizeBytes: 5 * 1024 * 1024},
 	}
 }
 
@@ -392,4 +402,59 @@ func TestCheckHandler_RejectsTrailingGarbage(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid JSON body")
+}
+
+// --- Config handler tests ---
+
+func TestConfigHandler_RejectsNoCookie(t *testing.T) {
+	env := newTestEnv(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/config", nil)
+	rr := httptest.NewRecorder()
+
+	env.configHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestConfigHandler_ReturnsConfigOnSuccess(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/config", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.configHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
+
+	var resp configResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{".swu", ".tar.gz", ".zip"}, resp.AllowedExtensions)
+	assert.Equal(t, int64(500*1024*1024), resp.MaxFileSizeBytes)
+	assert.Equal(t, int64(5*1024*1024), resp.ChunkSizeBytes)
+}
+
+func TestConfigHandler_DefaultsChunkSizeWhenZero(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	h := env.configHandler()
+	h.cfg.ChunkSizeBytes = 0
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/config", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp configResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(5*1024*1024), resp.ChunkSizeBytes)
 }

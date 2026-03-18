@@ -16,6 +16,8 @@ import {
   DeviceSelector,
   DownloadLogsRequest,
   DownloadLogsResponse,
+  FirmwareUpdateRequest,
+  FirmwareUpdateResponse,
   GetCommandBatchLogBundleRequest,
   GetCommandBatchLogBundleResponse,
   PerformanceMode,
@@ -130,6 +132,12 @@ interface UpdateMinerPasswordProps {
 interface DownloadLogsProps {
   downloadLogsRequest: DownloadLogsRequest;
   onSuccess: (value: DownloadLogsResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface FirmwareUpdateProps {
+  firmwareUpdateRequest: FirmwareUpdateRequest;
+  onSuccess: (value: FirmwareUpdateResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -416,6 +424,23 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const firmwareUpdate = useCallback(
+    async ({ firmwareUpdateRequest, onSuccess, onError }: FirmwareUpdateProps) => {
+      await minerCommandClient
+        .firmwareUpdate(firmwareUpdateRequest)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   const getCommandBatchLogBundle = useCallback(
     async ({ request, onSuccess, onError }: GetCommandBatchLogBundleProps) => {
       await minerCommandClient
@@ -447,6 +472,7 @@ const useMinerCommand = () => {
       checkCommandCapabilities,
       updateMinerPassword,
       downloadLogs,
+      firmwareUpdate,
       getCommandBatchLogBundle,
     }),
     [
@@ -462,6 +488,7 @@ const useMinerCommand = () => {
       checkCommandCapabilities,
       updateMinerPassword,
       downloadLogs,
+      firmwareUpdate,
       getCommandBatchLogBundle,
     ],
   );

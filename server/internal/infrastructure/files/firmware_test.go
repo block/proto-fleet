@@ -18,6 +18,19 @@ func checksumOf(content string) string {
 	return hex.EncodeToString(h[:])
 }
 
+func firmwareFileEntries(t *testing.T) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(firmwareDir)
+	require.NoError(t, err)
+	var filtered []os.DirEntry
+	for _, e := range entries {
+		if e.Name() != "staging" {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
 func TestValidateFirmwareFile_AcceptsAllowedExtensions(t *testing.T) {
 	svc := setupService(t)
 
@@ -122,8 +135,7 @@ func TestSaveFirmwareFile_RejectsOversizedStream(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too large")
 
-	entries, _ := os.ReadDir(firmwareDir)
-	assert.Empty(t, entries, "oversized upload should not leave files behind")
+	assert.Empty(t, firmwareFileEntries(t), "oversized upload should not leave files behind")
 }
 
 func TestSaveFirmwareFile_IdenticalContentGetsDifferentIDs(t *testing.T) {
@@ -161,9 +173,7 @@ func TestSaveFirmwareFile_EachSaveCreatesOwnDirectory(t *testing.T) {
 	_, err = svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
 	require.NoError(t, err)
 
-	entries, err := os.ReadDir(firmwareDir)
-	require.NoError(t, err)
-	assert.Len(t, entries, 2, "each save should create its own directory on disk")
+	assert.Len(t, firmwareFileEntries(t), 2, "each save should create its own directory on disk")
 }
 
 func TestGetFirmwareFilePath_ReturnsErrorForMissing(t *testing.T) {
@@ -382,8 +392,7 @@ func TestSaveFirmwareFile_RejectsEmptyStream(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
 
-	entries, _ := os.ReadDir(firmwareDir)
-	assert.Empty(t, entries, "empty upload should not leave files behind")
+	assert.Empty(t, firmwareFileEntries(t), "empty upload should not leave files behind")
 }
 
 func TestSaveFirmwareFile_IndependentDeletion(t *testing.T) {
@@ -467,4 +476,42 @@ func TestAllowedExtensionsList_IsDeterministic(t *testing.T) {
 	for range 10 {
 		assert.Equal(t, first, allowedExtensionsList())
 	}
+}
+
+func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware via chunked upload"
+	srcPath := filepath.Join(firmwareStagingDir, "test-upload")
+	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0600))
+
+	fileID, err := svc.SaveFirmwareFileFromPath("chunked.swu", srcPath)
+	require.NoError(t, err)
+	assert.NotEmpty(t, fileID)
+
+	filePath, err := svc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(data))
+	assert.Equal(t, "chunked.swu", filepath.Base(filePath))
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	assert.True(t, ok, "checksum index should contain the file after SaveFirmwareFileFromPath")
+	assert.Equal(t, fileID, foundID)
+
+	_, statErr := os.Stat(srcPath)
+	assert.True(t, os.IsNotExist(statErr), "source file should be removed after rename")
+}
+
+func TestSaveFirmwareFileFromPath_RejectsEmptyFile(t *testing.T) {
+	svc := setupService(t)
+
+	srcPath := filepath.Join(firmwareStagingDir, "empty-upload")
+	require.NoError(t, os.WriteFile(srcPath, []byte{}, 0600))
+
+	_, err := svc.SaveFirmwareFileFromPath("empty.swu", srcPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty")
 }

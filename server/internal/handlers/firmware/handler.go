@@ -37,6 +37,56 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+type configResponse struct {
+	AllowedExtensions []string `json:"allowed_extensions"`
+	MaxFileSizeBytes  int64    `json:"max_file_size_bytes"`
+	ChunkSizeBytes    int64    `json:"chunk_size_bytes"`
+}
+
+// NewConfigHandler returns an http.Handler that serves firmware upload configuration.
+// Clients use this to get allowed extensions, max file size, and chunked upload settings,
+// keeping validation rules in sync with the server.
+func NewConfigHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore, cfg files.Config) http.Handler {
+	return &configHandler{
+		filesService:   filesService,
+		sessionService: sessionService,
+		userStore:      userStore,
+		cfg:            cfg,
+	}
+}
+
+type configHandler struct {
+	filesService   *files.Service
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+	cfg            files.Config
+}
+
+func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+		slog.Warn("firmware config authentication failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	chunkSize := h.cfg.ChunkSizeBytes
+	if chunkSize <= 0 {
+		chunkSize = 5 * 1024 * 1024
+	}
+
+	resp := configResponse{
+		AllowedExtensions: files.AllowedFirmwareExtensions(),
+		MaxFileSizeBytes:  h.filesService.MaxFirmwareFileSize(),
+		ChunkSizeBytes:    chunkSize,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode config response", "error", err)
+	}
+}
+
 // NewUploadHandler returns an http.Handler that accepts multipart firmware file uploads.
 // The handler validates the file, streams it to disk, and returns a firmware_file_id.
 // The request body is capped at maxUploadBytes to reject oversized uploads early.

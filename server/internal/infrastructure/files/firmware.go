@@ -17,6 +17,7 @@ import (
 )
 
 const firmwareDir = "firmware"
+const firmwareStagingDir = "firmware/staging"
 
 const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
 
@@ -24,6 +25,13 @@ const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
 // .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer format.
 // Checked case-insensitively via hasAllowedFirmwareExtension.
 var allowedFirmwareExtensions = []string{".swu", ".tar.gz", ".zip"}
+
+// AllowedFirmwareExtensions returns a copy of the allowed firmware file extensions.
+func AllowedFirmwareExtensions() []string {
+	out := make([]string, len(allowedFirmwareExtensions))
+	copy(out, allowedFirmwareExtensions)
+	return out
+}
 
 func getFirmwareDirPath(fileID string) string {
 	return filepath.Join(firmwareDir, fileID)
@@ -49,7 +57,37 @@ func initFirmwareDir() error {
 	if err := os.MkdirAll(firmwareDir, 0750); err != nil {
 		return fleeterror.NewInternalErrorf("failed to create firmware dir: %v", err)
 	}
+	if err := os.MkdirAll(firmwareStagingDir, 0750); err != nil {
+		return fleeterror.NewInternalErrorf("failed to create firmware staging dir: %v", err)
+	}
+	cleanStagingDir()
 	return nil
+}
+
+// cleanStagingDir removes leftover temp files from previous runs. Since upload
+// sessions are in-memory only, any files in the staging directory at startup
+// are orphans from interrupted uploads.
+func cleanStagingDir() {
+	entries, err := os.ReadDir(firmwareStagingDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(firmwareStagingDir, entry.Name())
+		if err := os.Remove(path); err != nil {
+			slog.Warn("failed to remove orphaned staging file", "path", path, "error", err)
+		} else {
+			slog.Info("removed orphaned staging file", "path", path)
+		}
+	}
+}
+
+// StagingDir returns the path to the firmware staging directory for chunked uploads.
+func StagingDir() string {
+	return firmwareStagingDir
 }
 
 // ValidateFirmwareFilename checks that the filename is non-empty and has an
@@ -155,6 +193,50 @@ func (s *Service) SaveFirmwareFile(filename string, reader io.Reader) (string, e
 	s.mu.Unlock()
 
 	slog.Info("firmware file saved", "file_id", fileID, "filename", sanitized, "checksum", checksum)
+	return fileID, nil
+}
+
+// SaveFirmwareFileFromPath moves an existing file (e.g. from the staging directory)
+// into the standard firmware directory, computes its SHA-256 checksum, and registers
+// it in the checksum index. Uses os.Rename for efficiency — both paths must be on
+// the same filesystem. Used by the chunked upload complete handler.
+func (s *Service) SaveFirmwareFileFromPath(filename string, srcPath string) (string, error) {
+	fileID := id.GenerateID()
+	dir := getFirmwareDirPath(fileID)
+
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to create firmware file dir: %v", err)
+	}
+
+	sanitized := sanitizeFirmwareFilename(filename)
+	destPath := filepath.Join(dir, sanitized)
+
+	if err := os.Rename(srcPath, destPath); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fleeterror.NewInternalErrorf("failed to move firmware file: %v", err)
+	}
+
+	checksum, err := computeFileChecksum(destPath)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fleeterror.NewInternalErrorf("failed to compute checksum after move: %v", err)
+	}
+
+	info, err := os.Stat(destPath)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
+	}
+	if info.Size() == 0 {
+		_ = os.RemoveAll(dir)
+		return "", fleeterror.NewInvalidArgumentError("firmware file is empty")
+	}
+
+	s.mu.Lock()
+	s.checksumIndex[checksum] = append(s.checksumIndex[checksum], fileID)
+	s.mu.Unlock()
+
+	slog.Info("firmware file saved from path", "file_id", fileID, "filename", sanitized, "checksum", checksum)
 	return fileID, nil
 }
 
