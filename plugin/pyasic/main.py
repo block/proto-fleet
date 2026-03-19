@@ -14,6 +14,7 @@ from proto_fleet_sdk.server import PluginServer
 
 from pyasic_driver.config import load_config
 from pyasic_driver.driver import PyAsicDriver
+from pyasic_driver.web_port import configure as configure_web_port
 
 
 def _get_base_dir() -> Path:
@@ -38,6 +39,7 @@ def _find_config() -> Path:
 
 def main() -> None:
     try:
+        configure_web_port()
         try:
             import pyasic_driver.patches as pyasic_patches
             pyasic_patches.apply()

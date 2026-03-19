@@ -24,6 +24,10 @@ func StartPyasic(t testing.TB) sdk.Driver {
 }
 
 func StartPyasicWithConfig(t testing.TB, yamlConfig string) sdk.Driver {
+	return StartPyasicWithConfigAndEnv(t, yamlConfig, nil)
+}
+
+func StartPyasicWithConfigAndEnv(t testing.TB, yamlConfig string, env map[string]string) sdk.Driver {
 	t.Helper()
 
 	if _, err := findPluginBinary("pyasic-plugin"); err != nil {
@@ -46,5 +50,5 @@ func StartPyasicWithConfig(t testing.TB, yamlConfig string) sdk.Driver {
 		}
 	})
 
-	return StartPlugin(t, "pyasic-plugin", configPath, nil)
+	return StartPlugin(t, "pyasic-plugin", configPath, env)
 }
