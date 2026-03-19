@@ -6,7 +6,11 @@ import { immer } from "zustand/middleware/immer";
 import { deviceActions, performanceActions, settingsActions } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
-import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MinerListFilterSchema,
+  MinerStateSnapshotSchema,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
@@ -62,6 +66,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     checkCommandCapabilities: mockCheckCommandCapabilities,
     updateMinerPassword: mockUpdateMinerPassword,
     downloadLogs: mockDownloadLogs,
+    firmwareUpdate: vi.fn(),
     getCommandBatchLogBundle: mockGetCommandBatchLogBundle,
   }),
 }));
@@ -198,6 +203,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.reboot);
       expect(actions).toContain(deviceActions.shutdown);
       expect(actions).toContain(deviceActions.delete);
+      expect(actions).toContain(deviceActions.firmwareUpdate);
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
       expect(actions).toContain(settingsActions.coolingMode);
@@ -3014,6 +3020,73 @@ describe("useMinerActions", () => {
       expect(result.current.showRenameDialog).toBe(false);
       expect(result.current.currentAction).toBeNull();
       expect(onActionComplete).toHaveBeenCalled();
+    });
+  });
+
+  describe("Firmware update mixed model guard", () => {
+    it("should show error toast and not open modal when selected miners have mixed models", async () => {
+      store
+        .getState()
+        .fleet.setMiners([
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" }),
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "Proto Rig" }),
+        ]);
+
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      expect(fwAction).toBeDefined();
+
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("same model"),
+          status: "error",
+        }),
+      );
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("should open modal when all selected miners have the same model", async () => {
+      store
+        .getState()
+        .fleet.setMiners([
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" }),
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" }),
+        ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(true);
     });
   });
 });

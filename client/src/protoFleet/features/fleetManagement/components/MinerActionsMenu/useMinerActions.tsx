@@ -29,6 +29,8 @@ import {
   CommandType,
   DeviceSelector,
   DownloadLogsRequestSchema,
+  FirmwareUpdateRequestSchema,
+  FirmwareUpdateResponse,
   GetCommandBatchLogBundleRequestSchema,
   PerformanceMode,
   RebootRequestSchema,
@@ -63,6 +65,7 @@ import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
+  FirmwareUpdate,
   Groups,
   LEDIndicator,
   Lock,
@@ -110,7 +113,21 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
   [settingsActions.security]: { description: "Password updates", commandType: CommandType.UPDATE_MINER_PASSWORD },
   [performanceActions.managePower]: { description: "Power mode changes", commandType: CommandType.SET_POWER_TARGET },
+  [deviceActions.firmwareUpdate]: { description: "Firmware updates", commandType: CommandType.FIRMWARE_UPDATE },
 };
+
+function getUniqueModels(deviceIds: string[]): { models: Set<string>; hasMissing: boolean } {
+  const miners = useFleetStore.getState().fleet.miners;
+  const models = new Set<string>();
+  let hasMissing = false;
+  for (const id of deviceIds) {
+    const miner = miners[id];
+    const model = miner?.model;
+    if (model) models.add(model);
+    else hasMissing = true;
+  }
+  return { models, hasMissing };
+}
 
 /**
  * Callback for pending actions that may receive a filtered device selector.
@@ -246,6 +263,7 @@ export const useMinerActions = ({
     checkCommandCapabilities,
     updateMinerPassword,
     downloadLogs,
+    firmwareUpdate,
     getCommandBatchLogBundle,
   } = useMinerCommand();
 
@@ -266,6 +284,11 @@ export const useMinerActions = ({
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
+  const [showFirmwareUpdateModal, setShowFirmwareUpdateModal] = useState(false);
+  const [firmwareUpdateFilteredSelector, setFirmwareUpdateFilteredSelector] = useState<DeviceSelector | undefined>();
+  const [firmwareUpdateFilteredDeviceIds, setFirmwareUpdateFilteredDeviceIds] = useState<string[] | undefined>(
+    undefined,
+  );
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
@@ -589,6 +612,134 @@ export const useMinerActions = ({
   const handleManagePowerDismiss = useCallback(() => {
     setShowManagePowerModal(false);
     setFilteredSelectorForPowerModal(undefined);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const handleFirmwareUpdateConfirm = useCallback(
+    (firmwareFileId: string) => {
+      const selectorToUse = firmwareUpdateFilteredSelector ?? deviceSelector;
+      const deviceIdsToUse = firmwareUpdateFilteredDeviceIds ?? deviceIdentifiers;
+      if (!selectorToUse) return;
+      setShowFirmwareUpdateModal(false);
+      setFirmwareUpdateFilteredSelector(undefined);
+      setFirmwareUpdateFilteredDeviceIds(undefined);
+      setCurrentAction(null);
+
+      const toastId = pushToast({
+        message: `${loadingMessages[deviceActions.firmwareUpdate]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        progress: 0,
+        onClose: () => onActionComplete?.(),
+      });
+
+      const firmwareUpdateRequest = create(FirmwareUpdateRequestSchema, {
+        deviceSelector: selectorToUse,
+        firmwareFileId,
+      });
+
+      firmwareUpdate({
+        firmwareUpdateRequest,
+        onSuccess: (value: FirmwareUpdateResponse) => {
+          startBatchOperation({
+            batchIdentifier: value.batchIdentifier,
+            action: deviceActions.firmwareUpdate,
+            deviceIdentifiers: deviceIdsToUse,
+          });
+
+          const streamAbortController = new AbortController();
+          let errorToastId: number | null = null;
+          let successCount = 0;
+          let totalCount = 0;
+          let failureIds: string[] = [];
+
+          streamCommandBatchUpdates({
+            streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
+              batchIdentifier: value.batchIdentifier,
+            }),
+            streamAbortController,
+            onStreamData: (response) => {
+              totalCount = Number(response.status?.commandBatchDeviceCount?.total || 0);
+              successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
+              const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
+              failureIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
+              const completed = successCount + failureCount;
+              const progress = totalCount > 0 ? Math.round((completed / totalCount) * 100) : 0;
+
+              if (successCount > 0) {
+                updateToast(toastId, {
+                  message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}`,
+                  status: TOAST_STATUSES.success,
+                  progress,
+                });
+              }
+
+              if (failureCount > 0) {
+                if (!errorToastId) {
+                  errorToastId = pushToast({
+                    message: `Firmware upload failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                    status: TOAST_STATUSES.error,
+                    longRunning: true,
+                  });
+                } else {
+                  updateToast(errorToastId, {
+                    message: `Firmware upload failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                    status: TOAST_STATUSES.error,
+                  });
+                }
+              }
+
+              if (completed === totalCount && totalCount > 0) {
+                streamAbortController.abort();
+              }
+            },
+          }).finally(() => {
+            if (successCount > 0) {
+              updateToast(toastId, {
+                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}`,
+                status: TOAST_STATUSES.success,
+                progress: undefined,
+              });
+            } else {
+              removeToast(toastId);
+            }
+
+            completeBatchOperation(value.batchIdentifier);
+            if (failureIds.length > 0) {
+              removeDevicesFromBatch(value.batchIdentifier, failureIds);
+            }
+            onActionComplete?.();
+          });
+        },
+        onError: (error) => {
+          updateToast(toastId, {
+            message: `Firmware upload failed: ${error}`,
+            status: TOAST_STATUSES.error,
+            progress: undefined,
+          });
+          onActionComplete?.();
+        },
+      });
+    },
+    [
+      firmwareUpdateFilteredSelector,
+      firmwareUpdateFilteredDeviceIds,
+      deviceSelector,
+      firmwareUpdate,
+      startBatchOperation,
+      completeBatchOperation,
+      removeDevicesFromBatch,
+      streamCommandBatchUpdates,
+      deviceIdentifiers,
+      onActionComplete,
+    ],
+  );
+
+  const handleFirmwareUpdateDismiss = useCallback(() => {
+    setShowFirmwareUpdateModal(false);
+    setFirmwareUpdateFilteredSelector(undefined);
+    setFirmwareUpdateFilteredDeviceIds(undefined);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1123,7 +1274,56 @@ export const useMinerActions = ({
       onActionStart?.();
     };
 
-    // TODO: Implement firmware update action (requires Fleet auth — follow handleMiningPool/handleManageSecurity pattern)
+    const handleFirmwareUpdate = async () => {
+      onActionStart?.();
+
+      if (selectionMode === "all") {
+        pushToast({
+          message: "Firmware update requires selecting specific miners to verify model compatibility.",
+          status: TOAST_STATUSES.error,
+        });
+        onActionComplete?.();
+        return;
+      }
+
+      await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
+        const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
+        const { models, hasMissing } =
+          idsToCheck.length > 0 ? getUniqueModels(idsToCheck) : { models: new Set<string>(), hasMissing: false };
+
+        if (models.size === 0) {
+          pushToast({
+            message: "Unable to verify miner model compatibility. Please select specific miners.",
+            status: TOAST_STATUSES.error,
+          });
+          onActionComplete?.();
+          return;
+        }
+
+        if (hasMissing) {
+          pushToast({
+            message: "Some selected miners have unknown models. Please deselect them before updating firmware.",
+            status: TOAST_STATUSES.error,
+          });
+          onActionComplete?.();
+          return;
+        }
+
+        if (models.size > 1) {
+          pushToast({
+            message: "Firmware update requires miners of the same model. Your selection includes multiple models.",
+            status: TOAST_STATUSES.error,
+          });
+          onActionComplete?.();
+          return;
+        }
+
+        setFirmwareUpdateFilteredSelector(filteredSelector);
+        setFirmwareUpdateFilteredDeviceIds(filteredDeviceIds);
+        setCurrentAction(deviceActions.firmwareUpdate);
+        setShowFirmwareUpdateModal(true);
+      });
+    };
 
     const sleepAction: BulkAction<SupportedAction> = {
       action: deviceActions.shutdown,
@@ -1209,7 +1409,13 @@ export const useMinerActions = ({
         actionHandler: handleManagePower,
         requiresConfirmation: false,
       },
-      // TODO: Implement firmware update action
+      {
+        action: deviceActions.firmwareUpdate,
+        title: "Update firmware",
+        icon: <FirmwareUpdate />,
+        actionHandler: handleFirmwareUpdate,
+        requiresConfirmation: false,
+      },
       // TODO: Implement Curtail action
       // {
       //   action: performanceActions.curtail,
@@ -1294,6 +1500,7 @@ export const useMinerActions = ({
     handleConfirmation,
     startBatchOperation,
     deviceIdentifiers,
+    selectionMode,
     selectedMiners,
     fetchCoolingMode,
     deleteConfirmationSubtitle,
@@ -1323,6 +1530,9 @@ export const useMinerActions = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showFirmwareUpdateModal,
+    handleFirmwareUpdateConfirm,
+    handleFirmwareUpdateDismiss,
     showCoolingModeModal,
     coolingModeCount,
     currentCoolingMode,

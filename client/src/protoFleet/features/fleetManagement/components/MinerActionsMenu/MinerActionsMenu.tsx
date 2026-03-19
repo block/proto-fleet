@@ -6,6 +6,7 @@ import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
+import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
@@ -61,6 +62,9 @@ const MinerActionsMenu = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showFirmwareUpdateModal,
+    handleFirmwareUpdateConfirm,
+    handleFirmwareUpdateDismiss,
     showCoolingModeModal,
     coolingModeCount,
     currentCoolingMode,
@@ -201,6 +205,11 @@ const MinerActionsMenu = ({
         open={currentAction === performanceActions.managePower && showManagePowerModal}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
+      />
+      <FirmwareUpdateModal
+        open={currentAction === deviceActions.firmwareUpdate && showFirmwareUpdateModal}
+        onConfirm={handleFirmwareUpdateConfirm}
+        onDismiss={handleFirmwareUpdateDismiss}
       />
       <CoolingModeModal
         open={currentAction === settingsActions.coolingMode && showCoolingModeModal}

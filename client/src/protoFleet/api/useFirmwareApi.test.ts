@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetConfigCache, ALLOWED_EXTENSIONS, useFirmwareApi, validateFirmwareFile } from "./useFirmwareApi";
+import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFirmwareApi";
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
@@ -15,42 +15,43 @@ vi.mock("@/protoFleet/api/useFileUpload", async (importOriginal) => ({
 }));
 
 describe("validateFirmwareFile", () => {
+  const defaultConfig = { allowedExtensions: [".swu", ".tar.gz", ".zip"] };
   const createFile = (name: string, size = 1024): File => new File(["x".repeat(size)], name);
 
   it("accepts .swu files", () => {
-    expect(validateFirmwareFile(createFile("firmware.swu"))).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.swu"), defaultConfig)).toBeNull();
   });
 
   it("accepts .tar.gz files", () => {
-    expect(validateFirmwareFile(createFile("firmware.tar.gz"))).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.tar.gz"), defaultConfig)).toBeNull();
   });
 
   it("accepts .zip files", () => {
-    expect(validateFirmwareFile(createFile("firmware.zip"))).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.zip"), defaultConfig)).toBeNull();
   });
 
   it("accepts uppercase extensions", () => {
-    expect(validateFirmwareFile(createFile("firmware.SWU"))).toBeNull();
-    expect(validateFirmwareFile(createFile("firmware.TAR.GZ"))).toBeNull();
-    expect(validateFirmwareFile(createFile("firmware.ZIP"))).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.SWU"), defaultConfig)).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.TAR.GZ"), defaultConfig)).toBeNull();
+    expect(validateFirmwareFile(createFile("firmware.ZIP"), defaultConfig)).toBeNull();
   });
 
   it("rejects unsupported extensions", () => {
-    expect(validateFirmwareFile(createFile("firmware.bin"))).toContain("Unsupported file type");
+    expect(validateFirmwareFile(createFile("firmware.bin"), defaultConfig)).toContain("Unsupported file type");
   });
 
   it("rejects files with no extension", () => {
-    expect(validateFirmwareFile(createFile("firmware"))).toContain("Unsupported file type");
+    expect(validateFirmwareFile(createFile("firmware"), defaultConfig)).toContain("Unsupported file type");
   });
 
   it("rejects empty files", () => {
     const emptyFile = new File([], "firmware.swu");
-    expect(validateFirmwareFile(emptyFile)).toBe("File is empty.");
+    expect(validateFirmwareFile(emptyFile, defaultConfig)).toBe("File is empty.");
   });
 
   it("rejects files with no filename", () => {
     const file = new File(["data"], "");
-    expect(validateFirmwareFile(file)).toBe("No filename provided.");
+    expect(validateFirmwareFile(file, defaultConfig)).toBe("No filename provided.");
   });
 
   it("uses custom extensions from config", () => {
@@ -60,18 +61,12 @@ describe("validateFirmwareFile", () => {
 
   it("rejects files exceeding maxFileSizeBytes", () => {
     const file = new File(["x".repeat(200)], "firmware.swu");
-    expect(validateFirmwareFile(file, { maxFileSizeBytes: 100 })).toContain("File too large");
+    expect(validateFirmwareFile(file, { ...defaultConfig, maxFileSizeBytes: 100 })).toContain("File too large");
   });
 
   it("accepts files within maxFileSizeBytes", () => {
     const file = new File(["x".repeat(50)], "firmware.swu");
-    expect(validateFirmwareFile(file, { maxFileSizeBytes: 100 })).toBeNull();
-  });
-});
-
-describe("ALLOWED_EXTENSIONS", () => {
-  it("contains expected extensions", () => {
-    expect(ALLOWED_EXTENSIONS).toEqual([".swu", ".tar.gz", ".zip"]);
+    expect(validateFirmwareFile(file, { ...defaultConfig, maxFileSizeBytes: 100 })).toBeNull();
   });
 });
 
@@ -225,6 +220,7 @@ describe("useFirmwareApi", () => {
         status: 200,
         json: () =>
           Promise.resolve({
+            allowed_extensions: [".swu"],
             chunk_size_bytes: 5,
           }),
       });
@@ -254,9 +250,14 @@ describe("useFirmwareApi", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
-          ok: false,
-          status: 404,
-          json: () => Promise.reject(new Error("not found")),
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".swu"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 5 * 1024 * 1024,
+            }),
         }),
       );
       mockUpload.mockResolvedValue({});
@@ -273,9 +274,14 @@ describe("useFirmwareApi", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
-          ok: false,
-          status: 404,
-          json: () => Promise.reject(new Error("not found")),
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".swu"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 5 * 1024 * 1024,
+            }),
         }),
       );
       mockUpload.mockResolvedValue({ firmware_file_id: "fw-1" });

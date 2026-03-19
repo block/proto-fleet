@@ -27,6 +27,7 @@ import Eye from "./Eye";
 import Fan from "./Fan";
 import FanIndicator from "./FanIndicator";
 import FanIndicatorV2 from "./FanIndicatorV2";
+import FirmwareUpdate from "./FirmwareUpdate";
 import Fleet from "./Fleet";
 import FleetWordmark from "./FleetWordmark";
 import Globe from "./Globe";
@@ -109,6 +110,7 @@ export {
   Fan,
   FanIndicator,
   FanIndicatorV2,
+  FirmwareUpdate,
   Fleet,
   FleetWordmark,
   Globe,

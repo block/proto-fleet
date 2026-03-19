@@ -7,21 +7,14 @@ export { computeSha256 } from "@/protoFleet/utils/crypto";
 
 const API_BASE = `${API_PROXY_BASE}/api/v1/firmware`;
 
-export const ALLOWED_EXTENSIONS = [".swu", ".tar.gz", ".zip"];
-
 const DEFAULT_MAX_FILE_SIZE = 500 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 
 export interface FirmwareConfig {
   allowedExtensions: string[];
   maxFileSizeBytes: number;
   chunkSizeBytes: number;
 }
-
-const DEFAULT_CONFIG: FirmwareConfig = {
-  allowedExtensions: ALLOWED_EXTENSIONS,
-  maxFileSizeBytes: DEFAULT_MAX_FILE_SIZE,
-  chunkSizeBytes: 5 * 1024 * 1024,
-};
 
 let configCache: FirmwareConfig | null = null;
 let configPromise: Promise<FirmwareConfig> | null = null;
@@ -49,20 +42,21 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
       }
 
       if (!response.ok) {
-        return DEFAULT_CONFIG;
+        throw new Error(`Failed to load firmware config: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
+      if (!Array.isArray(data.allowed_extensions) || data.allowed_extensions.length === 0) {
+        throw new Error("Server returned invalid firmware config: missing allowed_extensions.");
+      }
+
       const config: FirmwareConfig = {
-        allowedExtensions: data.allowed_extensions ?? ALLOWED_EXTENSIONS,
+        allowedExtensions: data.allowed_extensions,
         maxFileSizeBytes: data.max_file_size_bytes ?? DEFAULT_MAX_FILE_SIZE,
-        chunkSizeBytes: data.chunk_size_bytes ?? 5 * 1024 * 1024,
+        chunkSizeBytes: data.chunk_size_bytes ?? DEFAULT_CHUNK_SIZE,
       };
       configCache = config;
       return config;
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("Session expired")) throw err;
-      return DEFAULT_CONFIG;
     } finally {
       configPromise = null;
     }
@@ -78,23 +72,21 @@ export interface FirmwareUploadOptions {
 
 export function validateFirmwareFile(
   file: File,
-  config?: { allowedExtensions?: string[]; maxFileSizeBytes?: number },
+  config: { allowedExtensions: string[]; maxFileSizeBytes?: number },
 ): string | null {
   if (!file.name) {
     return "No filename provided.";
   }
-  const extensions = config?.allowedExtensions ?? ALLOWED_EXTENSIONS;
   const lower = file.name.toLowerCase();
-  const valid = extensions.some((ext) => lower.endsWith(ext));
+  const valid = config.allowedExtensions.some((ext) => lower.endsWith(ext));
   if (!valid) {
-    return `Unsupported file type. Allowed: ${extensions.join(", ")}`;
+    return `Unsupported file type. Allowed: ${config.allowedExtensions.join(", ")}`;
   }
   if (file.size === 0) {
     return "File is empty.";
   }
-  const maxSize = config?.maxFileSizeBytes;
-  if (maxSize && file.size > maxSize) {
-    return `File too large. Maximum size: ${Math.round(maxSize / (1024 * 1024))} MB.`;
+  if (config.maxFileSizeBytes && file.size > config.maxFileSizeBytes) {
+    return `File too large. Maximum size: ${Math.round(config.maxFileSizeBytes / (1024 * 1024))} MB.`;
   }
   return null;
 }

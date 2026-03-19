@@ -575,14 +575,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	callback := func() error {
-		if err := s.filesService.DeleteFirmwareFile(firmwareFileID); err != nil {
-			slog.Error("failed to delete firmware file after batch completed",
-				"firmware_file_id", firmwareFileID, "error", err)
-		}
-		return nil
-	}
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }

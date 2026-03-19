@@ -4,8 +4,9 @@ import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import AddToGroupModal from "./AddToGroupModal";
-import { groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
+import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
+import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import RenameMinerDialog from "./RenameMinerDialog";
@@ -54,6 +55,9 @@ const SingleMinerActionsMenu = ({
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
+    showFirmwareUpdateModal,
+    handleFirmwareUpdateConfirm,
+    handleFirmwareUpdateDismiss,
     showCoolingModeModal,
     coolingModeCount,
     currentCoolingMode,
@@ -169,6 +173,9 @@ const SingleMinerActionsMenu = ({
         showManagePowerModal={showManagePowerModal}
         handleManagePowerConfirm={handleManagePowerConfirm}
         handleManagePowerDismiss={handleManagePowerDismiss}
+        showFirmwareUpdateModal={showFirmwareUpdateModal}
+        handleFirmwareUpdateConfirm={handleFirmwareUpdateConfirm}
+        handleFirmwareUpdateDismiss={handleFirmwareUpdateDismiss}
         showCoolingModeModal={showCoolingModeModal}
         coolingModeCount={coolingModeCount}
         currentCoolingMode={currentCoolingMode}
@@ -220,6 +227,9 @@ type SingleMinerActionsMenuInnerProps = {
   showManagePowerModal: boolean;
   handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
   handleManagePowerDismiss: () => void;
+  showFirmwareUpdateModal: boolean;
+  handleFirmwareUpdateConfirm: (firmwareFileId: string) => void;
+  handleFirmwareUpdateDismiss: () => void;
   showCoolingModeModal: boolean;
   coolingModeCount: number;
   currentCoolingMode: CoolingMode | undefined;
@@ -256,6 +266,9 @@ const SingleMinerActionsMenuInner = ({
   showManagePowerModal,
   handleManagePowerConfirm,
   handleManagePowerDismiss,
+  showFirmwareUpdateModal,
+  handleFirmwareUpdateConfirm,
+  handleFirmwareUpdateDismiss,
   showCoolingModeModal,
   coolingModeCount,
   currentCoolingMode,
@@ -382,6 +395,11 @@ const SingleMinerActionsMenuInner = ({
         open={currentAction === performanceActions.managePower && showManagePowerModal}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
+      />
+      <FirmwareUpdateModal
+        open={currentAction === deviceActions.firmwareUpdate && showFirmwareUpdateModal}
+        onConfirm={handleFirmwareUpdateConfirm}
+        onDismiss={handleFirmwareUpdateDismiss}
       />
       <CoolingModeModal
         open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
