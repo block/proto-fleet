@@ -13,6 +13,7 @@ import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFlee
 import { RacksPage } from "@/protoFleet/features/rackManagement";
 import {
   Authentication as AuthSettings,
+  Firmware,
   General,
   MiningPools,
   SettingsLayout,
@@ -138,6 +139,12 @@ const router = createBrowserRouter([
     "/settings/team",
     <SettingsLayout>
       <Team />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/firmware",
+    <SettingsLayout>
+      <Firmware />
     </SettingsLayout>,
   ),
 

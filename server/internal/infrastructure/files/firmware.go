@@ -10,11 +10,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
 )
+
+// FirmwareFileInfo holds metadata about a stored firmware file.
+type FirmwareFileInfo struct {
+	ID         string    `json:"id"`
+	Filename   string    `json:"filename"`
+	Size       int64     `json:"size"`
+	UploadedAt time.Time `json:"uploaded_at"`
+}
 
 const firmwareDir = "firmware"
 const firmwareStagingDir = "firmware/staging"
@@ -292,7 +301,7 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string) (string, bool) {
 }
 
 // DeleteFirmwareFile removes a firmware file from disk and the checksum index.
-// Returns nil if the file was already deleted.
+// Returns a NotFoundError if no file with the given ID exists.
 func (s *Service) DeleteFirmwareFile(fileID string) error {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
@@ -300,6 +309,12 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 	}
 
 	dir := getFirmwareDirPath(canonical)
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
+		}
+		return fleeterror.NewInternalErrorf("failed to stat firmware dir %s: %v", canonical, err)
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fleeterror.NewInternalErrorf("failed to remove firmware dir %s: %v", canonical, err)
 	}
@@ -324,6 +339,94 @@ indexDone:
 
 	slog.Info("firmware file deleted", "file_id", canonical)
 	return nil
+}
+
+// ListFirmwareFiles returns metadata for all stored firmware files, sorted by
+// upload time (newest first). Returns an empty slice when no files exist.
+func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
+	entries, err := os.ReadDir(firmwareDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read firmware dir: %w", err)
+	}
+
+	result := make([]FirmwareFileInfo, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "staging" {
+			continue
+		}
+		fileID, err := canonicalizeFirmwareFileID(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		dir := getFirmwareDirPath(fileID)
+		filePath, err := findSingleFileInDir(dir)
+		if err != nil {
+			slog.Warn("skipping firmware dir during list", "file_id", fileID, "error", err)
+			continue
+		}
+
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			slog.Warn("failed to stat firmware file during list", "file_id", fileID, "error", err)
+			continue
+		}
+
+		dirInfo, err := os.Stat(dir)
+		if err != nil {
+			slog.Warn("failed to stat firmware dir during list", "file_id", fileID, "error", err)
+			continue
+		}
+
+		result = append(result, FirmwareFileInfo{
+			ID:         fileID,
+			Filename:   filepath.Base(filePath),
+			Size:       fileInfo.Size(),
+			UploadedAt: dirInfo.ModTime(),
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UploadedAt.After(result[j].UploadedAt)
+	})
+
+	return result, nil
+}
+
+// DeleteAllFirmwareFiles removes all firmware files from disk and the checksum
+// index. Best-effort: continues on individual errors and returns the first error
+// encountered along with the count of successfully deleted files.
+func (s *Service) DeleteAllFirmwareFiles() (int, error) {
+	entries, err := os.ReadDir(firmwareDir)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read firmware dir: %w", err)
+	}
+
+	deleted := 0
+	var firstErr error
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "staging" {
+			continue
+		}
+		fileID, err := canonicalizeFirmwareFileID(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if err := s.DeleteFirmwareFile(fileID); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			slog.Warn("failed to delete firmware file during delete-all", "file_id", fileID, "error", err)
+			continue
+		}
+		deleted++
+	}
+
+	if deleted > 0 {
+		slog.Info("deleted all firmware files", "count", deleted)
+	}
+	return deleted, firstErr
 }
 
 // initChecksumIndex scans the firmware directory on startup and rebuilds the

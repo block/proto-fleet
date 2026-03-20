@@ -321,6 +321,9 @@ func start(config *Config) error {
 	mux.Handle("POST /api/v1/firmware/upload/chunked", firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore))
 	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore))
 	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore))
+	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore))
+	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
 
 	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
 	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)

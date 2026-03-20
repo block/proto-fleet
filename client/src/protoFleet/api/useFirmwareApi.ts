@@ -91,6 +91,13 @@ export function validateFirmwareFile(
   return null;
 }
 
+export interface FirmwareFileInfo {
+  id: string;
+  filename: string;
+  size: number;
+  uploaded_at: string;
+}
+
 interface CheckFirmwareResponse {
   exists: boolean;
   firmware_file_id?: string;
@@ -170,12 +177,92 @@ export const useFirmwareApi = () => {
     [logout, upload],
   );
 
+  const listFirmwareFiles = useCallback(
+    async (signal?: AbortSignal): Promise<FirmwareFileInfo[]> => {
+      const response = await fetch(`${API_BASE}/files`, {
+        method: "GET",
+        credentials: "include",
+        signal,
+      });
+
+      if (response.status === 401) {
+        logout();
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        const message = await extractFetchError(
+          response,
+          `Failed to list firmware files: ${response.status} ${response.statusText}`,
+        );
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      return (data.files ?? []) as FirmwareFileInfo[];
+    },
+    [logout],
+  );
+
+  const deleteFirmwareFile = useCallback(
+    async (fileId: string, signal?: AbortSignal): Promise<void> => {
+      const response = await fetch(`${API_BASE}/files/${encodeURIComponent(fileId)}`, {
+        method: "DELETE",
+        credentials: "include",
+        signal,
+      });
+
+      if (response.status === 401) {
+        logout();
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        const message = await extractFetchError(
+          response,
+          `Failed to delete firmware file: ${response.status} ${response.statusText}`,
+        );
+        throw new Error(message);
+      }
+    },
+    [logout],
+  );
+
+  const deleteAllFirmwareFiles = useCallback(
+    async (signal?: AbortSignal): Promise<{ deleted_count: number }> => {
+      const response = await fetch(`${API_BASE}/files`, {
+        method: "DELETE",
+        credentials: "include",
+        signal,
+      });
+
+      if (response.status === 401) {
+        logout();
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        const message = await extractFetchError(
+          response,
+          `Failed to delete all firmware files: ${response.status} ${response.statusText}`,
+        );
+        throw new Error(message);
+      }
+
+      return (await response.json()) as { deleted_count: number };
+    },
+    [logout],
+  );
+
   return useMemo(
     () => ({
       getConfig,
       checkFirmwareFile,
       uploadFirmwareFile,
+      listFirmwareFiles,
+      deleteFirmwareFile,
+      deleteAllFirmwareFiles,
     }),
-    [getConfig, checkFirmwareFile, uploadFirmwareFile],
+    [getConfig, checkFirmwareFile, uploadFirmwareFile, listFirmwareFiles, deleteFirmwareFile, deleteAllFirmwareFiles],
   );
 };
