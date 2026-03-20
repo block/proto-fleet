@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup .NET SDK from global.json
-        uses: actions/setup-dotnet@baa11fbfe1d6520db94683bd5c7a3818018e4309 # v5.1.0
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           global-json-file: deployment-files/windows/global.json
 
@@ -65,7 +65,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Windows release assets
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: |
             ./deployment-files/windows/artifacts/release-installer/installer.exe
@@ -111,7 +111,7 @@ jobs:
           chmod +x server/proto-plugin-* server/antminer-plugin-*
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Build pyasic plugin binary (${{ matrix.arch }})
         run: |
@@ -143,7 +143,7 @@ jobs:
           retention-days: 1
 
       - name: Upload ProtoFleet server artifact
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
         env:
@@ -159,7 +159,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -199,7 +199,7 @@ jobs:
           retention-days: 1
 
       - name: Upload ProtoFleet client artifact
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -215,7 +215,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -257,7 +257,7 @@ jobs:
           VERSION: ${{ github.event.release.tag_name }}
 
       - name: Upload ProtoOS artifact
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: |
             ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
@@ -302,7 +302,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Build TimescaleDB image (${{ matrix.arch }})
         run: |
@@ -433,7 +433,7 @@ jobs:
           merge-multiple: true
 
       - name: Upload deployment bundles to GitHub release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           files: /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
         env:
