@@ -19,6 +19,7 @@ const (
 	defaultIdealHashrate  = 145.0  // TH/s
 	defaultFanSpeedRPM    = 4500
 	defaultFanSpeedPct    = 60
+	defaultTargetTempC    = 50.0
 	defaultPowerTargetW   = 3400
 	defaultPowerTargetMin = 2000
 	defaultPowerTargetMax = 4000
@@ -57,7 +58,7 @@ const (
 	defaultPoolDifficulty     = 1048576.0
 
 	// Software info
-	defaultFirmwareVersion = "1.7.6"
+	defaultFirmwareVersion = "1.8.0"
 	defaultSoftwareName    = "Proto Mining Firmware"
 
 	// Random variation percentage
@@ -85,6 +86,7 @@ type MinerState struct {
 	MiningState      miner_data_api.MiningState
 	CoolingMode      miner_data_api.CoolingMode
 	FanSpeedPct      uint32
+	TargetTempC      float64
 	PowerTargetW     uint32
 	PerformanceMode  miner_data_api.PerformanceMode
 	HashOnDisconnect bool
@@ -145,6 +147,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		MiningState:       miner_data_api.MiningState_MINING_STATE_MINING,
 		CoolingMode:       miner_data_api.CoolingMode_COOLING_MODE_AUTO,
 		FanSpeedPct:       defaultFanSpeedPct,
+		TargetTempC:       defaultTargetTempC,
 		PowerTargetW:      defaultPowerTargetW,
 		PerformanceMode:   miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE,
 		DHCP:              true,
@@ -364,14 +367,17 @@ func (s *MinerState) GetPools() []*miner_data_api.Pool {
 	return pools
 }
 
-// SetCoolingMode updates the cooling mode and fan speed.
-func (s *MinerState) SetCoolingMode(mode miner_data_api.CoolingMode, speedPct *uint32) {
+// SetCoolingMode updates the cooling mode, fan speed, and target temperature.
+func (s *MinerState) SetCoolingMode(mode miner_data_api.CoolingMode, speedPct *uint32, targetTempC *float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.CoolingMode = mode
 	if speedPct != nil {
 		s.FanSpeedPct = *speedPct
+	}
+	if targetTempC != nil {
+		s.TargetTempC = *targetTempC
 	}
 }
 

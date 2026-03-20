@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -393,5 +394,305 @@ func TestHandleMiningTarget_InvalidPerformanceMode_Returns422(t *testing.T) {
 
 	if state.PerformanceMode != miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE {
 		t.Fatal("expected performance mode to remain MaximumHashrate")
+	}
+}
+
+// --- Pairing endpoint tests ---
+
+func TestHandlePairingInfo_GET_ReturnsMACAndCBSN(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pairing/info", nil)
+	h.handlePairingInfo(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp PairingInfoResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.MAC != "00:11:22:33:44:55" {
+		t.Fatalf("expected MAC %q, got %q", "00:11:22:33:44:55", resp.MAC)
+	}
+	if resp.CBSN != "SN12345678" {
+		t.Fatalf("expected CBSN %q, got %q", "SN12345678", resp.CBSN)
+	}
+}
+
+func TestHandlePairingInfo_WrongMethod_Returns405(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/info", nil)
+	h.handlePairingInfo(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusMethodNotAllowed, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandlePairingAuthKey_POST_SetsKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"test-key-123"}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "test-key-123" {
+		t.Fatalf("expected auth key %q, got %q", "test-key-123", state.GetAuthKey())
+	}
+}
+
+func TestHandlePairingAuthKey_POST_MissingPublicKey_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":""}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "" {
+		t.Fatal("auth key should not have been set")
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_ClearsKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	state.SetPassword("somePassword")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	req.Header.Set("Authorization", "Bearer mock-token")
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "" {
+		t.Fatal("expected auth key to be cleared")
+	}
+	if state.GetPassword() != "" {
+		t.Fatal("expected password to be cleared")
+	}
+}
+
+func TestHandlePairingAuthKey_POST_RotationRequiresAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"new-key"}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have changed without auth")
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_RequiresAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have been cleared without auth")
+	}
+}
+
+// --- Cooling endpoint tests ---
+
+func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	targetTemp := 55.0
+	state.SetCoolingMode(miner_data_api.CoolingMode_COOLING_MODE_AUTO, nil, &targetTemp)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil)
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp CoolingStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.CoolingStatus.FanMode != "Auto" {
+		t.Fatalf("expected fan_mode %q, got %q", "Auto", resp.CoolingStatus.FanMode)
+	}
+	if resp.CoolingStatus.TargetTempC == nil {
+		t.Fatal("expected target_temperature_c to be present in Auto mode")
+	}
+	if *resp.CoolingStatus.TargetTempC != 55.0 {
+		t.Fatalf("expected target_temperature_c 55.0, got %f", *resp.CoolingStatus.TargetTempC)
+	}
+}
+
+func TestHandleCooling_GET_ManualMode_OmitsTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	speed := uint32(80)
+	state.SetCoolingMode(miner_data_api.CoolingMode_COOLING_MODE_MANUAL, &speed, nil)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil)
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp CoolingStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.CoolingStatus.FanMode != "Manual" {
+		t.Fatalf("expected fan_mode %q, got %q", "Manual", resp.CoolingStatus.FanMode)
+	}
+	if resp.CoolingStatus.TargetTempC != nil {
+		t.Fatalf("expected target_temperature_c to be omitted in Manual mode, got %v", *resp.CoolingStatus.TargetTempC)
+	}
+}
+
+func TestHandleCooling_PUT_AutoMode_SetsTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cooling",
+		strings.NewReader(`{"mode":"Auto","target_temperature_c":60.5}`))
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	state.mu.RLock()
+	targetTemp := state.TargetTempC
+	mode := state.CoolingMode
+	state.mu.RUnlock()
+
+	if mode != miner_data_api.CoolingMode_COOLING_MODE_AUTO {
+		t.Fatalf("expected Auto mode, got %v", mode)
+	}
+	if targetTemp != 60.5 {
+		t.Fatalf("expected target temp 60.5, got %f", targetTemp)
+	}
+}
+
+func TestHandleCooling_PUT_ManualMode_IgnoresTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	state.mu.RLock()
+	originalTemp := state.TargetTempC
+	state.mu.RUnlock()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cooling",
+		strings.NewReader(`{"mode":"Manual","speed_percentage":75,"target_temperature_c":99.9}`))
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	state.mu.RLock()
+	targetTemp := state.TargetTempC
+	mode := state.CoolingMode
+	state.mu.RUnlock()
+
+	if mode != miner_data_api.CoolingMode_COOLING_MODE_MANUAL {
+		t.Fatalf("expected Manual mode, got %v", mode)
+	}
+	if targetTemp != originalTemp {
+		t.Fatalf("expected target temp to remain %f in Manual mode, got %f", originalTemp, targetTemp)
+	}
+}
+
+// --- ASIC id field tests ---
+
+func TestHandleHashboardASIC_ID_Format(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	tests := []struct {
+		asicID     int
+		expectedID string
+	}{
+		{0, "A0"},
+		{1, "A1"},
+		{9, "A9"},
+		{10, "B0"},
+		{13, "B3"},
+		{20, "C0"},
+		{35, "D5"},
+	}
+
+	for _, tc := range tests {
+		rr := httptest.NewRecorder()
+		path := fmt.Sprintf("/api/v1/hashboards/HB-SN12345678-0/%d", tc.asicID)
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		h.handleHashboardByID(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("ASIC %d: expected %d, got %d; body=%s", tc.asicID, http.StatusOK, rr.Code, rr.Body.String())
+		}
+
+		var resp map[string]ASICStats
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("ASIC %d: failed to unmarshal: %v", tc.asicID, err)
+		}
+
+		asic, ok := resp["asic-stats"]
+		if !ok {
+			t.Fatalf("ASIC %d: missing asic-stats key in response", tc.asicID)
+		}
+		if asic.ID != tc.expectedID {
+			t.Fatalf("ASIC %d: expected id %q, got %q", tc.asicID, tc.expectedID, asic.ID)
+		}
+		if asic.Row != tc.asicID/10 {
+			t.Fatalf("ASIC %d: expected row %d, got %d", tc.asicID, tc.asicID/10, asic.Row)
+		}
+		if asic.Column != tc.asicID%10 {
+			t.Fatalf("ASIC %d: expected column %d, got %d", tc.asicID, tc.asicID%10, asic.Column)
+		}
 	}
 }

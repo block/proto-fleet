@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+import "hashboard_async.proto";
+
+// A command used by the mobile client to ask the hw device for its metadata.
+message uptime_cmd {}
+
+// The response for `uptime_cmd `
+message uptime_rsp {
+    uint32 uptime = 1;
+}
+
+message echo_cmd {
+    bytes data = 1;
+}
+
+message echo_rsp {
+    bytes data = 1;
+}
+
+enum hashrail_state {
+    HASHRAIL_STATE_OFF = 0;
+    HASHRAIL_STATE_ON = 1;
+    HASHRAIL_STATE_RESET = 2;
+    HASHRAIL_STATE_UNKNOWN = 3;
+}
+
+message hashrail_state_get_cmd {}
+
+message hashrail_state_get_rsp {
+    hashrail_state state = 1;
+}
+
+message hashrail_state_set_cmd {
+    hashrail_state state = 1;
+}
+
+message hashrail_state_set_rsp {}
+
+enum refclock_state {
+    REFCLOCK_STATE_OFF = 0;
+    REFCLOCK_STATE_ON = 1;
+    REFCLOCK_STATE_UNKNOWN = 2;
+}
+
+message refclock_state_get_cmd {}
+
+message refclock_state_get_rsp {
+    repeated refclock_state state_stack = 1;
+}
+
+message refclock_state_set_cmd {
+    bool enable = 1;
+}
+
+message refclock_state_set_rsp {}
+
+message board_temperature_get_cmd {}
+
+message board_temperature_get_rsp {
+    repeated float therm = 1;
+}
+
+message iv_monitor_get_cmd {}
+
+message iv_monitor_get_rsp {
+    float current = 1;
+    float voltage = 2;
+}
+
+message asic_freq {
+    // Index of the ASIC to set the frequency for.
+    uint32 asic = 1;
+
+    // Frequency in MHz.
+    uint32 freq_mhz = 2;
+}
+
+message asic_freq_set_cmd {
+    repeated asic_freq asics = 1;
+}
+
+message asic_freq_set_rsp {
+    repeated asic_freq asics = 1;
+}
+
+message asic_freq_gain {
+    // Index of the ASIC to set the frequency gain for.
+    uint32 asic = 1;
+
+    // Gain value, between 0.5 and 1.5
+    float gain = 2;
+}
+
+message asic_freq_gain_set_cmd {
+    repeated asic_freq_gain asics = 1;
+}
+
+message asic_freq_gain_set_rsp {}
+
+message async_message_interval_cmd {
+    // The interval in milliseconds between messages
+    uint32 interval = 1;
+
+    // The message to change the interval on
+    hashboard_async message = 2;
+}
+
+message async_message_interval_rsp {}

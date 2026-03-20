@@ -89,9 +89,6 @@ const (
 	// MinerDebugApiSetVoltageTuningModeProcedure is the fully-qualified name of the MinerDebugApi's
 	// SetVoltageTuningMode RPC.
 	MinerDebugApiSetVoltageTuningModeProcedure = "/miner_debug_api.MinerDebugApi/SetVoltageTuningMode"
-	// MinerDebugApiGetHashboardsRecoveryInfoProcedure is the fully-qualified name of the
-	// MinerDebugApi's GetHashboardsRecoveryInfo RPC.
-	MinerDebugApiGetHashboardsRecoveryInfoProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardsRecoveryInfo"
 	// MinerDebugApiCreateMinerNotificationEventProcedure is the fully-qualified name of the
 	// MinerDebugApi's CreateMinerNotificationEvent RPC.
 	MinerDebugApiCreateMinerNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/CreateMinerNotificationEvent"
@@ -110,12 +107,12 @@ const (
 	// MinerDebugApiGetFanSpeedProcedure is the fully-qualified name of the MinerDebugApi's GetFanSpeed
 	// RPC.
 	MinerDebugApiGetFanSpeedProcedure = "/miner_debug_api.MinerDebugApi/GetFanSpeed"
-	// MinerDebugApiSetTemperatureThresholdProcedure is the fully-qualified name of the MinerDebugApi's
-	// SetTemperatureThreshold RPC.
-	MinerDebugApiSetTemperatureThresholdProcedure = "/miner_debug_api.MinerDebugApi/SetTemperatureThreshold"
-	// MinerDebugApiSetTemperaturePidTuningProcedure is the fully-qualified name of the MinerDebugApi's
-	// SetTemperaturePidTuning RPC.
-	MinerDebugApiSetTemperaturePidTuningProcedure = "/miner_debug_api.MinerDebugApi/SetTemperaturePidTuning"
+	// MinerDebugApiSetTemperaturePowerThrottleConfigProcedure is the fully-qualified name of the
+	// MinerDebugApi's SetTemperaturePowerThrottleConfig RPC.
+	MinerDebugApiSetTemperaturePowerThrottleConfigProcedure = "/miner_debug_api.MinerDebugApi/SetTemperaturePowerThrottleConfig"
+	// MinerDebugApiSetTemperatureFanControlConfigProcedure is the fully-qualified name of the
+	// MinerDebugApi's SetTemperatureFanControlConfig RPC.
+	MinerDebugApiSetTemperatureFanControlConfigProcedure = "/miner_debug_api.MinerDebugApi/SetTemperatureFanControlConfig"
 	// MinerDebugApiGetMinerErrorStatsProcedure is the fully-qualified name of the MinerDebugApi's
 	// GetMinerErrorStats RPC.
 	MinerDebugApiGetMinerErrorStatsProcedure = "/miner_debug_api.MinerDebugApi/GetMinerErrorStats"
@@ -155,8 +152,6 @@ type MinerDebugApiClient interface {
 	GetPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_debug_api.PsuFaultsResponse], error)
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Hashboard debug functionality
-	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -167,8 +162,8 @@ type MinerDebugApiClient interface {
 	SetFanSpeed(context.Context, *connect.Request[miner_debug_api.SetFanSpeedRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetFanSpeed(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.GetFanSpeedResponse], error)
 	// Temperature control
-	SetTemperatureThreshold(context.Context, *connect.Request[miner_debug_api.SetTemperatureThresholdRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	SetTemperaturePidTuning(context.Context, *connect.Request[miner_debug_api.SetTemperaturePidTuningRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetTemperaturePowerThrottleConfig(context.Context, *connect.Request[miner_debug_api.TemperaturePowerThrottleRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetTemperatureFanControlConfig(context.Context, *connect.Request[miner_debug_api.TemperatureFanControlRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Operating stats
 	GetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MinerErrorStats], error)
 	ResetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -254,11 +249,6 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiSetVoltageTuningModeProcedure,
 			opts...,
 		),
-		getHashboardsRecoveryInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse](
-			httpClient,
-			baseURL+MinerDebugApiGetHashboardsRecoveryInfoProcedure,
-			opts...,
-		),
 		createMinerNotificationEvent: connect.NewClient[miner_error_code.Error, miner_common_api.ApiResultResponse](
 			httpClient,
 			baseURL+MinerDebugApiCreateMinerNotificationEventProcedure,
@@ -289,14 +279,14 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiGetFanSpeedProcedure,
 			opts...,
 		),
-		setTemperatureThreshold: connect.NewClient[miner_debug_api.SetTemperatureThresholdRequest, miner_common_api.ApiResultResponse](
+		setTemperaturePowerThrottleConfig: connect.NewClient[miner_debug_api.TemperaturePowerThrottleRequest, miner_common_api.ApiResultResponse](
 			httpClient,
-			baseURL+MinerDebugApiSetTemperatureThresholdProcedure,
+			baseURL+MinerDebugApiSetTemperaturePowerThrottleConfigProcedure,
 			opts...,
 		),
-		setTemperaturePidTuning: connect.NewClient[miner_debug_api.SetTemperaturePidTuningRequest, miner_common_api.ApiResultResponse](
+		setTemperatureFanControlConfig: connect.NewClient[miner_debug_api.TemperatureFanControlRequest, miner_common_api.ApiResultResponse](
 			httpClient,
-			baseURL+MinerDebugApiSetTemperaturePidTuningProcedure,
+			baseURL+MinerDebugApiSetTemperatureFanControlConfigProcedure,
 			opts...,
 		),
 		getMinerErrorStats: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.MinerErrorStats](
@@ -339,35 +329,34 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // minerDebugApiClient implements MinerDebugApiClient.
 type minerDebugApiClient struct {
-	getMiningInitStats             *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats]
-	enablePsu                      *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	disablePsu                     *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	setPsuOutputVoltage            *connect.Client[miner_debug_api.PsuOutputVoltageRequest, miner_common_api.ApiResultResponse]
-	getPsuOutputVoltage            *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuOutputVoltageResponse]
-	disablePsuVoltageConfiguration *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	enablePsuVoltageConfiguration  *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	getPsuMeasurements             *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuMeasurementsResponse]
-	getPsuTemperatures             *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuTemperaturesResponse]
-	getPsuFanSpeeds                *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFanSpeedsResponse]
-	getPsuFaults                   *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFaultsResponse]
-	clearPsuFaults                 *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	setVoltageTuningMode           *connect.Client[miner_debug_api.VoltageTuningModeRequest, miner_common_api.ApiResultResponse]
-	getHashboardsRecoveryInfo      *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse]
-	createMinerNotificationEvent   *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
-	clearMinerNotificationEvent    *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
-	getRecoveryLimits              *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits]
-	setRecoveryLimits              *connect.Client[miner_debug_api.SetRecoveryLimitsMessage, miner_common_api.ApiResultResponse]
-	setFanSpeed                    *connect.Client[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse]
-	getFanSpeed                    *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.GetFanSpeedResponse]
-	setTemperatureThreshold        *connect.Client[miner_debug_api.SetTemperatureThresholdRequest, miner_common_api.ApiResultResponse]
-	setTemperaturePidTuning        *connect.Client[miner_debug_api.SetTemperaturePidTuningRequest, miner_common_api.ApiResultResponse]
-	getMinerErrorStats             *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MinerErrorStats]
-	resetMinerErrorStats           *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getHashboardErrorStats         *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardErrorStatsList]
-	resetHashboardErrorStats       *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getPsuErrorStats               *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
-	resetPsuErrorStats             *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	setHardwareError               *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
+	getMiningInitStats                *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats]
+	enablePsu                         *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	disablePsu                        *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	setPsuOutputVoltage               *connect.Client[miner_debug_api.PsuOutputVoltageRequest, miner_common_api.ApiResultResponse]
+	getPsuOutputVoltage               *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuOutputVoltageResponse]
+	disablePsuVoltageConfiguration    *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	enablePsuVoltageConfiguration     *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	getPsuMeasurements                *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuMeasurementsResponse]
+	getPsuTemperatures                *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuTemperaturesResponse]
+	getPsuFanSpeeds                   *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFanSpeedsResponse]
+	getPsuFaults                      *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFaultsResponse]
+	clearPsuFaults                    *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	setVoltageTuningMode              *connect.Client[miner_debug_api.VoltageTuningModeRequest, miner_common_api.ApiResultResponse]
+	createMinerNotificationEvent      *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
+	clearMinerNotificationEvent       *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
+	getRecoveryLimits                 *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits]
+	setRecoveryLimits                 *connect.Client[miner_debug_api.SetRecoveryLimitsMessage, miner_common_api.ApiResultResponse]
+	setFanSpeed                       *connect.Client[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse]
+	getFanSpeed                       *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.GetFanSpeedResponse]
+	setTemperaturePowerThrottleConfig *connect.Client[miner_debug_api.TemperaturePowerThrottleRequest, miner_common_api.ApiResultResponse]
+	setTemperatureFanControlConfig    *connect.Client[miner_debug_api.TemperatureFanControlRequest, miner_common_api.ApiResultResponse]
+	getMinerErrorStats                *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MinerErrorStats]
+	resetMinerErrorStats              *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getHashboardErrorStats            *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardErrorStatsList]
+	resetHashboardErrorStats          *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getPsuErrorStats                  *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
+	resetPsuErrorStats                *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	setHardwareError                  *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
 }
 
 // GetMiningInitStats calls miner_debug_api.MinerDebugApi.GetMiningInitStats.
@@ -436,11 +425,6 @@ func (c *minerDebugApiClient) SetVoltageTuningMode(ctx context.Context, req *con
 	return c.setVoltageTuningMode.CallUnary(ctx, req)
 }
 
-// GetHashboardsRecoveryInfo calls miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo.
-func (c *minerDebugApiClient) GetHashboardsRecoveryInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
-	return c.getHashboardsRecoveryInfo.CallUnary(ctx, req)
-}
-
 // CreateMinerNotificationEvent calls miner_debug_api.MinerDebugApi.CreateMinerNotificationEvent.
 func (c *minerDebugApiClient) CreateMinerNotificationEvent(ctx context.Context, req *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return c.createMinerNotificationEvent.CallUnary(ctx, req)
@@ -471,14 +455,16 @@ func (c *minerDebugApiClient) GetFanSpeed(ctx context.Context, req *connect.Requ
 	return c.getFanSpeed.CallUnary(ctx, req)
 }
 
-// SetTemperatureThreshold calls miner_debug_api.MinerDebugApi.SetTemperatureThreshold.
-func (c *minerDebugApiClient) SetTemperatureThreshold(ctx context.Context, req *connect.Request[miner_debug_api.SetTemperatureThresholdRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.setTemperatureThreshold.CallUnary(ctx, req)
+// SetTemperaturePowerThrottleConfig calls
+// miner_debug_api.MinerDebugApi.SetTemperaturePowerThrottleConfig.
+func (c *minerDebugApiClient) SetTemperaturePowerThrottleConfig(ctx context.Context, req *connect.Request[miner_debug_api.TemperaturePowerThrottleRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.setTemperaturePowerThrottleConfig.CallUnary(ctx, req)
 }
 
-// SetTemperaturePidTuning calls miner_debug_api.MinerDebugApi.SetTemperaturePidTuning.
-func (c *minerDebugApiClient) SetTemperaturePidTuning(ctx context.Context, req *connect.Request[miner_debug_api.SetTemperaturePidTuningRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.setTemperaturePidTuning.CallUnary(ctx, req)
+// SetTemperatureFanControlConfig calls
+// miner_debug_api.MinerDebugApi.SetTemperatureFanControlConfig.
+func (c *minerDebugApiClient) SetTemperatureFanControlConfig(ctx context.Context, req *connect.Request[miner_debug_api.TemperatureFanControlRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.setTemperatureFanControlConfig.CallUnary(ctx, req)
 }
 
 // GetMinerErrorStats calls miner_debug_api.MinerDebugApi.GetMinerErrorStats.
@@ -532,8 +518,6 @@ type MinerDebugApiHandler interface {
 	GetPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_debug_api.PsuFaultsResponse], error)
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Hashboard debug functionality
-	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -544,8 +528,8 @@ type MinerDebugApiHandler interface {
 	SetFanSpeed(context.Context, *connect.Request[miner_debug_api.SetFanSpeedRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetFanSpeed(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.GetFanSpeedResponse], error)
 	// Temperature control
-	SetTemperatureThreshold(context.Context, *connect.Request[miner_debug_api.SetTemperatureThresholdRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	SetTemperaturePidTuning(context.Context, *connect.Request[miner_debug_api.SetTemperaturePidTuningRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetTemperaturePowerThrottleConfig(context.Context, *connect.Request[miner_debug_api.TemperaturePowerThrottleRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	SetTemperatureFanControlConfig(context.Context, *connect.Request[miner_debug_api.TemperatureFanControlRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Operating stats
 	GetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MinerErrorStats], error)
 	ResetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -627,11 +611,6 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.SetVoltageTuningMode,
 		opts...,
 	)
-	minerDebugApiGetHashboardsRecoveryInfoHandler := connect.NewUnaryHandler(
-		MinerDebugApiGetHashboardsRecoveryInfoProcedure,
-		svc.GetHashboardsRecoveryInfo,
-		opts...,
-	)
 	minerDebugApiCreateMinerNotificationEventHandler := connect.NewUnaryHandler(
 		MinerDebugApiCreateMinerNotificationEventProcedure,
 		svc.CreateMinerNotificationEvent,
@@ -662,14 +641,14 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.GetFanSpeed,
 		opts...,
 	)
-	minerDebugApiSetTemperatureThresholdHandler := connect.NewUnaryHandler(
-		MinerDebugApiSetTemperatureThresholdProcedure,
-		svc.SetTemperatureThreshold,
+	minerDebugApiSetTemperaturePowerThrottleConfigHandler := connect.NewUnaryHandler(
+		MinerDebugApiSetTemperaturePowerThrottleConfigProcedure,
+		svc.SetTemperaturePowerThrottleConfig,
 		opts...,
 	)
-	minerDebugApiSetTemperaturePidTuningHandler := connect.NewUnaryHandler(
-		MinerDebugApiSetTemperaturePidTuningProcedure,
-		svc.SetTemperaturePidTuning,
+	minerDebugApiSetTemperatureFanControlConfigHandler := connect.NewUnaryHandler(
+		MinerDebugApiSetTemperatureFanControlConfigProcedure,
+		svc.SetTemperatureFanControlConfig,
 		opts...,
 	)
 	minerDebugApiGetMinerErrorStatsHandler := connect.NewUnaryHandler(
@@ -735,8 +714,6 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiClearPsuFaultsHandler.ServeHTTP(w, r)
 		case MinerDebugApiSetVoltageTuningModeProcedure:
 			minerDebugApiSetVoltageTuningModeHandler.ServeHTTP(w, r)
-		case MinerDebugApiGetHashboardsRecoveryInfoProcedure:
-			minerDebugApiGetHashboardsRecoveryInfoHandler.ServeHTTP(w, r)
 		case MinerDebugApiCreateMinerNotificationEventProcedure:
 			minerDebugApiCreateMinerNotificationEventHandler.ServeHTTP(w, r)
 		case MinerDebugApiClearMinerNotificationEventProcedure:
@@ -749,10 +726,10 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiSetFanSpeedHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetFanSpeedProcedure:
 			minerDebugApiGetFanSpeedHandler.ServeHTTP(w, r)
-		case MinerDebugApiSetTemperatureThresholdProcedure:
-			minerDebugApiSetTemperatureThresholdHandler.ServeHTTP(w, r)
-		case MinerDebugApiSetTemperaturePidTuningProcedure:
-			minerDebugApiSetTemperaturePidTuningHandler.ServeHTTP(w, r)
+		case MinerDebugApiSetTemperaturePowerThrottleConfigProcedure:
+			minerDebugApiSetTemperaturePowerThrottleConfigHandler.ServeHTTP(w, r)
+		case MinerDebugApiSetTemperatureFanControlConfigProcedure:
+			minerDebugApiSetTemperatureFanControlConfigHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetMinerErrorStatsProcedure:
 			minerDebugApiGetMinerErrorStatsHandler.ServeHTTP(w, r)
 		case MinerDebugApiResetMinerErrorStatsProcedure:
@@ -828,10 +805,6 @@ func (UnimplementedMinerDebugApiHandler) SetVoltageTuningMode(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetVoltageTuningMode is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo is not implemented"))
-}
-
 func (UnimplementedMinerDebugApiHandler) CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.CreateMinerNotificationEvent is not implemented"))
 }
@@ -856,12 +829,12 @@ func (UnimplementedMinerDebugApiHandler) GetFanSpeed(context.Context, *connect.R
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetFanSpeed is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) SetTemperatureThreshold(context.Context, *connect.Request[miner_debug_api.SetTemperatureThresholdRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetTemperatureThreshold is not implemented"))
+func (UnimplementedMinerDebugApiHandler) SetTemperaturePowerThrottleConfig(context.Context, *connect.Request[miner_debug_api.TemperaturePowerThrottleRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetTemperaturePowerThrottleConfig is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) SetTemperaturePidTuning(context.Context, *connect.Request[miner_debug_api.SetTemperaturePidTuningRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetTemperaturePidTuning is not implemented"))
+func (UnimplementedMinerDebugApiHandler) SetTemperatureFanControlConfig(context.Context, *connect.Request[miner_debug_api.TemperatureFanControlRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetTemperatureFanControlConfig is not implemented"))
 }
 
 func (UnimplementedMinerDebugApiHandler) GetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MinerErrorStats], error) {

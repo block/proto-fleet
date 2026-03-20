@@ -161,6 +161,8 @@ type MiningStatusInner struct {
 	AverageASICTempC    float64 `json:"average_asic_temp_c"`
 	AverageHBEfficiency float64 `json:"average_hb_efficiency_jth"`
 	HWErrors            int64   `json:"hw_errors"`
+	HashboardsInstalled int     `json:"hashboards_installed"`
+	HashboardsMining    int     `json:"hashboards_mining"`
 }
 
 // MiningTargetResponse contains mining target configuration (matches OpenAPI MiningTargetResponse)
@@ -195,6 +197,7 @@ type CoolingStatus struct {
 type CoolingStatusInner struct {
 	FanMode         string      `json:"fan_mode"`
 	SpeedPercentage int         `json:"speed_percentage"`
+	TargetTempC     *float64    `json:"target_temperature_c,omitempty"`
 	Fans            []FanStatus `json:"fans"`
 }
 
@@ -207,8 +210,9 @@ type FanStatus struct {
 
 // CoolingConfig is the cooling configuration request
 type CoolingConfig struct {
-	Mode            string `json:"mode"`
-	SpeedPercentage *int   `json:"speed_percentage,omitempty"`
+	Mode            string   `json:"mode"`
+	SpeedPercentage *int     `json:"speed_percentage,omitempty"`
+	TargetTempC     *float64 `json:"target_temperature_c,omitempty"`
 }
 
 // HashboardsResponse contains all hashboard info (matches OpenAPI HashboardsInfo)
@@ -240,6 +244,7 @@ type HashboardStatsInner struct {
 // ASICStats contains stats for a single ASIC
 type ASICStats struct {
 	Index            int     `json:"index"`
+	ID               string  `json:"id"`
 	Row              int     `json:"row"`
 	Column           int     `json:"column"`
 	HashrateGHS      float64 `json:"hashrate_ghs"`
@@ -247,6 +252,22 @@ type ASICStats struct {
 	TempC            float64 `json:"temp_c"`
 	FreqMHz          float64 `json:"freq_mhz"`
 	ErrorRate        float64 `json:"error_rate"`
+}
+
+// PairingInfoResponse contains pairing information
+type PairingInfoResponse struct {
+	MAC  string `json:"mac"`
+	CBSN string `json:"cb_sn"`
+}
+
+// SetAuthKeyRequest is the request to set the auth key
+type SetAuthKeyRequest struct {
+	PublicKey string `json:"public_key"`
+}
+
+// SetAuthKeyResponse is the response after setting the auth key
+type SetAuthKeyResponse struct {
+	Message string `json:"message"`
 }
 
 // HardwareInfo contains hardware information
@@ -506,6 +527,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Telemetry
 	mux.HandleFunc("/api/v1/telemetry", h.handleTelemetry)
 	mux.HandleFunc("/api/v1/timeseries", h.handleTimeseries)
+
+	// Pairing
+	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo)
+	mux.HandleFunc("/api/v1/pairing/auth-key", h.handlePairingAuthKey)
 }
 
 // Helper functions
@@ -1174,6 +1199,17 @@ func (h *RESTApiHandler) handleMining(w http.ResponseWriter, r *http.Request) {
 	powerTarget := h.state.PowerTargetW
 	h.state.mu.RUnlock()
 
+	hashboardsInstalled := h.state.GetHashboardCount()
+	hashboardsMining := 0
+	if miningState == miner_data_api.MiningState_MINING_STATE_MINING ||
+		miningState == miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING {
+		for i := range defaultHashboardCount {
+			if !h.state.IsHashboardMissing(i) && !h.state.IsHashboardInError(i) {
+				hashboardsMining++
+			}
+		}
+	}
+
 	h.writeJSON(w, http.StatusOK, MiningStatus{
 		MiningStatus: MiningStatusInner{
 			Status:              h.miningStateToString(miningState),
@@ -1189,6 +1225,8 @@ func (h *RESTApiHandler) handleMining(w http.ResponseWriter, r *http.Request) {
 			AverageASICTempC:    applyVariation(defaultASICTemperature, telemetryVariation),
 			AverageHBEfficiency: efficiency,
 			HWErrors:            0,
+			HashboardsInstalled: hashboardsInstalled,
+			HashboardsMining:    hashboardsMining,
 		},
 	})
 }
@@ -1537,10 +1575,13 @@ func (h *RESTApiHandler) handleHashboardByID(w http.ResponseWriter, r *http.Requ
 			asicHashrate = 0
 		}
 
+		row := asicID / 10
+		col := asicID % 10
 		asic := ASICStats{
 			Index:            asicID,
-			Row:              asicID / 10,
-			Column:           asicID % 10,
+			ID:               fmt.Sprintf("%c%d", 'A'+row, col),
+			Row:              row,
+			Column:           col,
 			HashrateGHS:      asicHashrate * 1000,
 			IdealHashrateGHS: defaultASICHashrate * 1000,
 			TempC:            applyVariation(defaultASICTemperature, telemetryVariation),
@@ -1706,6 +1747,7 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 		h.state.mu.RLock()
 		mode := h.state.CoolingMode
 		speedPct := h.state.FanSpeedPct
+		targetTempC := h.state.TargetTempC
 		h.state.mu.RUnlock()
 
 		fans := make([]FanStatus, 4)
@@ -1719,13 +1761,16 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		h.writeJSON(w, http.StatusOK, CoolingStatus{
-			CoolingStatus: CoolingStatusInner{
-				FanMode:         h.coolingModeToString(mode),
-				SpeedPercentage: int(speedPct),
-				Fans:            fans,
-			},
-		})
+		status := CoolingStatusInner{
+			FanMode:         h.coolingModeToString(mode),
+			SpeedPercentage: int(speedPct),
+			Fans:            fans,
+		}
+		if mode == miner_data_api.CoolingMode_COOLING_MODE_AUTO {
+			status.TargetTempC = &targetTempC
+		}
+
+		h.writeJSON(w, http.StatusOK, CoolingStatus{CoolingStatus: status})
 
 	case http.MethodPut:
 		var config CoolingConfig
@@ -1740,7 +1785,11 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 			sp := uint32(*config.SpeedPercentage)
 			speedPct = &sp
 		}
-		h.state.SetCoolingMode(mode, speedPct)
+		targetTempC := config.TargetTempC
+		if mode != miner_data_api.CoolingMode_COOLING_MODE_AUTO {
+			targetTempC = nil
+		}
+		h.state.SetCoolingMode(mode, speedPct, targetTempC)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Cooling configuration updated"})
 
@@ -1939,6 +1988,58 @@ func (h *RESTApiHandler) generatePSUsTelemetry() []PSUTelemetry {
 	}
 
 	return psus
+}
+
+// Pairing handlers
+
+func (h *RESTApiHandler) handlePairingInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, PairingInfoResponse{
+		MAC:  h.state.MacAddress,
+		CBSN: h.state.SerialNumber,
+	})
+}
+
+func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		// Key rotation requires auth when already paired
+		if existing := h.state.GetAuthKey(); existing != "" {
+			if r.Header.Get("Authorization") == "" {
+				h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required for key rotation")
+				return
+			}
+		}
+
+		var req SetAuthKeyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+
+		if req.PublicKey == "" {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "public_key is required")
+			return
+		}
+
+		h.state.SetAuthKey(req.PublicKey)
+		h.writeJSON(w, http.StatusOK, SetAuthKeyResponse{Message: "Auth key set successfully"})
+
+	case http.MethodDelete:
+		if r.Header.Get("Authorization") == "" {
+			h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+			return
+		}
+		h.state.ClearAuthKey()
+		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Auth key cleared successfully"})
+
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
 }
 
 func (h *RESTApiHandler) handleTimeseries(w http.ResponseWriter, r *http.Request) {

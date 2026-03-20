@@ -16,12 +16,12 @@ export interface Aggregates {
    * Average value in data.
    * @example 50.5
    */
-  avg?: number;
+  avg?: number | null;
   /**
    * Maximum value in data.
    * @example 100.5
    */
-  max?: number;
+  max?: number | null;
   /**
    * Minimum value in data.
    * @example 0.5
@@ -53,10 +53,15 @@ export interface AsicStats {
    */
   freq_mhz?: number;
   /**
-   * The current hash rate of the ASIC, measured in GH/s.
+   * The current hashrate of the ASIC, measured in GH/s.
    * @example 300.05
    */
   hashrate_ghs?: number;
+  /**
+   * Human-readable ASIC identifier (e.g. "A0", "B3").
+   * @example "A0"
+   */
+  id?: string;
   /**
    * The expected hashrate determined by the clock frequency of the ASIC, measured in GH/s.
    * @example 300.05
@@ -284,6 +289,12 @@ export interface CoolingConfig {
    * @example 75
    */
   speed_percentage?: number;
+  /**
+   * Target temperature in Celsius for automatic fan control. Used only when mode is Auto to override the default temperature target.
+   * @format float
+   * @example 50
+   */
+  target_temperature_c?: number;
 }
 
 /** Current cooling system status and fan information */
@@ -312,6 +323,12 @@ export interface CoolingStatusCoolingstatus {
    * @example 55
    */
   speed_percentage?: number;
+  /**
+   * Current target temperature in Celsius for automatic fan control. Only present when mode is Auto.
+   * @format float
+   * @example 50
+   */
+  target_temperature_c?: number;
 }
 
 export interface DeletePoolParams {
@@ -631,7 +648,7 @@ export interface HashboardInfo {
    */
   hb_sn?: string;
   /** @example "BZM" */
-  mining_asic?: "BZM" | "MC1" | "MC2";
+  mining_asic?: "BZM" | "MC1" | "MC2" | "MC3";
   /**
    * Number of asics on the hashboard.
    * @example 100
@@ -672,16 +689,16 @@ export interface HashboardStatsHashboardstats {
    * The efficiency of the hashboard in joules per terahash.
    * @example 40.05
    */
-  efficiency_jth?: number;
+  efficiency_jth?: number | null;
   /**
-   * The current hash rate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
+   * The current hashrate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
    * @example 300.05
    */
   hashrate_ghs?: number;
   /** Manufacturing serial number of the hashboard, used for subsequent API calls. */
   hb_sn?: string;
   /**
-   * The expected hashrate is determined by the clock frequency of the all ASIC on the hash board, measured in GH/s.
+   * The expected hashrate is determined by the clock frequency of the all ASIC on the hashboard, measured in GH/s.
    * @example 300.05
    */
   ideal_hashrate_ghs?: number;
@@ -894,7 +911,7 @@ export interface MiningStatusMiningstatus {
    */
   average_asic_temp_c?: number;
   /**
-   * The average hash rate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
+   * The average hashrate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
    * @example 110000.2
    */
   average_hashrate_ghs?: number;
@@ -905,6 +922,16 @@ export interface MiningStatusMiningstatus {
    * @example 60
    */
   average_hb_temp_c?: number | null;
+  /**
+   * The number of hashboards installed (detected) in the miner.
+   * @example 4
+   */
+  hashboards_installed?: number;
+  /**
+   * The number of hashboards currently in the mining state.
+   * @example 4
+   */
+  hashboards_mining?: number;
   /**
    * The number of hardware errors that have occurred during the mining operation.
    * @example 100
@@ -960,6 +987,11 @@ export interface MiningTarget {
    */
   balance_bays?: boolean;
   /**
+   * If true, continue mining even when no valid pools are available. If false, stop mining when no valid pools are available.
+   * @example false
+   */
+  hash_on_disconnect?: boolean;
+  /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
    *  - Efficiency: Will run at or below the power target to optimize J/TH.
@@ -979,6 +1011,11 @@ export interface MiningTargetResponse {
   /** @example 2500 */
   default_power_target_watts?: number;
   /**
+   * If true, continue mining even when no valid pools are available. If false, stop mining when no valid pools are available.
+   * @example false
+   */
+  hash_on_disconnect?: boolean;
+  /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
    *  - Efficiency: Will run at or below the power target to optimize J/TH.
@@ -990,6 +1027,22 @@ export interface MiningTargetResponse {
   power_target_min_watts?: number;
   /** @example 3000 */
   power_target_watts?: number;
+}
+
+/**
+ * The hashboard performance tuning algorithm
+ * @example "None"
+ */
+export enum MiningTuning {
+  None = "None",
+  VoltageImbalanceCompensation = "VoltageImbalanceCompensation",
+  Fuzzing = "Fuzzing",
+}
+
+/** Mining tuning configuration for setting hashboard optimization algorithms */
+export interface MiningTuningConfig {
+  /** The hashboard performance tuning algorithm */
+  algorithm: MiningTuning;
 }
 
 /** Network configuration settings for DHCP or static IP setup */
@@ -1077,6 +1130,20 @@ export interface OSStatus {
   rootfs_free_mb?: number;
   /** @example 1024 */
   rootfs_total_mb?: number;
+}
+
+/** Pairing information response containing MAC address and serial number */
+export interface PairingInfoResponse {
+  /**
+   * Control board serial number
+   * @example "PROTO-B4-001"
+   */
+  cb_sn: string;
+  /**
+   * MAC address of the device
+   * @example "00:11:22:33:44:55"
+   */
+  mac: string;
 }
 
 /** Password data for authentication operations */
@@ -1237,7 +1304,7 @@ export interface PoolResponse {
 
 /**
  * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
- * @example "stratum+tcp://myuser.worker1:x@btc.pool.com:3333"
+ * @example "stratum+tcp://stratum.braiins.com:3333"
  */
 export type PoolUrl = string;
 
@@ -1471,6 +1538,24 @@ export interface SWInfo {
   version?: string;
 }
 
+/** Request to set the authentication public key */
+export interface SetAuthKeyRequest {
+  /**
+   * EdDSA public key as base64-encoded DER (SPKI)
+   * @example "MCowBQYDK2VwAyEAGb1gauf6Rn+VgMwMeMHFBjBLHaiv83R1RV5MhFqxTW0="
+   */
+  public_key: string;
+}
+
+/** Response after setting or clearing the auth key */
+export interface SetAuthKeyResponse {
+  /**
+   * Status message
+   * @example "Auth key set successfully"
+   */
+  message: string;
+}
+
 /** Configuration for SSH access */
 export interface SshConfig {
   /** SSH service status information */
@@ -1648,7 +1733,7 @@ export interface TimeSeriesData {
    * Value of data requested at the given datetime.
    * @example 95.5
    */
-  value?: number;
+  value?: number | null;
 }
 
 /**
@@ -1762,7 +1847,7 @@ export interface TimeSeriesMetricData {
    * Array of values at each time interval
    * @example [95,94.5,94.8]
    */
-  values?: number[];
+  values?: (number | null)[];
 }
 
 /** Request parameters for time series data query */
@@ -1946,7 +2031,7 @@ export enum ContentType {
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public baseUrl: string = "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0";
+  public baseUrl: string = "";
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
@@ -2120,9 +2205,9 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.7.3
+ * @version 1.8.0
  * @license MIT (https://opensource.org/license/mit)
- * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
+ * @baseUrl http://127.0.0.1:8080
  * @contact <mining.support@block.xyz>
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
@@ -2393,6 +2478,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     editMiningTarget: (data: MiningTarget, params: RequestParams = {}) =>
       this.request<MiningTargetResponse, MessageResponse>({
         path: `/api/v1/mining/target`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The mining tuning endpoint can be used to set a hashboard level optimization algorithm
+     *
+     * @tags Mining
+     * @name EditMiningTuning
+     * @request PUT:/api/v1/mining/tuning
+     * @secure
+     */
+    editMiningTuning: (data: MiningTuningConfig, params: RequestParams = {}) =>
+      this.request<MiningTuningConfig, MessageResponse>({
+        path: `/api/v1/mining/tuning`,
         method: "PUT",
         body: data,
         secure: true,
@@ -2881,7 +2985,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.
+     * @description The cooling endpoint provides information on the cooling status of the device, including mode, current fan RPM, and target temperature.
      *
      * @tags Cooling
      * @name GetCooling
@@ -2896,7 +3000,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The cooling configuration endpoint allows the user to control the fan mode.
+     * @description The cooling configuration endpoint allows the user to control the fan mode, speed percentage (for Manual mode), and target temperature (for Auto mode).
      *
      * @tags Cooling
      * @name SetCoolingMode
@@ -3021,7 +3125,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/telemetry
      */
     getSystemTelemetryEnabled: (params: RequestParams = {}) =>
-      this.request<TelemetryResponse, MessageResponse>({
+      this.request<TelemetryResponse, TelemetryResponse>({
         path: `/api/v1/system/telemetry`,
         method: "GET",
         format: "json",
@@ -3036,7 +3140,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/telemetry
      */
     setSystemTelemetryEnabled: (data: TelemetryConfig, params: RequestParams = {}) =>
-      this.request<TelemetryResponse, MessageResponse>({
+      this.request<TelemetryResponse, MessageResponse | TelemetryResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
         body: data,
@@ -3075,6 +3179,55 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/telemetry`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get pairing information including MAC address and serial number. This endpoint does not require authentication.
+     *
+     * @tags Pairing
+     * @name GetPairingInfo
+     * @request GET:/api/v1/pairing/info
+     */
+    getPairingInfo: (params: RequestParams = {}) =>
+      this.request<PairingInfoResponse, any>({
+        path: `/api/v1/pairing/info`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the authentication public key for pairing. On first pair this endpoint does not require authentication. On key rotation, authentication is required.
+     *
+     * @tags Pairing
+     * @name SetAuthKey
+     * @request POST:/api/v1/pairing/auth-key
+     */
+    setAuthKey: (data: SetAuthKeyRequest, params: RequestParams = {}) =>
+      this.request<SetAuthKeyResponse, ErrorResponse>({
+        path: `/api/v1/pairing/auth-key`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clear the authentication public key. This endpoint requires authentication.
+     *
+     * @tags Pairing
+     * @name ClearAuthKey
+     * @request DELETE:/api/v1/pairing/auth-key
+     * @secure
+     */
+    clearAuthKey: (params: RequestParams = {}) =>
+      this.request<MessageResponse, ErrorResponse>({
+        path: `/api/v1/pairing/auth-key`,
+        method: "DELETE",
+        secure: true,
         format: "json",
         ...params,
       }),

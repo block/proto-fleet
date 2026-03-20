@@ -111,17 +111,25 @@ func (h *CommandApiHandler) SetCoolingMode(ctx context.Context, req *connect.Req
 		speedPct = &defaultSpeed
 	}
 
-	h.state.SetCoolingMode(mode, speedPct)
+	var targetTempC *float64
+	if mode == miner_data_api.CoolingMode_COOLING_MODE_AUTO && req.Msg.TargetTemperatureC != nil {
+		v := float64(*req.Msg.TargetTemperatureC)
+		targetTempC = &v
+	}
+
+	h.state.SetCoolingMode(mode, speedPct, targetTempC)
 	log.Printf("Cooling mode set: %v (SN: %s)", mode, h.state.SerialNumber)
 
 	h.state.mu.RLock()
 	currentSpeed := h.state.FanSpeedPct
+	currentTargetTempC := h.state.TargetTempC
 	h.state.mu.RUnlock()
 
 	return connect.NewResponse(&miner_data_api.CoolingModeResponse{
-		Result:          miner_common_api.ApiResult_RESULT_SUCCESS,
-		Mode:            mode,
-		SpeedPercentage: currentSpeed,
+		Result:             miner_common_api.ApiResult_RESULT_SUCCESS,
+		Mode:               mode,
+		SpeedPercentage:    currentSpeed,
+		TargetTemperatureC: float32(currentTargetTempC),
 	}), nil
 }
 

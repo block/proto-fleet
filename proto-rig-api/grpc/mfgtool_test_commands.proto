@@ -14,10 +14,8 @@ package mfgtool_test_commands;
 option go_package = "pkg/proto;miner_rpc";
 
 import "miner_common_api.proto";
-import "miner_data_api.proto";
 import "miner_debug_api.proto";
 import "miner_ui_api.proto";
-import "miner_fan_api.proto";
 import "miner_psu_api.proto";
 
 enum ButtonState {

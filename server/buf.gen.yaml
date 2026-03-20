@@ -76,3 +76,18 @@ managed:
     - file_option: go_package
       value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_test_api
       path: miner_psu_test_api.proto
+    - file_option: go_package
+      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard
+      path: hashboard.proto
+    - file_option: go_package
+      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_async
+      path: hashboard_async.proto
+    - file_option: go_package
+      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd
+      path: hashboard_cmd.proto
+    - file_option: go_package
+      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd_debug
+      path: hashboard_cmd_debug.proto
+    - file_option: go_package
+      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd_mfgtest
+      path: hashboard_cmd_mfgtest.proto

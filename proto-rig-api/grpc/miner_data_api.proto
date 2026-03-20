@@ -26,6 +26,7 @@ import "miner_common_api.proto";
 import "miner_error_code.proto";
 import "miner_psu_api.proto";
 import "miner_fan_api.proto";
+import "hashboard_cmd.proto";
 
 // ---------------------------------
 // Miner Data API service definition
@@ -289,6 +290,7 @@ message CoolingModeResponse {
     miner_common_api.ApiResult result = 1;
     CoolingMode mode = 2;
     uint32 speed_percentage = 4;
+    float target_temperature_c = 5;
     repeated miner_fan_api.FanStatus fan_status = 3;
 }
 
@@ -497,6 +499,7 @@ message HashboardStatusResponse {
 
     MiningStatistics mining_statistics = 10;
     repeated AsicStatusResponse asics = 11;
+
 }
 
 message AsicMiningStatistics {
@@ -520,6 +523,9 @@ message AsicStatusResponse {
     uint32 column = 4;
 
     AsicMiningStatistics mining_statistics = 5;
+
+    // Human-readable ASIC identifier (e.g. "A0", "B3").
+    string asic_id = 6;
 }
 
 message SoftwareInfo {
@@ -604,22 +610,10 @@ message ErrorsResponse {
 // ---------------------------------------------------
 
 message HashboardAsicMetadata {
-    // ASIC metadata structure (matches hashboard proto definition)
-    message AsicMetadata {
-        string lot_id = 1;
-        string wafer_id = 2;
-        uint32 die_x = 3;
-        uint32 die_y = 4;
-        uint32 binning_version = 5;
-        uint32 binning = 6;
-        bool valid = 7;
-        uint64 grwvpl = 8; // Manufacturer Part Number
-    }
-
     string serial_number = 1;
     uint32 hashboard_id = 2;
     uint32 slot = 3;
-    repeated AsicMetadata asic_metadata = 4;
+    repeated fwpb.asic_metadata asic_metadata = 4;
 }
 
 message GetAsicMetadataResponse {

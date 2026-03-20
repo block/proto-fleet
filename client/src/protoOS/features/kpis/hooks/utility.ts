@@ -6,8 +6,8 @@ import { convertMegahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/ut
 export const conversionFns = {
   hashrate: convertMegahashSecToTerahashSec,
   powerUsage: convertWtoKW,
-  temperature: (value?: number) => (value ? value : 0),
-  efficiency: (value?: number) => (value ? value : 0),
+  temperature: (value?: number | null) => (value ? value : 0),
+  efficiency: (value?: number | null) => (value ? value : 0),
 } as const;
 
 // make generic where you can pass conversion function in
@@ -20,7 +20,7 @@ export const convertHashrateValues = (data: TimeSeriesData[]) => {
   );
 };
 
-export const convertValues = (data: TimeSeriesData[], convertFn: (value?: number) => number) => {
+export const convertValues = (data: TimeSeriesData[], convertFn: (value?: number | null) => number) => {
   return (
     data?.map((dataItem) => ({
       datetime: dataItem.datetime,
@@ -106,7 +106,7 @@ export const aggregateValues = (dataToAggregate: TimeSeriesData[] = [], compareT
 
 export const convertAggregateValues = (
   aggregates?: Aggregates,
-  convertFn: (value?: number) => number = convertMegahashSecToTerahashSec,
+  convertFn: (value?: number | null) => number = convertMegahashSecToTerahashSec,
 ) => {
   return Object.keys(aggregates || {}).reduce((acc = {}, key: string) => {
     const aggregateKey = key as keyof Aggregates;

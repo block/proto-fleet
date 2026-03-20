@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd"
 	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
@@ -40,6 +41,7 @@ func (h *DataApiHandler) GetCoolingMode(ctx context.Context, req *connect.Reques
 	h.state.mu.RLock()
 	mode := h.state.CoolingMode
 	speedPct := h.state.FanSpeedPct
+	targetTempC := h.state.TargetTempC
 	h.state.mu.RUnlock()
 
 	// Generate fan status for 4 fans
@@ -56,10 +58,11 @@ func (h *DataApiHandler) GetCoolingMode(ctx context.Context, req *connect.Reques
 	}
 
 	return connect.NewResponse(&miner_data_api.CoolingModeResponse{
-		Result:          miner_common_api.ApiResult_RESULT_SUCCESS,
-		Mode:            mode,
-		SpeedPercentage: speedPct,
-		FanStatus:       fanStatus,
+		Result:             miner_common_api.ApiResult_RESULT_SUCCESS,
+		Mode:               mode,
+		SpeedPercentage:    speedPct,
+		TargetTemperatureC: float32(targetTempC),
+		FanStatus:          fanStatus,
 	}), nil
 }
 
@@ -570,9 +573,9 @@ func (h *DataApiHandler) GetAsicMetadata(ctx context.Context, req *connect.Reque
 			continue
 		}
 
-		asics := make([]*miner_data_api.HashboardAsicMetadata_AsicMetadata, defaultASICCount)
+		asics := make([]*hashboard_cmd.AsicMetadata, defaultASICCount)
 		for j := range defaultASICCount {
-			asics[j] = &miner_data_api.HashboardAsicMetadata_AsicMetadata{
+			asics[j] = &hashboard_cmd.AsicMetadata{
 				LotId:          fmt.Sprintf("LOT-%04d", i),
 				WaferId:        fmt.Sprintf("W%02d", j%25),
 				DieX:           uint32(j % 10),
@@ -580,7 +583,6 @@ func (h *DataApiHandler) GetAsicMetadata(ctx context.Context, req *connect.Reque
 				BinningVersion: 1,
 				Binning:        3,
 				Valid:          true,
-				Grwvpl:         uint64(1000000 + i*1000 + j),
 			}
 		}
 

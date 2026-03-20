@@ -51,6 +51,7 @@ message PowerTargetRequest {
 message CoolingModeRequest {
     miner_data_api.CoolingMode mode = 1;
     optional uint32 speed_percentage = 2; // only used for Manual mode
+    optional float target_temperature_c = 3; // only used for Auto mode, override the default temperature target
 }
 
 message PoolsRequest {

@@ -7,7 +7,7 @@ This directory contains vendored API specifications for the Proto miner devices.
 ```
 proto-rig-api/
 ├── grpc/           # Protocol Buffer definitions for gRPC API
-│   └── *.proto     # 13 proto files defining miner services
+│   └── *.proto     # 18 proto files defining miner and hashboard services
 ├── openapi/        # OpenAPI specification for REST API
 │   └── MDK-API.json
 ├── VERSION.md      # Version tracking (single source of truth)

@@ -10,7 +10,7 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.7.6"
+    "version": "1.8.0"
   },
   "servers": [
     {
@@ -94,6 +94,10 @@
     {
       "name": "System Tag",
       "description": "The system tag endpoint group provides a simple way to set and retrieve a custom tag for the mining device."
+    },
+    {
+      "name": "Pairing",
+      "description": "The pairing endpoint group provides device pairing functionality including retrieving pairing info and managing authentication keys."
     }
   ],
   "paths": {
@@ -1853,7 +1857,7 @@
         "tags": [
           "Cooling"
         ],
-        "description": "The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.",
+        "description": "The cooling endpoint provides information on the cooling status of the device, including mode, current fan RPM, and target temperature.",
         "operationId": "GetCooling",
         "responses": {
           "200": {
@@ -1875,7 +1879,7 @@
         "tags": [
           "Cooling"
         ],
-        "description": "The cooling configuration endpoint allows the user to control the fan mode.",
+        "description": "The cooling configuration endpoint allows the user to control the fan mode, speed percentage (for Manual mode), and target temperature (for Auto mode).",
         "operationId": "SetCoolingMode",
         "requestBody": {
           "description": "Cooling system configuration settings for fan control",
@@ -2735,6 +2739,103 @@
           }
         }
       }
+    },
+    "/api/v1/pairing/info": {
+      "get": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Get pairing information including MAC address and serial number. This endpoint does not require authentication.",
+        "operationId": "GetPairingInfo",
+        "responses": {
+          "200": {
+            "description": "Pairing information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pairing/auth-key": {
+      "post": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Set the authentication public key for pairing. On first pair this endpoint does not require authentication. On key rotation, authentication is required.",
+        "operationId": "SetAuthKey",
+        "requestBody": {
+          "description": "The EdDSA public key to set for device authentication",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAuthKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Auth key set successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAuthKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Pairing"
+        ],
+        "description": "Clear the authentication public key. This endpoint requires authentication.",
+        "operationId": "ClearAuthKey",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth key cleared successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2823,6 +2924,12 @@
             "minimum": 0,
             "maximum": 100,
             "example": 75
+          },
+          "target_temperature_c": {
+            "type": "number",
+            "format": "float",
+            "description": "Target temperature in Celsius for automatic fan control. Used only when mode is Auto to override the default temperature target.",
+            "example": 50.0
           }
         }
       },
@@ -3082,6 +3189,11 @@
             "type": "integer",
             "description": "Zero-based index of the ASIC on the hashboard (first ASIC is 0).",
             "example": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "Human-readable ASIC identifier (e.g. \"A0\", \"B3\").",
+            "example": "A0"
           },
           "row": {
             "type": "integer",
@@ -3697,6 +3809,16 @@
             "type": "integer",
             "description": "The number of hardware errors that have occurred during the mining operation.",
             "example": 100
+          },
+          "hashboards_installed": {
+            "type": "integer",
+            "description": "The number of hashboards installed (detected) in the miner.",
+            "example": 4
+          },
+          "hashboards_mining": {
+            "type": "integer",
+            "description": "The number of hashboards currently in the mining state.",
+            "example": 4
           }
         }
       },
@@ -3803,6 +3925,12 @@
             "maximum": 100,
             "example": 55
           },
+          "target_temperature_c": {
+            "type": "number",
+            "format": "float",
+            "description": "Current target temperature in Celsius for automatic fan control. Only present when mode is Auto.",
+            "example": 50.0
+          },
           "fans": {
             "type": "array",
             "description": "This will show speed of all fans in the system.",
@@ -3882,7 +4010,7 @@
               "BZM",
               "MC1",
               "MC2",
-              "Mc3"
+              "MC3"
             ]
           },
           "mining_asic_count": {
@@ -5044,9 +5172,9 @@
               ]
             },
             "example": [
-              95.00,
-              94.50,
-              94.80
+              95.0,
+              94.5,
+              94.8
             ]
           },
           "aggregates": {
@@ -5061,7 +5189,7 @@
           "min": {
             "type": "number",
             "description": "Minimum value in the series",
-            "example": 94.00
+            "example": 94.0
           },
           "avg": {
             "type": "number",
@@ -5071,7 +5199,7 @@
           "max": {
             "type": "number",
             "description": "Maximum value in the series",
-            "example": 95.50
+            "example": 95.5
           }
         }
       },
@@ -5441,6 +5569,54 @@
         "required": [
           "unit",
           "values"
+        ]
+      },
+      "PairingInfoResponse": {
+        "description": "Pairing information response containing MAC address and serial number",
+        "type": "object",
+        "properties": {
+          "mac": {
+            "type": "string",
+            "description": "MAC address of the device",
+            "example": "00:11:22:33:44:55"
+          },
+          "cb_sn": {
+            "type": "string",
+            "description": "Control board serial number",
+            "example": "PROTO-B4-001"
+          }
+        },
+        "required": [
+          "mac",
+          "cb_sn"
+        ]
+      },
+      "SetAuthKeyRequest": {
+        "description": "Request to set the authentication public key",
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "EdDSA public key as base64-encoded DER (SPKI)",
+            "example": "MCowBQYDK2VwAyEAGb1gauf6Rn+VgMwMeMHFBjBLHaiv83R1RV5MhFqxTW0="
+          }
+        },
+        "required": [
+          "public_key"
+        ]
+      },
+      "SetAuthKeyResponse": {
+        "description": "Response after setting or clearing the auth key",
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Status message",
+            "example": "Auth key set successfully"
+          }
+        },
+        "required": [
+          "message"
         ]
       }
     },

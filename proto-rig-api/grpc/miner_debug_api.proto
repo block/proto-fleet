@@ -22,7 +22,6 @@ option go_package = "pkg/proto;miner_rpc";
 import "miner_common_api.proto";
 import "miner_data_api.proto";
 import "miner_error_code.proto";
-import "miner_fan_api.proto";
 import "miner_psu_api.proto";
 
 // ----------------------------------
@@ -46,9 +45,6 @@ service MinerDebugApi {
     rpc ClearPsuFaults(PsuRequest) returns (miner_common_api.ApiResultResponse);
     rpc SetVoltageTuningMode(VoltageTuningModeRequest) returns (miner_common_api.ApiResultResponse);
 
-    // Hashboard debug functionality
-    rpc GetHashboardsRecoveryInfo(miner_common_api.EmptyRequest) returns (HashboardsRecoveryInfoResponse);
-
     // Notifications
     rpc CreateMinerNotificationEvent(miner_error_code.Error) returns (miner_common_api.ApiResultResponse);
     rpc ClearMinerNotificationEvent(miner_error_code.Error) returns (miner_common_api.ApiResultResponse);
@@ -62,8 +58,8 @@ service MinerDebugApi {
     rpc GetFanSpeed(miner_common_api.EmptyRequest) returns (GetFanSpeedResponse);
 
     // Temperature control
-    rpc SetTemperatureThreshold(SetTemperatureThresholdRequest) returns (miner_common_api.ApiResultResponse);
-    rpc SetTemperaturePidTuning(SetTemperaturePidTuningRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetTemperaturePowerThrottleConfig(TemperaturePowerThrottleRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetTemperatureFanControlConfig(TemperatureFanControlRequest) returns (miner_common_api.ApiResultResponse);
 
     // Operating stats
     rpc GetMinerErrorStats(miner_common_api.EmptyRequest) returns (MinerErrorStats);
@@ -200,13 +196,16 @@ message FanSpeed {
 // Temperature control messages
 // ----------------------------
 
-message SetTemperatureThresholdRequest {
-    float threshold_c = 1;
+message TemperaturePowerThrottleRequest {
+    optional float threshold_c = 1;
+    optional float pid_p = 2;
+    optional float pid_i = 3;
 }
 
-message SetTemperaturePidTuningRequest {
-    float kp = 1;
-    float ki = 2;
+message TemperatureFanControlRequest {
+    optional float target_c = 1;
+    optional float pid_p = 2;
+    optional float pid_i = 3;
 }
 
 // ----------------------------
@@ -271,38 +270,6 @@ message TemperatureTargetRequest {
 
 message TemperatureTargetResponse {
     miner_common_api.ApiResult result = 1;
-}
-
-// --------------------------
-// Hashboard service messages
-// --------------------------
-
-message RecoveryLog {
-    miner_data_api.HashboardState state_before_error = 1;
-    miner_common_api.Timestamp timestamp = 2;
-    string error = 3;
-    uint32 power_on_count = 4;
-    uint32 uptime_before_error = 5;
-}
-
-message RecoveryInfo {
-    string serial_number = 1;
-    uint32 slot = 2;
-    miner_data_api.HashboardState current_state = 3;
-    uint32 current_power_on_count = 4;
-    uint32 current_uptime = 5;
-    repeated RecoveryLog logs = 6;
-    float temp_max_c = 7;
-    float temp_avg_c = 8;
-    float temp_min_c = 9;
-    float actual_hashrate_th = 10;
-    float expected_hashrate_th = 11;
-}
-
-message HashboardsRecoveryInfoResponse {
-    miner_common_api.ApiResult result = 1;
-    repeated RecoveryInfo hashboards = 2;
-    miner_data_api.MiningState mining_state = 3;
 }
 
 // ----------------
