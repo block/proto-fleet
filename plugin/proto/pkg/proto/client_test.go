@@ -729,10 +729,10 @@ type mockDataClient struct {
 	miningStatusError    error
 	poolsResponse        *miner_data_api.PoolsResponse
 	poolsError           error
-	softwareInfoResponse *miner_data_api.SoftwareInfoResponse
-	softwareInfoError    error
 	coolingModeResponse  *miner_data_api.CoolingModeResponse
 	coolingModeError     error
+	hardwareInfoResponse *miner_data_api.HardwareInfoResponse
+	hardwareInfoError    error
 }
 
 func (m *mockDataClient) GetMiningStatus(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
@@ -750,10 +750,7 @@ func (m *mockDataClient) GetPools(_ context.Context, _ *connect.Request[miner_co
 }
 
 func (m *mockDataClient) GetSoftwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error) {
-	if m.softwareInfoError != nil {
-		return nil, m.softwareInfoError
-	}
-	return connect.NewResponse(m.softwareInfoResponse), nil
+	return connect.NewResponse(&miner_data_api.SoftwareInfoResponse{}), nil
 }
 
 func (m *mockDataClient) GetCoolingMode(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
@@ -771,7 +768,13 @@ func (m *mockDataClient) GetPowerTarget(_ context.Context, _ *connect.Request[mi
 }
 
 func (m *mockDataClient) GetHardwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error) {
-	return nil, fmt.Errorf("not implemented")
+	if m.hardwareInfoError != nil {
+		return nil, m.hardwareInfoError
+	}
+	if m.hardwareInfoResponse != nil {
+		return connect.NewResponse(m.hardwareInfoResponse), nil
+	}
+	return connect.NewResponse(&miner_data_api.HardwareInfoResponse{}), nil
 }
 
 func (m *mockDataClient) GetHashboardStatus(_ context.Context, _ *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error) {
@@ -879,7 +882,6 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 				poolsResponse: &miner_data_api.PoolsResponse{
 					Pools: tt.pools,
 				},
-				softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
 			}
 
 			client := &Client{
@@ -944,14 +946,80 @@ func TestGetCoolingMode_Error(t *testing.T) {
 	assert.Equal(t, sdk.CoolingModeUnspecified, mode)
 }
 
+// TestGetFirmwareVersion tests the GetFirmwareVersion helper that extracts
+// ControlBoardInfo.firmware.version from the GetHardwareInfo response.
+func TestGetFirmwareVersion(t *testing.T) {
+	tests := []struct {
+		name            string
+		response        *miner_data_api.HardwareInfoResponse
+		err             error
+		expectedVersion string
+		expectErr       bool
+		errContains     string
+	}{
+		{
+			name: "success with firmware version populated",
+			response: &miner_data_api.HardwareInfoResponse{
+				CbInfo: &miner_data_api.ControlBoardInfo{
+					Firmware: &miner_data_api.ControlBoardInfo_ControlBoardLinuxAsset{
+						Version: "1.2.3",
+					},
+				},
+			},
+			expectedVersion: "1.2.3",
+		},
+		{
+			name:            "CbInfo is nil",
+			response:        &miner_data_api.HardwareInfoResponse{},
+			expectedVersion: "",
+		},
+		{
+			name: "Firmware is nil",
+			response: &miner_data_api.HardwareInfoResponse{
+				CbInfo: &miner_data_api.ControlBoardInfo{},
+			},
+			expectedVersion: "",
+		},
+		{
+			name:        "GetHardwareInfo returns error",
+			err:         fmt.Errorf("connection refused"),
+			expectErr:   true,
+			errContains: "failed to get hardware info",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockDataClient{
+				hardwareInfoResponse: tt.response,
+				hardwareInfoError:    tt.err,
+			}
+
+			client := &Client{
+				dataClient: mockClient,
+			}
+
+			version, err := client.GetFirmwareVersion(t.Context())
+
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Empty(t, version)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedVersion, version)
+			}
+		})
+	}
+}
+
 // TestGetStatusPoolCheckError tests behavior when pool check fails
 func TestGetStatusPoolCheckError(t *testing.T) {
 	mockClient := &mockDataClient{
 		miningStatusResponse: &miner_data_api.MiningStatusResponse{
 			State: miner_data_api.MiningState_MINING_STATE_MINING,
 		},
-		poolsError:           fmt.Errorf("connection refused"),
-		softwareInfoResponse: &miner_data_api.SoftwareInfoResponse{},
+		poolsError: fmt.Errorf("connection refused"),
 	}
 
 	client := &Client{

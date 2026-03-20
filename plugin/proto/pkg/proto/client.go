@@ -96,9 +96,8 @@ type DeviceInfo struct {
 
 // Status represents the current status of a miner.
 type Status struct {
-	State           sdk.HealthStatus
-	ErrorMessage    string
-	FirmwareVersion string
+	State        sdk.HealthStatus
+	ErrorMessage string
 }
 
 // Pool represents a mining pool configuration.
@@ -336,6 +335,21 @@ func (c *Client) GetSoftwareInfo(ctx context.Context) (*connect.Response[miner_d
 	return c.dataClient.GetSoftwareInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 }
 
+// GetFirmwareVersion retrieves the OS firmware version from the control board.
+// This calls GetHardwareInfo and extracts ControlBoardInfo.firmware.version,
+// which is the OS version from /etc/os-release (matching what the protoOS UI shows).
+func (c *Client) GetFirmwareVersion(ctx context.Context) (string, error) {
+	ctx = c.withAuth(ctx)
+	resp, err := c.dataClient.GetHardwareInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return "", fmt.Errorf("failed to get hardware info: %w", err)
+	}
+	if resp.Msg.CbInfo != nil && resp.Msg.CbInfo.Firmware != nil {
+		return resp.Msg.CbInfo.Firmware.Version, nil
+	}
+	return "", nil
+}
+
 // GetDeviceInfo retrieves basic device information.
 //
 // This method demonstrates:
@@ -405,19 +419,9 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		state = sdk.HealthHealthyInactive
 	}
 
-	// Get firmware version from software info API
-	firmwareVersion := ""
-	swInfoResp, err := c.dataClient.GetSoftwareInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
-	if err != nil {
-		slog.Debug("failed to get software info", "error", err)
-	} else if swInfoResp.Msg.SwInfo != nil {
-		firmwareVersion = swInfoResp.Msg.SwInfo.Version
-	}
-
 	return &Status{
-		State:           state,
-		ErrorMessage:    "", // TODO: Extract from API when available
-		FirmwareVersion: firmwareVersion,
+		State:        state,
+		ErrorMessage: "", // TODO: Extract from API when available
 	}, nil
 }
 

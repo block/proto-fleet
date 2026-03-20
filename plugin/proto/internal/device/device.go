@@ -171,11 +171,11 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
 	if d.deviceInfo.FirmwareVersion == "" {
-		swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+		fwVersion, err := d.client.GetFirmwareVersion(ctx)
 		if err != nil {
-			slog.Debug("failed to get software info during DescribeDevice", "error", err)
-		} else if swInfoResp.Msg.SwInfo != nil {
-			d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+			slog.Debug("failed to get firmware version during DescribeDevice", "error", err)
+		} else if fwVersion != "" {
+			d.deviceInfo.FirmwareVersion = fwVersion
 		}
 	}
 
@@ -227,14 +227,14 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		return
 	}
 	d.lastFirmwareCheckAt = time.Now()
-	swInfoResp, err := d.client.GetSoftwareInfo(ctx)
+	fwVersion, err := d.client.GetFirmwareVersion(ctx)
 	if err != nil {
-		slog.Debug("failed to get software info during Status", "error", err)
+		slog.Debug("failed to get firmware version during Status", "error", err)
 		return
 	}
-	if swInfoResp.Msg.SwInfo != nil {
-		d.deviceInfo.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
-		metrics.FirmwareVersion = swInfoResp.Msg.SwInfo.Version
+	if fwVersion != "" {
+		d.deviceInfo.FirmwareVersion = fwVersion
+		metrics.FirmwareVersion = fwVersion
 	}
 }
 
