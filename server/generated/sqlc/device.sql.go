@@ -921,6 +921,117 @@ func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOffl
 	return items, nil
 }
 
+const getPairedDeviceByMACAddress = `-- name: GetPairedDeviceByMACAddress :many
+SELECT
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.mac_address = $1
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY d.id
+LIMIT 2
+`
+
+type GetPairedDeviceByMACAddressParams struct {
+	NormalizedMac string
+	OrgID         int64
+}
+
+type GetPairedDeviceByMACAddressRow struct {
+	DeviceIdentifier           string
+	MacAddress                 string
+	SerialNumber               sql.NullString
+	DiscoveredDeviceIdentifier string
+	DiscoveredDeviceID         int64
+}
+
+// Finds an existing paired device by MAC address for a given organization.
+// Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+// Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
+// which matches the normalized format stored in the database.
+func (q *Queries) GetPairedDeviceByMACAddress(ctx context.Context, arg GetPairedDeviceByMACAddressParams) ([]GetPairedDeviceByMACAddressRow, error) {
+	rows, err := q.query(ctx, q.getPairedDeviceByMACAddressStmt, getPairedDeviceByMACAddress, arg.NormalizedMac, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPairedDeviceByMACAddressRow
+	for rows.Next() {
+		var i GetPairedDeviceByMACAddressRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.DiscoveredDeviceIdentifier,
+			&i.DiscoveredDeviceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPairedDeviceBySerialNumber = `-- name: GetPairedDeviceBySerialNumber :one
+SELECT
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.serial_number = $1
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+LIMIT 1
+`
+
+type GetPairedDeviceBySerialNumberParams struct {
+	SerialNumber sql.NullString
+	OrgID        int64
+}
+
+type GetPairedDeviceBySerialNumberRow struct {
+	DeviceIdentifier           string
+	MacAddress                 string
+	SerialNumber               sql.NullString
+	DiscoveredDeviceIdentifier string
+	DiscoveredDeviceID         int64
+}
+
+// Finds an existing paired device by serial number for a given organization.
+// Used as fallback reconciliation when MAC address is not available during re-pairing.
+func (q *Queries) GetPairedDeviceBySerialNumber(ctx context.Context, arg GetPairedDeviceBySerialNumberParams) (GetPairedDeviceBySerialNumberRow, error) {
+	row := q.queryRow(ctx, q.getPairedDeviceBySerialNumberStmt, getPairedDeviceBySerialNumber, arg.SerialNumber, arg.OrgID)
+	var i GetPairedDeviceBySerialNumberRow
+	err := row.Scan(
+		&i.DeviceIdentifier,
+		&i.MacAddress,
+		&i.SerialNumber,
+		&i.DiscoveredDeviceIdentifier,
+		&i.DiscoveredDeviceID,
+	)
+	return i, err
+}
+
 const getPairedDevicesIds = `-- name: GetPairedDevicesIds :many
 SELECT
     d.id as device_id
@@ -1297,7 +1408,7 @@ func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDevice
 const updateDeviceInfo = `-- name: UpdateDeviceInfo :exec
 UPDATE device
 SET
-    mac_address = $1,
+    mac_address = COALESCE(NULLIF($1::text, ''), mac_address),
     serial_number = $2
 WHERE device_identifier = $3
   AND org_id = $4

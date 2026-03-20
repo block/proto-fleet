@@ -234,6 +234,26 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 	return i, err
 }
 
+const softDeleteDiscoveredDeviceByIdentifier = `-- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
+UPDATE discovered_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE device_identifier = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type SoftDeleteDiscoveredDeviceByIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+// Soft-deletes a discovered_device record. Used to clean up orphaned records
+// after device reconciliation during subnet migration.
+func (q *Queries) SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, arg SoftDeleteDiscoveredDeviceByIdentifierParams) error {
+	_, err := q.exec(ctx, q.softDeleteDiscoveredDeviceByIdentifierStmt, softDeleteDiscoveredDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
+	return err
+}
+
 const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
 UPDATE discovered_device dd
 SET firmware_version = $2

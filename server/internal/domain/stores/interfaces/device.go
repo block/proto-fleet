@@ -116,4 +116,16 @@ type DeviceStore interface {
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error
+	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*PairedDeviceInfo, error)
+	GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*PairedDeviceInfo, error)
+}
+
+// PairedDeviceInfo contains information about an existing paired device found during reconciliation.
+// Used during discovery/pairing reconciliation to detect devices that moved to a new IP/subnet.
+type PairedDeviceInfo struct {
+	DeviceIdentifier           string
+	MacAddress                 string
+	SerialNumber               string
+	DiscoveredDeviceIdentifier string
+	DiscoveredDeviceID         int64
 }

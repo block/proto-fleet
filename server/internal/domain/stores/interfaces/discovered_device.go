@@ -29,4 +29,7 @@ type DiscoveredDeviceStore interface {
 
 	// CountActiveUnpairedDevices returns the total count of active unpaired devices for an organization
 	CountActiveUnpairedDevices(ctx context.Context, orgID int64) (int64, error)
+
+	// SoftDelete soft-deletes a discovered device record
+	SoftDelete(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) error
 }

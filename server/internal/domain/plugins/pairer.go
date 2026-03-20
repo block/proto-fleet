@@ -18,6 +18,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
@@ -170,7 +171,7 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	}
 
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
-	discoveredDevice.MacAddress = updatedDeviceInfo.MacAddress
+	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
@@ -193,11 +194,26 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 
 // handlePairViaStore saves the device to the database
 func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+	originalIdentifier := discoveredDevice.DeviceIdentifier
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		// Check if device already exists (e.g., from AUTHENTICATION_NEEDED status)
+		// Restore original identifier so retries after serialization failures start with clean state.
+		discoveredDevice.DeviceIdentifier = originalIdentifier
+
+		// Check if device already exists by its device_identifier (e.g., from AUTHENTICATION_NEEDED status)
 		existingDevice, err := p.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return fleeterror.NewInternalErrorf("failed to check if device exists: %v", err)
+		}
+
+		// Reconciliation still matters even when a row already exists under the current
+		// discovered identifier. That covers AUTHENTICATION_NEEDED retries after a subnet move,
+		// where the first unauthenticated attempt may have inserted a placeholder device row.
+		reconciledDevice, err := p.reconcileExistingDevice(ctx, discoveredDevice)
+		if err != nil {
+			return err
+		}
+		if reconciledDevice != nil {
+			existingDevice = reconciledDevice
 		}
 
 		if existingDevice == nil {
@@ -226,6 +242,130 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 
 		return nil
 	})
+}
+
+// reconcileExistingDevice tries to find an existing paired device that matches the newly
+// discovered device, first by MAC address, then by serial number as fallback.
+// This handles re-pairing after subnet migration for both Proto (MAC available) and
+// Antminer (only serial available after callPluginPairDevice) devices.
+func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+	// Try MAC-based reconciliation first
+	result, err := p.reconcileDeviceByMAC(ctx, discoveredDevice)
+	if err != nil {
+		return nil, err
+	}
+	if result != nil {
+		return result, nil
+	}
+
+	// Fallback: try serial-number-based reconciliation
+	return p.reconcileDeviceBySerial(ctx, discoveredDevice)
+}
+
+// reconcileDeviceBySerial checks if a paired device with the same serial number exists.
+// This is a fallback for devices where MAC is not available during pairing (e.g., Antminer).
+func (p *Pairer) reconcileDeviceBySerial(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+	serial := discoveredDevice.SerialNumber
+	if serial == "" {
+		return nil, nil
+	}
+
+	pairedDevice, err := p.deviceStore.GetPairedDeviceBySerialNumber(ctx, serial, discoveredDevice.OrgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to check for existing paired device by serial: %v", err)
+	}
+
+	if pairedDevice.DeviceIdentifier == discoveredDevice.DeviceIdentifier {
+		return nil, nil
+	}
+
+	slog.Info("reconciling paired device with new discovered device by serial number",
+		"serial_number", serial,
+		"paired_device_identifier", pairedDevice.DeviceIdentifier,
+		"old_discovered_device_identifier", pairedDevice.DiscoveredDeviceIdentifier,
+		"new_discovered_device_identifier", discoveredDevice.DeviceIdentifier,
+	)
+
+	return p.performReconciliation(ctx, discoveredDevice, pairedDevice)
+}
+
+// reconcileDeviceByMAC checks if a paired device with the same MAC address already exists.
+func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) (*pb.Device, error) {
+	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
+
+	pairedDevice, err := p.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, discoveredDevice.OrgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to check for existing paired device by MAC: %v", err)
+	}
+
+	if pairedDevice.DeviceIdentifier == discoveredDevice.DeviceIdentifier {
+		return nil, nil
+	}
+
+	// Cross-check serial number when available to avoid mismatches
+	if discoveredDevice.SerialNumber != "" && pairedDevice.SerialNumber != "" &&
+		discoveredDevice.SerialNumber != pairedDevice.SerialNumber {
+		slog.Warn("MAC address matches but serial number differs, skipping reconciliation",
+			"mac_address", mac,
+			"discovered_serial", discoveredDevice.SerialNumber,
+			"paired_serial", pairedDevice.SerialNumber,
+		)
+		return nil, nil
+	}
+
+	slog.Info("reconciling paired device with new discovered device by MAC",
+		"mac_address", mac,
+		"paired_device_identifier", pairedDevice.DeviceIdentifier,
+		"old_discovered_device_identifier", pairedDevice.DiscoveredDeviceIdentifier,
+		"new_discovered_device_identifier", discoveredDevice.DeviceIdentifier,
+	)
+
+	return p.performReconciliation(ctx, discoveredDevice, pairedDevice)
+}
+
+// performReconciliation updates the OLD discovered_device's network info to match the new one,
+// soft-deletes the NEW orphaned discovered_device record, and updates the discoveredDevice's
+// DeviceIdentifier to match the existing device. This enables re-pairing after a device
+// moves to a new subnet without breaking the device→discovered_device link.
+func (p *Pairer) performReconciliation(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, pairedDevice *interfaces.PairedDeviceInfo) (*pb.Device, error) {
+	// Update the OLD discovered_device's network info to match the new one
+	oldDOI := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: pairedDevice.DiscoveredDeviceIdentifier,
+		OrgID:            discoveredDevice.OrgID,
+	}
+	oldDiscoveredDevice, err := p.discoveredDeviceStore.GetDevice(ctx, oldDOI)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get old discovered device: %v", err)
+	}
+	oldDiscoveredDevice.UpdateNetworkInfo(discoveredDevice.IpAddress, discoveredDevice.Port, discoveredDevice.UrlScheme)
+	if _, err := p.discoveredDeviceStore.Save(ctx, oldDOI, oldDiscoveredDevice); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to update old discovered device network info: %v", err)
+	}
+
+	// Soft-delete the NEW orphaned discovered_device record (the one just created during discovery)
+	newDOI := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: discoveredDevice.DeviceIdentifier,
+		OrgID:            discoveredDevice.OrgID,
+	}
+	if err := p.discoveredDeviceStore.SoftDelete(ctx, newDOI); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to soft-delete new orphaned discovered device record: %v", err)
+	}
+
+	// Update the discoveredDevice's identifier to match the existing device record
+	// so that subsequent operations (credentials, pairing status) target the correct device
+	discoveredDevice.DeviceIdentifier = pairedDevice.DeviceIdentifier
+
+	return &pb.Device{
+		DeviceIdentifier: pairedDevice.DeviceIdentifier,
+		MacAddress:       pairedDevice.MacAddress,
+		SerialNumber:     pairedDevice.SerialNumber,
+	}, nil
 }
 
 // saveCredentials stores device-specific credentials based on the SecretBundle type.

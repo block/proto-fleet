@@ -71,7 +71,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				Model:        "S19",
 				Manufacturer: "Bitmain",
 				URLScheme:    "http",
-				MacAddress:   "00-11-22-33-44-55",
+				MacAddress:   "00:11:22:33:44:55",
 			},
 		},
 		{
@@ -81,7 +81,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				Model:        "S19 Pro",
 				Manufacturer: "Bitmain",
 				URLScheme:    "https",
-				MacAddress:   "00-11-22-33-44-66",
+				MacAddress:   "00:11:22:33:44:66",
 			},
 		},
 		{
@@ -91,7 +91,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				Model:        "Antminer S19 Pro",
 				Manufacturer: "",
 				URLScheme:    "http",
-				MacAddress:   "00-11-22-33-44-88",
+				MacAddress:   "00:11:22:33:44:88",
 			},
 		},
 		{
@@ -101,7 +101,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 				Model:        "Unknown Model",
 				Manufacturer: "Unknown Manufacturer",
 				URLScheme:    "http",
-				MacAddress:   "00-11-22-33-44-99",
+				MacAddress:   "00:11:22:33:44:99",
 			},
 		},
 	}

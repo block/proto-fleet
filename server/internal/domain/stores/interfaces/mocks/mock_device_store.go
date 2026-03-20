@@ -243,6 +243,36 @@ func (mr *MockDeviceStoreMockRecorder) GetOfflineDevices(ctx, limit any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineDevices), ctx, limit)
 }
 
+// GetPairedDeviceByMACAddress mocks base method.
+func (m *MockDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*interfaces.PairedDeviceInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPairedDeviceByMACAddress", ctx, macAddress, orgID)
+	ret0, _ := ret[0].(*interfaces.PairedDeviceInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPairedDeviceByMACAddress indicates an expected call of GetPairedDeviceByMACAddress.
+func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceByMACAddress(ctx, macAddress, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceByMACAddress", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceByMACAddress), ctx, macAddress, orgID)
+}
+
+// GetPairedDeviceBySerialNumber mocks base method.
+func (m *MockDeviceStore) GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*interfaces.PairedDeviceInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPairedDeviceBySerialNumber", ctx, serialNumber, orgID)
+	ret0, _ := ret[0].(*interfaces.PairedDeviceInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPairedDeviceBySerialNumber indicates an expected call of GetPairedDeviceBySerialNumber.
+func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceBySerialNumber(ctx, serialNumber, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceBySerialNumber", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceBySerialNumber), ctx, serialNumber, orgID)
+}
+
 // GetTotalDevicesPendingAuth mocks base method.
 func (m *MockDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()

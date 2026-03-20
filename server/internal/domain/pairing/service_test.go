@@ -11,11 +11,13 @@ import (
 	commandpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
 	pairingMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
@@ -838,6 +840,459 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, pairing.StatusPaired, string(pairingStatus))
 	})
+}
+
+func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
+	t.Run("re-discovery on new subnet reconciles with existing paired device by MAC", func(t *testing.T) {
+		// Scenario: A device was paired at 172.16.21.10, then the network moves it to 172.16.25.10.
+		// Re-discovering should update the existing discovered_device record's IP rather than
+		// creating a duplicate, allowing the device to come back online without re-pairing.
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+
+		oldIP := "172.16.21.10"
+		newIP := "172.16.25.10"
+		port := "80"
+		mac := "AA:BB:CC:DD:EE:01"
+		normalizedMAC := "AA:BB:CC:DD:EE:01"
+
+		// Create mock discoverer that returns device with MAC address
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				IpAddress:  oldIP,
+				Port:       port,
+				UrlScheme:  "http",
+				DriverName: "proto",
+				MacAddress: mac,
+			},
+		}
+		mockDiscoverer.On("Discover", mock.Anything, oldIP, port).Return(mockDevice, nil)
+
+		// Create mock pairer that inserts device into DB (mimics real handlePairViaStore)
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockPairer := pairingMocks.NewMockPairer(ctrl)
+		mockPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+				device.MacAddress = normalizedMAC
+				device.SerialNumber = "SN-001"
+				// Insert device into DB like the real pairer does
+				dd, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+					DeviceIdentifier: device.DeviceIdentifier,
+					OrgID:            adminUser.OrganizationID,
+				})
+				if err != nil {
+					return err
+				}
+				_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+					OrgID:              adminUser.OrganizationID,
+					DiscoveredDeviceID: dd.ID,
+					DeviceIdentifier:   device.DeviceIdentifier,
+					MacAddress:         normalizedMAC,
+				})
+				if err != nil {
+					return err
+				}
+				deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, device.DeviceIdentifier)
+				if err != nil {
+					return err
+				}
+				_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+					DeviceID:      deviceID,
+					PairingStatus: sqlc.PairingStatusEnumPAIRED,
+				})
+				return err
+			}).AnyTimes()
+		mockPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, fmt.Errorf("not implemented")).AnyTimes()
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockPairer, mockDiscoverer)
+
+		// Step 1: Discover device at old IP
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{oldIP},
+			Ports:       []string{port},
+		}
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+		originalDeviceIdentifier := devices[0].DeviceIdentifier
+
+		// Step 2: Pair the device
+		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{originalDeviceIdentifier}))
+		require.NoError(t, err)
+
+		totalPaired, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 100)
+		require.NoError(t, err)
+		require.Equal(t, 1, totalPaired, "should have 1 paired device")
+
+		// Step 3: Now the device moves to a new subnet.
+		// Re-discover it at the new IP (same MAC returned by discoverer).
+		mockDeviceNewIP := &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				IpAddress:  newIP,
+				Port:       port,
+				UrlScheme:  "http",
+				DriverName: "proto",
+				MacAddress: mac,
+			},
+		}
+		mockDiscoverer.On("Discover", mock.Anything, newIP, port).Return(mockDeviceNewIP, nil)
+
+		request2 := &pb.IPListModeRequest{
+			IpAddresses: []string{newIP},
+			Ports:       []string{port},
+		}
+		resultChan2, err := pairingService.DiscoverWithIPList(ctx, request2)
+		require.NoError(t, err)
+
+		var devicesNewIP []*pb.Device
+		for result := range resultChan2 {
+			devicesNewIP = append(devicesNewIP, result.Devices...)
+		}
+		require.Len(t, devicesNewIP, 1)
+
+		// The discovered device should reuse the SAME device_identifier as before
+		// (reconciled by MAC address), not a brand new one.
+		assert.Equal(t, originalDeviceIdentifier, devicesNewIP[0].DeviceIdentifier,
+			"re-discovered device should reuse the original device_identifier after MAC reconciliation")
+
+		// Verify the discovered_device record's IP was updated to the new one
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		orgDeviceID := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: originalDeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}
+		dd, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
+		require.NoError(t, err)
+		assert.Equal(t, newIP, dd.IpAddress, "discovered_device IP should be updated to the new subnet IP")
+
+		// Verify no duplicate device records were created
+		deviceID1, err := queries.GetDeviceIDByDeviceIdentifier(ctx, originalDeviceIdentifier)
+		require.NoError(t, err)
+		assert.Greater(t, deviceID1, int64(0), "device should exist in DB")
+
+		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID1)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusPaired, string(pairingStatus), "device should still be PAIRED")
+	})
+}
+
+func TestDiscoveryReconciliation_DeletesUnpairedStaleEndpointRecord(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	queries := sqlc.New(testContext.ServiceProvider.DB)
+
+	oldIP := "172.16.31.10"
+	newIP := "172.16.41.10"
+	port := "80"
+	mac := "AA:BB:CC:DD:EE:11"
+
+	mockDiscoverer := &MockDiscoverer{}
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockPairer := pairingMocks.NewMockPairer(ctrl)
+	mockPairer.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+			device.MacAddress = mac
+			device.SerialNumber = "SN-011"
+			dd, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+				DeviceIdentifier: device.DeviceIdentifier,
+				OrgID:            adminUser.OrganizationID,
+			})
+			if err != nil {
+				return err
+			}
+			_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+				OrgID:              adminUser.OrganizationID,
+				DiscoveredDeviceID: dd.ID,
+				DeviceIdentifier:   device.DeviceIdentifier,
+				MacAddress:         mac,
+			})
+			if err != nil {
+				return err
+			}
+			deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, device.DeviceIdentifier)
+			if err != nil {
+				return err
+			}
+			_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+				DeviceID:      deviceID,
+				PairingStatus: sqlc.PairingStatusEnumPAIRED,
+			})
+			return err
+		}).AnyTimes()
+	mockPairer.EXPECT().
+		GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("not implemented")).AnyTimes()
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, mockPairer, mockDiscoverer)
+
+	mockDiscoverer.On("Discover", mock.Anything, oldIP, port).Return(&discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:  oldIP,
+			Port:       port,
+			UrlScheme:  "http",
+			DriverName: "proto",
+			MacAddress: mac,
+		},
+	}, nil).Once()
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{oldIP},
+		Ports:       []string{port},
+	})
+	require.NoError(t, err)
+
+	var firstDiscovery []*pb.Device
+	for result := range resultChan {
+		firstDiscovery = append(firstDiscovery, result.Devices...)
+	}
+	require.Len(t, firstDiscovery, 1)
+	originalIdentifier := firstDiscovery[0].DeviceIdentifier
+
+	_, err = pairingService.PairDevices(ctx, createPairRequest([]string{originalIdentifier}))
+	require.NoError(t, err)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	_, err = discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: "stale-endpoint-device",
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "stale-endpoint-device",
+			IpAddress:        newIP,
+			Port:             port,
+			UrlScheme:        "http",
+			DriverName:       "proto",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	mockDiscoverer.On("Discover", mock.Anything, newIP, port).Return(&discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:  newIP,
+			Port:       port,
+			UrlScheme:  "http",
+			DriverName: "proto",
+			MacAddress: mac,
+		},
+	}, nil).Once()
+
+	resultChan, err = pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{newIP},
+		Ports:       []string{port},
+	})
+	require.NoError(t, err)
+
+	var secondDiscovery []*pb.Device
+	for result := range resultChan {
+		secondDiscovery = append(secondDiscovery, result.Devices...)
+	}
+	require.Len(t, secondDiscovery, 1)
+	assert.Equal(t, originalIdentifier, secondDiscovery[0].DeviceIdentifier)
+
+	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: originalIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, newIP, reconciledDevice.IpAddress)
+}
+
+func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	occupantIP := "172.16.51.10"
+	originalIP := "172.16.61.10"
+	port := "80"
+	occupantMAC := "AA:BB:CC:DD:EE:21"
+	reconciledMAC := "AA:BB:CC:DD:EE:22"
+	occupantIdentifier := "occupant-device"
+	reconciledIdentifier := "reconciled-device"
+
+	conn := testContext.ServiceProvider.DB
+	_, err := conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES
+			(601, $1, $2, 'test-model', 'test-manufacturer', 'proto', $3, $4, 'http', TRUE),
+			(602, $1, $5, 'test-model', 'test-manufacturer', 'proto', $6, $4, 'http', TRUE)
+	`, adminUser.OrganizationID, occupantIdentifier, occupantIP, port, reconciledIdentifier, originalIP)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES
+			(601, $1, 601, $2, $3),
+			(602, $1, 602, $4, $5)
+	`, adminUser.OrganizationID, occupantIdentifier, occupantMAC, reconciledIdentifier, reconciledMAC)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES
+			(601, 'PAIRED', NOW()),
+			(602, 'PAIRED', NOW())
+	`)
+	require.NoError(t, err)
+
+	mockDiscoverer := &MockDiscoverer{}
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	mockDiscoverer.On("Discover", mock.Anything, occupantIP, port).Return(&discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:  occupantIP,
+			Port:       port,
+			UrlScheme:  "http",
+			DriverName: "proto",
+			MacAddress: reconciledMAC,
+		},
+	}, nil).Once()
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{occupantIP},
+		Ports:       []string{port},
+	})
+	require.NoError(t, err)
+
+	var collisionDiscovery []*pb.Device
+	for result := range resultChan {
+		collisionDiscovery = append(collisionDiscovery, result.Devices...)
+	}
+	require.Empty(t, collisionDiscovery, "paired endpoint collision should be skipped instead of producing an ambiguous discovery row")
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+
+	occupantDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: occupantIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, occupantIP, occupantDevice.IpAddress)
+
+	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: reconciledIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, originalIP, reconciledDevice.IpAddress)
+
+	lookupByEndpoint, err := discoveredDeviceStore.GetByIPAndPort(ctx, adminUser.OrganizationID, occupantIP, port)
+	require.NoError(t, err)
+	assert.Equal(t, occupantIdentifier, lookupByEndpoint.DeviceIdentifier)
+}
+
+func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	tokenService := testContext.ServiceProvider.TokenService
+	pluginService := testContext.ServiceProvider.PluginService
+
+	originalIdentifier := "paired-device-001"
+	orphanIdentifier := "new-subnet-device-001"
+
+	_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: originalIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: originalIdentifier,
+			IpAddress:        "172.16.21.10",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "proto",
+			MacAddress:       "AA:BB:CC:DD:EE:01",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	_, err = discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: orphanIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: orphanIdentifier,
+			IpAddress:        "172.16.25.10",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "proto",
+			MacAddress:       "AA:BB:CC:DD:EE:01",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockListener := pairingMocks.NewMockListener(ctrl)
+	mockListener.EXPECT().AddDevices(gomock.Any(), tmodels.DeviceIdentifier(originalIdentifier)).Return(nil)
+
+	mockPairer := pairingMocks.NewMockPairer(ctrl)
+	mockPairer.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+			require.Equal(t, orphanIdentifier, device.DeviceIdentifier)
+			require.NoError(t, discoveredDeviceStore.SoftDelete(ctx, discoverymodels.DeviceOrgIdentifier{
+				DeviceIdentifier: orphanIdentifier,
+				OrgID:            adminUser.OrganizationID,
+			}))
+			device.DeviceIdentifier = originalIdentifier
+			return nil
+		})
+	mockPairer.EXPECT().
+		GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("not implemented"))
+
+	pairingService := pairing.NewService(
+		discoveredDeviceStore,
+		deviceStore,
+		transactor,
+		tokenService,
+		&MockDiscoverer{},
+		pluginService,
+		mockListener,
+		mockPairer,
+	)
+
+	_, err = pairingService.PairDevices(ctx, createPairRequest([]string{orphanIdentifier}))
+	require.NoError(t, err)
+
+	_, err = discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: orphanIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err), "orphan discovered device should remain soft-deleted after reconciliation")
+
+	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: originalIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, originalIdentifier, reconciledDevice.DeviceIdentifier)
 }
 
 func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {

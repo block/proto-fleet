@@ -208,6 +208,18 @@ func (s *SQLDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Contex
 	return count, nil
 }
 
+// SoftDelete soft-deletes a discovered device record
+func (s *SQLDiscoveredDeviceStore) SoftDelete(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) error {
+	err := s.getQueries(ctx).SoftDeleteDiscoveredDeviceByIdentifier(ctx, sqlc.SoftDeleteDiscoveredDeviceByIdentifierParams{
+		DeviceIdentifier: doi.DeviceIdentifier,
+		OrgID:            doi.OrgID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to soft-delete discovered device %s: %v", doi.DeviceIdentifier, err)
+	}
+	return nil
+}
+
 // toDiscoveredDevice converts a sqlc DiscoveredDevice to a domain DiscoveredDevice
 func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
 	return &discoverymodels.DiscoveredDevice{

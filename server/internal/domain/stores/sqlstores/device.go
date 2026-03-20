@@ -23,6 +23,7 @@ import (
 	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -136,7 +137,7 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 
 func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
 	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
-		MacAddress: device.MacAddress,
+		MacAddress: networking.NormalizeMAC(device.MacAddress),
 		SerialNumber: sql.NullString{
 			String: device.SerialNumber,
 			Valid:  device.SerialNumber != "",
@@ -166,7 +167,7 @@ func (s *SQLDeviceStore) InsertDevice(ctx context.Context, device *pb.Device, or
 		OrgID:              orgID,
 		DiscoveredDeviceID: discoveredDevice.ID,
 		DeviceIdentifier:   device.DeviceIdentifier,
-		MacAddress:         device.MacAddress,
+		MacAddress:         networking.NormalizeMAC(device.MacAddress),
 		SerialNumber:       sql.NullString{String: device.SerialNumber, Valid: device.SerialNumber != ""},
 	})
 
@@ -1222,4 +1223,56 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 	}
 
 	return nil
+}
+
+func (s *SQLDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*stores.PairedDeviceInfo, error) {
+	normalizedMAC := networking.NormalizeMAC(macAddress)
+	if len(normalizedMAC) != 17 { // AA:BB:CC:DD:EE:FF
+		return nil, fleeterror.NewNotFoundError(fmt.Sprintf("no paired device found with mac_address=%s org_id=%d", macAddress, orgID))
+	}
+
+	rows, err := s.getQueries(ctx).GetPairedDeviceByMACAddress(ctx, sqlc.GetPairedDeviceByMACAddressParams{
+		NormalizedMac: normalizedMAC,
+		OrgID:         orgID,
+	})
+	if err != nil {
+		return nil, handleQueryError(err,
+			fmt.Sprintf("no paired device found with mac_address=%s org_id=%d", normalizedMAC, orgID),
+			fmt.Sprintf("failed to query paired device by MAC address=%s org_id=%d", normalizedMAC, orgID))
+	}
+	if len(rows) == 0 {
+		return nil, fleeterror.NewNotFoundError(fmt.Sprintf("no paired device found with mac_address=%s org_id=%d", normalizedMAC, orgID))
+	}
+	if len(rows) > 1 {
+		return nil, fleeterror.NewInternalErrorf("multiple paired devices found with mac_address=%s org_id=%d", normalizedMAC, orgID)
+	}
+	row := rows[0]
+
+	return &stores.PairedDeviceInfo{
+		DeviceIdentifier:           row.DeviceIdentifier,
+		MacAddress:                 row.MacAddress,
+		SerialNumber:               row.SerialNumber.String,
+		DiscoveredDeviceIdentifier: row.DiscoveredDeviceIdentifier,
+		DiscoveredDeviceID:         row.DiscoveredDeviceID,
+	}, nil
+}
+
+func (s *SQLDeviceStore) GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*stores.PairedDeviceInfo, error) {
+	row, err := s.getQueries(ctx).GetPairedDeviceBySerialNumber(ctx, sqlc.GetPairedDeviceBySerialNumberParams{
+		SerialNumber: sql.NullString{String: serialNumber, Valid: serialNumber != ""},
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return nil, handleQueryError(err,
+			fmt.Sprintf("no paired device found with serial_number=%s org_id=%d", serialNumber, orgID),
+			fmt.Sprintf("failed to query paired device by serial number=%s org_id=%d", serialNumber, orgID))
+	}
+
+	return &stores.PairedDeviceInfo{
+		DeviceIdentifier:           row.DeviceIdentifier,
+		MacAddress:                 row.MacAddress,
+		SerialNumber:               row.SerialNumber.String,
+		DiscoveredDeviceIdentifier: row.DiscoveredDeviceIdentifier,
+		DiscoveredDeviceID:         row.DiscoveredDeviceID,
+	}, nil
 }

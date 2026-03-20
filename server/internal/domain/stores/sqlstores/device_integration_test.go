@@ -1507,6 +1507,137 @@ func TestListMinerStateSnapshots_SortByIPAddress_KeysetPagination(t *testing.T) 
 	require.Equal(t, "192.168.1.1", page2[0].IpAddress)
 }
 
+func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (401, 1, 'legacy-mac-device', 'test-model', 'test-manufacturer', 'proto', '192.168.10.10', '50051', 'grpc', TRUE)
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (401, 1, 401, 'legacy-mac-device', 'AA:BB:CC:DD:EE:FF')
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (401, 'PAIRED', NOW())
+	`)
+	require.NoError(t, err)
+
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:FF", 1)
+	require.NoError(t, err)
+	require.Equal(t, "legacy-mac-device", pairedDevice.DeviceIdentifier)
+	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
+	require.Equal(t, int64(401), pairedDevice.DiscoveredDeviceID)
+}
+
+func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (405, 1, 'bare-mac-device', 'test-model', 'test-manufacturer', 'proto', '192.168.10.15', '50051', 'grpc', TRUE)
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (405, 1, 405, 'bare-mac-device', 'AA:BB:CC:DD:EE:FF')
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (405, 'PAIRED', NOW())
+	`)
+	require.NoError(t, err)
+
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AABBCCDDEEFF", 1)
+	require.NoError(t, err)
+	require.Equal(t, "bare-mac-device", pairedDevice.DeviceIdentifier)
+	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
+	require.Equal(t, int64(405), pairedDevice.DiscoveredDeviceID)
+}
+
+func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	for _, fixture := range []struct {
+		discoveredID int64
+		deviceID     int64
+		identifier   string
+		macAddress   string
+	}{
+		{discoveredID: 411, deviceID: 411, identifier: "duplicate-mac-1", macAddress: "AA:BB:CC:DD:EE:99"},
+		{discoveredID: 412, deviceID: 412, identifier: "duplicate-mac-2", macAddress: "AA:BB:CC:DD:EE:99"},
+	} {
+		_, err = conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', 'proto', '192.168.10.10', '50051', 'grpc', TRUE)
+		`, fixture.discoveredID, fixture.identifier)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES ($1, 1, $2, $3, $4)
+		`, fixture.deviceID, fixture.discoveredID, fixture.identifier, fixture.macAddress)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, 'PAIRED', NOW())
+		`, fixture.deviceID)
+		require.NoError(t, err)
+	}
+
+	_, err = store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:99", 1)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "multiple paired devices found")
+}
+
 func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
 

@@ -99,10 +99,10 @@ WHERE device_identifier = $1
 -- name: UpdateDeviceInfo :exec
 UPDATE device
 SET
-    mac_address = $1,
-    serial_number = $2
-WHERE device_identifier = $3
-  AND org_id = $4
+    mac_address = COALESCE(NULLIF(sqlc.arg('mac_address')::text, ''), mac_address),
+    serial_number = sqlc.arg('serial_number')
+WHERE device_identifier = sqlc.arg('device_identifier')
+  AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: GetDevicePairingStatusByDeviceDatabaseID :one
@@ -546,6 +546,47 @@ WHERE dd.id = d.discovered_device_id
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = sqlc.arg('org_id')
   AND dd.deleted_at IS NULL;
+
+-- name: GetPairedDeviceByMACAddress :many
+-- Finds an existing paired device by MAC address for a given organization.
+-- Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+-- Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
+-- which matches the normalized format stored in the database.
+SELECT
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.mac_address = sqlc.arg('normalized_mac')
+  AND d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY d.id
+LIMIT 2;
+
+-- name: GetPairedDeviceBySerialNumber :one
+-- Finds an existing paired device by serial number for a given organization.
+-- Used as fallback reconciliation when MAC address is not available during re-pairing.
+SELECT
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.serial_number = $1
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+LIMIT 1;
 
 -- GetDeviceIdentifiersByOrgWithFilter is implemented as a dynamic query in
 -- sqlstores/device.go to reuse appendFilterSQL and ensure semantic parity with

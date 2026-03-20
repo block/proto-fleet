@@ -131,3 +131,17 @@ func (mr *MockDiscoveredDeviceStoreMockRecorder) Save(ctx, doi, device any) *gom
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).Save), ctx, doi, device)
 }
+
+// SoftDelete mocks base method.
+func (m *MockDiscoveredDeviceStore) SoftDelete(ctx context.Context, doi models.DeviceOrgIdentifier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SoftDelete", ctx, doi)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SoftDelete indicates an expected call of SoftDelete.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) SoftDelete(ctx, doi any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDelete", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).SoftDelete), ctx, doi)
+}

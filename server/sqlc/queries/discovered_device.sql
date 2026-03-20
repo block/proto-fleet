@@ -88,6 +88,15 @@ WHERE dd.org_id = $1
     AND dd.deleted_at IS NULL
     AND d.id IS NULL;
 
+-- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
+-- Soft-deletes a discovered_device record. Used to clean up orphaned records
+-- after device reconciliation during subnet migration.
+UPDATE discovered_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE device_identifier = $1
+  AND org_id = $2
+  AND deleted_at IS NULL;
+
 -- name: UpdateDiscoveredDeviceFirmwareVersion :exec
 UPDATE discovered_device dd
 SET firmware_version = $2

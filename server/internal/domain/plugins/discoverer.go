@@ -154,10 +154,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 // convertSDKDeviceInfoToFleetDevice converts SDK DeviceInfo to Fleet pb.Device format.
 func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, driverName string) *pb.Device {
 
-	macAddress := deviceInfo.MacAddress
-	if macAddress != "" {
-		macAddress = networking.NormalizeMAC(macAddress)
-	}
+	macAddress := networking.NormalizeMAC(deviceInfo.MacAddress)
 
 	return &pb.Device{
 		DeviceIdentifier: "",

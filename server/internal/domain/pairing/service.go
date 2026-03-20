@@ -535,6 +535,11 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
 	if deviceIdentifier == "" {
+		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
+		if err != nil {
+			return err
+		}
+
 		// Check if we've already discovered a device at this scanned IP:port
 		// This prevents duplicate entries during network rescans
 		// Note: We use scannedIP/scannedPort (what we scanned) not discoveredDevice IP/port
@@ -544,20 +549,53 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 			// Database error - propagate instead of silently generating new identifier
 			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
 		}
-		if existingDevice != nil {
+		switch {
+		case reconciledIdentifier != "":
+			deviceIdentifier = reconciledIdentifier
+		case existingDevice != nil:
 			// Reuse the existing device_identifier to update the same row
 			deviceIdentifier = existingDevice.DeviceIdentifier
 			slog.Debug("reusing existing device identifier for rescan",
 				"scanned_ip", scannedIP,
 				"scanned_port", scannedPort,
 				"device_identifier", deviceIdentifier)
-		} else {
-			// First time seeing this device (not found), generate new identifier
+		default:
+			// Truly first time seeing this device, generate new identifier.
 			deviceIdentifier = id.GenerateID()
 			slog.Debug("generated new device identifier for first discovery",
 				"scanned_ip", scannedIP,
 				"scanned_port", scannedPort,
 				"device_identifier", deviceIdentifier)
+		}
+
+		// If reconciliation found a match and there was already a discovered_device at the
+		// scanned endpoint, resolve the collision before moving the reconciled row there.
+		// Unpaired stale rows can be deleted, but paired occupants must win to avoid leaving
+		// multiple active discovered_device rows on the same IP:port.
+		if reconciledIdentifier != "" && existingDevice != nil && existingDevice.DeviceIdentifier != reconciledIdentifier {
+			_, linkedErr := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, existingDevice.DeviceIdentifier, info.OrganizationID)
+			switch {
+			case linkedErr == nil:
+				slog.Warn("skipping reconciliation because scanned endpoint is occupied by a different paired device",
+					"scanned_ip", scannedIP,
+					"scanned_port", scannedPort,
+					"occupying_device_identifier", existingDevice.DeviceIdentifier,
+					"reconciled_identifier", reconciledIdentifier)
+				return nil
+			case !fleeterror.IsNotFoundError(linkedErr):
+				return fleeterror.NewInternalErrorf("failed to check existing device linkage during reconciliation: %v", linkedErr)
+			default:
+				staleID := discoverymodels.DeviceOrgIdentifier{
+					DeviceIdentifier: existingDevice.DeviceIdentifier,
+					OrgID:            info.OrganizationID,
+				}
+				if err := s.discoveredDeviceStore.SoftDelete(ctx, staleID); err != nil {
+					slog.Warn("failed to soft-delete stale discovered device after reconciliation",
+						"stale_device_identifier", existingDevice.DeviceIdentifier,
+						"reconciled_identifier", reconciledIdentifier,
+						"error", err)
+				}
+			}
 		}
 	}
 
@@ -588,6 +626,44 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	}
 
 	return nil
+}
+
+// reconcileByMAC checks if a newly discovered device matches an existing paired device
+// by MAC address. This handles the case where a device moved to a new IP/subnet.
+// If a match is found, it returns the existing discovered_device_identifier so the
+// upsert updates the old record's IP instead of creating a duplicate.
+func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
+	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
+
+	pairedDevice, err := s.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, orgID)
+	if err != nil {
+		// Not found is expected for genuinely new devices
+		if !fleeterror.IsNotFoundError(err) {
+			return "", fleeterror.NewInternalErrorf("failed to look up paired device by MAC during reconciliation: %v", err)
+		}
+		return "", nil
+	}
+
+	// Cross-check serial number when available to avoid mismatches
+	if discoveredDevice.SerialNumber != "" && pairedDevice.SerialNumber != "" &&
+		discoveredDevice.SerialNumber != pairedDevice.SerialNumber {
+		slog.Warn("MAC address matches but serial number differs, skipping reconciliation",
+			"mac_address", mac,
+			"discovered_serial", discoveredDevice.SerialNumber,
+			"paired_serial", pairedDevice.SerialNumber,
+		)
+		return "", nil
+	}
+
+	slog.Info("reconciled discovered device with existing paired device by MAC address",
+		"mac_address", mac,
+		"paired_device_identifier", pairedDevice.DeviceIdentifier,
+		"discovered_device_identifier", pairedDevice.DiscoveredDeviceIdentifier,
+		"new_ip", newIP,
+		"new_port", newPort,
+	)
+
+	return pairedDevice.DiscoveredDeviceIdentifier, nil
 }
 
 func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool {
@@ -676,9 +752,9 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 
 	// Create pairing records for each device
 	for _, deviceID := range deviceIdentifiers {
-		err = s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
+		persistedDeviceID, err := s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
 		if err == nil {
-			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
+			deviceIDs = append(deviceIDs, persistedDeviceID)
 		} else {
 			slog.Error("failed to pair device", "error", err) // continue pairing other devices
 			failedIDs = append(failedIDs, deviceID)
@@ -720,7 +796,19 @@ func isCredentialsRequiredError(err error) bool {
 
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
+	originalIdentifier := discoveredDevice.DeviceIdentifier
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Restore original identifier so retries after serialization failures start with clean state.
+		discoveredDevice.DeviceIdentifier = originalIdentifier
+
+		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, discoveredDevice.OrgID, discoveredDevice.IpAddress, discoveredDevice.Port)
+		if err != nil {
+			return err
+		}
+		if reconciledIdentifier != "" {
+			discoveredDevice.DeviceIdentifier = reconciledIdentifier
+		}
+
 		// Check if device already exists (e.g., from a previous discovery attempt)
 		existingDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
@@ -748,7 +836,7 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 	})
 }
 
-func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) error {
+func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) (models.DeviceIdentifier, error) {
 	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceID,
 		OrgID:            orgID,
@@ -756,7 +844,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 
 	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
+		return "", fleeterror.NewInternalErrorf("error getting device from store: %v", err)
 	}
 
 	pairer := s.pairer
@@ -764,7 +852,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	discoveredDevice.IsActive = true
 	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
+		return "", fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}
 
 	if err := pairer.PairDevice(ctx, discoveredDevice, credentials); err != nil {
@@ -780,17 +868,17 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record",
 					"device_identifier", discoveredDevice.DeviceIdentifier,
 					"error", txErr)
-				return txErr
+				return "", txErr
 			}
 
-			return nil
+			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 		}
 
 		// Preserve authentication errors - don't wrap them
 		if fleeterror.IsAuthenticationError(err) {
-			return err
+			return "", err
 		}
-		return fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
+		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
 	}
 
 	// Get device info with authentication to fetch firmware version and other details
@@ -805,10 +893,14 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	}
 
 	// Save updated device info (firmware version, serial number, MAC address) back to discovered_device table
-	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	finalDeviceID := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: discoveredDevice.DeviceIdentifier,
+		OrgID:            orgID,
+	}
+	_, err = s.discoveredDeviceStore.Save(ctx, finalDeviceID, discoveredDevice)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error saving updated device info after pairing: %v", err)
+		return "", fleeterror.NewInternalErrorf("error saving updated device info after pairing: %v", err)
 	}
 
-	return nil
+	return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 }

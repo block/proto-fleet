@@ -258,6 +258,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
 	}
+	if q.getPairedDeviceByMACAddressStmt, err = db.PrepareContext(ctx, getPairedDeviceByMACAddress); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedDeviceByMACAddress: %w", err)
+	}
+	if q.getPairedDeviceBySerialNumberStmt, err = db.PrepareContext(ctx, getPairedDeviceBySerialNumber); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedDeviceBySerialNumber: %w", err)
+	}
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
@@ -389,6 +395,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteDevicesStmt, err = db.PrepareContext(ctx, softDeleteDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDevices: %w", err)
+	}
+	if q.softDeleteDiscoveredDeviceByIdentifierStmt, err = db.PrepareContext(ctx, softDeleteDiscoveredDeviceByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteDiscoveredDeviceByIdentifier: %w", err)
 	}
 	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, err = db.PrepareContext(ctx, softDeleteDiscoveredDevicesForDeletedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDiscoveredDevicesForDeletedDevices: %w", err)
@@ -890,6 +899,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
 		}
 	}
+	if q.getPairedDeviceByMACAddressStmt != nil {
+		if cerr := q.getPairedDeviceByMACAddressStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedDeviceByMACAddressStmt: %w", cerr)
+		}
+	}
+	if q.getPairedDeviceBySerialNumberStmt != nil {
+		if cerr := q.getPairedDeviceBySerialNumberStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedDeviceBySerialNumberStmt: %w", cerr)
+		}
+	}
 	if q.getPairedDevicesIdsStmt != nil {
 		if cerr := q.getPairedDevicesIdsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
@@ -1108,6 +1127,11 @@ func (q *Queries) Close() error {
 	if q.softDeleteDevicesStmt != nil {
 		if cerr := q.softDeleteDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteDevicesStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteDiscoveredDeviceByIdentifierStmt != nil {
+		if cerr := q.softDeleteDiscoveredDeviceByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteDiscoveredDeviceByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt != nil {
@@ -1402,6 +1426,8 @@ type Queries struct {
 	getOrganizationByOrgIDStmt                          *sql.Stmt
 	getOrganizationPrivateKeyStmt                       *sql.Stmt
 	getOrganizationsForUserStmt                         *sql.Stmt
+	getPairedDeviceByMACAddressStmt                     *sql.Stmt
+	getPairedDeviceBySerialNumberStmt                   *sql.Stmt
 	getPairedDevicesIdsStmt                             *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
@@ -1446,6 +1472,7 @@ type Queries struct {
 	setRackSlotPositionStmt                             *sql.Stmt
 	softDeleteCollectionStmt                            *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
+	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
 	softDeleteDiscoveredDevicesForDeletedDevicesStmt    *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
@@ -1565,6 +1592,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
 		getOrganizationPrivateKeyStmt:                       q.getOrganizationPrivateKeyStmt,
 		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
+		getPairedDeviceByMACAddressStmt:                     q.getPairedDeviceByMACAddressStmt,
+		getPairedDeviceBySerialNumberStmt:                   q.getPairedDeviceBySerialNumberStmt,
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,
@@ -1609,6 +1638,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		softDeleteCollectionStmt:                            q.softDeleteCollectionStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
+		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
 		softDeleteDiscoveredDevicesForDeletedDevicesStmt:    q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,

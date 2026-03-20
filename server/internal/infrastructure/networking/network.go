@@ -71,28 +71,41 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
 }
 
-// NormalizeMAC normalizes a MAC address to IEEE 802 canonical format
-// Returns uppercase MAC address with dashes (e.g., 12-34-56-78-9A-BC)
+// NormalizeMAC normalizes a MAC address to uppercase colon-separated format
+// (e.g., AA:BB:CC:DD:EE:FF) matching the format stored in the database.
+// Uses net.ParseMAC for standard input formats and also accepts bare 12-hex MACs.
+// Returns "" for empty or unparseable input.
 func NormalizeMAC(mac string) string {
-	cleaned := strings.ToUpper(mac)
-	cleaned = strings.ReplaceAll(cleaned, ":", "")
-	cleaned = strings.ReplaceAll(cleaned, "-", "")
-	cleaned = strings.ReplaceAll(cleaned, " ", "")
-	cleaned = strings.ReplaceAll(cleaned, ".", "")
-
-	if len(cleaned) != 12 {
-		return mac
+	mac = strings.TrimSpace(mac)
+	if mac == "" {
+		return ""
 	}
 
-	// Format as XX-XX-XX-XX-XX-XX
-	return strings.Join([]string{
-		cleaned[0:2],
-		cleaned[2:4],
-		cleaned[4:6],
-		cleaned[6:8],
-		cleaned[8:10],
-		cleaned[10:12],
-	}, "-")
+	hw, err := net.ParseMAC(mac)
+	if err == nil {
+		return strings.ToUpper(hw.String())
+	}
+
+	if len(mac) != 12 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(17)
+	for i, c := range mac {
+		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) {
+			return ""
+		}
+		if i > 0 && i%2 == 0 {
+			b.WriteByte(':')
+		}
+		if c >= 'a' && c <= 'f' {
+			c -= 'a' - 'A'
+		}
+		b.WriteRune(c)
+	}
+
+	return b.String()
 }
 
 // discoverGateway asks the kernel for the gateway it would use to reach 8.8.8.8.
