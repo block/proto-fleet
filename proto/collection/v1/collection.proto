@@ -52,6 +52,9 @@ service DeviceCollectionService {
 
     // Returns all distinct rack locations for the organization
     rpc ListRackLocations(ListRackLocationsRequest) returns (ListRackLocationsResponse);
+
+    // Returns all distinct rack types (row/column combinations) for the organization
+    rpc ListRackTypes(ListRackTypesRequest) returns (ListRackTypesResponse);
 }
 
 // Type of collection
@@ -94,14 +97,34 @@ message DeviceCollection {
     }
 }
 
+// Order index defining where row/column numbering starts in a rack
+enum RackOrderIndex {
+    RACK_ORDER_INDEX_UNSPECIFIED = 0;
+    RACK_ORDER_INDEX_BOTTOM_LEFT = 1;
+    RACK_ORDER_INDEX_TOP_LEFT = 2;
+    RACK_ORDER_INDEX_BOTTOM_RIGHT = 3;
+    RACK_ORDER_INDEX_TOP_RIGHT = 4;
+}
+
+// Cooling type for a rack
+enum RackCoolingType {
+    RACK_COOLING_TYPE_UNSPECIFIED = 0;
+    RACK_COOLING_TYPE_AIR = 1;
+    RACK_COOLING_TYPE_IMMERSION = 2;
+}
+
 // Rack-specific metadata for rack-type collections
 message RackInfo {
     // Number of rows in the rack grid
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Physical location description (optional)
-    optional string location = 3;
+    // Physical location description
+    string location = 3 [(buf.validate.field).string.min_len = 1];
+    // Order index defining where numbering starts
+    RackOrderIndex order_index = 4;
+    // Cooling type for this rack
+    RackCoolingType cooling_type = 5;
 }
 
 // Group-specific metadata for group-type collections
@@ -440,4 +463,23 @@ message ListRackLocationsRequest {}
 message ListRackLocationsResponse {
     // Distinct location strings across all racks, sorted alphabetically
     repeated string locations = 1;
+}
+
+// Request to list all distinct rack types for the organization
+message ListRackTypesRequest {}
+
+// A rack type defined by its row/column dimensions and how many racks use it
+message RackType {
+    // Number of rows
+    int32 rows = 1;
+    // Number of columns
+    int32 columns = 2;
+    // Number of racks using this layout
+    int32 rack_count = 3;
+}
+
+// Response containing all distinct rack types
+message ListRackTypesResponse {
+    // Distinct rack types ordered by most recently created rack using that layout
+    repeated RackType rack_types = 1;
 }

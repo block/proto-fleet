@@ -197,9 +197,18 @@ const GroupsPage = () => {
         </>
       )}
 
-      {showGroupModal && <GroupModal onDismiss={() => setShowGroupModal(false)} onSuccess={resetAndFetch} />}
+      {showGroupModal && (
+        <GroupModal show={showGroupModal} onDismiss={() => setShowGroupModal(false)} onSuccess={resetAndFetch} />
+      )}
 
-      {editGroup && <GroupModal group={editGroup} onDismiss={() => setEditGroup(null)} onSuccess={resetAndFetch} />}
+      {editGroup && (
+        <GroupModal
+          show={!!editGroup}
+          group={editGroup}
+          onDismiss={() => setEditGroup(null)}
+          onSuccess={resetAndFetch}
+        />
+      )}
     </>
   );
 };

@@ -40,6 +40,7 @@ interface InputProps {
   statusIcon?: ReactNode;
   onFocus?: () => void;
   onBlur?: () => void;
+  autoComplete?: string;
   units?: string;
 }
 
@@ -73,6 +74,7 @@ const Input = ({
   statusIcon,
   onFocus,
   onBlur,
+  autoComplete,
   units,
 }: InputProps) => {
   const [value, setValue] = useState(initValue);
@@ -165,7 +167,7 @@ const Input = ({
           // Chrome ignores autocomplete="off" for password fields as a "security feature".
           // MDN recommends "new-password" which tells browsers this is NOT a login form.
           // See: https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/Turning_off_form_autocompletion
-          autoComplete="new-password"
+          autoComplete={autoComplete ?? "new-password"}
           value={value}
           ref={inputRef ?? fallbackRef}
           disabled={disabled}

@@ -474,19 +474,19 @@ func TestCollectionStore_RackSlotPositions(t *testing.T) {
 	// Arrange - create rack with devices
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 4, 8)
+	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 4, 8, 0, 0, orgID)
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
 
 	// Act - set positions
-	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0)
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID)
 	require.NoError(t, err)
-	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 1, 3)
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 1, 3, orgID)
 	require.NoError(t, err)
 
 	// Assert - get slots
-	slots, err := store.GetRackSlots(ctx, rack.Id)
+	slots, err := store.GetRackSlots(ctx, rack.Id, orgID)
 	require.NoError(t, err)
 	require.Len(t, slots, 2)
 	assert.Equal(t, int32(0), slots[0].Position.Row)
@@ -495,11 +495,11 @@ func TestCollectionStore_RackSlotPositions(t *testing.T) {
 	assert.Equal(t, int32(3), slots[1].Position.Column)
 
 	// Act - clear one position
-	err = store.ClearRackSlotPosition(ctx, rack.Id, deviceIDs[0])
+	err = store.ClearRackSlotPosition(ctx, rack.Id, deviceIDs[0], orgID)
 	require.NoError(t, err)
 
 	// Assert
-	slots, err = store.GetRackSlots(ctx, rack.Id)
+	slots, err = store.GetRackSlots(ctx, rack.Id, orgID)
 	require.NoError(t, err)
 	assert.Len(t, slots, 1)
 	assert.Equal(t, deviceIDs[1], slots[0].DeviceIdentifier)
@@ -517,11 +517,11 @@ func TestCollectionStore_ListCollectionMembers_IncludesSlotPositions(t *testing.
 	// Arrange - rack with one device positioned
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "", 4, 8)
+	err = store.CreateRackExtension(ctx, rack.Id, "", 4, 8, 0, 0, orgID)
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
-	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 2, 5)
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 2, 5, orgID)
 	require.NoError(t, err)
 
 	// Act

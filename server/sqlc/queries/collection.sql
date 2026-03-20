@@ -4,8 +4,10 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
 -- name: CreateRackExtension :exec
-INSERT INTO device_collection_rack (collection_id, location, rows, columns)
-VALUES ($1, $2, $3, $4);
+INSERT INTO device_collection_rack (collection_id, location, rows, columns, order_index, cooling_type)
+SELECT $1, $2, $3, $4, $5, $6
+FROM device_collection
+WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL;
 
 -- name: GetCollection :one
 SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
@@ -16,9 +18,10 @@ WHERE dc.id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL
 GROUP BY dc.id;
 
 -- name: GetRackInfo :one
-SELECT location, rows, columns
-FROM device_collection_rack
-WHERE collection_id = $1;
+SELECT dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+FROM device_collection_rack dcr
+JOIN device_collection dc ON dcr.collection_id = dc.id
+WHERE dcr.collection_id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL;
 
 -- name: UpdateCollectionLabel :exec
 UPDATE device_collection
@@ -37,8 +40,9 @@ WHERE id = $3 AND org_id = $4 AND deleted_at IS NULL;
 
 -- name: UpdateRackInfo :exec
 UPDATE device_collection_rack
-SET location = $1, rows = $2, columns = $3
-WHERE collection_id = $4;
+SET location = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
+WHERE collection_id = $6
+  AND EXISTS (SELECT 1 FROM device_collection WHERE id = $6 AND org_id = $7 AND deleted_at IS NULL);
 
 -- name: SoftDeleteCollection :execrows
 UPDATE device_collection
@@ -145,8 +149,11 @@ ORDER BY dcm.device_identifier;
 INSERT INTO rack_slot (collection_id, device_id, row, col)
 SELECT dcm.collection_id, dcm.device_id, @row::int, @col::int
 FROM device_collection_membership dcm
+JOIN device_collection dc ON dcm.collection_id = dc.id
 WHERE dcm.collection_id = $1
   AND dcm.device_identifier = $2
+  AND dc.org_id = $3
+  AND dc.deleted_at IS NULL
 ON CONFLICT (collection_id, device_id) DO UPDATE
 SET row = EXCLUDED.row, col = EXCLUDED.col;
 
@@ -155,13 +162,44 @@ DELETE FROM rack_slot rs
 WHERE rs.collection_id = $1
   AND rs.device_id = (
     SELECT dcm.device_id FROM device_collection_membership dcm
+    JOIN device_collection dc ON dcm.collection_id = dc.id
     WHERE dcm.collection_id = $1 AND dcm.device_identifier = $2
+      AND dc.org_id = $3 AND dc.deleted_at IS NULL
   );
 
 -- name: GetRackSlots :many
 SELECT dcm.device_identifier, rs.row, rs.col
 FROM rack_slot rs
 JOIN device_collection_membership dcm ON rs.collection_id = dcm.collection_id AND rs.device_id = dcm.device_id
-WHERE rs.collection_id = $1
+JOIN device_collection dc ON rs.collection_id = dc.id
+WHERE rs.collection_id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL
 ORDER BY rs.row, rs.col;
+
+-- name: GetRackInfoBatch :many
+SELECT dcr.collection_id, dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+FROM device_collection_rack dcr
+JOIN device_collection dc ON dcr.collection_id = dc.id
+WHERE dcr.collection_id = ANY(@collection_ids::bigint[]) AND dc.org_id = $1 AND dc.deleted_at IS NULL;
+
+-- name: GetCollectionTypesBatch :many
+SELECT id, type FROM device_collection
+WHERE org_id = $1 AND deleted_at IS NULL AND id = ANY(@collection_ids::bigint[]);
+
+-- name: ListRackLocations :many
+SELECT DISTINCT dcr.location
+FROM device_collection_rack dcr
+JOIN device_collection dc ON dcr.collection_id = dc.id
+WHERE dc.org_id = $1
+  AND dc.deleted_at IS NULL
+  AND dcr.location IS NOT NULL
+  AND dcr.location != ''
+ORDER BY dcr.location;
+
+-- name: ListRackTypes :many
+SELECT dcr.rows, dcr.columns, COUNT(*)::int AS rack_count
+FROM device_collection_rack dcr
+JOIN device_collection dc ON dcr.collection_id = dc.id
+WHERE dc.org_id = $1 AND dc.deleted_at IS NULL
+GROUP BY dcr.rows, dcr.columns
+ORDER BY MAX(dc.created_at) DESC;
 

@@ -416,6 +416,7 @@ const GroupOverviewPage = () => {
 
       {showEditModal && group && (
         <GroupModal
+          show
           group={group}
           onDismiss={() => setShowEditModal(false)}
           onSuccess={() => {
