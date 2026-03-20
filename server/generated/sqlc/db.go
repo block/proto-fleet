@@ -462,6 +462,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateMessageAfterFailureStmt, err = db.PrepareContext(ctx, updateMessageAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageAfterFailure: %w", err)
 	}
+	if q.updateMessagePermanentlyFailedStmt, err = db.PrepareContext(ctx, updateMessagePermanentlyFailed); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateMessagePermanentlyFailed: %w", err)
+	}
 	if q.updateMessageStatusStmt, err = db.PrepareContext(ctx, updateMessageStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageStatus: %w", err)
 	}
@@ -1251,6 +1254,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateMessageAfterFailureStmt: %w", cerr)
 		}
 	}
+	if q.updateMessagePermanentlyFailedStmt != nil {
+		if cerr := q.updateMessagePermanentlyFailedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateMessagePermanentlyFailedStmt: %w", cerr)
+		}
+	}
 	if q.updateMessageStatusStmt != nil {
 		if cerr := q.updateMessageStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageStatusStmt: %w", cerr)
@@ -1526,6 +1534,7 @@ type Queries struct {
 	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
+	updateMessagePermanentlyFailedStmt                  *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
 	updateMinerPasswordStmt                             *sql.Stmt
 	updateOpenErrorStmt                                 *sql.Stmt
@@ -1696,6 +1705,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
+		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
 		updateMinerPasswordStmt:                             q.updateMinerPasswordStmt,
 		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,

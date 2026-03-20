@@ -171,7 +171,7 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 // Reboot implements interfaces.Miner
 func (p *PluginMiner) Reboot(ctx context.Context) error {
 	if err := p.sdkDevice.Reboot(ctx); err != nil {
-		return fleeterror.NewInternalErrorf("failed to reboot device: %v", err)
+		return wrapPluginError(err, "failed to reboot device")
 	}
 	return nil
 }
@@ -179,7 +179,7 @@ func (p *PluginMiner) Reboot(ctx context.Context) error {
 // StartMining implements interfaces.Miner
 func (p *PluginMiner) StartMining(ctx context.Context) error {
 	if err := p.sdkDevice.StartMining(ctx); err != nil {
-		return fleeterror.NewInternalErrorf("failed to start mining: %v", err)
+		return wrapPluginError(err, "failed to start mining")
 	}
 	return nil
 }
@@ -187,7 +187,7 @@ func (p *PluginMiner) StartMining(ctx context.Context) error {
 // StopMining implements interfaces.Miner
 func (p *PluginMiner) StopMining(ctx context.Context) error {
 	if err := p.sdkDevice.StopMining(ctx); err != nil {
-		return fleeterror.NewInternalErrorf("failed to stop mining: %v", err)
+		return wrapPluginError(err, "failed to stop mining")
 	}
 	return nil
 }
@@ -209,7 +209,7 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 	}
 
 	if err := p.sdkDevice.SetCoolingMode(ctx, sdkMode); err != nil {
-		return fleeterror.NewInternalErrorf("failed to set cooling mode: %v", err)
+		return wrapPluginError(err, "failed to set cooling mode")
 	}
 	return nil
 }
@@ -218,7 +218,7 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 func (p *PluginMiner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
 	sdkMode, err := p.sdkDevice.GetCoolingMode(ctx)
 	if err != nil {
-		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("failed to get cooling mode: %v", err)
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, wrapPluginError(err, "failed to get cooling mode")
 	}
 
 	switch sdkMode {
@@ -250,7 +250,7 @@ func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTarge
 	}
 
 	if err := p.sdkDevice.SetPowerTarget(ctx, sdkMode); err != nil {
-		return fleeterror.NewInternalErrorf("failed to set power target: %v", err)
+		return wrapPluginError(err, "failed to set power target")
 	}
 	return nil
 }
@@ -281,7 +281,7 @@ func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateM
 	}
 
 	if err := p.sdkDevice.UpdateMiningPools(ctx, sdkPools); err != nil {
-		return fleeterror.NewInternalErrorf("failed to update mining pools: %v", err)
+		return wrapPluginError(err, "failed to update mining pools")
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateM
 // BlinkLED implements interfaces.Miner
 func (p *PluginMiner) BlinkLED(ctx context.Context) error {
 	if err := p.sdkDevice.BlinkLED(ctx); err != nil {
-		return fleeterror.NewInternalErrorf("failed to blink LED: %v", err)
+		return wrapPluginError(err, "failed to blink LED")
 	}
 	return nil
 }
@@ -422,7 +422,7 @@ func formatLogLineToCSVRow(line string, includeType bool) string {
 // FirmwareUpdate implements interfaces.Miner
 func (p *PluginMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	if err := p.sdkDevice.FirmwareUpdate(ctx, firmware); err != nil {
-		return fleeterror.NewInternalErrorf("failed to update firmware: %v", err)
+		return wrapPluginError(err, "failed to update firmware")
 	}
 	return nil
 }
@@ -430,7 +430,7 @@ func (p *PluginMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareF
 // Unpair implements interfaces.Miner
 func (p *PluginMiner) Unpair(ctx context.Context) error {
 	if err := p.sdkDevice.Unpair(ctx); err != nil {
-		return fleeterror.NewInternalErrorf("failed to unpair device: %v", err)
+		return wrapPluginError(err, "failed to unpair device")
 	}
 	return nil
 }
@@ -438,7 +438,7 @@ func (p *PluginMiner) Unpair(ctx context.Context) error {
 // UpdateMinerPassword implements interfaces.Miner
 func (p *PluginMiner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
 	if err := p.sdkDevice.UpdateMinerPassword(ctx, payload.CurrentPassword, payload.NewPassword); err != nil {
-		return fleeterror.NewInternalErrorf("failed to update miner password: %v", err)
+		return wrapPluginError(err, "failed to update miner password")
 	}
 	return nil
 }
@@ -447,7 +447,7 @@ func (p *PluginMiner) UpdateMinerPassword(ctx context.Context, payload dto.Updat
 func (p *PluginMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error) {
 	sdkErrors, err := p.sdkDevice.GetErrors(ctx)
 	if err != nil {
-		return diagnosticsModels.DeviceErrors{}, fleeterror.NewInternalErrorf("failed to get device errors: %v", err)
+		return diagnosticsModels.DeviceErrors{}, wrapPluginError(err, "failed to get device errors")
 	}
 	return mappers.SDKDeviceErrorsToFleetDeviceErrors(sdkErrors), nil
 }
@@ -456,7 +456,7 @@ func (p *PluginMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceEr
 func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
 	sdkPools, err := p.sdkDevice.GetMiningPools(ctx)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get mining pools: %v", err)
+		return nil, wrapPluginError(err, "failed to get mining pools")
 	}
 
 	pools := make([]interfaces.MinerConfiguredPool, len(sdkPools))
@@ -483,6 +483,20 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 		URL:        pool.URL,
 		WorkerName: pool.Username,
 	}, nil
+}
+
+// wrapPluginError converts an SDK/plugin error into the appropriate fleet error type.
+// It preserves gRPC Unimplemented status (unsupported capability) instead of wrapping
+// everything as an internal error, so the command system can skip retries for permanent failures.
+func wrapPluginError(err error, format string, a ...any) error {
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf(format, a...)
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
+		return fleeterror.NewUnimplementedErrorf("%s: %s", msg, st.Message())
+	}
+	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
 }
 
 // isNetworkError determines if an error represents a network connectivity failure.

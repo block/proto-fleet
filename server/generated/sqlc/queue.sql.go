@@ -165,6 +165,24 @@ func (q *Queries) UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessa
 	return err
 }
 
+const updateMessagePermanentlyFailed = `-- name: UpdateMessagePermanentlyFailed :exec
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+`
+
+type UpdateMessagePermanentlyFailedParams struct {
+	ErrorInfo sql.NullString
+	ID        int64
+}
+
+func (q *Queries) UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) error {
+	_, err := q.exec(ctx, q.updateMessagePermanentlyFailedStmt, updateMessagePermanentlyFailed, arg.ErrorInfo, arg.ID)
+	return err
+}
+
 const updateMessageStatus = `-- name: UpdateMessageStatus :exec
 UPDATE queue_message
 SET status = $1,

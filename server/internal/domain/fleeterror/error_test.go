@@ -118,6 +118,75 @@ func TestConnectionErrorWithErrorsAs(t *testing.T) {
 	})
 }
 
+func TestIsUnimplementedError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeUnimplemented",
+			err:      NewUnimplementedError("not supported"),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeUnimplemented via format",
+			err:      NewUnimplementedErrorf("capability %s not supported", "reboot"),
+			expected: true,
+		},
+		{
+			name:     "wrapped FleetError with CodeUnimplemented",
+			err:      fmt.Errorf("plugin error: %w", NewUnimplementedError("not supported")),
+			expected: true,
+		},
+		{
+			name:     "connect.Error with CodeUnimplemented",
+			err:      connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented")),
+			expected: true,
+		},
+		{
+			name:     "wrapped connect.Error with CodeUnimplemented",
+			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeInternal is not unimplemented",
+			err:      NewInternalError("internal error"),
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeNotFound is not unimplemented",
+			err:      NewNotFoundError("not found"),
+			expected: false,
+		},
+		{
+			name:     "connect.Error with CodeInternal is not unimplemented",
+			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
+			expected: false,
+		},
+		{
+			name:     "generic error is not unimplemented",
+			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			result := IsUnimplementedError(tt.err)
+
+			// Assert
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestIsCanceledError(t *testing.T) {
 	tests := []struct {
 		name     string

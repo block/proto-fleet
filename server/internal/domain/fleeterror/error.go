@@ -64,9 +64,10 @@ func (e FleetError) IsExpected() bool {
 		connect.CodeOutOfRange,
 		connect.CodeUnauthenticated:
 		return true
+	case connect.CodeUnimplemented:
+		return true
 	case connect.CodeUnknown,
 		connect.CodeDeadlineExceeded,
-		connect.CodeUnimplemented,
 		connect.CodeInternal,
 		connect.CodeUnavailable,
 		connect.CodeDataLoss:
@@ -222,6 +223,16 @@ func NewNotFoundErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewUnimplementedError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeUnimplemented).WithCallerStackTrace()
+}
+
+func NewUnimplementedErrorf(format string, a ...any) FleetError {
+	return NewUnimplementedError(
+		fmt.Sprintf(format, a...),
+	).WithCallerStackTrace()
+}
+
 func NewCanceledError() FleetError {
 	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }
@@ -316,6 +327,25 @@ func IsCanceledError(err error) bool {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		return connectErr.Code() == connect.CodeCanceled
+	}
+
+	return false
+}
+
+// IsUnimplementedError checks if an error represents an unimplemented/unsupported capability
+func IsUnimplementedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeUnimplemented
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeUnimplemented
 	}
 
 	return false

@@ -286,7 +286,14 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 
 	if err != nil {
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
-		if markErr := es.messageQueue.MarkFailed(ctx, message.ID, err.Error()); markErr != nil {
+		// Permanent errors (e.g. unsupported capability) should not be retried
+		var markErr error
+		if fleeterror.IsUnimplementedError(err) {
+			markErr = es.messageQueue.MarkPermanentlyFailed(ctx, message.ID, err.Error())
+		} else {
+			markErr = es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
+		}
+		if markErr != nil {
 			return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v (original error: %v)", markErr, err)
 		}
 		return err
