@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 
 	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
@@ -57,6 +58,41 @@ type PluginInfo struct {
 	DriverName   string
 	APIVersion   string
 	Capabilities sdk.Capabilities
+}
+
+// GetDiscoveryPorts returns the stable deduplicated union of canonical discovery ports
+// across all loaded discovery-capable plugins.
+func (s *Service) GetDiscoveryPorts(_ context.Context) []string {
+	plugins := s.manager.GetAllPlugins()
+	if len(plugins) == 0 {
+		return nil
+	}
+
+	orderedPlugins := make([]*LoadedPlugin, 0, len(plugins))
+	for _, plugin := range plugins {
+		if !plugin.Caps[sdk.CapabilityDiscovery] || len(plugin.DiscoveryPorts) == 0 {
+			continue
+		}
+		orderedPlugins = append(orderedPlugins, plugin)
+	}
+
+	sort.Slice(orderedPlugins, func(i, j int) bool {
+		return orderedPlugins[i].Identifier.DriverName < orderedPlugins[j].Identifier.DriverName
+	})
+
+	seen := make(map[string]struct{})
+	var ports []string
+	for _, plugin := range orderedPlugins {
+		for _, port := range plugin.DiscoveryPorts {
+			if _, ok := seen[port]; ok {
+				continue
+			}
+			seen[port] = struct{}{}
+			ports = append(ports, port)
+		}
+	}
+
+	return ports
 }
 
 // GetPluginCapabilitiesByDriverName returns the capabilities of a plugin for a given driver name

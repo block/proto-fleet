@@ -657,6 +657,12 @@ class GetCapabilitiesForModelResponse(_message.Message):
     caps: Capabilities
     def __init__(self, caps: _Optional[_Union[Capabilities, _Mapping]] = ...) -> None: ...
 
+class GetDiscoveryPortsResponse(_message.Message):
+    __slots__ = ("ports",)
+    PORTS_FIELD_NUMBER: _ClassVar[int]
+    ports: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, ports: _Optional[_Iterable[str]] = ...) -> None: ...
+
 class GetDeviceWebViewURLResponse(_message.Message):
     __slots__ = ("url",)
     URL_FIELD_NUMBER: _ClassVar[int]

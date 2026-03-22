@@ -27,6 +27,7 @@ const (
 	Driver_PairDevice_FullMethodName              = "/sdk.v1.Driver/PairDevice"
 	Driver_GetDefaultCredentials_FullMethodName   = "/sdk.v1.Driver/GetDefaultCredentials"
 	Driver_GetCapabilitiesForModel_FullMethodName = "/sdk.v1.Driver/GetCapabilitiesForModel"
+	Driver_GetDiscoveryPorts_FullMethodName       = "/sdk.v1.Driver/GetDiscoveryPorts"
 	Driver_NewDevice_FullMethodName               = "/sdk.v1.Driver/NewDevice"
 	Driver_DescribeDevice_FullMethodName          = "/sdk.v1.Driver/DescribeDevice"
 	Driver_CloseDevice_FullMethodName             = "/sdk.v1.Driver/CloseDevice"
@@ -65,6 +66,8 @@ type DriverClient interface {
 	GetDefaultCredentials(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error)
 	// Optional - Returns model-specific capabilities for devices
 	GetCapabilitiesForModel(ctx context.Context, in *GetCapabilitiesForModelRequest, opts ...grpc.CallOption) (*GetCapabilitiesForModelResponse, error)
+	// Optional - Returns canonical discovery scan ports for server-side port derivation
+	GetDiscoveryPorts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDiscoveryPortsResponse, error)
 	// CoreV1 - Device Management - Required methods
 	NewDevice(ctx context.Context, in *NewDeviceRequest, opts ...grpc.CallOption) (*NewDeviceResponse, error)
 	DescribeDevice(ctx context.Context, in *DescribeDeviceRequest, opts ...grpc.CallOption) (*DescribeDeviceResponse, error)
@@ -153,6 +156,15 @@ func (c *driverClient) GetDefaultCredentials(ctx context.Context, in *emptypb.Em
 func (c *driverClient) GetCapabilitiesForModel(ctx context.Context, in *GetCapabilitiesForModelRequest, opts ...grpc.CallOption) (*GetCapabilitiesForModelResponse, error) {
 	out := new(GetCapabilitiesForModelResponse)
 	err := c.cc.Invoke(ctx, Driver_GetCapabilitiesForModel_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) GetDiscoveryPorts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDiscoveryPortsResponse, error) {
+	out := new(GetDiscoveryPortsResponse)
+	err := c.cc.Invoke(ctx, Driver_GetDiscoveryPorts_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -394,6 +406,8 @@ type DriverServer interface {
 	GetDefaultCredentials(context.Context, *emptypb.Empty) (*GetDefaultCredentialsResponse, error)
 	// Optional - Returns model-specific capabilities for devices
 	GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error)
+	// Optional - Returns canonical discovery scan ports for server-side port derivation
+	GetDiscoveryPorts(context.Context, *emptypb.Empty) (*GetDiscoveryPortsResponse, error)
 	// CoreV1 - Device Management - Required methods
 	NewDevice(context.Context, *NewDeviceRequest) (*NewDeviceResponse, error)
 	DescribeDevice(context.Context, *DescribeDeviceRequest) (*DescribeDeviceResponse, error)
@@ -448,6 +462,9 @@ func (UnimplementedDriverServer) GetDefaultCredentials(context.Context, *emptypb
 }
 func (UnimplementedDriverServer) GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCapabilitiesForModel not implemented")
+}
+func (UnimplementedDriverServer) GetDiscoveryPorts(context.Context, *emptypb.Empty) (*GetDiscoveryPortsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDiscoveryPorts not implemented")
 }
 func (UnimplementedDriverServer) NewDevice(context.Context, *NewDeviceRequest) (*NewDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewDevice not implemented")
@@ -632,6 +649,24 @@ func _Driver_GetCapabilitiesForModel_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).GetCapabilitiesForModel(ctx, req.(*GetCapabilitiesForModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_GetDiscoveryPorts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetDiscoveryPorts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetDiscoveryPorts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetDiscoveryPorts(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1065,6 +1100,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCapabilitiesForModel",
 			Handler:    _Driver_GetCapabilitiesForModel_Handler,
+		},
+		{
+			MethodName: "GetDiscoveryPorts",
+			Handler:    _Driver_GetDiscoveryPorts_Handler,
 		},
 		{
 			MethodName: "NewDevice",

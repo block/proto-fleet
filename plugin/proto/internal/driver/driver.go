@@ -33,6 +33,7 @@ const (
 )
 
 var _ sdk.Driver = (*Driver)(nil)
+var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
@@ -131,6 +132,15 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	}
 
 	return deviceInfo, capabilities, nil
+}
+
+// GetDiscoveryPorts returns the canonical scan port for Proto rigs configured
+// for this plugin instance.
+func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
+	if d.requiredPort <= 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("%d", d.requiredPort)}
 }
 
 // DiscoverDevice implements the SDK Driver interface.

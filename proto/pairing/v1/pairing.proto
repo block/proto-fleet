@@ -71,8 +71,9 @@ message NmapModeRequest {
   // subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
   string target = 1;
 
-  // Ports to scan (required). Miner-specific ports should be provided by the client
-  // based on the configured plugins/device types.
+  // Optional ports to scan. When omitted, the server derives canonical scan ports
+  // from loaded plugin metadata. If provided, these ports fully override the
+  // server-derived defaults.
   repeated string ports = 2;
 }
 
@@ -84,7 +85,9 @@ message IPRangeModeRequest {
   // Ending IP address of the range to scan
   string end_ip = 2;
 
-  // Ports to check on each IP address
+  // Optional ports to check on each IP address. When omitted, the server derives
+  // canonical scan ports from loaded plugin metadata. If provided, these ports
+  // fully override the server-derived defaults.
   repeated string ports = 3;
 }
 
@@ -93,7 +96,9 @@ message IPListModeRequest {
   // List of IP addresses to check
   repeated string ip_addresses = 1;
 
-  // Ports to check on each IP address
+  // Optional ports to check on each IP address. When omitted, the server derives
+  // canonical scan ports from loaded plugin metadata. If provided, these ports
+  // fully override the server-derived defaults.
   repeated string ports = 2;
 }
 

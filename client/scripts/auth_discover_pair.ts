@@ -20,10 +20,13 @@ const adminUsername = process.env.FLEET_ADMIN_USERNAME ?? "admin";
 const adminPassword = process.env.FLEET_ADMIN_PASSWORD ?? "Pass123!";
 const requestedSessionCookie = process.env.FLEET_SESSION_COOKIE;
 const requestedDiscoveryTarget = process.env.FLEET_DISCOVERY_TARGET;
-const discoveryPorts = (process.env.FLEET_DISCOVERY_PORTS ?? "443,8080,4028")
-  .split(",")
-  .map((port) => port.trim())
-  .filter(Boolean);
+const requestedDiscoveryPorts = process.env.FLEET_DISCOVERY_PORTS;
+const discoveryPorts = requestedDiscoveryPorts
+  ? requestedDiscoveryPorts
+      .split(",")
+      .map((port) => port.trim())
+      .filter(Boolean)
+  : [];
 const pairAllDiscovered = process.env.FLEET_PAIR_ALL_DISCOVERED === "true";
 
 const transport = createConnectTransport({ baseUrl });
@@ -173,10 +176,15 @@ async function discoverDevices(sessionCookie: string, target: string): Promise<D
   const request = create(DiscoverRequestSchema, {
     mode: {
       case: "nmap",
-      value: {
-        target,
-        ports: discoveryPorts,
-      },
+      value:
+        discoveryPorts.length > 0
+          ? {
+              target,
+              ports: discoveryPorts,
+            }
+          : {
+              target,
+            },
     },
   });
 

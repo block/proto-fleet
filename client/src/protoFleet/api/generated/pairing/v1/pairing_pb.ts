@@ -185,8 +185,9 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
   target: string;
 
   /**
-   * Ports to scan (required). Miner-specific ports should be provided by the client
-   * based on the configured plugins/device types.
+   * Optional ports to scan. When omitted, the server derives canonical scan ports
+   * from loaded plugin metadata. If provided, these ports fully override the
+   * server-derived defaults.
    *
    * @generated from field: repeated string ports = 2;
    */
@@ -220,7 +221,9 @@ export type IPRangeModeRequest = Message<"pairing.v1.IPRangeModeRequest"> & {
   endIp: string;
 
   /**
-   * Ports to check on each IP address
+   * Optional ports to check on each IP address. When omitted, the server derives
+   * canonical scan ports from loaded plugin metadata. If provided, these ports
+   * fully override the server-derived defaults.
    *
    * @generated from field: repeated string ports = 3;
    */
@@ -249,7 +252,9 @@ export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
   ipAddresses: string[];
 
   /**
-   * Ports to check on each IP address
+   * Optional ports to check on each IP address. When omitted, the server derives
+   * canonical scan ports from loaded plugin metadata. If provided, these ports
+   * fully override the server-derived defaults.
    *
    * @generated from field: repeated string ports = 2;
    */

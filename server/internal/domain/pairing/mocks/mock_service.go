@@ -86,6 +86,20 @@ func (m *MockCapabilitiesProvider) EXPECT() *MockCapabilitiesProviderMockRecorde
 	return m.recorder
 }
 
+// GetDiscoveryPorts mocks base method.
+func (m *MockCapabilitiesProvider) GetDiscoveryPorts(ctx context.Context) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDiscoveryPorts", ctx)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetDiscoveryPorts indicates an expected call of GetDiscoveryPorts.
+func (mr *MockCapabilitiesProviderMockRecorder) GetDiscoveryPorts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiscoveryPorts", reflect.TypeOf((*MockCapabilitiesProvider)(nil).GetDiscoveryPorts), ctx)
+}
+
 // GetMinerCapabilitiesForDevice mocks base method.
 func (m *MockCapabilitiesProvider) GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingv1.Device) *capabilitiesv1.MinerCapabilities {
 	m.ctrl.T.Helper()

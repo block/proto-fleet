@@ -110,7 +110,7 @@ from proto_fleet_sdk.errors import (
     UnsupportedCapabilityError,
 )
 from proto_fleet_sdk.protocols.device import Device
-from proto_fleet_sdk.protocols.driver import Driver
+from proto_fleet_sdk.protocols.driver import DiscoveryPortsProvider, Driver
 from proto_fleet_sdk.telemetry.components import (
     ASICMetrics,
     ComponentInfo,
@@ -136,6 +136,7 @@ __all__ = [
     "__author__",
     # Core protocols
     "Driver",
+    "DiscoveryPortsProvider",
     "Device",
     # Types
     "DriverIdentifier",

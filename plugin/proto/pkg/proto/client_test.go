@@ -141,85 +141,15 @@ func TestHTTPSClientCreation(t *testing.T) {
 	})
 }
 
-// TestTLSVerificationConfiguration tests TLS verification environment variable handling
+// TestTLSVerificationConfiguration verifies Proto HTTPS always skips certificate verification.
 func TestTLSVerificationConfiguration(t *testing.T) {
-	// Reset clients before each test
 	resetClients()
 
-	tests := []struct {
-		name          string
-		skipTLSVerify string
-		insecureTLS   string
-		expectedSkip  bool
-	}{
-		{
-			name:          "default - verification enabled",
-			skipTLSVerify: "",
-			insecureTLS:   "",
-			expectedSkip:  false,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=true",
-			skipTLSVerify: "true",
-			insecureTLS:   "",
-			expectedSkip:  true,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=TRUE (case insensitive)",
-			skipTLSVerify: "TRUE",
-			insecureTLS:   "",
-			expectedSkip:  true,
-		},
-		{
-			name:          "INSECURE_TLS=true",
-			skipTLSVerify: "",
-			insecureTLS:   "true",
-			expectedSkip:  true,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=false",
-			skipTLSVerify: "false",
-			insecureTLS:   "",
-			expectedSkip:  false,
-		},
-		{
-			name:          "both set to true",
-			skipTLSVerify: "true",
-			insecureTLS:   "true",
-			expectedSkip:  true,
-		},
-		{
-			name:          "invalid values",
-			skipTLSVerify: "invalid",
-			insecureTLS:   "invalid",
-			expectedSkip:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Reset clients for each test
-			resetClients()
-
-			// Set environment variables
-			if tt.skipTLSVerify != "" {
-				t.Setenv("SKIP_TLS_VERIFY", tt.skipTLSVerify)
-			}
-			if tt.insecureTLS != "" {
-				t.Setenv("INSECURE_TLS", tt.insecureTLS)
-			}
-
-			// Test the function directly
-			result := shouldSkipTLSVerification()
-			assert.Equal(t, tt.expectedSkip, result, "shouldSkipTLSVerification() result")
-
-			// Test that HTTPS client respects the setting
-			client := createHTTPSClient()
-			transport, ok := client.Transport.(*http.Transport)
-			require.True(t, ok, "Transport should be *http.Transport")
-			assert.Equal(t, tt.expectedSkip, transport.TLSClientConfig.InsecureSkipVerify, "TLS InsecureSkipVerify setting")
-		})
-	}
+	client := createHTTPSClient()
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok, "Transport should be *http.Transport")
+	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "Proto HTTPS should always skip certificate verification")
 }
 
 // TestCredentialManagement tests credential setting and usage
@@ -283,46 +213,31 @@ func TestClientSingletonBehavior(t *testing.T) {
 	assert.NotSame(t, client1.httpClient, client3.httpClient, "HTTP and HTTPS clients should be different")
 }
 
-// TestClientRuntimeEnvChange tests runtime environment variable changes with client reset
-// This aligns with the server's create_client_test.go TestCreateClientRuntimeEnvChange
+// TestClientRuntimeConfigChange verifies environment changes do not alter Proto TLS behavior.
 func TestClientRuntimeEnvChange(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
 
-	// Start with TLS verification enabled
 	t.Setenv("SKIP_TLS_VERIFY", "false")
-
-	// Create first client with TLS verification enabled
 	client1, err1 := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err1, "Failed to create first client")
 	require.NotNil(t, client1, "First client should be created")
-	// Verify TLS verification is enabled
 	transport, ok := client1.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.False(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be enabled initially")
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
+		"Proto HTTPS should skip certificate verification regardless of environment")
 
-	// Change environment variable at runtime
 	t.Setenv("SKIP_TLS_VERIFY", "true")
-
-	// Reset clients to force recreation with new environment
 	resetClients()
 
-	// Create second client with TLS verification disabled
 	client2, err2 := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err2, "Failed to create second client")
 	require.NotNil(t, client2, "Second client should be created")
-	// Verify TLS verification is now disabled
 	transport, ok = client2.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be disabled after environment change")
-
-	// Verify both clients were created (errors are expected for connection, not creation)
+		"Proto HTTPS should keep skipping certificate verification after environment changes")
 }
 
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
@@ -364,54 +279,32 @@ func TestUnsupportedScheme(t *testing.T) {
 	}
 }
 
-// TestClientCreationWithInsecureTLS tests client creation with TLS verification disabled
-// This mirrors the server's TestCreateClientWithInsecureTLS
+// TestClientCreationWithInsecureTLS verifies HTTPS client creation uses Proto's fixed TLS policy.
 func TestClientCreationWithInsecureTLS(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
-
-	t.Setenv("SKIP_TLS_VERIFY", "true")
-
-	// Test that the client can be created with HTTPS protocol
-	// when TLS verification is disabled
 	client, err := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err, "Failed to create client with insecure TLS")
 	require.NotNil(t, client, "Client should be created")
-
-	// Verify TLS verification is disabled
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be disabled when SKIP_TLS_VERIFY=true")
-
-	// Clean up
+		"Proto HTTPS should always disable certificate verification")
 	_ = client.Close()
 }
 
-// TestClientCreationWithoutInsecureTLS tests client creation with TLS verification enabled
-// This mirrors the server's TestCreateClientWithoutInsecureTLS
+// TestClientCreationWithoutInsecureTLS verifies environment values do not re-enable verification.
 func TestClientCreationWithoutInsecureTLS(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
-
-	// Explicitly set TLS verification to enabled (default behavior)
 	t.Setenv("SKIP_TLS_VERIFY", "false")
-
 	client, err := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err, "Failed to create client with secure TLS")
 	require.NotNil(t, client, "Client should be created")
-
-	// Verify TLS verification is enabled
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.False(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be enabled by default")
-
-	// Clean up
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
+		"Proto HTTPS should ignore environment attempts to re-enable verification")
 	_ = client.Close()
 }
 

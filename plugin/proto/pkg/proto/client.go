@@ -15,7 +15,6 @@ import (
 	"math"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -375,7 +374,10 @@ func createHTTPSClient() *http.Client {
 			TLSHandshakeTimeout:   httpTLSHandshakeTimeout,
 			ResponseHeaderTimeout: httpResponseHeaderTimeout,
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: shouldSkipTLSVerification(), // #nosec G402 -- Configurable via environment for development/testing
+				// Proto rigs commonly present self-signed or otherwise unverifiable certs.
+				// This keeps transport encryption while intentionally not authenticating
+				// the remote endpoint, so it does not protect against active LAN MITM.
+				InsecureSkipVerify: true, // #nosec G402 -- Intentional for Proto rig HTTPS
 				MinVersion:         tls.VersionTLS12,
 			},
 			ForceAttemptHTTP2: true,
@@ -405,13 +407,6 @@ func createHTTPClient() *http.Client {
 		}
 	})
 	return sharedHTTPClient
-}
-
-// shouldSkipTLSVerification checks environment variables for TLS verification settings.
-func shouldSkipTLSVerification() bool {
-	skipVerify := strings.ToLower(os.Getenv("SKIP_TLS_VERIFY"))
-	insecureTLS := strings.ToLower(os.Getenv("INSECURE_TLS"))
-	return skipVerify == "true" || insecureTLS == "true"
 }
 
 // SetCredentials sets authentication credentials for API calls.

@@ -16,9 +16,11 @@ import (
 	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
 	pairingMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
+	pluginsdomain "github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
@@ -92,6 +94,23 @@ func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.Disco
 			DriverName: deviceType,
 		},
 	}
+}
+
+func registerDiscoveryPortsPlugin(t *testing.T, testContext *testutil.TestContext, driverName string, ports []string) {
+	t.Helper()
+
+	err := testContext.ServiceProvider.PluginService.GetManager().RegisterPluginForTest(&pluginsdomain.LoadedPlugin{
+		Name: fmt.Sprintf("%s-plugin", driverName),
+		Identifier: sdk.DriverIdentifier{
+			DriverName: driverName,
+			APIVersion: "v1",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: ports,
+	})
+	require.NoError(t, err)
 }
 
 // createPairRequest creates a PairRequest with the given device identifiers using DeviceSelector.
@@ -174,6 +193,104 @@ func TestDiscoverWithIPList(t *testing.T) {
 
 		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2})
 	})
+}
+
+func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
+func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "8080", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+		Ports:       []string{"8080"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
+func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.NoError(t, err)
+
+	var results []*pb.DiscoverResponse
+	for result := range resultChan {
+		results = append(results, result)
+	}
+
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "no discovery ports were provided")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDiscoverWithIPRange_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPRange(ctx, &pb.IPRangeModeRequest{
+		StartIp: "192.168.1.10",
+		EndIp:   "192.168.1.10",
+	})
+	require.NoError(t, err)
+
+	var results []*pb.DiscoverResponse
+	for result := range resultChan {
+		results = append(results, result)
+	}
+
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "no discovery ports were provided")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDiscoverWithIPRange(t *testing.T) {

@@ -286,8 +286,9 @@ type NmapModeRequest struct {
 	// Can be: single IP (192.168.1.1), hostname (device.local),
 	// subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
 	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	// Ports to scan (required). Miner-specific ports should be provided by the client
-	// based on the configured plugins/device types.
+	// Optional ports to scan. When omitted, the server derives canonical scan ports
+	// from loaded plugin metadata. If provided, these ports fully override the
+	// server-derived defaults.
 	Ports         []string `protobuf:"bytes,2,rep,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -344,7 +345,9 @@ type IPRangeModeRequest struct {
 	StartIp string `protobuf:"bytes,1,opt,name=start_ip,json=startIp,proto3" json:"start_ip,omitempty"`
 	// Ending IP address of the range to scan
 	EndIp string `protobuf:"bytes,2,opt,name=end_ip,json=endIp,proto3" json:"end_ip,omitempty"`
-	// Ports to check on each IP address
+	// Optional ports to check on each IP address. When omitted, the server derives
+	// canonical scan ports from loaded plugin metadata. If provided, these ports
+	// fully override the server-derived defaults.
 	Ports         []string `protobuf:"bytes,3,rep,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -406,7 +409,9 @@ type IPListModeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// List of IP addresses to check
 	IpAddresses []string `protobuf:"bytes,1,rep,name=ip_addresses,json=ipAddresses,proto3" json:"ip_addresses,omitempty"`
-	// Ports to check on each IP address
+	// Optional ports to check on each IP address. When omitted, the server derives
+	// canonical scan ports from loaded plugin metadata. If provided, these ports
+	// fully override the server-derived defaults.
 	Ports         []string `protobuf:"bytes,2,rep,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

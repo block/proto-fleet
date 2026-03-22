@@ -98,7 +98,7 @@ describe("MinersWrapper", () => {
               case: "nmap",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
-                ports: ["443", "8080", "4028"],
+                ports: [],
               }),
             }),
           }),

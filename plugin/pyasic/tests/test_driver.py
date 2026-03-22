@@ -67,6 +67,15 @@ class TestDescribeDriver:
         assert caps["device_status"] is True
 
 
+class TestGetDiscoveryPorts:
+    async def test_returns_canonical_scan_ports(self, mock_ctx: MagicMock) -> None:
+        driver = _make_driver()
+
+        ports = await driver.get_discovery_ports(mock_ctx)
+
+        assert ports == ["80", "443", "4028"]
+
+
 class TestDiscoverDevice:
     async def test_discover_whatsminer(self, mock_ctx: MagicMock) -> None:
         # Arrange
@@ -492,4 +501,3 @@ class TestDefaultCredentials:
 
         # Assert
         assert any(c.username == "root" and c.password == "root" for c in creds)
-

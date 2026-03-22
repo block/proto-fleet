@@ -31,6 +31,8 @@ func TestDriverDescribe(t *testing.T) {
 	for _, cap := range requiredCaps {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
+
+	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
 }
 
 // TestDeviceInfoValidation tests device info validation.

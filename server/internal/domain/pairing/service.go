@@ -63,6 +63,8 @@ const (
 	// This sets a floor on how long nmap waits before retransmitting probes. 100ms is a reasonable
 	// baseline for local networks - lower values may cause unnecessary retransmissions.
 	nmapMinRTTTimeoutMilliseconds = 100
+
+	discoveryPortsUnavailableError = "no discovery ports were provided and no loaded plugins reported canonical discovery ports"
 )
 
 // shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
@@ -115,6 +117,7 @@ type Listener interface {
 // CapabilitiesProvider provides miner capabilities from plugins
 type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pb.Device) *capabilitiespb.MinerCapabilities
+	GetDiscoveryPorts(ctx context.Context) []string
 }
 
 // Service handles the core device discovery functionality
@@ -180,6 +183,21 @@ func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
 	return &NetworkInfo{info}, nil
 }
 
+func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
+	if len(requestPorts) > 0 {
+		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
+		return requestPorts, nil
+	}
+
+	ports := s.capabilitiesProvider.GetDiscoveryPorts(ctx)
+	if len(ports) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+	}
+
+	slog.Debug("Resolved discovery ports from loaded plugin metadata", "ports", ports)
+	return ports, nil
+}
+
 // DiscoverWithMDNS discovers devices using mDNS
 func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	resultChan := make(chan *pb.DiscoverResponse)
@@ -235,6 +253,14 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 // DiscoverWithNmap discovers devices using Nmap
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	resultChan := make(chan *pb.DiscoverResponse)
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		go func() {
+			defer close(resultChan)
+			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
+		}()
+		return resultChan, nil
+	}
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
@@ -256,13 +282,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			nmap.WithMinRTTTimeout(time.Duration(nmapMinRTTTimeoutMilliseconds) * time.Millisecond),
 		}
 
-		if len(r.Ports) == 0 {
-			resultChan <- &pb.DiscoverResponse{
-				Error: "ports must be specified for nmap discovery",
-			}
-			return
-		}
-		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(r.Ports, ",")))
+		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(ports, ",")))
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
 		if err != nil {
@@ -274,7 +294,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		slog.Debug("Starting nmap scan",
 			"target", r.Target,
-			"ports", r.Ports,
+			"ports", ports,
 			"timeout_seconds", defaultNmapTimeoutSeconds)
 
 		result, _, err := scanner.Run()
@@ -417,6 +437,15 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	// Skip network address (.0) and gateway (.1) to avoid discovery issues
 	startIP = adjustIPRangeStartForNetworkAddresses(startIP)
 
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		go func() {
+			defer close(resultChan)
+			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
+		}()
+		return resultChan, nil
+	}
+
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
 
@@ -440,7 +469,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					for _, port := range r.Ports {
+					for _, port := range ports {
 						if timeoutCtx.Err() != nil {
 							return
 						}
@@ -462,6 +491,14 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 // DiscoverWithIPList discovers devices from a list of IPs
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	resultChan := make(chan *pb.DiscoverResponse)
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		go func() {
+			defer close(resultChan)
+			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
+		}()
+		return resultChan, nil
+	}
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
@@ -486,7 +523,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					for _, port := range r.Ports {
+					for _, port := range ports {
 						if timeoutCtx.Err() != nil {
 							return
 						}

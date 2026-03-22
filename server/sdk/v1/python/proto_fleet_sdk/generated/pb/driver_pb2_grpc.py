@@ -66,6 +66,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.GetCapabilitiesForModelRequest.SerializeToString,
                 response_deserializer=pb_dot_driver__pb2.GetCapabilitiesForModelResponse.FromString,
                 _registered_method=True)
+        self.GetDiscoveryPorts = channel.unary_unary(
+                '/sdk.v1.Driver/GetDiscoveryPorts',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.GetDiscoveryPortsResponse.FromString,
+                _registered_method=True)
         self.NewDevice = channel.unary_unary(
                 '/sdk.v1.Driver/NewDevice',
                 request_serializer=pb_dot_driver__pb2.NewDeviceRequest.SerializeToString,
@@ -217,6 +222,13 @@ class DriverServicer(object):
 
     def GetCapabilitiesForModel(self, request, context):
         """Optional - Returns model-specific capabilities for devices
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDiscoveryPorts(self, request, context):
+        """Optional - Returns canonical discovery scan ports for server-side port derivation
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -394,6 +406,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.GetCapabilitiesForModel,
                     request_deserializer=pb_dot_driver__pb2.GetCapabilitiesForModelRequest.FromString,
                     response_serializer=pb_dot_driver__pb2.GetCapabilitiesForModelResponse.SerializeToString,
+            ),
+            'GetDiscoveryPorts': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDiscoveryPorts,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=pb_dot_driver__pb2.GetDiscoveryPortsResponse.SerializeToString,
             ),
             'NewDevice': grpc.unary_unary_rpc_method_handler(
                     servicer.NewDevice,
@@ -669,6 +686,33 @@ class Driver(object):
             '/sdk.v1.Driver/GetCapabilitiesForModel',
             pb_dot_driver__pb2.GetCapabilitiesForModelRequest.SerializeToString,
             pb_dot_driver__pb2.GetCapabilitiesForModelResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDiscoveryPorts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/GetDiscoveryPorts',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            pb_dot_driver__pb2.GetDiscoveryPortsResponse.FromString,
             options,
             channel_credentials,
             insecure,

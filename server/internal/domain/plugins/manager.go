@@ -23,12 +23,13 @@ const (
 
 // LoadedPlugin represents a successfully loaded plugin
 type LoadedPlugin struct {
-	Name       string
-	Path       string
-	Client     *plugin.Client
-	Driver     sdk.Driver
-	Identifier sdk.DriverIdentifier
-	Caps       sdk.Capabilities
+	Name           string
+	Path           string
+	Client         *plugin.Client
+	Driver         sdk.Driver
+	Identifier     sdk.DriverIdentifier
+	Caps           sdk.Capabilities
+	DiscoveryPorts []string
 }
 
 // Manager handles loading and managing plugins
@@ -203,13 +204,19 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		return fmt.Errorf("failed to get driver capabilities: %w", err)
 	}
 
+	var discoveryPorts []string
+	if provider, ok := driver.(sdk.DiscoveryPortsProvider); ok {
+		discoveryPorts = append(discoveryPorts, provider.GetDiscoveryPorts(ctx)...)
+	}
+
 	loadedPlugin := &LoadedPlugin{
-		Name:       name,
-		Path:       path,
-		Client:     client,
-		Driver:     driver,
-		Identifier: identifier,
-		Caps:       caps,
+		Name:           name,
+		Path:           path,
+		Client:         client,
+		Driver:         driver,
+		Identifier:     identifier,
+		Caps:           caps,
+		DiscoveryPorts: discoveryPorts,
 	}
 
 	m.mu.Lock()
@@ -233,7 +240,8 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		"name", name,
 		"driver", identifier.DriverName,
 		"version", identifier.APIVersion,
-		"capabilities", caps)
+		"capabilities", caps,
+		"discovery_ports", discoveryPorts)
 
 	return nil
 }
