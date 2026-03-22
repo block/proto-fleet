@@ -150,7 +150,8 @@ func lessDevicePropsForRename(
 		interfaces.SortFieldName,
 		interfaces.SortFieldIPAddress,
 		interfaces.SortFieldMACAddress,
-		interfaces.SortFieldDeviceCount:
+		interfaces.SortFieldDeviceCount,
+		interfaces.SortFieldLocation:
 	case interfaces.SortFieldHashrate:
 		return lessNullableFloat64(left.Hashrate, right.Hashrate, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
 	case interfaces.SortFieldTemperature:
@@ -197,7 +198,8 @@ func compareDevicePropsForRename(
 		interfaces.SortFieldTemperature,
 		interfaces.SortFieldPower,
 		interfaces.SortFieldEfficiency,
-		interfaces.SortFieldFirmware:
+		interfaces.SortFieldFirmware,
+		interfaces.SortFieldLocation:
 		// Telemetry sorts are handled earlier by lessDevicePropsForRename; this
 		// fallback preserves deterministic behavior if compareDevicePropsForRename
 		// is ever called directly with those fields.

@@ -2,6 +2,7 @@ import type { ColTitles } from "@/shared/components/List/types";
 
 export const collectionCols = {
   name: "name",
+  location: "location",
   miners: "miners",
   issues: "issues",
   hashrate: "hashrate",
@@ -15,6 +16,7 @@ export type CollectionColumn = (typeof collectionCols)[keyof typeof collectionCo
 
 export const collectionColTitles: ColTitles<CollectionColumn> = {
   name: "Name",
+  location: "Location",
   miners: "Miners",
   issues: "Issues",
   hashrate: "Total Hashrate",

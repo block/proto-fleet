@@ -197,7 +197,7 @@ func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int
 	})
 }
 
-func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32) ([]*pb.DeviceCollection, string, int32, error) {
+func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, locations []string) ([]*pb.DeviceCollection, string, int32, error) {
 	cursor, err := decodeCollectionCursor(pageToken)
 	if err != nil {
 		return nil, "", 0, err
@@ -215,14 +215,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Count total
 	var totalCount int32
-	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, errorComponentTypes)
+	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, errorComponentTypes, locations)
 	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
 	}
 
 	// Build list query
 	fetchLimit := pageSize + 1
-	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, errorComponentTypes)
+	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, errorComponentTypes, locations)
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -238,12 +238,13 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		DeviceCount int32
 		CreatedAt   time.Time
 		UpdatedAt   time.Time
+		Location    sql.NullString
 	}
 
 	var rows []collectionRow
 	for sqlRows.Next() {
 		var r collectionRow
-		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount); err != nil {
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.Location); err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
 		rows = append(rows, r)
@@ -259,6 +260,10 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		cur := &collectionCursor{Label: last.Label, ID: last.ID, SortField: sortField, SortDir: sortDir}
 		if sortField == collectionSortFieldDeviceCount {
 			cur.DeviceCount = &last.DeviceCount
+		}
+		if sortField == collectionSortFieldLocation && last.Location.Valid {
+			loc := last.Location.String
+			cur.Location = &loc
 		}
 		nextPageToken = encodeCollectionCursor(cur)
 	}

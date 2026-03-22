@@ -41,7 +41,7 @@ type CollectionStore interface {
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.
 	// Returns the collections, a next page token (empty if no more results), and the total count.
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32) ([]*pb.DeviceCollection, string, int32, error)
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32, locations []string) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)

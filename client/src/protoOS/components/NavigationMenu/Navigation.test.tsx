@@ -8,7 +8,7 @@ vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return {
     ...actual,
-    Link: vi.fn().mockReturnValue(<div></div>),
+    Link: vi.fn(({ children }) => children),
     useLocation: () => ({
       pathname: "localhost:3000/example/path",
     }),

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useCollections } from "@/protoFleet/api/useCollections";
 import type { CollectionListItem } from "@/protoFleet/components/CollectionList";
+import type { CollectionColumn } from "@/protoFleet/components/CollectionList";
 import {
   CollectionList,
   DEFAULT_PAGE_SIZE,
@@ -20,6 +21,18 @@ import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
+const RACK_COLUMNS: CollectionColumn[] = [
+  "name",
+  "location",
+  "miners",
+  "issues",
+  "hashrate",
+  "efficiency",
+  "power",
+  "temperature",
+  "health",
+];
+
 const RacksPage = () => {
   const { listRacks, listRackLocations } = useCollections();
   const [showAddRackModal, setShowAddRackModal] = useState(false);
@@ -28,6 +41,9 @@ const RacksPage = () => {
   const [allLocations, setAllLocations] = useState<{ id: string; label: string }[]>([]);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
+
+  const selectedLocationsRef = useRef<string[]>([]);
+  const getLocations = useCallback(() => selectedLocationsRef.current, []);
 
   const {
     collections: racks,
@@ -43,7 +59,7 @@ const RacksPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
-  } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes);
+  } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getLocations);
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
@@ -64,17 +80,6 @@ const RacksPage = () => {
     fetchLocations();
   }, [fetchLocations]);
 
-  // Client-side location filter (applied on display only)
-  const filteredRacks = useMemo(() => {
-    if (selectedLocations.length === 0) return racks;
-    return racks.filter((rack) => {
-      if (rack.typeDetails.case !== "rackInfo") return false;
-      return (
-        rack.typeDetails.value.location !== undefined && selectedLocations.includes(rack.typeDetails.value.location)
-      );
-    });
-  }, [racks, selectedLocations]);
-
   const handleIssuesChange = useCallback(
     (issues: string[]) => {
       setSelectedIssues(issues);
@@ -84,13 +89,24 @@ const RacksPage = () => {
     [resetAndFetch, selectedIssuesRef],
   );
 
-  const handleLocationsChange = useCallback((locations: string[]) => {
-    setSelectedLocations(locations);
-  }, []);
+  const handleLocationsChange = useCallback(
+    (locations: string[]) => {
+      setSelectedLocations(locations);
+      selectedLocationsRef.current = locations;
+      resetAndFetch();
+    },
+    [resetAndFetch],
+  );
 
-  const handleRemoveLocation = useCallback((locationId: string) => {
-    setSelectedLocations((prev) => prev.filter((id) => id !== locationId));
-  }, []);
+  const handleRemoveLocation = useCallback(
+    (locationId: string) => {
+      const next = selectedLocations.filter((id) => id !== locationId);
+      setSelectedLocations(next);
+      selectedLocationsRef.current = next;
+      resetAndFetch();
+    },
+    [selectedLocations, resetAndFetch],
+  );
 
   const handleRemoveIssue = useCallback(
     (issueId: string) => {
@@ -251,26 +267,27 @@ const RacksPage = () => {
       {racksViewMode === "list" ? (
         <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
           <CollectionList
-            collections={filteredRacks}
+            collections={racks}
             statsMap={statsMap}
             renderName={renderName}
             renderMiners={renderMiners}
+            columns={RACK_COLUMNS}
             currentSort={currentSort}
             onSort={handleSort}
             itemName={{ singular: "rack", plural: "racks" }}
-            total={selectedLocations.length > 0 ? filteredRacks.length : totalCount}
+            total={totalCount}
             loading={isLoading}
             pageSize={DEFAULT_PAGE_SIZE}
             currentPage={currentPage}
             hasPreviousPage={currentPage > 0}
-            hasNextPage={selectedLocations.length > 0 ? false : hasNextPage}
+            hasNextPage={hasNextPage}
             onNextPage={handleNextPage}
             onPrevPage={handlePrevPage}
           />
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 px-10 sm:grid-cols-2 lg:grid-cols-3 phone:px-6 tablet:px-6">
-          {filteredRacks.map((rack) => (
+          {racks.map((rack) => (
             <div key={rack.id.toString()} className="border-border-secondary bg-surface-primary rounded-xl border p-4">
               <p className="text-heading-100 text-text-primary">{rack.label}</p>
               <p className="text-body-100 text-text-secondary">{rack.description}</p>

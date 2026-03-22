@@ -925,7 +925,8 @@ func TestHandleErrors_ReturnsSpecShape(t *testing.T) {
 
 func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	state.SetCoolingMode(CoolingModeAuto, nil)
+	targetTemp := 55.0
+	state.SetCoolingMode(CoolingModeAuto, nil, &targetTemp)
 	h := NewRESTApiHandler(state)
 
 	rr := httptest.NewRecorder()
@@ -944,6 +945,12 @@ func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
 	if resp.CoolingStatus.FanMode != "Auto" {
 		t.Fatalf("expected fan_mode %q, got %q", "Auto", resp.CoolingStatus.FanMode)
 	}
+	if resp.CoolingStatus.TargetTempC == nil {
+		t.Fatal("expected target_temperature_c to be present in Auto mode")
+	}
+	if *resp.CoolingStatus.TargetTempC != 55.0 {
+		t.Fatalf("expected target_temperature_c 55.0, got %f", *resp.CoolingStatus.TargetTempC)
+	}
 	if resp.CoolingStatus.SpeedPercentage != int(defaultFanSpeedPct) {
 		t.Fatalf("expected speed_percentage %d, got %d", defaultFanSpeedPct, resp.CoolingStatus.SpeedPercentage)
 	}
@@ -952,7 +959,7 @@ func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
 func TestHandleCooling_GET_ManualMode_OmitsTargetTemp(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	speed := uint32(80)
-	state.SetCoolingMode(CoolingModeManual, &speed)
+	state.SetCoolingMode(CoolingModeManual, &speed, nil)
 	h := NewRESTApiHandler(state)
 
 	rr := httptest.NewRecorder()
@@ -974,6 +981,9 @@ func TestHandleCooling_GET_ManualMode_OmitsTargetTemp(t *testing.T) {
 	if resp.CoolingStatus.SpeedPercentage != int(speed) {
 		t.Fatalf("expected speed_percentage %d, got %d", speed, resp.CoolingStatus.SpeedPercentage)
 	}
+	if resp.CoolingStatus.TargetTempC != nil {
+		t.Fatalf("expected target_temperature_c to be omitted in Manual mode, got %v", *resp.CoolingStatus.TargetTempC)
+	}
 }
 
 func TestHandleCooling_PUT_AutoMode_SetsTargetTemp(t *testing.T) {
@@ -990,12 +1000,16 @@ func TestHandleCooling_PUT_AutoMode_SetsTargetTemp(t *testing.T) {
 	}
 
 	state.mu.RLock()
+	targetTemp := state.TargetTempC
 	speed := state.FanSpeedPct
 	mode := state.CoolingModeVal
 	state.mu.RUnlock()
 
 	if mode != CoolingModeAuto {
 		t.Fatalf("expected Auto mode, got %v", mode)
+	}
+	if targetTemp != 60.5 {
+		t.Fatalf("expected target temp 60.5, got %f", targetTemp)
 	}
 	if speed != defaultFanSpeedPct {
 		t.Fatalf("expected speed to remain %d, got %d", defaultFanSpeedPct, speed)
@@ -1005,6 +1019,10 @@ func TestHandleCooling_PUT_AutoMode_SetsTargetTemp(t *testing.T) {
 func TestHandleCooling_PUT_ManualMode_IgnoresTargetTemp(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
+
+	state.mu.RLock()
+	originalTemp := state.TargetTempC
+	state.mu.RUnlock()
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/cooling",
@@ -1016,12 +1034,16 @@ func TestHandleCooling_PUT_ManualMode_IgnoresTargetTemp(t *testing.T) {
 	}
 
 	state.mu.RLock()
+	targetTemp := state.TargetTempC
 	speed := state.FanSpeedPct
 	mode := state.CoolingModeVal
 	state.mu.RUnlock()
 
 	if mode != CoolingModeManual {
 		t.Fatalf("expected Manual mode, got %v", mode)
+	}
+	if targetTemp != originalTemp {
+		t.Fatalf("expected target temp to remain %f in Manual mode, got %f", originalTemp, targetTemp)
 	}
 	if speed != 75 {
 		t.Fatalf("expected speed to be updated to 75 in Manual mode, got %d", speed)

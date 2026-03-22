@@ -19,6 +19,7 @@ const (
 	SortFieldEfficiency  SortField = 9
 	SortFieldFirmware    SortField = 11
 	SortFieldDeviceCount SortField = 12
+	SortFieldLocation    SortField = 13
 )
 
 // SortDirection represents the direction to sort results.

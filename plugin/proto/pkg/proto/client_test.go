@@ -614,6 +614,64 @@ func TestGetCoolingMode_Error(t *testing.T) {
 	assert.Equal(t, sdk.CoolingModeUnspecified, mode)
 }
 
+// TestGetFirmwareVersion tests the REST-backed firmware version helper.
+func TestGetFirmwareVersion(t *testing.T) {
+	tests := []struct {
+		name            string
+		statusCode      int
+		responseBody    string
+		expectedVersion string
+		expectErr       bool
+		errContains     string
+	}{
+		{
+			name:            "success with firmware version populated",
+			statusCode:      http.StatusOK,
+			responseBody:    `{"system-info":{"os":{"version":"1.2.3"}}}`,
+			expectedVersion: "1.2.3",
+		},
+		{
+			name:            "missing os section",
+			statusCode:      http.StatusOK,
+			responseBody:    `{"system-info":{}}`,
+			expectedVersion: "",
+		},
+		{
+			name:         "system endpoint returns error",
+			statusCode:   http.StatusInternalServerError,
+			responseBody: `connection refused`,
+			expectErr:    true,
+			errContains:  "failed to get system info",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/api/v1/system", r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			version, err := client.GetFirmwareVersion(t.Context())
+
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Empty(t, version)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedVersion, version)
+			}
+		})
+	}
+}
+
 // TestGetStatusPoolCheckError tests behavior when pool check fails
 func TestGetStatusPoolCheckError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

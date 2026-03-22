@@ -94,6 +94,10 @@
     {
       "name": "System Tag",
       "description": "The system tag endpoint group provides a simple way to set and retrieve a custom tag for the mining device."
+    },
+    {
+      "name": "Pairing",
+      "description": "The pairing endpoint group provides device pairing functionality including retrieving pairing info and managing authentication keys."
     }
   ],
   "paths": {
@@ -1853,7 +1857,7 @@
         "tags": [
           "Cooling"
         ],
-        "description": "The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.",
+        "description": "The cooling endpoint provides information on the cooling status of the device, including mode, current fan RPM, and target temperature.",
         "operationId": "GetCooling",
         "responses": {
           "200": {
@@ -1875,7 +1879,7 @@
         "tags": [
           "Cooling"
         ],
-        "description": "The cooling configuration endpoint allows the user to control the fan mode.",
+        "description": "The cooling configuration endpoint allows the user to control the fan mode, speed percentage (for Manual mode), and target temperature (for Auto mode).",
         "operationId": "SetCoolingMode",
         "requestBody": {
           "description": "Cooling system configuration settings for fan control",
@@ -2765,6 +2769,7 @@
         "description": "Set the authentication public key for pairing. On first pair this endpoint does not require authentication. On key rotation, authentication is required.",
         "operationId": "SetAuthKey",
         "requestBody": {
+          "description": "The EdDSA public key to set for device authentication",
           "required": true,
           "content": {
             "application/json": {
@@ -2805,7 +2810,7 @@
         "operationId": "ClearAuthKey",
         "security": [
           {
-            "bearerAuth": []
+            "BearerAuth": []
           }
         ],
         "responses": {
@@ -2814,7 +2819,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SetAuthKeyResponse"
+                  "$ref": "#/components/schemas/MessageResponse"
                 }
               }
             }
@@ -2919,6 +2924,12 @@
             "minimum": 0,
             "maximum": 100,
             "example": 75
+          },
+          "target_temperature_c": {
+            "type": "number",
+            "format": "float",
+            "description": "Target temperature in Celsius for automatic fan control. Used only when mode is Auto to override the default temperature target.",
+            "example": 50.0
           }
         }
       },
@@ -3178,6 +3189,11 @@
             "type": "integer",
             "description": "Zero-based index of the ASIC on the hashboard (first ASIC is 0).",
             "example": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "Human-readable ASIC identifier (e.g. \"A0\", \"B3\").",
+            "example": "A0"
           },
           "row": {
             "type": "integer",
@@ -3793,6 +3809,16 @@
             "type": "integer",
             "description": "The number of hardware errors that have occurred during the mining operation.",
             "example": 100
+          },
+          "hashboards_installed": {
+            "type": "integer",
+            "description": "The number of hashboards installed (detected) in the miner.",
+            "example": 4
+          },
+          "hashboards_mining": {
+            "type": "integer",
+            "description": "The number of hashboards currently in the mining state.",
+            "example": 4
           }
         }
       },
@@ -3898,6 +3924,12 @@
             "minimum": 0,
             "maximum": 100,
             "example": 55
+          },
+          "target_temperature_c": {
+            "type": "number",
+            "format": "float",
+            "description": "Current target temperature in Celsius for automatic fan control. Only present when mode is Auto.",
+            "example": 50.0
           },
           "fans": {
             "type": "array",
@@ -5565,8 +5597,8 @@
         "properties": {
           "public_key": {
             "type": "string",
-            "description": "EdDSA public key encoded as base64 DER (SPKI)",
-            "example": "MCowBQYDK2VwAyEAXuGptq0Wjv2C7q9gIlT5W8z0k7V3Dqv5C1Tt8gR1y4Q="
+            "description": "EdDSA public key as base64-encoded DER (SPKI)",
+            "example": "MCowBQYDK2VwAyEAGb1gauf6Rn+VgMwMeMHFBjBLHaiv83R1RV5MhFqxTW0="
           }
         },
         "required": [

@@ -18,18 +18,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file collection/v1/collection.proto.
  */
-export const file_collection_v1_collection: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "Ch5jb2xsZWN0aW9uL3YxL2NvbGxlY3Rpb24ucHJvdG8SDWNvbGxlY3Rpb24udjEi0wIKEERldmljZUNvbGxlY3Rpb24SCgoCaWQYASABKAMSKwoEdHlwZRgCIAEoDjIdLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblR5cGUSDQoFbGFiZWwYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSFAoMZGV2aWNlX2NvdW50GAUgASgFEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCXJhY2tfaW5mbxgIIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja0luZm9IABIuCgpncm91cF9pbmZvGAkgASgLMhguY29sbGVjdGlvbi52MS5Hcm91cEluZm9IAEIOCgx0eXBlX2RldGFpbHMiwAEKCFJhY2tJbmZvEhUKBHJvd3MYASABKAVCB7pIBBoCIAASGAoHY29sdW1ucxgCIAEoBUIHukgEGgIgABIZCghsb2NhdGlvbhgDIAEoCUIHukgEcgIQARIyCgtvcmRlcl9pbmRleBgEIAEoDjIdLmNvbGxlY3Rpb24udjEuUmFja09yZGVySW5kZXgSNAoMY29vbGluZ190eXBlGAUgASgOMh4uY29sbGVjdGlvbi52MS5SYWNrQ29vbGluZ1R5cGUiCwoJR3JvdXBJbmZvIp8BChBDb2xsZWN0aW9uTWVtYmVyEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEiwKCGFkZGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgRyYWNrGAMgASgLMiAuY29sbGVjdGlvbi52MS5SYWNrTWVtYmVyRGV0YWlsc0gAQhAKDm1lbWJlcl9kZXRhaWxzIksKEVJhY2tNZW1iZXJEZXRhaWxzEjYKDXNsb3RfcG9zaXRpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb24iQQoQUmFja1Nsb3RQb3NpdGlvbhIUCgNyb3cYASABKAVCB7pIBBoCKAASFwoGY29sdW1uGAIgASgFQge6SAQaAigAIskCChdDcmVhdGVDb2xsZWN0aW9uUmVxdWVzdBI3CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmNvbGxlY3Rpb24udjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiZAoYQ3JlYXRlQ29sbGVjdGlvblJlc3BvbnNlEjMKCmNvbGxlY3Rpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24SEwoLYWRkZWRfY291bnQYAiABKAUiNgoUR2V0Q29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJMChVHZXRDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiK+AgoXVXBkYXRlQ29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5jb2xsZWN0aW9uLnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJPChhVcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiI5ChdEZWxldGVDb2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIhoKGERlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZSLdAQoWTGlzdENvbGxlY3Rpb25zUmVxdWVzdBI1CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlIn0KF0xpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEjQKC2NvbGxlY3Rpb25zGAEgAygLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBSJ7Ch1BZGREZXZpY2VzVG9Db2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBIkwKHkFkZERldmljZXNUb0NvbGxlY3Rpb25SZXNwb25zZRIVCg1jb2xsZWN0aW9uX2lkGAEgASgDEhMKC2FkZGVkX2NvdW50GAIgASgFIoABCiJSZW1vdmVEZXZpY2VzRnJvbUNvbGxlY3Rpb25SZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASOgoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQEiPAojUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uUmVzcG9uc2USFQoNcmVtb3ZlZF9jb3VudBgBIAEoBSJuChxMaXN0Q29sbGVjdGlvbk1lbWJlcnNSZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkiagodTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVzcG9uc2USMAoHbWVtYmVycxgBIAMoCzIfLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvbk1lbWJlchIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkibgobR2V0RGV2aWNlQ29sbGVjdGlvbnNSZXF1ZXN0EiIKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQge6SARyAhABEisKBHR5cGUYAiABKA4yHS5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25UeXBlIlQKHEdldERldmljZUNvbGxlY3Rpb25zUmVzcG9uc2USNAoLY29sbGVjdGlvbnMYASADKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24imwEKGlNldFJhY2tTbG90UG9zaXRpb25SZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASIgoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAlCB7pIBHICEAESOQoIcG9zaXRpb24YAyABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb25CBrpIA8gBASJbChtTZXRSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2USFQoNY29sbGVjdGlvbl9pZBgBIAEoAxIlCgRzbG90GAIgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrU2xvdCJiChxDbGVhclJhY2tTbG90UG9zaXRpb25SZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASIgoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAlCB7pIBHICEAEiHwodQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2UiNQoTR2V0UmFja1Nsb3RzUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIlgKCFJhY2tTbG90EhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEjEKCHBvc2l0aW9uGAIgASgLMh8uY29sbGVjdGlvbi52MS5SYWNrU2xvdFBvc2l0aW9uIj4KFEdldFJhY2tTbG90c1Jlc3BvbnNlEiYKBXNsb3RzGAEgAygLMhcuY29sbGVjdGlvbi52MS5SYWNrU2xvdCK4BAoPQ29sbGVjdGlvblN0YXRzEhUKDWNvbGxlY3Rpb25faWQYASABKAMSFAoMZGV2aWNlX2NvdW50GAIgASgFEhcKD3JlcG9ydGluZ19jb3VudBgDIAEoBRIaChJ0b3RhbF9oYXNocmF0ZV90aHMYBCABKAESGgoSYXZnX2VmZmljaWVuY3lfanRoGAUgASgBEhYKDnRvdGFsX3Bvd2VyX2t3GAYgASgBEhkKEW1pbl90ZW1wZXJhdHVyZV9jGAcgASgBEhkKEW1heF90ZW1wZXJhdHVyZV9jGAggASgBEhUKDWhhc2hpbmdfY291bnQYCSABKAUSFAoMYnJva2VuX2NvdW50GAogASgFEhUKDW9mZmxpbmVfY291bnQYCyABKAUSFgoOc2xlZXBpbmdfY291bnQYDCABKAUSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA0gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA4gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgPIAEoBRIjCht0ZW1wZXJhdHVyZV9yZXBvcnRpbmdfY291bnQYECABKAUSIQoZY29udHJvbF9ib2FyZF9pc3N1ZV9jb3VudBgRIAEoBRIXCg9mYW5faXNzdWVfY291bnQYEiABKAUSHgoWaGFzaF9ib2FyZF9pc3N1ZV9jb3VudBgTIAEoBRIXCg9wc3VfaXNzdWVfY291bnQYFCABKAUiMwoZR2V0Q29sbGVjdGlvblN0YXRzUmVxdWVzdBIWCg5jb2xsZWN0aW9uX2lkcxgBIAMoAyJLChpHZXRDb2xsZWN0aW9uU3RhdHNSZXNwb25zZRItCgVzdGF0cxgBIAMoCzIeLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblN0YXRzIhoKGExpc3RSYWNrTG9jYXRpb25zUmVxdWVzdCIuChlMaXN0UmFja0xvY2F0aW9uc1Jlc3BvbnNlEhEKCWxvY2F0aW9ucxgBIAMoCSIWChRMaXN0UmFja1R5cGVzUmVxdWVzdCI9CghSYWNrVHlwZRIMCgRyb3dzGAEgASgFEg8KB2NvbHVtbnMYAiABKAUSEgoKcmFja19jb3VudBgDIAEoBSJEChVMaXN0UmFja1R5cGVzUmVzcG9uc2USKwoKcmFja190eXBlcxgBIAMoCzIXLmNvbGxlY3Rpb24udjEuUmFja1R5cGUqZgoOQ29sbGVjdGlvblR5cGUSHwobQ09MTEVDVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASGQoVQ09MTEVDVElPTl9UWVBFX0dST1VQEAESGAoUQ09MTEVDVElPTl9UWVBFX1JBQ0sQAiq2AQoOUmFja09yZGVySW5kZXgSIAocUkFDS19PUkRFUl9JTkRFWF9VTlNQRUNJRklFRBAAEiAKHFJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX0xFRlQQARIdChlSQUNLX09SREVSX0lOREVYX1RPUF9MRUZUEAISIQodUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fUklHSFQQAxIeChpSQUNLX09SREVSX0lOREVYX1RPUF9SSUdIVBAEKnAKD1JhY2tDb29saW5nVHlwZRIhCh1SQUNLX0NPT0xJTkdfVFlQRV9VTlNQRUNJRklFRBAAEhkKFVJBQ0tfQ09PTElOR19UWVBFX0FJUhABEh8KG1JBQ0tfQ09PTElOR19UWVBFX0lNTUVSU0lPThACMtMMChdEZXZpY2VDb2xsZWN0aW9uU2VydmljZRJjChBDcmVhdGVDb2xsZWN0aW9uEiYuY29sbGVjdGlvbi52MS5DcmVhdGVDb2xsZWN0aW9uUmVxdWVzdBonLmNvbGxlY3Rpb24udjEuQ3JlYXRlQ29sbGVjdGlvblJlc3BvbnNlEloKDUdldENvbGxlY3Rpb24SIy5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25SZXF1ZXN0GiQuY29sbGVjdGlvbi52MS5HZXRDb2xsZWN0aW9uUmVzcG9uc2USYwoQVXBkYXRlQ29sbGVjdGlvbhImLmNvbGxlY3Rpb24udjEuVXBkYXRlQ29sbGVjdGlvblJlcXVlc3QaJy5jb2xsZWN0aW9uLnYxLlVwZGF0ZUNvbGxlY3Rpb25SZXNwb25zZRJjChBEZWxldGVDb2xsZWN0aW9uEiYuY29sbGVjdGlvbi52MS5EZWxldGVDb2xsZWN0aW9uUmVxdWVzdBonLmNvbGxlY3Rpb24udjEuRGVsZXRlQ29sbGVjdGlvblJlc3BvbnNlEmAKD0xpc3RDb2xsZWN0aW9ucxIlLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25zUmVxdWVzdBomLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25zUmVzcG9uc2USdQoWQWRkRGV2aWNlc1RvQ29sbGVjdGlvbhIsLmNvbGxlY3Rpb24udjEuQWRkRGV2aWNlc1RvQ29sbGVjdGlvblJlcXVlc3QaLS5jb2xsZWN0aW9uLnYxLkFkZERldmljZXNUb0NvbGxlY3Rpb25SZXNwb25zZRKEAQobUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uEjEuY29sbGVjdGlvbi52MS5SZW1vdmVEZXZpY2VzRnJvbUNvbGxlY3Rpb25SZXF1ZXN0GjIuY29sbGVjdGlvbi52MS5SZW1vdmVEZXZpY2VzRnJvbUNvbGxlY3Rpb25SZXNwb25zZRJyChVMaXN0Q29sbGVjdGlvbk1lbWJlcnMSKy5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uTWVtYmVyc1JlcXVlc3QaLC5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uTWVtYmVyc1Jlc3BvbnNlEm8KFEdldERldmljZUNvbGxlY3Rpb25zEiouY29sbGVjdGlvbi52MS5HZXREZXZpY2VDb2xsZWN0aW9uc1JlcXVlc3QaKy5jb2xsZWN0aW9uLnYxLkdldERldmljZUNvbGxlY3Rpb25zUmVzcG9uc2USbAoTU2V0UmFja1Nsb3RQb3NpdGlvbhIpLmNvbGxlY3Rpb24udjEuU2V0UmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaKi5jb2xsZWN0aW9uLnYxLlNldFJhY2tTbG90UG9zaXRpb25SZXNwb25zZRJyChVDbGVhclJhY2tTbG90UG9zaXRpb24SKy5jb2xsZWN0aW9uLnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaLC5jb2xsZWN0aW9uLnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlElcKDEdldFJhY2tTbG90cxIiLmNvbGxlY3Rpb24udjEuR2V0UmFja1Nsb3RzUmVxdWVzdBojLmNvbGxlY3Rpb24udjEuR2V0UmFja1Nsb3RzUmVzcG9uc2USaQoSR2V0Q29sbGVjdGlvblN0YXRzEiguY29sbGVjdGlvbi52MS5HZXRDb2xsZWN0aW9uU3RhdHNSZXF1ZXN0GikuY29sbGVjdGlvbi52MS5HZXRDb2xsZWN0aW9uU3RhdHNSZXNwb25zZRJmChFMaXN0UmFja0xvY2F0aW9ucxInLmNvbGxlY3Rpb24udjEuTGlzdFJhY2tMb2NhdGlvbnNSZXF1ZXN0GiguY29sbGVjdGlvbi52MS5MaXN0UmFja0xvY2F0aW9uc1Jlc3BvbnNlEloKDUxpc3RSYWNrVHlwZXMSIy5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrVHlwZXNSZXF1ZXN0GiQuY29sbGVjdGlvbi52MS5MaXN0UmFja1R5cGVzUmVzcG9uc2VC0QEKEWNvbS5jb2xsZWN0aW9uLnYxQg9Db2xsZWN0aW9uUHJvdG9QAVpWZ2l0aHViLmNvbS9wcm90by1hdC1ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29sbGVjdGlvbi92MTtjb2xsZWN0aW9udjGiAgNDWFiqAg1Db2xsZWN0aW9uLlYxygINQ29sbGVjdGlvblxWMeICGUNvbGxlY3Rpb25cVjFcR1BCTWV0YWRhdGHqAg5Db2xsZWN0aW9uOjpWMWIGcHJvdG8z",
-    [
-      file_google_protobuf_timestamp,
-      file_buf_validate_validate,
-      file_common_v1_device_selector,
-      file_common_v1_sort,
-      file_errors_v1_errors,
-    ],
-  );
+export const file_collection_v1_collection: GenFile = /*@__PURE__*/
+  fileDesc("Ch5jb2xsZWN0aW9uL3YxL2NvbGxlY3Rpb24ucHJvdG8SDWNvbGxlY3Rpb24udjEi0wIKEERldmljZUNvbGxlY3Rpb24SCgoCaWQYASABKAMSKwoEdHlwZRgCIAEoDjIdLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblR5cGUSDQoFbGFiZWwYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSFAoMZGV2aWNlX2NvdW50GAUgASgFEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCXJhY2tfaW5mbxgIIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja0luZm9IABIuCgpncm91cF9pbmZvGAkgASgLMhguY29sbGVjdGlvbi52MS5Hcm91cEluZm9IAEIOCgx0eXBlX2RldGFpbHMiwAEKCFJhY2tJbmZvEhUKBHJvd3MYASABKAVCB7pIBBoCIAASGAoHY29sdW1ucxgCIAEoBUIHukgEGgIgABIZCghsb2NhdGlvbhgDIAEoCUIHukgEcgIQARIyCgtvcmRlcl9pbmRleBgEIAEoDjIdLmNvbGxlY3Rpb24udjEuUmFja09yZGVySW5kZXgSNAoMY29vbGluZ190eXBlGAUgASgOMh4uY29sbGVjdGlvbi52MS5SYWNrQ29vbGluZ1R5cGUiCwoJR3JvdXBJbmZvIp8BChBDb2xsZWN0aW9uTWVtYmVyEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEiwKCGFkZGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgRyYWNrGAMgASgLMiAuY29sbGVjdGlvbi52MS5SYWNrTWVtYmVyRGV0YWlsc0gAQhAKDm1lbWJlcl9kZXRhaWxzIksKEVJhY2tNZW1iZXJEZXRhaWxzEjYKDXNsb3RfcG9zaXRpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb24iQQoQUmFja1Nsb3RQb3NpdGlvbhIUCgNyb3cYASABKAVCB7pIBBoCKAASFwoGY29sdW1uGAIgASgFQge6SAQaAigAIskCChdDcmVhdGVDb2xsZWN0aW9uUmVxdWVzdBI3CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmNvbGxlY3Rpb24udjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiZAoYQ3JlYXRlQ29sbGVjdGlvblJlc3BvbnNlEjMKCmNvbGxlY3Rpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24SEwoLYWRkZWRfY291bnQYAiABKAUiNgoUR2V0Q29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJMChVHZXRDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiK+AgoXVXBkYXRlQ29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5jb2xsZWN0aW9uLnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJPChhVcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiI5ChdEZWxldGVDb2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIhoKGERlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZSLwAQoWTGlzdENvbGxlY3Rpb25zUmVxdWVzdBI1CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEhEKCWxvY2F0aW9ucxgGIAMoCSJ9ChdMaXN0Q29sbGVjdGlvbnNSZXNwb25zZRI0Cgtjb2xsZWN0aW9ucxgBIAMoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbhIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEwoLdG90YWxfY291bnQYAyABKAUiewodQWRkRGV2aWNlc1RvQ29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgABI6Cg9kZXZpY2Vfc2VsZWN0b3IYAiABKAsyGS5jb21tb24udjEuRGV2aWNlU2VsZWN0b3JCBrpIA8gBASJMCh5BZGREZXZpY2VzVG9Db2xsZWN0aW9uUmVzcG9uc2USFQoNY29sbGVjdGlvbl9pZBgBIAEoAxITCgthZGRlZF9jb3VudBgCIAEoBSKAAQoiUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBIjwKI1JlbW92ZURldmljZXNGcm9tQ29sbGVjdGlvblJlc3BvbnNlEhUKDXJlbW92ZWRfY291bnQYASABKAUibgocTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEhoKCXBhZ2Vfc2l6ZRgCIAEoBUIHukgEGgIoABISCgpwYWdlX3Rva2VuGAMgASgJImoKHUxpc3RDb2xsZWN0aW9uTWVtYmVyc1Jlc3BvbnNlEjAKB21lbWJlcnMYASADKAsyHy5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25NZW1iZXISFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIm4KG0dldERldmljZUNvbGxlY3Rpb25zUmVxdWVzdBIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIrCgR0eXBlGAIgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZSJUChxHZXREZXZpY2VDb2xsZWN0aW9uc1Jlc3BvbnNlEjQKC2NvbGxlY3Rpb25zGAEgAygLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uIpsBChpTZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABEjkKCHBvc2l0aW9uGAMgASgLMh8uY29sbGVjdGlvbi52MS5SYWNrU2xvdFBvc2l0aW9uQga6SAPIAQEiWwobU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEhUKDWNvbGxlY3Rpb25faWQYASABKAMSJQoEc2xvdBgCIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja1Nsb3QiYgocQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABIh8KHUNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlIjUKE0dldFJhY2tTbG90c1JlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJYCghSYWNrU2xvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCghwb3NpdGlvbhgCIAEoCzIfLmNvbGxlY3Rpb24udjEuUmFja1Nsb3RQb3NpdGlvbiI+ChRHZXRSYWNrU2xvdHNSZXNwb25zZRImCgVzbG90cxgBIAMoCzIXLmNvbGxlY3Rpb24udjEuUmFja1Nsb3QiuAQKD0NvbGxlY3Rpb25TdGF0cxIVCg1jb2xsZWN0aW9uX2lkGAEgASgDEhQKDGRldmljZV9jb3VudBgCIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYAyABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAQgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgFIAEoARIWCg50b3RhbF9wb3dlcl9rdxgGIAEoARIZChFtaW5fdGVtcGVyYXR1cmVfYxgHIAEoARIZChFtYXhfdGVtcGVyYXR1cmVfYxgIIAEoARIVCg1oYXNoaW5nX2NvdW50GAkgASgFEhQKDGJyb2tlbl9jb3VudBgKIAEoBRIVCg1vZmZsaW5lX2NvdW50GAsgASgFEhYKDnNsZWVwaW5nX2NvdW50GAwgASgFEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgNIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgOIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYDyABKAUSIwobdGVtcGVyYXR1cmVfcmVwb3J0aW5nX2NvdW50GBAgASgFEiEKGWNvbnRyb2xfYm9hcmRfaXNzdWVfY291bnQYESABKAUSFwoPZmFuX2lzc3VlX2NvdW50GBIgASgFEh4KFmhhc2hfYm9hcmRfaXNzdWVfY291bnQYEyABKAUSFwoPcHN1X2lzc3VlX2NvdW50GBQgASgFIjMKGUdldENvbGxlY3Rpb25TdGF0c1JlcXVlc3QSFgoOY29sbGVjdGlvbl9pZHMYASADKAMiSwoaR2V0Q29sbGVjdGlvblN0YXRzUmVzcG9uc2USLQoFc3RhdHMYASADKAsyHi5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25TdGF0cyIaChhMaXN0UmFja0xvY2F0aW9uc1JlcXVlc3QiLgoZTGlzdFJhY2tMb2NhdGlvbnNSZXNwb25zZRIRCglsb2NhdGlvbnMYASADKAkiFgoUTGlzdFJhY2tUeXBlc1JlcXVlc3QiPQoIUmFja1R5cGUSDAoEcm93cxgBIAEoBRIPCgdjb2x1bW5zGAIgASgFEhIKCnJhY2tfY291bnQYAyABKAUiRAoVTGlzdFJhY2tUeXBlc1Jlc3BvbnNlEisKCnJhY2tfdHlwZXMYASADKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tUeXBlKmYKDkNvbGxlY3Rpb25UeXBlEh8KG0NPTExFQ1RJT05fVFlQRV9VTlNQRUNJRklFRBAAEhkKFUNPTExFQ1RJT05fVFlQRV9HUk9VUBABEhgKFENPTExFQ1RJT05fVFlQRV9SQUNLEAIqtgEKDlJhY2tPcmRlckluZGV4EiAKHFJBQ0tfT1JERVJfSU5ERVhfVU5TUEVDSUZJRUQQABIgChxSQUNLX09SREVSX0lOREVYX0JPVFRPTV9MRUZUEAESHQoZUkFDS19PUkRFUl9JTkRFWF9UT1BfTEVGVBACEiEKHVJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX1JJR0hUEAMSHgoaUkFDS19PUkRFUl9JTkRFWF9UT1BfUklHSFQQBCpwCg9SYWNrQ29vbGluZ1R5cGUSIQodUkFDS19DT09MSU5HX1RZUEVfVU5TUEVDSUZJRUQQABIZChVSQUNLX0NPT0xJTkdfVFlQRV9BSVIQARIfChtSQUNLX0NPT0xJTkdfVFlQRV9JTU1FUlNJT04QAjLTDAoXRGV2aWNlQ29sbGVjdGlvblNlcnZpY2USYwoQQ3JlYXRlQ29sbGVjdGlvbhImLmNvbGxlY3Rpb24udjEuQ3JlYXRlQ29sbGVjdGlvblJlcXVlc3QaJy5jb2xsZWN0aW9uLnYxLkNyZWF0ZUNvbGxlY3Rpb25SZXNwb25zZRJaCg1HZXRDb2xsZWN0aW9uEiMuY29sbGVjdGlvbi52MS5HZXRDb2xsZWN0aW9uUmVxdWVzdBokLmNvbGxlY3Rpb24udjEuR2V0Q29sbGVjdGlvblJlc3BvbnNlEmMKEFVwZGF0ZUNvbGxlY3Rpb24SJi5jb2xsZWN0aW9uLnYxLlVwZGF0ZUNvbGxlY3Rpb25SZXF1ZXN0GicuY29sbGVjdGlvbi52MS5VcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USYwoQRGVsZXRlQ29sbGVjdGlvbhImLmNvbGxlY3Rpb24udjEuRGVsZXRlQ29sbGVjdGlvblJlcXVlc3QaJy5jb2xsZWN0aW9uLnYxLkRlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZRJgCg9MaXN0Q29sbGVjdGlvbnMSJS5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uc1JlcXVlc3QaJi5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEnUKFkFkZERldmljZXNUb0NvbGxlY3Rpb24SLC5jb2xsZWN0aW9uLnYxLkFkZERldmljZXNUb0NvbGxlY3Rpb25SZXF1ZXN0Gi0uY29sbGVjdGlvbi52MS5BZGREZXZpY2VzVG9Db2xsZWN0aW9uUmVzcG9uc2UShAEKG1JlbW92ZURldmljZXNGcm9tQ29sbGVjdGlvbhIxLmNvbGxlY3Rpb24udjEuUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uUmVxdWVzdBoyLmNvbGxlY3Rpb24udjEuUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uUmVzcG9uc2UScgoVTGlzdENvbGxlY3Rpb25NZW1iZXJzEisuY29sbGVjdGlvbi52MS5MaXN0Q29sbGVjdGlvbk1lbWJlcnNSZXF1ZXN0GiwuY29sbGVjdGlvbi52MS5MaXN0Q29sbGVjdGlvbk1lbWJlcnNSZXNwb25zZRJvChRHZXREZXZpY2VDb2xsZWN0aW9ucxIqLmNvbGxlY3Rpb24udjEuR2V0RGV2aWNlQ29sbGVjdGlvbnNSZXF1ZXN0GisuY29sbGVjdGlvbi52MS5HZXREZXZpY2VDb2xsZWN0aW9uc1Jlc3BvbnNlEmwKE1NldFJhY2tTbG90UG9zaXRpb24SKS5jb2xsZWN0aW9uLnYxLlNldFJhY2tTbG90UG9zaXRpb25SZXF1ZXN0GiouY29sbGVjdGlvbi52MS5TZXRSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2UScgoVQ2xlYXJSYWNrU2xvdFBvc2l0aW9uEisuY29sbGVjdGlvbi52MS5DbGVhclJhY2tTbG90UG9zaXRpb25SZXF1ZXN0GiwuY29sbGVjdGlvbi52MS5DbGVhclJhY2tTbG90UG9zaXRpb25SZXNwb25zZRJXCgxHZXRSYWNrU2xvdHMSIi5jb2xsZWN0aW9uLnYxLkdldFJhY2tTbG90c1JlcXVlc3QaIy5jb2xsZWN0aW9uLnYxLkdldFJhY2tTbG90c1Jlc3BvbnNlEmkKEkdldENvbGxlY3Rpb25TdGF0cxIoLmNvbGxlY3Rpb24udjEuR2V0Q29sbGVjdGlvblN0YXRzUmVxdWVzdBopLmNvbGxlY3Rpb24udjEuR2V0Q29sbGVjdGlvblN0YXRzUmVzcG9uc2USZgoRTGlzdFJhY2tMb2NhdGlvbnMSJy5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrTG9jYXRpb25zUmVxdWVzdBooLmNvbGxlY3Rpb24udjEuTGlzdFJhY2tMb2NhdGlvbnNSZXNwb25zZRJaCg1MaXN0UmFja1R5cGVzEiMuY29sbGVjdGlvbi52MS5MaXN0UmFja1R5cGVzUmVxdWVzdBokLmNvbGxlY3Rpb24udjEuTGlzdFJhY2tUeXBlc1Jlc3BvbnNlQtEBChFjb20uY29sbGVjdGlvbi52MUIPQ29sbGVjdGlvblByb3RvUAFaVmdpdGh1Yi5jb20vcHJvdG8tYXQtYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbGxlY3Rpb24vdjE7Y29sbGVjdGlvbnYxogIDQ1hYqgINQ29sbGVjdGlvbi5WMcoCDUNvbGxlY3Rpb25cVjHiAhlDb2xsZWN0aW9uXFYxXEdQQk1ldGFkYXRh6gIOQ29sbGVjdGlvbjo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_buf_validate_validate, file_common_v1_device_selector, file_common_v1_sort, file_errors_v1_errors]);
 
 /**
  * DeviceCollection represents a group or rack of devices
@@ -91,30 +81,26 @@ export type DeviceCollection = Message<"collection.v1.DeviceCollection"> & {
    *
    * @generated from oneof collection.v1.DeviceCollection.type_details
    */
-  typeDetails:
-    | {
-        /**
-         * @generated from field: collection.v1.RackInfo rack_info = 8;
-         */
-        value: RackInfo;
-        case: "rackInfo";
-      }
-    | {
-        /**
-         * @generated from field: collection.v1.GroupInfo group_info = 9;
-         */
-        value: GroupInfo;
-        case: "groupInfo";
-      }
-    | { case: undefined; value?: undefined };
+  typeDetails: {
+    /**
+     * @generated from field: collection.v1.RackInfo rack_info = 8;
+     */
+    value: RackInfo;
+    case: "rackInfo";
+  } | {
+    /**
+     * @generated from field: collection.v1.GroupInfo group_info = 9;
+     */
+    value: GroupInfo;
+    case: "groupInfo";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message collection.v1.DeviceCollection.
  * Use `create(DeviceCollectionSchema)` to create a new message.
  */
-export const DeviceCollectionSchema: GenMessage<DeviceCollection> =
-  /*@__PURE__*/
+export const DeviceCollectionSchema: GenMessage<DeviceCollection> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 0);
 
 /**
@@ -163,7 +149,8 @@ export type RackInfo = Message<"collection.v1.RackInfo"> & {
  * Describes the message collection.v1.RackInfo.
  * Use `create(RackInfoSchema)` to create a new message.
  */
-export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 1);
+export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/
+  messageDesc(file_collection_v1_collection, 1);
 
 /**
  * Group-specific metadata for group-type collections
@@ -171,13 +158,15 @@ export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/ messageDesc(fi
  *
  * @generated from message collection.v1.GroupInfo
  */
-export type GroupInfo = Message<"collection.v1.GroupInfo"> & {};
+export type GroupInfo = Message<"collection.v1.GroupInfo"> & {
+};
 
 /**
  * Describes the message collection.v1.GroupInfo.
  * Use `create(GroupInfoSchema)` to create a new message.
  */
-export const GroupInfoSchema: GenMessage<GroupInfo> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 2);
+export const GroupInfoSchema: GenMessage<GroupInfo> = /*@__PURE__*/
+  messageDesc(file_collection_v1_collection, 2);
 
 /**
  * CollectionMember represents a device in a collection
@@ -204,23 +193,20 @@ export type CollectionMember = Message<"collection.v1.CollectionMember"> & {
    *
    * @generated from oneof collection.v1.CollectionMember.member_details
    */
-  memberDetails:
-    | {
-        /**
-         * @generated from field: collection.v1.RackMemberDetails rack = 3;
-         */
-        value: RackMemberDetails;
-        case: "rack";
-      }
-    | { case: undefined; value?: undefined };
+  memberDetails: {
+    /**
+     * @generated from field: collection.v1.RackMemberDetails rack = 3;
+     */
+    value: RackMemberDetails;
+    case: "rack";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message collection.v1.CollectionMember.
  * Use `create(CollectionMemberSchema)` to create a new message.
  */
-export const CollectionMemberSchema: GenMessage<CollectionMember> =
-  /*@__PURE__*/
+export const CollectionMemberSchema: GenMessage<CollectionMember> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 3);
 
 /**
@@ -241,8 +227,7 @@ export type RackMemberDetails = Message<"collection.v1.RackMemberDetails"> & {
  * Describes the message collection.v1.RackMemberDetails.
  * Use `create(RackMemberDetailsSchema)` to create a new message.
  */
-export const RackMemberDetailsSchema: GenMessage<RackMemberDetails> =
-  /*@__PURE__*/
+export const RackMemberDetailsSchema: GenMessage<RackMemberDetails> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 4);
 
 /**
@@ -270,8 +255,7 @@ export type RackSlotPosition = Message<"collection.v1.RackSlotPosition"> & {
  * Describes the message collection.v1.RackSlotPosition.
  * Use `create(RackSlotPositionSchema)` to create a new message.
  */
-export const RackSlotPositionSchema: GenMessage<RackSlotPosition> =
-  /*@__PURE__*/
+export const RackSlotPositionSchema: GenMessage<RackSlotPosition> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 5);
 
 /**
@@ -306,22 +290,19 @@ export type CreateCollectionRequest = Message<"collection.v1.CreateCollectionReq
    *
    * @generated from oneof collection.v1.CreateCollectionRequest.type_details
    */
-  typeDetails:
-    | {
-        /**
-         * @generated from field: collection.v1.RackInfo rack_info = 4;
-         */
-        value: RackInfo;
-        case: "rackInfo";
-      }
-    | {
-        /**
-         * @generated from field: collection.v1.GroupInfo group_info = 5;
-         */
-        value: GroupInfo;
-        case: "groupInfo";
-      }
-    | { case: undefined; value?: undefined };
+  typeDetails: {
+    /**
+     * @generated from field: collection.v1.RackInfo rack_info = 4;
+     */
+    value: RackInfo;
+    case: "rackInfo";
+  } | {
+    /**
+     * @generated from field: collection.v1.GroupInfo group_info = 5;
+     */
+    value: GroupInfo;
+    case: "groupInfo";
+  } | { case: undefined; value?: undefined };
 
   /**
    * Optional: devices to add atomically when creating the collection.
@@ -336,8 +317,7 @@ export type CreateCollectionRequest = Message<"collection.v1.CreateCollectionReq
  * Describes the message collection.v1.CreateCollectionRequest.
  * Use `create(CreateCollectionRequestSchema)` to create a new message.
  */
-export const CreateCollectionRequestSchema: GenMessage<CreateCollectionRequest> =
-  /*@__PURE__*/
+export const CreateCollectionRequestSchema: GenMessage<CreateCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 6);
 
 /**
@@ -365,8 +345,7 @@ export type CreateCollectionResponse = Message<"collection.v1.CreateCollectionRe
  * Describes the message collection.v1.CreateCollectionResponse.
  * Use `create(CreateCollectionResponseSchema)` to create a new message.
  */
-export const CreateCollectionResponseSchema: GenMessage<CreateCollectionResponse> =
-  /*@__PURE__*/
+export const CreateCollectionResponseSchema: GenMessage<CreateCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 7);
 
 /**
@@ -387,8 +366,7 @@ export type GetCollectionRequest = Message<"collection.v1.GetCollectionRequest">
  * Describes the message collection.v1.GetCollectionRequest.
  * Use `create(GetCollectionRequestSchema)` to create a new message.
  */
-export const GetCollectionRequestSchema: GenMessage<GetCollectionRequest> =
-  /*@__PURE__*/
+export const GetCollectionRequestSchema: GenMessage<GetCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 8);
 
 /**
@@ -409,8 +387,7 @@ export type GetCollectionResponse = Message<"collection.v1.GetCollectionResponse
  * Describes the message collection.v1.GetCollectionResponse.
  * Use `create(GetCollectionResponseSchema)` to create a new message.
  */
-export const GetCollectionResponseSchema: GenMessage<GetCollectionResponse> =
-  /*@__PURE__*/
+export const GetCollectionResponseSchema: GenMessage<GetCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 9);
 
 /**
@@ -446,22 +423,19 @@ export type UpdateCollectionRequest = Message<"collection.v1.UpdateCollectionReq
    *
    * @generated from oneof collection.v1.UpdateCollectionRequest.type_details
    */
-  typeDetails:
-    | {
-        /**
-         * @generated from field: collection.v1.RackInfo rack_info = 4;
-         */
-        value: RackInfo;
-        case: "rackInfo";
-      }
-    | {
-        /**
-         * @generated from field: collection.v1.GroupInfo group_info = 5;
-         */
-        value: GroupInfo;
-        case: "groupInfo";
-      }
-    | { case: undefined; value?: undefined };
+  typeDetails: {
+    /**
+     * @generated from field: collection.v1.RackInfo rack_info = 4;
+     */
+    value: RackInfo;
+    case: "rackInfo";
+  } | {
+    /**
+     * @generated from field: collection.v1.GroupInfo group_info = 5;
+     */
+    value: GroupInfo;
+    case: "groupInfo";
+  } | { case: undefined; value?: undefined };
 
   /**
    * Optional: atomically replace all collection members with the selected devices.
@@ -475,8 +449,7 @@ export type UpdateCollectionRequest = Message<"collection.v1.UpdateCollectionReq
  * Describes the message collection.v1.UpdateCollectionRequest.
  * Use `create(UpdateCollectionRequestSchema)` to create a new message.
  */
-export const UpdateCollectionRequestSchema: GenMessage<UpdateCollectionRequest> =
-  /*@__PURE__*/
+export const UpdateCollectionRequestSchema: GenMessage<UpdateCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 10);
 
 /**
@@ -497,8 +470,7 @@ export type UpdateCollectionResponse = Message<"collection.v1.UpdateCollectionRe
  * Describes the message collection.v1.UpdateCollectionResponse.
  * Use `create(UpdateCollectionResponseSchema)` to create a new message.
  */
-export const UpdateCollectionResponseSchema: GenMessage<UpdateCollectionResponse> =
-  /*@__PURE__*/
+export const UpdateCollectionResponseSchema: GenMessage<UpdateCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 11);
 
 /**
@@ -519,8 +491,7 @@ export type DeleteCollectionRequest = Message<"collection.v1.DeleteCollectionReq
  * Describes the message collection.v1.DeleteCollectionRequest.
  * Use `create(DeleteCollectionRequestSchema)` to create a new message.
  */
-export const DeleteCollectionRequestSchema: GenMessage<DeleteCollectionRequest> =
-  /*@__PURE__*/
+export const DeleteCollectionRequestSchema: GenMessage<DeleteCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 12);
 
 /**
@@ -530,14 +501,14 @@ export const DeleteCollectionRequestSchema: GenMessage<DeleteCollectionRequest> 
  *
  * @generated from message collection.v1.DeleteCollectionResponse
  */
-export type DeleteCollectionResponse = Message<"collection.v1.DeleteCollectionResponse"> & {};
+export type DeleteCollectionResponse = Message<"collection.v1.DeleteCollectionResponse"> & {
+};
 
 /**
  * Describes the message collection.v1.DeleteCollectionResponse.
  * Use `create(DeleteCollectionResponseSchema)` to create a new message.
  */
-export const DeleteCollectionResponseSchema: GenMessage<DeleteCollectionResponse> =
-  /*@__PURE__*/
+export const DeleteCollectionResponseSchema: GenMessage<DeleteCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 13);
 
 /**
@@ -583,14 +554,21 @@ export type ListCollectionsRequest = Message<"collection.v1.ListCollectionsReque
    * @generated from field: repeated errors.v1.ComponentType error_component_types = 5;
    */
   errorComponentTypes: ComponentType[];
+
+  /**
+   * Filter by rack locations. Only valid when type is RACK.
+   * When non-empty, only racks at any of the specified locations are returned.
+   *
+   * @generated from field: repeated string locations = 6;
+   */
+  locations: string[];
 };
 
 /**
  * Describes the message collection.v1.ListCollectionsRequest.
  * Use `create(ListCollectionsRequestSchema)` to create a new message.
  */
-export const ListCollectionsRequestSchema: GenMessage<ListCollectionsRequest> =
-  /*@__PURE__*/
+export const ListCollectionsRequestSchema: GenMessage<ListCollectionsRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 14);
 
 /**
@@ -625,8 +603,7 @@ export type ListCollectionsResponse = Message<"collection.v1.ListCollectionsResp
  * Describes the message collection.v1.ListCollectionsResponse.
  * Use `create(ListCollectionsResponseSchema)` to create a new message.
  */
-export const ListCollectionsResponseSchema: GenMessage<ListCollectionsResponse> =
-  /*@__PURE__*/
+export const ListCollectionsResponseSchema: GenMessage<ListCollectionsResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 15);
 
 /**
@@ -654,8 +631,7 @@ export type AddDevicesToCollectionRequest = Message<"collection.v1.AddDevicesToC
  * Describes the message collection.v1.AddDevicesToCollectionRequest.
  * Use `create(AddDevicesToCollectionRequestSchema)` to create a new message.
  */
-export const AddDevicesToCollectionRequestSchema: GenMessage<AddDevicesToCollectionRequest> =
-  /*@__PURE__*/
+export const AddDevicesToCollectionRequestSchema: GenMessage<AddDevicesToCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 16);
 
 /**
@@ -684,8 +660,7 @@ export type AddDevicesToCollectionResponse = Message<"collection.v1.AddDevicesTo
  * Describes the message collection.v1.AddDevicesToCollectionResponse.
  * Use `create(AddDevicesToCollectionResponseSchema)` to create a new message.
  */
-export const AddDevicesToCollectionResponseSchema: GenMessage<AddDevicesToCollectionResponse> =
-  /*@__PURE__*/
+export const AddDevicesToCollectionResponseSchema: GenMessage<AddDevicesToCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 17);
 
 /**
@@ -713,8 +688,7 @@ export type RemoveDevicesFromCollectionRequest = Message<"collection.v1.RemoveDe
  * Describes the message collection.v1.RemoveDevicesFromCollectionRequest.
  * Use `create(RemoveDevicesFromCollectionRequestSchema)` to create a new message.
  */
-export const RemoveDevicesFromCollectionRequestSchema: GenMessage<RemoveDevicesFromCollectionRequest> =
-  /*@__PURE__*/
+export const RemoveDevicesFromCollectionRequestSchema: GenMessage<RemoveDevicesFromCollectionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 18);
 
 /**
@@ -735,8 +709,7 @@ export type RemoveDevicesFromCollectionResponse = Message<"collection.v1.RemoveD
  * Describes the message collection.v1.RemoveDevicesFromCollectionResponse.
  * Use `create(RemoveDevicesFromCollectionResponseSchema)` to create a new message.
  */
-export const RemoveDevicesFromCollectionResponseSchema: GenMessage<RemoveDevicesFromCollectionResponse> =
-  /*@__PURE__*/
+export const RemoveDevicesFromCollectionResponseSchema: GenMessage<RemoveDevicesFromCollectionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 19);
 
 /**
@@ -771,8 +744,7 @@ export type ListCollectionMembersRequest = Message<"collection.v1.ListCollection
  * Describes the message collection.v1.ListCollectionMembersRequest.
  * Use `create(ListCollectionMembersRequestSchema)` to create a new message.
  */
-export const ListCollectionMembersRequestSchema: GenMessage<ListCollectionMembersRequest> =
-  /*@__PURE__*/
+export const ListCollectionMembersRequestSchema: GenMessage<ListCollectionMembersRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 20);
 
 /**
@@ -800,8 +772,7 @@ export type ListCollectionMembersResponse = Message<"collection.v1.ListCollectio
  * Describes the message collection.v1.ListCollectionMembersResponse.
  * Use `create(ListCollectionMembersResponseSchema)` to create a new message.
  */
-export const ListCollectionMembersResponseSchema: GenMessage<ListCollectionMembersResponse> =
-  /*@__PURE__*/
+export const ListCollectionMembersResponseSchema: GenMessage<ListCollectionMembersResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 21);
 
 /**
@@ -829,8 +800,7 @@ export type GetDeviceCollectionsRequest = Message<"collection.v1.GetDeviceCollec
  * Describes the message collection.v1.GetDeviceCollectionsRequest.
  * Use `create(GetDeviceCollectionsRequestSchema)` to create a new message.
  */
-export const GetDeviceCollectionsRequestSchema: GenMessage<GetDeviceCollectionsRequest> =
-  /*@__PURE__*/
+export const GetDeviceCollectionsRequestSchema: GenMessage<GetDeviceCollectionsRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 22);
 
 /**
@@ -851,8 +821,7 @@ export type GetDeviceCollectionsResponse = Message<"collection.v1.GetDeviceColle
  * Describes the message collection.v1.GetDeviceCollectionsResponse.
  * Use `create(GetDeviceCollectionsResponseSchema)` to create a new message.
  */
-export const GetDeviceCollectionsResponseSchema: GenMessage<GetDeviceCollectionsResponse> =
-  /*@__PURE__*/
+export const GetDeviceCollectionsResponseSchema: GenMessage<GetDeviceCollectionsResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 23);
 
 /**
@@ -887,8 +856,7 @@ export type SetRackSlotPositionRequest = Message<"collection.v1.SetRackSlotPosit
  * Describes the message collection.v1.SetRackSlotPositionRequest.
  * Use `create(SetRackSlotPositionRequestSchema)` to create a new message.
  */
-export const SetRackSlotPositionRequestSchema: GenMessage<SetRackSlotPositionRequest> =
-  /*@__PURE__*/
+export const SetRackSlotPositionRequestSchema: GenMessage<SetRackSlotPositionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 24);
 
 /**
@@ -916,8 +884,7 @@ export type SetRackSlotPositionResponse = Message<"collection.v1.SetRackSlotPosi
  * Describes the message collection.v1.SetRackSlotPositionResponse.
  * Use `create(SetRackSlotPositionResponseSchema)` to create a new message.
  */
-export const SetRackSlotPositionResponseSchema: GenMessage<SetRackSlotPositionResponse> =
-  /*@__PURE__*/
+export const SetRackSlotPositionResponseSchema: GenMessage<SetRackSlotPositionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 25);
 
 /**
@@ -945,8 +912,7 @@ export type ClearRackSlotPositionRequest = Message<"collection.v1.ClearRackSlotP
  * Describes the message collection.v1.ClearRackSlotPositionRequest.
  * Use `create(ClearRackSlotPositionRequestSchema)` to create a new message.
  */
-export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositionRequest> =
-  /*@__PURE__*/
+export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositionRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 26);
 
 /**
@@ -954,14 +920,14 @@ export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositio
  *
  * @generated from message collection.v1.ClearRackSlotPositionResponse
  */
-export type ClearRackSlotPositionResponse = Message<"collection.v1.ClearRackSlotPositionResponse"> & {};
+export type ClearRackSlotPositionResponse = Message<"collection.v1.ClearRackSlotPositionResponse"> & {
+};
 
 /**
  * Describes the message collection.v1.ClearRackSlotPositionResponse.
  * Use `create(ClearRackSlotPositionResponseSchema)` to create a new message.
  */
-export const ClearRackSlotPositionResponseSchema: GenMessage<ClearRackSlotPositionResponse> =
-  /*@__PURE__*/
+export const ClearRackSlotPositionResponseSchema: GenMessage<ClearRackSlotPositionResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 27);
 
 /**
@@ -982,8 +948,7 @@ export type GetRackSlotsRequest = Message<"collection.v1.GetRackSlotsRequest"> &
  * Describes the message collection.v1.GetRackSlotsRequest.
  * Use `create(GetRackSlotsRequestSchema)` to create a new message.
  */
-export const GetRackSlotsRequestSchema: GenMessage<GetRackSlotsRequest> =
-  /*@__PURE__*/
+export const GetRackSlotsRequestSchema: GenMessage<GetRackSlotsRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 28);
 
 /**
@@ -1011,7 +976,8 @@ export type RackSlot = Message<"collection.v1.RackSlot"> & {
  * Describes the message collection.v1.RackSlot.
  * Use `create(RackSlotSchema)` to create a new message.
  */
-export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 29);
+export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/
+  messageDesc(file_collection_v1_collection, 29);
 
 /**
  * Response containing all occupied rack slots
@@ -1031,8 +997,7 @@ export type GetRackSlotsResponse = Message<"collection.v1.GetRackSlotsResponse">
  * Describes the message collection.v1.GetRackSlotsResponse.
  * Use `create(GetRackSlotsResponseSchema)` to create a new message.
  */
-export const GetRackSlotsResponseSchema: GenMessage<GetRackSlotsResponse> =
-  /*@__PURE__*/
+export const GetRackSlotsResponseSchema: GenMessage<GetRackSlotsResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 30);
 
 /**
@@ -1168,8 +1133,7 @@ export type CollectionStats = Message<"collection.v1.CollectionStats"> & {
  * Describes the message collection.v1.CollectionStats.
  * Use `create(CollectionStatsSchema)` to create a new message.
  */
-export const CollectionStatsSchema: GenMessage<CollectionStats> =
-  /*@__PURE__*/
+export const CollectionStatsSchema: GenMessage<CollectionStats> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 31);
 
 /**
@@ -1190,8 +1154,7 @@ export type GetCollectionStatsRequest = Message<"collection.v1.GetCollectionStat
  * Describes the message collection.v1.GetCollectionStatsRequest.
  * Use `create(GetCollectionStatsRequestSchema)` to create a new message.
  */
-export const GetCollectionStatsRequestSchema: GenMessage<GetCollectionStatsRequest> =
-  /*@__PURE__*/
+export const GetCollectionStatsRequestSchema: GenMessage<GetCollectionStatsRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 32);
 
 /**
@@ -1212,8 +1175,7 @@ export type GetCollectionStatsResponse = Message<"collection.v1.GetCollectionSta
  * Describes the message collection.v1.GetCollectionStatsResponse.
  * Use `create(GetCollectionStatsResponseSchema)` to create a new message.
  */
-export const GetCollectionStatsResponseSchema: GenMessage<GetCollectionStatsResponse> =
-  /*@__PURE__*/
+export const GetCollectionStatsResponseSchema: GenMessage<GetCollectionStatsResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 33);
 
 /**
@@ -1221,14 +1183,14 @@ export const GetCollectionStatsResponseSchema: GenMessage<GetCollectionStatsResp
  *
  * @generated from message collection.v1.ListRackLocationsRequest
  */
-export type ListRackLocationsRequest = Message<"collection.v1.ListRackLocationsRequest"> & {};
+export type ListRackLocationsRequest = Message<"collection.v1.ListRackLocationsRequest"> & {
+};
 
 /**
  * Describes the message collection.v1.ListRackLocationsRequest.
  * Use `create(ListRackLocationsRequestSchema)` to create a new message.
  */
-export const ListRackLocationsRequestSchema: GenMessage<ListRackLocationsRequest> =
-  /*@__PURE__*/
+export const ListRackLocationsRequestSchema: GenMessage<ListRackLocationsRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 34);
 
 /**
@@ -1249,8 +1211,7 @@ export type ListRackLocationsResponse = Message<"collection.v1.ListRackLocations
  * Describes the message collection.v1.ListRackLocationsResponse.
  * Use `create(ListRackLocationsResponseSchema)` to create a new message.
  */
-export const ListRackLocationsResponseSchema: GenMessage<ListRackLocationsResponse> =
-  /*@__PURE__*/
+export const ListRackLocationsResponseSchema: GenMessage<ListRackLocationsResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 35);
 
 /**
@@ -1258,14 +1219,14 @@ export const ListRackLocationsResponseSchema: GenMessage<ListRackLocationsRespon
  *
  * @generated from message collection.v1.ListRackTypesRequest
  */
-export type ListRackTypesRequest = Message<"collection.v1.ListRackTypesRequest"> & {};
+export type ListRackTypesRequest = Message<"collection.v1.ListRackTypesRequest"> & {
+};
 
 /**
  * Describes the message collection.v1.ListRackTypesRequest.
  * Use `create(ListRackTypesRequestSchema)` to create a new message.
  */
-export const ListRackTypesRequestSchema: GenMessage<ListRackTypesRequest> =
-  /*@__PURE__*/
+export const ListRackTypesRequestSchema: GenMessage<ListRackTypesRequest> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 36);
 
 /**
@@ -1300,7 +1261,8 @@ export type RackType = Message<"collection.v1.RackType"> & {
  * Describes the message collection.v1.RackType.
  * Use `create(RackTypeSchema)` to create a new message.
  */
-export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 37);
+export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/
+  messageDesc(file_collection_v1_collection, 37);
 
 /**
  * Response containing all distinct rack types
@@ -1320,8 +1282,7 @@ export type ListRackTypesResponse = Message<"collection.v1.ListRackTypesResponse
  * Describes the message collection.v1.ListRackTypesResponse.
  * Use `create(ListRackTypesResponseSchema)` to create a new message.
  */
-export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> =
-  /*@__PURE__*/
+export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> = /*@__PURE__*/
   messageDesc(file_collection_v1_collection, 38);
 
 /**
@@ -1355,7 +1316,8 @@ export enum CollectionType {
 /**
  * Describes the enum collection.v1.CollectionType.
  */
-export const CollectionTypeSchema: GenEnum<CollectionType> = /*@__PURE__*/ enumDesc(file_collection_v1_collection, 0);
+export const CollectionTypeSchema: GenEnum<CollectionType> = /*@__PURE__*/
+  enumDesc(file_collection_v1_collection, 0);
 
 /**
  * Order index defining where row/column numbering starts in a rack
@@ -1392,7 +1354,8 @@ export enum RackOrderIndex {
 /**
  * Describes the enum collection.v1.RackOrderIndex.
  */
-export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumDesc(file_collection_v1_collection, 1);
+export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/
+  enumDesc(file_collection_v1_collection, 1);
 
 /**
  * Cooling type for a rack
@@ -1419,7 +1382,8 @@ export enum RackCoolingType {
 /**
  * Describes the enum collection.v1.RackCoolingType.
  */
-export const RackCoolingTypeSchema: GenEnum<RackCoolingType> = /*@__PURE__*/ enumDesc(file_collection_v1_collection, 2);
+export const RackCoolingTypeSchema: GenEnum<RackCoolingType> = /*@__PURE__*/
+  enumDesc(file_collection_v1_collection, 2);
 
 /**
  * Service for managing device collections (groups and racks)
@@ -1437,7 +1401,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof CreateCollectionRequestSchema;
     output: typeof CreateCollectionResponseSchema;
-  };
+  },
   /**
    * Gets a collection by ID
    *
@@ -1447,7 +1411,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof GetCollectionRequestSchema;
     output: typeof GetCollectionResponseSchema;
-  };
+  },
   /**
    * Updates a collection's label or description
    *
@@ -1457,7 +1421,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof UpdateCollectionRequestSchema;
     output: typeof UpdateCollectionResponseSchema;
-  };
+  },
   /**
    * Deletes a collection (soft delete)
    *
@@ -1467,7 +1431,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof DeleteCollectionRequestSchema;
     output: typeof DeleteCollectionResponseSchema;
-  };
+  },
   /**
    * Lists all collections for the organization
    *
@@ -1477,7 +1441,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ListCollectionsRequestSchema;
     output: typeof ListCollectionsResponseSchema;
-  };
+  },
   /**
    * Adds devices to a collection
    *
@@ -1487,7 +1451,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof AddDevicesToCollectionRequestSchema;
     output: typeof AddDevicesToCollectionResponseSchema;
-  };
+  },
   /**
    * Removes devices from a collection
    *
@@ -1497,7 +1461,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof RemoveDevicesFromCollectionRequestSchema;
     output: typeof RemoveDevicesFromCollectionResponseSchema;
-  };
+  },
   /**
    * Lists members of a collection
    *
@@ -1507,7 +1471,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ListCollectionMembersRequestSchema;
     output: typeof ListCollectionMembersResponseSchema;
-  };
+  },
   /**
    * Gets collections that a device belongs to
    *
@@ -1517,7 +1481,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof GetDeviceCollectionsRequestSchema;
     output: typeof GetDeviceCollectionsResponseSchema;
-  };
+  },
   /**
    * Sets a device's slot position within a rack
    *
@@ -1527,7 +1491,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof SetRackSlotPositionRequestSchema;
     output: typeof SetRackSlotPositionResponseSchema;
-  };
+  },
   /**
    * Clears a device's slot position within a rack
    *
@@ -1537,7 +1501,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ClearRackSlotPositionRequestSchema;
     output: typeof ClearRackSlotPositionResponseSchema;
-  };
+  },
   /**
    * Lists all occupied slot positions in a rack
    *
@@ -1547,7 +1511,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof GetRackSlotsRequestSchema;
     output: typeof GetRackSlotsResponseSchema;
-  };
+  },
   /**
    * Returns aggregated telemetry stats for a list of collections
    *
@@ -1557,7 +1521,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof GetCollectionStatsRequestSchema;
     output: typeof GetCollectionStatsResponseSchema;
-  };
+  },
   /**
    * Returns all distinct rack locations for the organization
    *
@@ -1567,7 +1531,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ListRackLocationsRequestSchema;
     output: typeof ListRackLocationsResponseSchema;
-  };
+  },
   /**
    * Returns all distinct rack types (row/column combinations) for the organization
    *
@@ -1577,5 +1541,7 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ListRackTypesRequestSchema;
     output: typeof ListRackTypesResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_collection_v1_collection, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_collection_v1_collection, 0);
+

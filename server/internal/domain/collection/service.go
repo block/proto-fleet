@@ -317,7 +317,13 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		errorComponentTypes[i] = int32(ct)
 	}
 
-	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes)
+	// Validate that locations filter and location sort are only used with rack collections
+	isLocationSort := sort != nil && sort.Field == interfaces.SortFieldLocation
+	if (len(req.Locations) > 0 || isLocationSort) && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("location filter and sort are only supported for rack collections")
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes, req.Locations)
 	if err != nil {
 		return nil, err
 	}

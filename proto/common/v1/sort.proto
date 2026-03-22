@@ -32,6 +32,8 @@ enum SortField {
   SORT_FIELD_FIRMWARE = 11;
   // Sort by device count (for collection listing)
   SORT_FIELD_DEVICE_COUNT = 12;
+  // Sort by location (for rack listing)
+  SORT_FIELD_LOCATION = 13;
 }
 
 // Direction to sort results

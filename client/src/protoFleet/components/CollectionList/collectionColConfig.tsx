@@ -32,6 +32,13 @@ const createCollectionColConfig = ({
     component: (item: CollectionListItem) => renderName(item),
     width: "min-w-44",
   },
+  [collectionCols.location]: {
+    component: (item: CollectionListItem) => {
+      if (item.collection.typeDetails.case !== "rackInfo") return <span>{INACTIVE_PLACEHOLDER}</span>;
+      return <span>{item.collection.typeDetails.value.location || INACTIVE_PLACEHOLDER}</span>;
+    },
+    width: "min-w-28",
+  },
   [collectionCols.miners]: {
     component: (item: CollectionListItem) => renderMiners(item),
     width: "min-w-20",

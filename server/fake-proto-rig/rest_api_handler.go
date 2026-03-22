@@ -1861,6 +1861,7 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 		h.state.mu.RLock()
 		mode := h.state.CoolingModeVal
 		speedPct := h.state.FanSpeedPct
+		targetTempC := h.state.TargetTempC
 		h.state.mu.RUnlock()
 
 		fans := make([]FanStatus, 4)
@@ -1879,6 +1880,9 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 			SpeedPercentage: int(speedPct),
 			Fans:            fans,
 		}
+		if mode == CoolingModeAuto {
+			status.TargetTempC = &targetTempC
+		}
 
 		h.writeJSON(w, http.StatusOK, CoolingStatus{CoolingStatus: status})
 
@@ -1895,7 +1899,11 @@ func (h *RESTApiHandler) handleCooling(w http.ResponseWriter, r *http.Request) {
 			sp := uint32(*config.SpeedPercentage)
 			speedPct = &sp
 		}
-		h.state.SetCoolingMode(mode, speedPct)
+		targetTempC := config.TargetTempC
+		if mode != CoolingModeAuto {
+			targetTempC = nil
+		}
+		h.state.SetCoolingMode(mode, speedPct, targetTempC)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Cooling configuration updated"})
 

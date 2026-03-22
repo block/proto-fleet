@@ -231,10 +231,12 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 	}
 
 	// Get firmware version during discovery
-	firmwareVersion, err := client.GetSoftwareInfo(ctx)
+	firmwareVersion := ""
+	fwVersion, err := client.GetFirmwareVersion(ctx)
 	if err != nil {
-		slog.Debug("failed to get software info during discovery", "error", err)
-		firmwareVersion = ""
+		slog.Debug("failed to get firmware version during discovery", "error", err)
+	} else {
+		firmwareVersion = fwVersion
 	}
 
 	return sdk.DeviceInfo{

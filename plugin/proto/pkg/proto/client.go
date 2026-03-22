@@ -524,6 +524,11 @@ func (c *Client) GetSoftwareInfo(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// GetFirmwareVersion retrieves the firmware (OS) version string from the miner.
+func (c *Client) GetFirmwareVersion(ctx context.Context) (string, error) {
+	return c.GetSoftwareInfo(ctx)
+}
+
 // GetDeviceInfo retrieves basic device information via the pairing info endpoint.
 func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	var resp pairingInfoResponse
@@ -569,7 +574,8 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	}
 
 	return &Status{
-		State: state,
+		State:        state,
+		ErrorMessage: "", // TODO: Extract from API when available
 	}, nil
 }
 
