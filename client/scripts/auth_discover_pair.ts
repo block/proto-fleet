@@ -1,318 +1,303 @@
-/**
- * Discovery and Pairing Test Script
- *
- * This script demonstrates how to use the Connect-RPC client to:
- * 1. Check if an admin user exists, create one if not
- * 2. Authenticate with the server
- * 3. Discover miners on the network
- * 4. Pair with discovered miners
- *
- * Run this script with:
- * npx tsx src/discover-pair.ts
- */
-
+import { create } from "@bufbuild/protobuf";
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { create } from "@bufbuild/protobuf";
+import { DeviceIdentifierListSchema } from "../src/protoFleet/api/generated/common/v1/device_selector_pb";
+import {
+  FleetManagementService,
+  ListMinerStateSnapshotsRequestSchema,
+  PairingStatus,
+} from "../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceSelectorSchema } from "../src/protoFleet/api/generated/minercommand/v1/command_pb";
+import {
+  PairRequestSchema,
+  PairingService,
+  DiscoverRequestSchema,
+  type Device,
+} from "../src/protoFleet/api/generated/pairing/v1/pairing_pb";
 
-async function main() {
-  // Importing the required services
-  console.log("Loading services...");
+const baseUrl = process.env.FLEET_API_URL ?? "http://localhost:4000";
+const adminUsername = process.env.FLEET_ADMIN_USERNAME ?? "admin";
+const adminPassword = process.env.FLEET_ADMIN_PASSWORD ?? "Pass123!";
+const requestedSessionCookie = process.env.FLEET_SESSION_COOKIE;
+const requestedDiscoveryTarget = process.env.FLEET_DISCOVERY_TARGET;
+const discoveryPorts = (process.env.FLEET_DISCOVERY_PORTS ?? "443,8080,4028")
+  .split(",")
+  .map((port) => port.trim())
+  .filter(Boolean);
+const pairAllDiscovered = process.env.FLEET_PAIR_ALL_DISCOVERED === "true";
 
-  // Dynamic imports to avoid issues with ESM/CJS compatibility
-  const authModule = await import("../src/protoFleet/api/generated/auth/v1/auth_pb");
-  const pairingModule = await import("../src/protoFleet/api/generated/pairing/v1/pairing_pb");
-  const onboardingModule = await import("../src/protoFleet/api/generated/onboarding/v1/onboarding_pb");
+const transport = createConnectTransport({ baseUrl });
+const pairingClient = createClient(PairingService, transport);
+const fleetClient = createClient(FleetManagementService, transport);
 
-  const OnboardingService = onboardingModule.OnboardingService;
-  const CreateAdminLoginRequestSchema = onboardingModule.CreateAdminLoginRequestSchema;
-  const AuthService = authModule.AuthService;
-  const PairingService = pairingModule.PairingService;
-  const AuthenticateRequestSchema = authModule.AuthenticateRequestSchema;
-  const DiscoverRequestSchema = pairingModule.DiscoverRequestSchema;
-  const IPListModeRequestSchema = pairingModule.IPListModeRequestSchema;
-  const MDNSModeRequestSchema = pairingModule.MDNSModeRequestSchema;
-  const NmapModeRequestSchema = pairingModule.NmapModeRequestSchema;
-  const PairRequestSchema = pairingModule.PairRequestSchema;
+type FleetInitStatusResponse = {
+  status?: {
+    adminCreated?: boolean;
+  };
+};
 
-  // Setup transport
-  const transport = createConnectTransport({
-    baseUrl: "http://localhost:4000",
+type NetworkInfoResponse = {
+  networkInfo?: {
+    subnet?: string;
+    localIp?: string;
+    gateway?: string;
+  };
+};
+
+type AuthenticateResponse = {
+  userInfo?: {
+    username?: string;
+  };
+  sessionExpiry?: string | number;
+};
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  sessionCookie?: string,
+): Promise<{ data: T; setCookie: string | null }> {
+  const headers = new Headers({
+    "Content-Type": "application/json",
   });
 
-  // Create clients
-  const onboardingClient = createClient(OnboardingService, transport);
-  const authClient = createClient(AuthService, transport);
-  const pairingClient = createClient(PairingService, transport);
+  if (sessionCookie) {
+    headers.set("Cookie", sessionCookie);
+  }
 
-  // Step 0: Create admin user if it doesn't exist
-  console.log("\n=== Step 0: Ensure Admin User Exists ===");
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
 
-  // We'll attempt to create an admin user.
-  // If the user already exists, the server will return an error,
-  // which we'll catch and continue with authentication.
-  try {
-    console.log("Checking if admin user needs to be created...");
-    const createAdminRequest = create(CreateAdminLoginRequestSchema, {
-      username: "admin",
-      password: "test1234",
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`${path} failed with ${response.status}: ${responseText}`);
+  }
+
+  return {
+    data: responseText ? (JSON.parse(responseText) as T) : ({} as T),
+    setCookie: response.headers.get("set-cookie"),
+  };
+}
+
+function formatSessionCookie(rawCookie: string): string {
+  if (rawCookie.includes("=")) {
+    return rawCookie;
+  }
+
+  return `fleet_session=${rawCookie}`;
+}
+
+function normalizeSubnetCIDR(value: string): string {
+  const [ip, prefixString] = value.split("/");
+  if (!ip || !prefixString) {
+    return value;
+  }
+
+  const octets = ip.split(".").map((part) => Number(part));
+  const prefix = Number(prefixString);
+  const validIPv4 =
+    octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
+  if (!validIPv4 || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return value;
+  }
+
+  const ipInt = octets.reduce((acc, octet) => (acc << 8) | octet, 0) >>> 0;
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  const network = ipInt & mask;
+
+  const normalizedOctets = [(network >>> 24) & 0xff, (network >>> 16) & 0xff, (network >>> 8) & 0xff, network & 0xff];
+
+  return `${normalizedOctets.join(".")}/${prefix}`;
+}
+
+async function ensureSessionCookie(): Promise<string> {
+  if (requestedSessionCookie) {
+    const cookie = formatSessionCookie(requestedSessionCookie);
+    console.log(`Using existing Fleet session cookie for ${baseUrl}`);
+    return cookie;
+  }
+
+  const initStatus = await postJson<FleetInitStatusResponse>("/onboarding.v1.OnboardingService/GetFleetInitStatus", {});
+
+  if (!initStatus.data.status?.adminCreated) {
+    console.log(`Creating Fleet admin user ${adminUsername}...`);
+    await postJson("/onboarding.v1.OnboardingService/CreateAdminLogin", {
+      username: adminUsername,
+      password: adminPassword,
     });
+  } else {
+    console.log(`Fleet already onboarded. Authenticating as ${adminUsername}...`);
+  }
 
-    const createAdminResponse = await onboardingClient.createAdminLogin(createAdminRequest);
-    console.log("Admin user created successfully:", createAdminResponse.userId);
-  } catch (error: any) {
-    // Check if the error message indicates the user already exists
-    if (error.message && error.message.includes("already exists")) {
-      console.log("Admin user already exists, proceeding with authentication.");
-    } else {
-      console.log("Error checking/creating admin user:", error.message || error);
-      // Continue anyway - we'll try to authenticate with the credentials
+  const authResponse = await postJson<AuthenticateResponse>("/auth.v1.AuthService/Authenticate", {
+    username: adminUsername,
+    password: adminPassword,
+  });
+
+  if (!authResponse.setCookie) {
+    throw new Error("Authenticate succeeded but no session cookie was returned.");
+  }
+
+  const sessionCookie = authResponse.setCookie.split(";")[0];
+  const username = authResponse.data.userInfo?.username ?? adminUsername;
+  console.log(`Authenticated as ${username}. Session cookie captured.`);
+  return sessionCookie;
+}
+
+async function getDiscoveryTarget(sessionCookie: string): Promise<string> {
+  if (requestedDiscoveryTarget) {
+    return requestedDiscoveryTarget;
+  }
+
+  const response = await postJson<NetworkInfoResponse>(
+    "/networkinfo.v1.NetworkInfoService/GetNetworkInfo",
+    {},
+    sessionCookie,
+  );
+
+  const subnet = response.data.networkInfo?.subnet;
+  if (!subnet) {
+    throw new Error("Network info response did not include a subnet.");
+  }
+
+  const normalizedSubnet = normalizeSubnetCIDR(subnet);
+  console.log(
+    `Using discovery target ${normalizedSubnet} (backend reported subnet ${subnet}, local IP ${response.data.networkInfo?.localIp ?? "unknown"}).`,
+  );
+  return normalizedSubnet;
+}
+
+async function discoverDevices(sessionCookie: string, target: string): Promise<Device[]> {
+  const request = create(DiscoverRequestSchema, {
+    mode: {
+      case: "nmap",
+      value: {
+        target,
+        ports: discoveryPorts,
+      },
+    },
+  });
+
+  const discovered = new Map<string, Device>();
+
+  for await (const response of pairingClient.discover(request, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  })) {
+    if (response.error) {
+      console.warn(`Discovery warning: ${response.error}`);
+    }
+
+    for (const device of response.devices) {
+      discovered.set(device.deviceIdentifier, device);
     }
   }
 
-  // Step 1: Authenticate
-  console.log("\n=== Step 1: Authentication ===");
-  console.log("Authenticating with server...");
+  return [...discovered.values()];
+}
 
-  try {
-    // Create a properly formatted authentication request
-    const authRequest = create(AuthenticateRequestSchema, {
-      username: "admin",
-      password: "test1234",
-    });
+async function pairDevices(sessionCookie: string, devices: Device[]): Promise<string[]> {
+  if (devices.length === 0) {
+    return [];
+  }
 
-    const authResponse = await authClient.authenticate(authRequest);
-    console.log("Authentication successful, token received.");
+  const request = create(PairRequestSchema, {
+    deviceSelector: create(DeviceSelectorSchema, {
+      selectionType: {
+        case: "includeDevices",
+        value: create(DeviceIdentifierListSchema, {
+          deviceIdentifiers: devices.map((device) => device.deviceIdentifier),
+        }),
+      },
+    }),
+  });
 
-    const token = authResponse.token;
-    console.log(`Token: ${token}`, typeof token);
-    const tokenExpiry = authResponse.tokenExpiry;
-    console.log(`Token expires at: ${new Date(Number(tokenExpiry) * 1000).toISOString()}`);
+  const response = await pairingClient.pair(request, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
 
-    // Set headers for subsequent requests
-    const headers = {
-      Authorization: `Bearer ${token}`,
-    };
+  return response.failedDeviceIds;
+}
 
-    // Step 2: Discover devices
-    console.log("\n=== Step 2: Device Discovery ===");
-    console.log("Discovering miners using different methods...");
+async function listMiners(sessionCookie: string) {
+  const response = await fleetClient.listMinerStateSnapshots(
+    create(ListMinerStateSnapshotsRequestSchema, {
+      pageSize: 100,
+    }),
+    {
+      headers: {
+        Cookie: sessionCookie,
+      },
+    },
+  );
 
-    // Method 1: mDNS Discovery
-    console.log("\nTrying mDNS discovery...");
-    try {
-      const mdnsModeRequest = create(MDNSModeRequestSchema, {
-        serviceType: "_fleet._tcp",
-        domain: "local",
-        timeoutSeconds: 5,
-      });
+  return response.miners;
+}
 
-      const discoverRequest = create(DiscoverRequestSchema, {
-        mode: {
-          case: "mdns",
-          value: mdnsModeRequest,
-        },
-      });
+function summarizeDevices(label: string, devices: Device[]) {
+  const counts = new Map<string, number>();
 
-      // For server streaming, iterate through responses
-      const stream = pairingClient.discover(discoverRequest, { headers });
-      let deviceCount = 0;
-      let foundDevices: any[] = [];
+  for (const device of devices) {
+    const key = `${device.driverName}:${device.manufacturer} ${device.model}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
 
-      for await (const response of stream) {
-        if (response.devices && response.devices.length > 0) {
-          deviceCount += response.devices.length;
-          foundDevices = [...foundDevices, ...response.devices];
-        }
-      }
-
-      if (deviceCount > 0) {
-        console.log(`Found ${deviceCount} devices via mDNS.`);
-      } else {
-        console.log("No devices found via mDNS.");
-      }
-    } catch (error) {
-      console.error("Error during mDNS discovery:", error);
-    }
-
-    // Method 2: IP List Scan
-    console.log("\nTrying IP List scan...");
-    try {
-      const ipListModeRequest = create(IPListModeRequestSchema, {
-        ipAddresses: ["192.168.2.10", "192.168.2.11"],
-        ports: ["2121"],
-        timeoutSeconds: 10,
-      });
-
-      const discoverRequest = create(DiscoverRequestSchema, {
-        mode: {
-          case: "ipList",
-          value: ipListModeRequest,
-        },
-      });
-
-      // For server streaming, iterate through responses
-      const stream = pairingClient.discover(discoverRequest, { headers });
-      let deviceCount = 0;
-      let foundDevices: any[] = [];
-
-      for await (const response of stream) {
-        if (response.devices && response.devices.length > 0) {
-          deviceCount += response.devices.length;
-          foundDevices = [...foundDevices, ...response.devices];
-        }
-      }
-
-      if (deviceCount > 0) {
-        console.log(`Found ${deviceCount} devices via IP List scan.`);
-
-        // Convert BigInt values to strings for safe JSON serialization
-        const devicesForDisplay = foundDevices.map((device) => ({
-          deviceIdentifier: device.deviceIdentifier,
-          ipAddress: device.ipAddress,
-          port: device.port,
-          macAddress: device.macAddress,
-          serialNumber: device.serialNumber,
-          discoveredAt: String(device.discoveredAt),
-        }));
-
-        console.log("Discovered devices:", JSON.stringify(devicesForDisplay, null, 2));
-
-        // Step 3: Pair with discovered devices
-        console.log("\n=== Step 3: Device Pairing ===");
-        const deviceIds = foundDevices.map((d) => d.deviceIdentifier);
-        console.log(`Pairing with devices: ${deviceIds.join(", ")}`);
-
-        try {
-          const pairRequest = create(PairRequestSchema, {
-            deviceIdentifiers: deviceIds,
-          });
-
-          const pairResponse = await pairingClient.pair(pairRequest, {
-            headers,
-          });
-          console.log("Pairing successful:", pairResponse);
-        } catch (error) {
-          console.error("Error during pairing:", error);
-        }
-      } else {
-        console.log("No devices found via IP List scan.");
-      }
-    } catch (error) {
-      console.error("Error during IP List scan:", error);
-    }
-
-    // Method 3: Nmap Scan
-    console.log("\nTrying Nmap scan...");
-    try {
-      const nmapModeRequest = create(NmapModeRequestSchema, {
-        target: "192.168.2.0/24",
-        ports: ["2121"],
-      });
-
-      const discoverRequest = create(DiscoverRequestSchema, {
-        mode: {
-          case: "nmap",
-          value: nmapModeRequest,
-        },
-      });
-
-      // For server streaming, iterate through responses
-      const stream = pairingClient.discover(discoverRequest, { headers });
-      let deviceCount = 0;
-      let foundDevices: any[] = [];
-
-      for await (const response of stream) {
-        if (response.devices && response.devices.length > 0) {
-          deviceCount += response.devices.length;
-          foundDevices = [...foundDevices, ...response.devices];
-        }
-      }
-
-      if (deviceCount > 0) {
-        console.log(`Found ${deviceCount} devices via Nmap scan.`);
-
-        // Convert BigInt values to strings for safe JSON serialization
-        const devicesForDisplay = foundDevices.map((device) => ({
-          deviceIdentifier: device.deviceIdentifier,
-          ipAddress: device.ipAddress,
-          port: device.port,
-          macAddress: device.macAddress,
-          serialNumber: device.serialNumber,
-          discoveredAt: String(device.discoveredAt),
-        }));
-
-        console.log("Discovered devices:", JSON.stringify(devicesForDisplay, null, 2));
-
-        // Pair with discovered devices
-        console.log("\n=== Additional Pairing via Nmap ===");
-        const deviceIds = foundDevices.map((d) => d.deviceIdentifier);
-        console.log(`Pairing with devices: ${deviceIds.join(", ")}`);
-
-        try {
-          const pairRequest = create(PairRequestSchema, {
-            deviceIdentifiers: deviceIds,
-          });
-
-          const pairResponse = await pairingClient.pair(pairRequest, {
-            headers,
-          });
-          console.log("Pairing successful:", pairResponse);
-        } catch (error) {
-          console.error("Error during pairing:", error);
-        }
-      } else {
-        console.log("No devices found via Nmap scan.");
-      }
-    } catch (error) {
-      console.error("Error during Nmap scan:", error);
-    }
-
-    // Step 4: Check paired miners using ListMinerStateSnapshots
-    console.log("\n=== Step 4: Listing Miner State Snapshots ===");
-
-    try {
-      // First, we need to import the FleetManagement service
-      const fleetModule = await import("../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb");
-      const FleetManagementService = fleetModule.FleetManagementService;
-      const ListMinerStateSnapshotsRequestSchema = fleetModule.ListMinerStateSnapshotsRequestSchema;
-
-      // Create a client for the FleetManagement service
-      const fleetClient = createClient(FleetManagementService, transport);
-
-      // Create a request to list miner state snapshots
-      const listRequest = create(ListMinerStateSnapshotsRequestSchema, {
-        pageSize: 10,
-      });
-
-      console.log(listRequest);
-
-      // Make the request
-      const listResponse = await fleetClient.listMinerStateSnapshots(listRequest, {
-        headers,
-      });
-
-      if (listResponse.miners && listResponse.miners.length > 0) {
-        console.log(`Found ${listResponse.miners.length} miners:`);
-
-        // Convert BigInt values to strings for safe JSON serialization
-        const minersForDisplay = listResponse.miners.map((miner) => ({
-          deviceIdentifier: miner.deviceIdentifier,
-          macAddress: miner.macAddress,
-          serialNumber: miner.serialNumber || "(no serial number)",
-          status: miner.status,
-        }));
-
-        console.log(JSON.stringify(minersForDisplay, null, 2));
-      } else {
-        console.log("No miners found.");
-      }
-    } catch (error) {
-      console.error("Error listing miner state snapshots:", error);
-    }
-  } catch (error) {
-    console.error("Authentication failed:", error);
+  console.log(`${label}: ${devices.length}`);
+  for (const [key, count] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    console.log(`  ${count} x ${key}`);
   }
 }
 
-main().catch(console.error);
+async function main() {
+  console.log(`Bootstrapping Fleet fake-miner setup against ${baseUrl}`);
+
+  const sessionCookie = await ensureSessionCookie();
+  const discoveryTarget = await getDiscoveryTarget(sessionCookie);
+
+  console.log(`Scanning ${discoveryTarget} on ports ${discoveryPorts.join(", ")}...`);
+  const discoveredDevices = await discoverDevices(sessionCookie, discoveryTarget);
+  summarizeDevices("Discovered devices", discoveredDevices);
+
+  const currentMiners = await listMiners(sessionCookie);
+  const alreadyPairedIds = new Set(
+    currentMiners
+      .filter((miner) => miner.pairingStatus === PairingStatus.PAIRED)
+      .map((miner) => miner.deviceIdentifier),
+  );
+
+  const candidateDevices = pairAllDiscovered
+    ? discoveredDevices
+    : discoveredDevices.filter((device) => device.driverName === "proto");
+  const devicesToPair = candidateDevices.filter((device) => !alreadyPairedIds.has(device.deviceIdentifier));
+
+  summarizeDevices(pairAllDiscovered ? "Pairing all discovered devices" : "Pairing Proto devices", devicesToPair);
+
+  if (devicesToPair.length === 0) {
+    console.log("No newly discovered devices need pairing.");
+    console.log(
+      `Fleet now has ${currentMiners.length} miner snapshot(s), including ${currentMiners.filter((miner) => miner.driverName === "proto").length} Proto rig(s).`,
+    );
+    return;
+  }
+
+  const failedDeviceIds = await pairDevices(sessionCookie, devicesToPair);
+  if (failedDeviceIds.length > 0) {
+    console.warn(`Pairing failed for ${failedDeviceIds.length} device(s): ${failedDeviceIds.join(", ")}`);
+  } else {
+    console.log("Pairing completed without failures.");
+  }
+
+  const miners = await listMiners(sessionCookie);
+  const pairedProtoMiners = miners.filter((miner) => miner.driverName === "proto");
+  console.log(`Fleet now has ${miners.length} miner snapshot(s), including ${pairedProtoMiners.length} Proto rig(s).`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

@@ -301,6 +301,143 @@ func isClientError(err error) bool {
 	return false
 }
 
+type listFilesResponse struct {
+	Files []files.FirmwareFileInfo `json:"files"`
+}
+
+type deleteAllFilesResponse struct {
+	DeletedCount int    `json:"deleted_count"`
+	Error        string `json:"error,omitempty"`
+}
+
+// NewListFilesHandler returns an http.Handler that lists all uploaded firmware files.
+func NewListFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+	return &listFilesHandler{
+		filesService:   filesService,
+		sessionService: sessionService,
+		userStore:      userStore,
+	}
+}
+
+type listFilesHandler struct {
+	filesService   *files.Service
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+}
+
+func (h *listFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+		slog.Warn("firmware list authentication failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	fileList, err := h.filesService.ListFirmwareFiles()
+	if err != nil {
+		slog.Error("failed to list firmware files", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list firmware files")
+		return
+	}
+
+	if fileList == nil {
+		fileList = []files.FirmwareFileInfo{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(listFilesResponse{Files: fileList}); err != nil {
+		slog.Error("failed to encode list files response", "error", err)
+	}
+}
+
+// NewDeleteFileHandler returns an http.Handler that deletes a single firmware file by ID.
+func NewDeleteFileHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+	return &deleteFileHandler{
+		filesService:   filesService,
+		sessionService: sessionService,
+		userStore:      userStore,
+	}
+}
+
+type deleteFileHandler struct {
+	filesService   *files.Service
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+}
+
+func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+		slog.Warn("firmware delete authentication failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	fileID := r.PathValue("fileId")
+	if fileID == "" {
+		writeError(w, http.StatusBadRequest, "file ID is required")
+		return
+	}
+
+	if err := h.filesService.DeleteFirmwareFile(fileID); err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if fleeterror.IsInvalidArgumentError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slog.Error("failed to delete firmware file", "file_id", fileID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete firmware file")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// NewDeleteAllFilesHandler returns an http.Handler that deletes all firmware files.
+func NewDeleteAllFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+	return &deleteAllFilesHandler{
+		filesService:   filesService,
+		sessionService: sessionService,
+		userStore:      userStore,
+	}
+}
+
+type deleteAllFilesHandler struct {
+	filesService   *files.Service
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+}
+
+func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+		slog.Warn("firmware delete-all authentication failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	deleted, err := h.filesService.DeleteAllFirmwareFiles()
+	if err != nil {
+		slog.Error("failed to delete all firmware files", "error", err, "deleted_before_error", deleted)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		if encErr := json.NewEncoder(w).Encode(deleteAllFilesResponse{
+			DeletedCount: deleted,
+			Error:        "failed to delete all firmware files",
+		}); encErr != nil {
+			slog.Error("failed to encode delete-all error response", "error", encErr)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(deleteAllFilesResponse{DeletedCount: deleted}); err != nil {
+		slog.Error("failed to encode delete-all response", "error", err)
+	}
+}
+
 func writeError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)

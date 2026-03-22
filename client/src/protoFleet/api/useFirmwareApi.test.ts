@@ -299,4 +299,163 @@ describe("useFirmwareApi", () => {
       );
     });
   });
+
+  describe("listFirmwareFiles", () => {
+    it("sends GET with credentials and returns file list", async () => {
+      const mockFiles = [{ id: "f1", filename: "fw.swu", size: 1024, uploaded_at: "2025-01-01T00:00:00Z" }];
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ files: mockFiles }),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const { result } = renderHook(() => useFirmwareApi());
+      const files = await result.current.listFirmwareFiles();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api-proxy/api/v1/firmware/files",
+        expect.objectContaining({
+          method: "GET",
+          credentials: "include",
+        }),
+      );
+      expect(files).toEqual(mockFiles);
+    });
+
+    it("returns empty array when no files exist", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ files: [] }),
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      const files = await result.current.listFirmwareFiles();
+
+      expect(files).toEqual([]);
+    });
+
+    it("calls logout on 401 response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles()).rejects.toThrow("Session expired");
+      expect(mockLogout).toHaveBeenCalledOnce();
+    });
+
+    it("throws on server error", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          json: () => Promise.reject(new Error("no body")),
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.listFirmwareFiles()).rejects.toThrow("Failed to list firmware files");
+    });
+  });
+
+  describe("deleteFirmwareFile", () => {
+    it("sends DELETE with file ID and credentials", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await result.current.deleteFirmwareFile("file-123");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api-proxy/api/v1/firmware/files/file-123",
+        expect.objectContaining({
+          method: "DELETE",
+          credentials: "include",
+        }),
+      );
+    });
+
+    it("calls logout on 401 response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.deleteFirmwareFile("file-123")).rejects.toThrow("Session expired");
+      expect(mockLogout).toHaveBeenCalledOnce();
+    });
+
+    it("throws on 404 response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          json: () => Promise.resolve({ error: "firmware file not found" }),
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.deleteFirmwareFile("missing-id")).rejects.toThrow("firmware file not found");
+    });
+  });
+
+  describe("deleteAllFirmwareFiles", () => {
+    it("sends DELETE and returns deleted count", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ deleted_count: 3 }),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const { result } = renderHook(() => useFirmwareApi());
+      const data = await result.current.deleteAllFirmwareFiles();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api-proxy/api/v1/firmware/files",
+        expect.objectContaining({
+          method: "DELETE",
+          credentials: "include",
+        }),
+      );
+      expect(data).toEqual({ deleted_count: 3 });
+    });
+
+    it("calls logout on 401 response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+      );
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await expect(result.current.deleteAllFirmwareFiles()).rejects.toThrow("Session expired");
+      expect(mockLogout).toHaveBeenCalledOnce();
+    });
+  });
 });

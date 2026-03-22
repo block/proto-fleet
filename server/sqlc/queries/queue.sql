@@ -32,6 +32,13 @@ SET status = CASE
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3;
 
+-- name: UpdateMessagePermanentlyFailed :exec
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2;
+
 -- name: GetMessagesToProcess :many
 SELECT m.*
 FROM queue_message m

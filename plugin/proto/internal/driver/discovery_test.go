@@ -16,9 +16,9 @@ import (
 
 // simMinerContainer represents a running sim miner container for testing
 type simMinerContainer struct {
-	container testcontainers.Container
-	host      string
-	port2121  string
+	container  testcontainers.Container
+	host       string
+	mappedPort string
 }
 
 // startSimMiner starts a sim miner container and returns connection details
@@ -32,8 +32,8 @@ func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 			Context:    "../../../..",
 			Dockerfile: "server/fake-proto-rig/Dockerfile",
 		},
-		ExposedPorts: []string{"2121/tcp"},
-		WaitingFor:   wait.ForHTTP("/health").WithPort("2121/tcp").WithStartupTimeout(2 * time.Minute),
+		ExposedPorts: []string{"8080/tcp"},
+		WaitingFor:   wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(2 * time.Minute),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -46,13 +46,13 @@ func startSimMiner(ctx context.Context, t *testing.T) *simMinerContainer {
 	host, err := container.Host(ctx)
 	require.NoError(t, err, "Failed to get container host")
 
-	port2121, err := container.MappedPort(ctx, "2121")
-	require.NoError(t, err, "Failed to get mapped port 2121")
+	mappedPort, err := container.MappedPort(ctx, "8080")
+	require.NoError(t, err, "Failed to get mapped port 8080")
 
 	simMiner := &simMinerContainer{
-		container: container,
-		host:      host,
-		port2121:  port2121.Port(),
+		container:  container,
+		host:       host,
+		mappedPort: mappedPort.Port(),
 	}
 
 	// Wait for miner to be ready
@@ -74,7 +74,7 @@ func waitForMinerReady(ctx context.Context, t *testing.T, simMiner *simMinerCont
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	portInt64, err := strconv.ParseInt(simMiner.port2121, 10, 32)
+	portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
 	require.NoError(t, err, "Invalid port number")
 	portInt := int(portInt64)
 
@@ -86,7 +86,7 @@ func waitForMinerReady(ctx context.Context, t *testing.T, simMiner *simMinerCont
 		case <-timeout:
 			t.Fatal("Timeout waiting for miner to be ready")
 		case <-ticker.C:
-			_, err := d.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+			_, err := d.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 			if err == nil {
 				t.Log("Sim miner is ready!")
 				return
@@ -103,14 +103,14 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 	defer simMiner.close(ctx, t)
 
 	t.Run("successful discovery", func(t *testing.T) {
-		portInt64, err := strconv.ParseInt(simMiner.port2121, 10, 32)
+		portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
 		require.NoError(t, err)
 		portInt := int(portInt64)
 
 		driver, err := New(portInt)
 		require.NoError(t, err)
 
-		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.NoError(t, err, "Discovery should succeed with real sim miner")
 
 		// Validate device info
@@ -129,7 +129,7 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		driver, err := New(0)
 		require.NoError(t, err)
 
-		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.NoError(t, err, "Discovery should succeed with flexible port driver")
 
 		assert.Equal(t, simMiner.host, deviceInfo.Host)
@@ -139,22 +139,24 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 
 	t.Run("discovery with wrong port driver configuration", func(t *testing.T) {
 		// Test with driver configured for a different port than the sim miner is using
-		wrongPort := 8080 // Use the web port instead of the API port
-		if simMiner.port2121 == "8080" {
-			wrongPort = 9999 // Use a different port if sim miner happens to use 8080
-		}
+		wrongPort := 9999
 
 		driver, err := New(wrongPort)
 		require.NoError(t, err)
 
 		// This should fail because driver expects a specific port but we're trying a different one
-		_, err = driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+		_, err = driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.Error(t, err, "Discovery should fail when driver port doesn't match target port")
-		assert.Contains(t, err.Error(), "proto miners typically use port")
+		assert.Contains(
+			t,
+			err.Error(),
+			"proto miners are configured for port",
+			"strict-port discovery should fail before any network call; the reported target port may be a Docker-mapped test port",
+		)
 	})
 
 	t.Run("concurrent discovery", func(t *testing.T) {
-		portInt64, err := strconv.ParseInt(simMiner.port2121, 10, 32)
+		portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
 		require.NoError(t, err)
 		portInt := int(portInt64)
 
@@ -167,7 +169,7 @@ func TestDiscoverDevice_WithSimMiner(t *testing.T) {
 		// Launch concurrent discoveries
 		for range numGoroutines {
 			go func() {
-				_, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+				_, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 				results <- err
 			}()
 		}
@@ -193,31 +195,45 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 	}{
 		{
 			name:         "invalid port - non-numeric",
-			driverPort:   2121,
+			driverPort:   80,
 			targetPort:   "abc",
 			expectError:  true,
 			errorMessage: "invalid port number",
 		},
 		{
 			name:         "invalid port - negative",
-			driverPort:   2121,
+			driverPort:   80,
 			targetPort:   "-1",
 			expectError:  true,
 			errorMessage: "port number out of range",
 		},
 		{
 			name:         "invalid port - too large",
-			driverPort:   2121,
+			driverPort:   80,
 			targetPort:   "65536",
 			expectError:  true,
 			errorMessage: "port number out of range",
 		},
 		{
 			name:         "wrong port for strict driver",
-			driverPort:   2121,
+			driverPort:   443,
 			targetPort:   "8080",
 			expectError:  true,
-			errorMessage: "proto miners typically use port 2121",
+			errorMessage: "proto miners are configured for port 443",
+		},
+		{
+			name:         "strict driver on 8080 rejects default https port",
+			driverPort:   8080,
+			targetPort:   "443",
+			expectError:  true,
+			errorMessage: "proto miners are configured for port 8080",
+		},
+		{
+			name:         "strict driver on 8080 accepts configured port before network call",
+			driverPort:   8080,
+			targetPort:   "8080",
+			expectError:  true,
+			errorMessage: "failed to discover proto miner",
 		},
 		{
 			name:         "invalid port with flexible driver - negative",
@@ -243,7 +259,7 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 		{
 			name:         "whitespace in port",
 			driverPort:   0,
-			targetPort:   " 2121 ",
+			targetPort:   " 80 ",
 			expectError:  true,
 			errorMessage: "invalid port number",
 		},
@@ -284,7 +300,7 @@ func TestDiscoverDevice_ConnectionErrors(t *testing.T) {
 		{
 			name:         "unreachable host",
 			host:         "192.0.2.1", // RFC 5737 test address - should not be routable
-			port:         "2121",
+			port:         "80",
 			expectError:  true,
 			errorMessage: "failed to discover proto miner",
 		},
@@ -298,7 +314,7 @@ func TestDiscoverDevice_ConnectionErrors(t *testing.T) {
 		{
 			name:         "empty host",
 			host:         "",
-			port:         "2121",
+			port:         "80",
 			expectError:  true,
 			errorMessage: "", // Various possible error messages depending on system
 		},
@@ -337,7 +353,7 @@ func TestDiscoverDevice_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Try to discover a device with cancelled context - should fail quickly
-	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "2121")
+	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "80")
 	require.Error(t, err)
 	// The error might be context canceled or connection failure, both are acceptable
 }
@@ -349,7 +365,7 @@ func TestDiscoverDevice_SchemeNegotiation(t *testing.T) {
 	defer simMiner.close(ctx, t)
 
 	t.Run("scheme negotiation with real miner", func(t *testing.T) {
-		portInt64, err := strconv.ParseInt(simMiner.port2121, 10, 32)
+		portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
 		require.NoError(t, err)
 		portInt := int(portInt64)
 
@@ -357,7 +373,7 @@ func TestDiscoverDevice_SchemeNegotiation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Discovery should succeed and negotiate the correct scheme
-		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		require.NoError(t, err, "Discovery should succeed with scheme negotiation")
 
 		// The scheme should be either http or https depending on what the sim miner supports
@@ -391,7 +407,7 @@ func TestDiscoverDevice_MultipleSimMiners(t *testing.T) {
 
 		// Discover each miner
 		for i, simMiner := range simMiners {
-			deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+			deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 			require.NoError(t, err, "Discovery should succeed for miner %d", i)
 			deviceInfos[i] = deviceInfo
 		}
@@ -421,7 +437,7 @@ func TestDiscoverDevice_MultipleSimMiners(t *testing.T) {
 		// Launch concurrent discoveries
 		for i, simMiner := range simMiners {
 			go func(index int, simMiner *simMinerContainer) {
-				deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+				deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 				results <- struct {
 					index      int
 					deviceInfo sdk.DeviceInfo
@@ -467,7 +483,7 @@ func TestDiscoverDevice_EdgeCases(t *testing.T) {
 		{
 			name:         "non-routable IPv4 with valid port format",
 			host:         unusedIP,
-			port:         "2121",
+			port:         "80",
 			expectError:  true, // Will fail because IP is non-routable
 			errorMessage: "failed to discover proto miner",
 		},
@@ -513,7 +529,7 @@ func BenchmarkDiscoverDevice(b *testing.B) {
 	simMiner := startSimMiner(ctx, &testing.T{}) // Convert to *testing.T for startSimMiner
 	defer simMiner.close(ctx, &testing.T{})
 
-	portInt64, err := strconv.ParseInt(simMiner.port2121, 10, 32)
+	portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -526,7 +542,7 @@ func BenchmarkDiscoverDevice(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		_, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.port2121)
+		_, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
 		if err != nil {
 			b.Fatal(err)
 		}

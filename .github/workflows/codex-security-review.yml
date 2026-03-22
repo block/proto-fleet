@@ -29,14 +29,14 @@ jobs:
     steps:
       - name: Checkout push commit
         if: github.event_name == 'push'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Checkout PR head commit
         if: startsWith(github.event_name, 'pull_request')
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -148,7 +148,7 @@ jobs:
 
       - name: Post Codex security review
         if: steps.run_codex.outputs.final-message != ''
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
         with:
@@ -260,7 +260,7 @@ jobs:
 
       - name: Write review to job summary (push only)
         if: github.event_name == 'push' && steps.run_codex.outputs.final-message != ''
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
         with:

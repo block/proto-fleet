@@ -1,15 +1,26 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
+	"time"
 )
+
+func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+
+	if state.Model != "Rig" {
+		t.Fatalf("expected default model %q, got %q", "Rig", state.Model)
+	}
+}
 
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
@@ -93,8 +104,162 @@ func TestHandleLogin_NoPasswordSet_AcceptsAny(t *testing.T) {
 	}
 }
 
+func TestProtectedRouteRequiresBearerToken(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+}
+
+func TestProtectedRouteAcceptsIssuedBearerToken(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetMiningState(MiningStateStopped)
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"anything"}`))
+	loginRR := httptest.NewRecorder()
+	mux.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
+	}
+
+	var tokens AuthTokens
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
+	}
+	if tokens.AccessToken == "" {
+		t.Fatal("expected access token to be set")
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if state.GetMiningState() != MiningStateMining {
+		t.Fatalf("expected mining state %q, got %q", MiningStateMining, state.GetMiningState())
+	}
+}
+
+func TestLogoutInvalidatesIssuedBearerToken(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetMiningState(MiningStateStopped)
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"anything"}`))
+	loginRR := httptest.NewRecorder()
+	mux.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
+	}
+
+	var tokens AuthTokens
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
+	}
+	if tokens.AccessToken == "" {
+		t.Fatal("expected access token to be set")
+	}
+
+	protectedReq := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	protectedReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	protectedRR := httptest.NewRecorder()
+	mux.ServeHTTP(protectedRR, protectedReq)
+
+	if protectedRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, protectedRR.Code, protectedRR.Body.String())
+	}
+
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader("{}"))
+	logoutReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	logoutRR := httptest.NewRecorder()
+	mux.ServeHTTP(logoutRR, logoutReq)
+
+	if logoutRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, logoutRR.Code, logoutRR.Body.String())
+	}
+
+	retryReq := httptest.NewRequest(http.MethodPost, "/api/v1/mining/stop", nil)
+	retryReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	retryRR := httptest.NewRecorder()
+	mux.ServeHTTP(retryRR, retryReq)
+
+	if retryRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, retryRR.Code, retryRR.Body.String())
+	}
+}
+
+func TestProtectedRouteAcceptsPairedJWT(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetMiningState(MiningStateStopped)
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatalf("failed to marshal public key: %v", err)
+	}
+	state.SetAuthKey(base64.StdEncoding.EncodeToString(publicKeyDER))
+
+	jwtToken, err := signTestJWT(privateKey, state.SerialNumber, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("failed to sign jwt: %v", err)
+	}
+
+	h := NewRESTApiHandler(state)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+}
+
+func signTestJWT(privateKey ed25519.PrivateKey, serialNumber string, exp time.Time) (string, error) {
+	headerJSON := []byte(`{"alg":"EdDSA","typ":"JWT"}`)
+	payloadJSON := []byte(fmt.Sprintf(`{"miner_sn":%q,"iat":%d,"exp":%d}`, serialNumber, time.Now().Unix(), exp.Unix()))
+
+	header := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payload := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := header + "." + payload
+	signature := ed25519.Sign(privateKey, []byte(signingInput))
+
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
 func TestHandleSetPassword_ValidPassword_StoresPassword(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-auth-key")
 	h := NewRESTApiHandler(state)
 
 	rr := httptest.NewRecorder()
@@ -110,8 +275,42 @@ func TestHandleSetPassword_ValidPassword_StoresPassword(t *testing.T) {
 		t.Fatalf("expected password %q, got %q", "validPass123", state.GetPassword())
 	}
 
-	if state.GetAuthKey() == "" {
-		t.Fatal("expected auth key to be set")
+	if state.GetAuthKey() != "existing-auth-key" {
+		t.Fatalf("expected auth key to remain unchanged, got %q", state.GetAuthKey())
+	}
+}
+
+func TestHandleSystemStatus_PasswordSetUsesPasswordState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-auth-key")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/status", nil)
+	h.handleSystemStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp SystemStatuses
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp.PasswordSet {
+		t.Fatal("expected password_set to be false when only auth key is configured")
+	}
+
+	state.SetPassword("validPass123")
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/system/status", nil)
+	h.handleSystemStatus(rr, req)
+
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if !resp.PasswordSet {
+		t.Fatal("expected password_set to be true when password is configured")
 	}
 }
 
@@ -201,9 +400,26 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 	}
 }
 
+func TestTestPoolConnectionRoute_DoesNotRequireBearerAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
+		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreatePools_InvalidURL_DoesNotClearExistingPools(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55") // seed with an existing pool
-	state.AddPool(&miner_data_api.Pool{Idx: 0, Url: "stratum+tcp://mine.ocean.xyz:3334", Username: "u"})
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://mine.ocean.xyz:3334", Username: "u"})
 
 	h := NewRESTApiHandler(state)
 
@@ -300,9 +516,9 @@ func TestHandleMiningTuning_ValidAlgorithm_PersistsToState(t *testing.T) {
 	}
 
 	state.mu.RLock()
-	algo := state.TuningAlgorithm
+	algo := state.TuningAlgorithmVal
 	state.mu.RUnlock()
-	if algo != miner_command_api.TuningAlgorithm_VoltageImbalanceCompensation {
+	if algo != TuningAlgorithmVoltageImbalanceCompensation {
 		t.Fatalf("expected state to have VoltageImbalanceCompensation, got %v", algo)
 	}
 }
@@ -391,7 +607,473 @@ func TestHandleMiningTarget_InvalidPerformanceMode_Returns422(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
 	}
 
-	if state.PerformanceMode != miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE {
+	if state.PerformanceModeVal != PerformanceModeMaxHashrate {
 		t.Fatal("expected performance mode to remain MaximumHashrate")
+	}
+}
+
+// --- Pairing endpoint tests ---
+
+func TestHandlePairingInfo_GET_ReturnsMACAndCBSN(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pairing/info", nil)
+	h.handlePairingInfo(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp PairingInfoResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.MAC != "00:11:22:33:44:55" {
+		t.Fatalf("expected MAC %q, got %q", "00:11:22:33:44:55", resp.MAC)
+	}
+	if resp.CBSN != "SN12345678" {
+		t.Fatalf("expected CBSN %q, got %q", "SN12345678", resp.CBSN)
+	}
+}
+
+func TestHandlePairingInfo_WrongMethod_Returns405(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/info", nil)
+	h.handlePairingInfo(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusMethodNotAllowed, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandlePairingAuthKey_POST_SetsKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"test-key-123"}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "test-key-123" {
+		t.Fatalf("expected auth key %q, got %q", "test-key-123", state.GetAuthKey())
+	}
+}
+
+func TestHandlePairingAuthKey_POST_MissingPublicKey_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":""}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "" {
+		t.Fatal("auth key should not have been set")
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_ClearsKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	state.SetPassword("somePassword")
+	state.SetAccessToken("mock-token")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	req.Header.Set("Authorization", "Bearer mock-token")
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "" {
+		t.Fatal("expected auth key to be cleared")
+	}
+	if state.GetPassword() != "" {
+		t.Fatal("expected password to be cleared")
+	}
+}
+
+func TestHandlePairingAuthKey_POST_RotationRequiresAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"new-key"}`))
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have changed without auth")
+	}
+}
+
+func TestHandlePairingAuthKey_POST_RotationRejectsInvalidBearer(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"new-key"}`))
+	req.Header.Set("Authorization", "Bearer bogus-token")
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have changed with invalid auth")
+	}
+}
+
+func TestHandlePairingAuthKey_POST_RotationAcceptsIssuedBearerToken(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	state.SetAccessToken("valid-token")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"new-key"}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "new-key" {
+		t.Fatalf("expected auth key %q, got %q", "new-key", state.GetAuthKey())
+	}
+}
+
+func TestHandlePairingAuthKey_POST_RotationAcceptsPairedJWT(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatalf("failed to marshal public key: %v", err)
+	}
+	state.SetAuthKey(base64.StdEncoding.EncodeToString(publicKeyDER))
+
+	h := NewRESTApiHandler(state)
+	jwtToken, err := signTestJWT(privateKey, state.SerialNumber, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("failed to sign jwt: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"new-key"}`))
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	h.handlePairingAuthKey(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "new-key" {
+		t.Fatalf("expected auth key %q, got %q", "new-key", state.GetAuthKey())
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_RequiresAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have been cleared without auth")
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_RejectsInvalidBearer(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAuthKey("existing-key")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	req.Header.Set("Authorization", "Bearer bogus-token")
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatal("auth key should not have been cleared with invalid auth")
+	}
+}
+
+func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetLocateActive(true)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=30", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if !state.LocateActive {
+		t.Fatal("expected locate mode to remain active")
+	}
+}
+
+func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=abc", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	if state.LocateActive {
+		t.Fatal("expected locate mode to remain inactive on invalid input")
+	}
+}
+
+func TestHandleMining_UsesCanonicalStateStrings(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetMiningState(MiningStateUnknown)
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mining", nil)
+	h.handleMining(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp MiningStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp.MiningStatus.Status != string(MiningStateUnknown) {
+		t.Fatalf("expected status %q, got %q", MiningStateUnknown, resp.MiningStatus.Status)
+	}
+}
+
+func TestHandleErrors_ReturnsSpecShape(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/errors", nil)
+	h.handleErrors(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); got != "[]\n" {
+		t.Fatalf("expected spec-shaped empty errors response, got %q", got)
+	}
+}
+
+// --- Cooling endpoint tests ---
+
+func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetCoolingMode(CoolingModeAuto, nil)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil)
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp CoolingStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.CoolingStatus.FanMode != "Auto" {
+		t.Fatalf("expected fan_mode %q, got %q", "Auto", resp.CoolingStatus.FanMode)
+	}
+	if resp.CoolingStatus.SpeedPercentage != int(defaultFanSpeedPct) {
+		t.Fatalf("expected speed_percentage %d, got %d", defaultFanSpeedPct, resp.CoolingStatus.SpeedPercentage)
+	}
+}
+
+func TestHandleCooling_GET_ManualMode_OmitsTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	speed := uint32(80)
+	state.SetCoolingMode(CoolingModeManual, &speed)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil)
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var resp CoolingStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.CoolingStatus.FanMode != "Manual" {
+		t.Fatalf("expected fan_mode %q, got %q", "Manual", resp.CoolingStatus.FanMode)
+	}
+	if resp.CoolingStatus.SpeedPercentage != int(speed) {
+		t.Fatalf("expected speed_percentage %d, got %d", speed, resp.CoolingStatus.SpeedPercentage)
+	}
+}
+
+func TestHandleCooling_PUT_AutoMode_SetsTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cooling",
+		strings.NewReader(`{"mode":"Auto","target_temperature_c":60.5}`))
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	state.mu.RLock()
+	speed := state.FanSpeedPct
+	mode := state.CoolingModeVal
+	state.mu.RUnlock()
+
+	if mode != CoolingModeAuto {
+		t.Fatalf("expected Auto mode, got %v", mode)
+	}
+	if speed != defaultFanSpeedPct {
+		t.Fatalf("expected speed to remain %d, got %d", defaultFanSpeedPct, speed)
+	}
+}
+
+func TestHandleCooling_PUT_ManualMode_IgnoresTargetTemp(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cooling",
+		strings.NewReader(`{"mode":"Manual","speed_percentage":75,"target_temperature_c":99.9}`))
+	h.handleCooling(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	state.mu.RLock()
+	speed := state.FanSpeedPct
+	mode := state.CoolingModeVal
+	state.mu.RUnlock()
+
+	if mode != CoolingModeManual {
+		t.Fatalf("expected Manual mode, got %v", mode)
+	}
+	if speed != 75 {
+		t.Fatalf("expected speed to be updated to 75 in Manual mode, got %d", speed)
+	}
+}
+
+// --- ASIC id field tests ---
+
+func TestHandleHashboardASIC_ID_Format(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	tests := []struct {
+		asicID     int
+		expectedID string
+	}{
+		{0, "A0"},
+		{1, "A1"},
+		{9, "A9"},
+		{10, "B0"},
+		{13, "B3"},
+		{20, "C0"},
+		{35, "D5"},
+	}
+
+	for _, tc := range tests {
+		rr := httptest.NewRecorder()
+		path := fmt.Sprintf("/api/v1/hashboards/HB-SN12345678-0/%d", tc.asicID)
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		h.handleHashboardByID(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("ASIC %d: expected %d, got %d; body=%s", tc.asicID, http.StatusOK, rr.Code, rr.Body.String())
+		}
+
+		var resp map[string]ASICStats
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("ASIC %d: failed to unmarshal: %v", tc.asicID, err)
+		}
+
+		asic, ok := resp["asic-stats"]
+		if !ok {
+			t.Fatalf("ASIC %d: missing asic-stats key in response", tc.asicID)
+		}
+		if asic.ID != tc.expectedID {
+			t.Fatalf("ASIC %d: expected id %q, got %q", tc.asicID, tc.expectedID, asic.ID)
+		}
+		if asic.Row != tc.asicID/10 {
+			t.Fatalf("ASIC %d: expected row %d, got %d", tc.asicID, tc.asicID/10, asic.Row)
+		}
+		if asic.Column != tc.asicID%10 {
+			t.Fatalf("ASIC %d: expected column %d, got %d", tc.asicID, tc.asicID%10, asic.Column)
+		}
 	}
 }

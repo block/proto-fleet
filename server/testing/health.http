@@ -1,4 +1,0 @@
-@host = http://localhost:4000
-
-### Health check
-GET {{host}}/health

@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: create_token
-        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -50,11 +50,11 @@ jobs:
         run: |
           docker run -d \
             --name fake-proto-rig \
-            -p 2121:2121 \
+            -p 8080:8080 \
             fake-proto-rig
 
       - name: Cache Node modules
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: |
             client/node_modules
@@ -74,9 +74,9 @@ jobs:
       - name: Start ProtoOS frontend
         working-directory: client
         run: |
-          npm run preview:protoOS -- --port 8080 --host 0.0.0.0 --strictPort > /tmp/vite-preview.log 2>&1 &
+          npm run preview:protoOS -- --port 3000 --host 0.0.0.0 --strictPort > /tmp/vite-preview.log 2>&1 &
         env:
-          PROXY_URL: http://localhost:2121
+          PROXY_URL: http://localhost:8080
 
       - name: Install Playwright browsers
         working-directory: client/e2eTests/protoOS

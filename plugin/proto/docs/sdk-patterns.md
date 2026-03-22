@@ -148,8 +148,7 @@ func (d *Device) fetchStatus(ctx context.Context) (sdk.DeviceStatusResponse, err
         Summary:   d.mapSummary(minerStatus.State),
         Health:    d.mapHealth(minerStatus.State),
         Metadata: map[string]string{
-            "state":           minerStatus.State,
-            "firmware_version": minerStatus.FirmwareVersion,
+            "state": minerStatus.State,
         },
     }
     

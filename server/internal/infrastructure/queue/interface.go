@@ -25,8 +25,11 @@ type MessageQueue interface {
 	// MarkSuccess updates a command as successfully processed
 	MarkSuccess(ctx context.Context, messageID int64) error
 
-	// MarkFailed updates a command as failed with error info
+	// MarkFailed updates a command as failed with error info (may retry if under max retries)
 	MarkFailed(ctx context.Context, messageID int64, errorInfo string) error
+
+	// MarkPermanentlyFailed marks a command as failed with no retries (for permanent errors like unsupported capabilities)
+	MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error
 
 	IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error)
 

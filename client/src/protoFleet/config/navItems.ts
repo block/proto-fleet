@@ -69,4 +69,9 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Pools",
     parent: "/settings",
   },
+  {
+    path: "/settings/firmware",
+    label: "Firmware",
+    parent: "/settings",
+  },
 ];

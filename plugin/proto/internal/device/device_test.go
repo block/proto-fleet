@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,38 +23,26 @@ func TestIsAuthenticationError(t *testing.T) {
 			expected: false,
 		},
 
-		// Connect-RPC errors with auth codes
+		// HTTP status code detection
 		{
-			name:     "connect_error_unauthenticated",
-			err:      connect.NewError(connect.CodeUnauthenticated, errors.New("missing auth")),
+			name:     "http_401_status",
+			err:      fmt.Errorf("request failed with status %d", http.StatusUnauthorized),
 			expected: true,
 		},
 		{
-			name:     "connect_error_permission_denied",
-			err:      connect.NewError(connect.CodePermissionDenied, errors.New("access denied")),
+			name:     "wrapped_http_401_status",
+			err:      fmt.Errorf("API call failed: %w", fmt.Errorf("status %d: unauthorized", http.StatusUnauthorized)),
 			expected: true,
 		},
 		{
-			name:     "connect_error_internal_not_auth",
-			err:      connect.NewError(connect.CodeInternal, errors.New("server error")),
+			name:     "http_500_status_not_auth",
+			err:      fmt.Errorf("request failed with status %d", http.StatusInternalServerError),
 			expected: false,
 		},
 		{
-			name:     "connect_error_unknown_not_auth",
-			err:      connect.NewError(connect.CodeUnknown, errors.New("unknown error")),
+			name:     "http_403_status_not_auth",
+			err:      fmt.Errorf("request failed with status %d", http.StatusForbidden),
 			expected: false,
-		},
-
-		// Wrapped Connect-RPC errors
-		{
-			name:     "wrapped_connect_unauthenticated",
-			err:      fmt.Errorf("failed to call API: %w", connect.NewError(connect.CodeUnauthenticated, errors.New("no token"))),
-			expected: true,
-		},
-		{
-			name:     "wrapped_connect_permission_denied",
-			err:      fmt.Errorf("API error: %w", connect.NewError(connect.CodePermissionDenied, errors.New("forbidden"))),
-			expected: true,
 		},
 
 		// String-based detection (serialized errors that crossed gRPC boundary)

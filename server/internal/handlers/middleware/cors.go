@@ -23,7 +23,7 @@ func NewCORSMiddleware(suppressCors bool) *CORSMiddleware {
 	if suppressCors {
 		middleware = cors.New(cors.Options{
 			AllowedOrigins:   []string{"*"},
-			AllowedMethods:   []string{"GET", "POST", "PUT", "OPTIONS"},
+			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Authorization", "Content-Type", "Content-Range", "Accept", "Connect-Protocol-Version"},
 			AllowCredentials: true,
 		})

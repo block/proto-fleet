@@ -136,7 +136,7 @@ export interface HashboardHardwareData {
   apiVersion?: string;
   chipId?: string;
   port?: number;
-  miningAsic?: "BZM" | "MC1" | "MC2";
+  miningAsic?: "BZM" | "MC1" | "MC2" | "MC3";
   miningAsicCount?: number;
   temperatureSensorCount?: number;
   ecLogsPath?: string;

@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	defaultPageSize int32 = 50
-	maxPageSize     int32 = 1000
+	defaultPageSize  int32 = 50
+	maxPageSize      int32 = 1000
+	maxRackDimension int32 = 12
 )
 
 const (
@@ -83,6 +84,29 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
 	}
+	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil && rackInfo.GetLocation() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("location is required for rack collections")
+	}
+	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil {
+		if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
+			return nil, fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
+		}
+		if rackInfo.Columns < 1 || rackInfo.Columns > maxRackDimension {
+			return nil, fleeterror.NewInvalidArgumentErrorf("columns must be between 1 and %d", maxRackDimension)
+		}
+		if rackInfo.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
+			return nil, fleeterror.NewInvalidArgumentError("order_index is required for rack collections")
+		}
+		if _, ok := pb.RackOrderIndex_name[int32(rackInfo.OrderIndex)]; !ok {
+			return nil, fleeterror.NewInvalidArgumentError("invalid order_index value")
+		}
+		if rackInfo.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
+			return nil, fleeterror.NewInvalidArgumentError("cooling_type is required for rack collections")
+		}
+		if _, ok := pb.RackCoolingType_name[int32(rackInfo.CoolingType)]; !ok {
+			return nil, fleeterror.NewInvalidArgumentError("invalid cooling_type value")
+		}
+	}
 
 	// Resolve device identifiers outside the transaction if device_selector is provided.
 	var deviceIdentifiers []string
@@ -100,7 +124,7 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		}
 
 		if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-			err = s.collectionStore.CreateRackExtension(ctx, collection.Id, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns)
+			err = s.collectionStore.CreateRackExtension(ctx, collection.Id, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
 			if err != nil {
 				return nil, err
 			}
@@ -146,6 +170,16 @@ func (s *Service) GetCollection(ctx context.Context, req *pb.GetCollectionReques
 		return nil, err
 	}
 
+	if collection.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+		rackInfo, err := s.collectionStore.GetRackInfo(ctx, collection.Id, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if rackInfo != nil {
+			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
+		}
+	}
+
 	return &pb.GetCollectionResponse{Collection: collection}, nil
 }
 
@@ -165,6 +199,9 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			return nil, err
 		}
 	}
+
+	// TODO(DASH-1361): rack_info updates (location, rows, columns, order_index, cooling_type) are not yet supported.
+	// The store has UpdateRackInfo() — wire it through when the edit-rack UI is built.
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var label, description *string
@@ -198,6 +235,16 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		collection, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return nil, err
+		}
+
+		if collection.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+			rackInfo, err := s.collectionStore.GetRackInfo(ctx, collection.Id, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+			if rackInfo != nil {
+				collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
+			}
 		}
 
 		return collection, nil
@@ -422,7 +469,7 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 		}
 
 		// Device membership is enforced by the store query joining on device_collection_membership.
-		return s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column)
+		return s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID)
 	})
 	if err != nil {
 		return nil, err
@@ -452,7 +499,7 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 		if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
 			return fleeterror.NewInvalidArgumentError("slot positions can only be cleared on rack collections")
 		}
-		return s.collectionStore.ClearRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier)
+		return s.collectionStore.ClearRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, info.OrganizationID)
 	})
 	if err != nil {
 		return nil, err
@@ -476,7 +523,7 @@ func (s *Service) GetRackSlots(ctx context.Context, req *pb.GetRackSlotsRequest)
 		return nil, fleeterror.NewInvalidArgumentError("slot positions can only be retrieved from rack collections")
 	}
 
-	slots, err := s.collectionStore.GetRackSlots(ctx, req.CollectionId)
+	slots, err := s.collectionStore.GetRackSlots(ctx, req.CollectionId, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -653,6 +700,21 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 	}
 
 	return &pb.GetCollectionStatsResponse{Stats: stats}, nil
+}
+
+// ListRackTypes returns all distinct rack types for the organization.
+func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest) (*pb.ListRackTypesResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rackTypes, err := s.collectionStore.ListRackTypes(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.ListRackTypesResponse{RackTypes: rackTypes}, nil
 }
 
 // ListRackLocations returns all distinct rack locations for the organization.

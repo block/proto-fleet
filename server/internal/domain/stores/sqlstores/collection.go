@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
@@ -57,12 +57,15 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 	}, nil
 }
 
-func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32) error {
+func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).CreateRackExtension(ctx, sqlc.CreateRackExtensionParams{
 		CollectionID: collectionID,
 		Location:     toNullString(location),
 		Rows:         rows,
 		Columns:      columns,
+		OrderIndex:   safeInt32ToInt16(orderIndex),
+		CoolingType:  safeInt32ToInt16(coolingType),
+		OrgID:        orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create rack extension: %v", err)
@@ -85,8 +88,11 @@ func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, col
 	return newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt), nil
 }
 
-func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64) (*pb.RackInfo, error) {
-	row, err := s.GetQueries(ctx).GetRackInfo(ctx, collectionID)
+func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error) {
+	row, err := s.GetQueries(ctx).GetRackInfo(ctx, sqlc.GetRackInfoParams{
+		CollectionID: collectionID,
+		OrgID:        orgID,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -95,45 +101,38 @@ func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64
 	}
 
 	rackInfo := &pb.RackInfo{
-		Rows:    row.Rows,
-		Columns: row.Columns,
+		Rows:        row.Rows,
+		Columns:     row.Columns,
+		OrderIndex:  pb.RackOrderIndex(row.OrderIndex),
+		CoolingType: pb.RackCoolingType(row.CoolingType),
 	}
 	if row.Location.Valid {
-		rackInfo.Location = &row.Location.String
+		rackInfo.Location = row.Location.String
 	}
 	return rackInfo, nil
 }
 
 // getRackInfoBatch fetches rack info for multiple collection IDs in a single query.
-func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, collectionIDs []int64) (map[int64]*pb.RackInfo, error) {
+func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]*pb.RackInfo, error) {
 	if len(collectionIDs) == 0 {
 		return make(map[int64]*pb.RackInfo), nil
 	}
 
-	query := `SELECT collection_id, location, rows, columns FROM device_collection_rack WHERE collection_id = ANY($1::bigint[])`
-
-	rows, err := s.conn.QueryContext(ctx, query, pq.Array(collectionIDs))
+	rows, err := s.GetQueries(ctx).GetRackInfoBatch(ctx, sqlc.GetRackInfoBatchParams{
+		OrgID:         orgID,
+		CollectionIds: collectionIDs,
+	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to batch-fetch rack info: %v", err)
 	}
-	defer rows.Close()
 
 	result := make(map[int64]*pb.RackInfo, len(collectionIDs))
-	for rows.Next() {
-		var id int64
-		var location sql.NullString
-		var r, c int32
-		if err := rows.Scan(&id, &location, &r, &c); err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to scan rack info row: %v", err)
+	for _, row := range rows {
+		ri := &pb.RackInfo{Rows: row.Rows, Columns: row.Columns, OrderIndex: pb.RackOrderIndex(row.OrderIndex), CoolingType: pb.RackCoolingType(row.CoolingType)}
+		if row.Location.Valid {
+			ri.Location = row.Location.String
 		}
-		ri := &pb.RackInfo{Rows: r, Columns: c}
-		if location.Valid {
-			ri.Location = &location.String
-		}
-		result[id] = ri
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to iterate rack info rows: %v", err)
+		result[row.CollectionID] = ri
 	}
 	return result, nil
 }
@@ -175,12 +174,15 @@ func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, 
 	return nil
 }
 
-func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32) error {
+func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).UpdateRackInfo(ctx, sqlc.UpdateRackInfoParams{
 		Location:     toNullString(location),
 		Rows:         rows,
 		Columns:      columns,
+		OrderIndex:   safeInt32ToInt16(orderIndex),
+		CoolingType:  safeInt32ToInt16(coolingType),
 		CollectionID: collectionID,
+		OrgID:        orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update rack info: %v", err)
@@ -272,7 +274,7 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Batch-fetch rack info for rack-type collections so typeDetails is populated.
 	if len(rackIDs) > 0 {
-		rackInfoMap, err := s.getRackInfoBatch(ctx, rackIDs)
+		rackInfoMap, err := s.getRackInfoBatch(ctx, orgID, rackIDs)
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -312,26 +314,17 @@ func (s *SQLCollectionStore) GetCollectionTypes(ctx context.Context, orgID int64
 		return make(map[int64]pb.CollectionType), nil
 	}
 
-	query := `SELECT id, type FROM device_collection
-WHERE org_id = $1 AND deleted_at IS NULL AND id = ANY($2::bigint[])`
-
-	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
+	rows, err := s.GetQueries(ctx).GetCollectionTypesBatch(ctx, sqlc.GetCollectionTypesBatchParams{
+		OrgID:         orgID,
+		CollectionIds: collectionIDs,
+	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get collection types: %v", err)
 	}
-	defer rows.Close()
 
 	result := make(map[int64]pb.CollectionType, len(collectionIDs))
-	for rows.Next() {
-		var id int64
-		var ct string
-		if err := rows.Scan(&id, &ct); err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to scan collection type row: %v", err)
-		}
-		result[id] = sqlCollectionTypeToProto(sqlc.CollectionType(ct))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to iterate collection type rows: %v", err)
+	for _, row := range rows {
+		result[row.ID] = sqlCollectionTypeToProto(row.Type)
 	}
 	return result, nil
 }
@@ -518,10 +511,11 @@ func (s *SQLCollectionStore) GetRackLabelsForDevices(ctx context.Context, orgID 
 	return result, nil
 }
 
-func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32) error {
+func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32, orgID int64) error {
 	err := s.GetQueries(ctx).SetRackSlotPosition(ctx, sqlc.SetRackSlotPositionParams{
 		CollectionID:     collectionID,
 		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
 		Row:              row,
 		Col:              column,
 	})
@@ -531,10 +525,11 @@ func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collection
 	return nil
 }
 
-func (s *SQLCollectionStore) ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string) error {
+func (s *SQLCollectionStore) ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, orgID int64) error {
 	err := s.GetQueries(ctx).ClearRackSlotPosition(ctx, sqlc.ClearRackSlotPositionParams{
 		CollectionID:     collectionID,
 		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to clear rack slot position: %v", err)
@@ -542,8 +537,11 @@ func (s *SQLCollectionStore) ClearRackSlotPosition(ctx context.Context, collecti
 	return nil
 }
 
-func (s *SQLCollectionStore) GetRackSlots(ctx context.Context, collectionID int64) ([]*pb.RackSlot, error) {
-	rows, err := s.GetQueries(ctx).GetRackSlots(ctx, collectionID)
+func (s *SQLCollectionStore) GetRackSlots(ctx context.Context, collectionID int64, orgID int64) ([]*pb.RackSlot, error) {
+	rows, err := s.GetQueries(ctx).GetRackSlots(ctx, sqlc.GetRackSlotsParams{
+		CollectionID: collectionID,
+		OrgID:        orgID,
+	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get rack slots: %v", err)
 	}
@@ -562,33 +560,42 @@ func (s *SQLCollectionStore) GetRackSlots(ctx context.Context, collectionID int6
 }
 
 func (s *SQLCollectionStore) ListRackLocations(ctx context.Context, orgID int64) ([]string, error) {
-	query := `SELECT DISTINCT dcr.location
-FROM device_collection_rack dcr
-JOIN device_collection dc ON dcr.collection_id = dc.id
-WHERE dc.org_id = $1
-  AND dc.deleted_at IS NULL
-  AND dcr.location IS NOT NULL
-  AND dcr.location != ''
-ORDER BY dcr.location`
-
-	rows, err := s.conn.QueryContext(ctx, query, orgID)
+	rows, err := s.GetQueries(ctx).ListRackLocations(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list rack locations: %v", err)
 	}
-	defer rows.Close()
 
-	var locations []string
-	for rows.Next() {
-		var loc string
-		if err := rows.Scan(&loc); err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to scan rack location: %v", err)
+	locations := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.Valid {
+			locations = append(locations, row.String)
 		}
-		locations = append(locations, loc)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to iterate rack locations: %v", err)
 	}
 	return locations, nil
+}
+
+func (s *SQLCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error) {
+	rows, err := s.GetQueries(ctx).ListRackTypes(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list rack types: %v", err)
+	}
+
+	rackTypes := make([]*pb.RackType, len(rows))
+	for i, row := range rows {
+		rackTypes[i] = &pb.RackType{Rows: row.Rows, Columns: row.Columns, RackCount: row.RackCount}
+	}
+	return rackTypes, nil
+}
+
+// safeInt32ToInt16 converts int32 to int16 with clamping to avoid overflow.
+func safeInt32ToInt16(v int32) int16 {
+	if v > math.MaxInt16 {
+		return math.MaxInt16
+	}
+	if v < math.MinInt16 {
+		return math.MinInt16
+	}
+	return int16(v) // #nosec G115 -- bounds checked above
 }
 
 // Type conversion helpers

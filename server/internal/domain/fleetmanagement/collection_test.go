@@ -21,7 +21,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByGroupID(t *testing.T) {
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 	orgID := testUser.OrganizationID
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
 	// Create a group and add only the first 2 devices
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
@@ -64,7 +64,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByGroupAndRackWithANDLogic(
 	orgID := testUser.OrganizationID
 
 	// Create 3 devices: A, B, C
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
@@ -108,7 +108,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateGroupLabels(t *testing.T)
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 	orgID := testUser.OrganizationID
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
 
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
@@ -158,7 +158,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateRackLabel(t *testing.T) {
 	testUser := testContext.DatabaseService.CreateSuperAdminUser()
 	orgID := testUser.OrganizationID
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:2121")
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
 
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)

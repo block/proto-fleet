@@ -1,7 +1,8 @@
 // TODO where to get ports?
+// Proto rigs are encountered on 443 in production and 8080 in local/CI fake-miner environments.
+export const protoRigPorts = ["443", "8080"];
 export const antminerPort = "4028";
-export const protoRigPort = "2121";
-export const defaultDiscoveryPorts = [antminerPort, protoRigPort];
+export const defaultDiscoveryPorts = [...protoRigPorts, antminerPort];
 export const defaultTimeout = 10;
 
 export const STEP_KEYS = {

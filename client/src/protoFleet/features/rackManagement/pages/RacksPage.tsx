@@ -9,6 +9,7 @@ import {
   issueOptions,
   useIssueFilter,
 } from "@/protoFleet/components/CollectionList";
+import AddRackModal from "@/protoFleet/features/rackManagement/components/AddRackModal";
 import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -21,6 +22,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 
 const RacksPage = () => {
   const { listRacks, listRackLocations } = useCollections();
+  const [showAddRackModal, setShowAddRackModal] = useState(false);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allLocations, setAllLocations] = useState<{ id: string; label: string }[]>([]);
@@ -144,7 +146,7 @@ const RacksPage = () => {
     );
   }
 
-  const hasRacks = racks.length > 0 || hasEverLoaded;
+  const hasRacks = hasEverLoaded || totalCount > 0 || racks.length > 0;
 
   if (!hasRacks) {
     return (
@@ -162,12 +164,23 @@ const RacksPage = () => {
               />
             </div>
             <div>
-              <Button variant="primary" onClick={() => {}}>
+              <Button variant="primary" onClick={() => setShowAddRackModal(true)}>
                 Add rack
               </Button>
             </div>
           </div>
         </div>
+        {showAddRackModal && (
+          <AddRackModal
+            show={showAddRackModal}
+            existingRacks={racks}
+            onDismiss={() => setShowAddRackModal(false)}
+            onSuccess={() => {
+              resetAndFetch();
+              fetchLocations();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -203,7 +216,7 @@ const RacksPage = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
+              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowAddRackModal(true)}>
                 Add rack
               </Button>
               <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
@@ -264,6 +277,17 @@ const RacksPage = () => {
             </div>
           ))}
         </div>
+      )}
+      {showAddRackModal && (
+        <AddRackModal
+          show={showAddRackModal}
+          existingRacks={racks}
+          onDismiss={() => setShowAddRackModal(false)}
+          onSuccess={() => {
+            resetAndFetch();
+            fetchLocations();
+          }}
+        />
       )}
     </div>
   );

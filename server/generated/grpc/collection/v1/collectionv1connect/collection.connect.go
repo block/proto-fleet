@@ -76,6 +76,9 @@ const (
 	// DeviceCollectionServiceListRackLocationsProcedure is the fully-qualified name of the
 	// DeviceCollectionService's ListRackLocations RPC.
 	DeviceCollectionServiceListRackLocationsProcedure = "/collection.v1.DeviceCollectionService/ListRackLocations"
+	// DeviceCollectionServiceListRackTypesProcedure is the fully-qualified name of the
+	// DeviceCollectionService's ListRackTypes RPC.
+	DeviceCollectionServiceListRackTypesProcedure = "/collection.v1.DeviceCollectionService/ListRackTypes"
 )
 
 // DeviceCollectionServiceClient is a client for the collection.v1.DeviceCollectionService service.
@@ -108,6 +111,8 @@ type DeviceCollectionServiceClient interface {
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
 	// Returns all distinct rack locations for the organization
 	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
+	// Returns all distinct rack types (row/column combinations) for the organization
+	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 }
 
 // NewDeviceCollectionServiceClient constructs a client for the
@@ -190,6 +195,11 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceListRackLocationsProcedure,
 			opts...,
 		),
+		listRackTypes: connect.NewClient[v1.ListRackTypesRequest, v1.ListRackTypesResponse](
+			httpClient,
+			baseURL+DeviceCollectionServiceListRackTypesProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -209,6 +219,7 @@ type deviceCollectionServiceClient struct {
 	getRackSlots                *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
 	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
 	listRackLocations           *connect.Client[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse]
+	listRackTypes               *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
 }
 
 // CreateCollection calls collection.v1.DeviceCollectionService.CreateCollection.
@@ -282,6 +293,11 @@ func (c *deviceCollectionServiceClient) ListRackLocations(ctx context.Context, r
 	return c.listRackLocations.CallUnary(ctx, req)
 }
 
+// ListRackTypes calls collection.v1.DeviceCollectionService.ListRackTypes.
+func (c *deviceCollectionServiceClient) ListRackTypes(ctx context.Context, req *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {
+	return c.listRackTypes.CallUnary(ctx, req)
+}
+
 // DeviceCollectionServiceHandler is an implementation of the collection.v1.DeviceCollectionService
 // service.
 type DeviceCollectionServiceHandler interface {
@@ -313,6 +329,8 @@ type DeviceCollectionServiceHandler interface {
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
 	// Returns all distinct rack locations for the organization
 	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
+	// Returns all distinct rack types (row/column combinations) for the organization
+	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 }
 
 // NewDeviceCollectionServiceHandler builds an HTTP handler from the service implementation. It
@@ -391,6 +409,11 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 		svc.ListRackLocations,
 		opts...,
 	)
+	deviceCollectionServiceListRackTypesHandler := connect.NewUnaryHandler(
+		DeviceCollectionServiceListRackTypesProcedure,
+		svc.ListRackTypes,
+		opts...,
+	)
 	return "/collection.v1.DeviceCollectionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceCollectionServiceCreateCollectionProcedure:
@@ -421,6 +444,8 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceGetCollectionStatsHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceListRackLocationsProcedure:
 			deviceCollectionServiceListRackLocationsHandler.ServeHTTP(w, r)
+		case DeviceCollectionServiceListRackTypesProcedure:
+			deviceCollectionServiceListRackTypesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -484,4 +509,8 @@ func (UnimplementedDeviceCollectionServiceHandler) GetCollectionStats(context.Co
 
 func (UnimplementedDeviceCollectionServiceHandler) ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackLocations is not implemented"))
+}
+
+func (UnimplementedDeviceCollectionServiceHandler) ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackTypes is not implemented"))
 }

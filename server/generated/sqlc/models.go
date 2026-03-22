@@ -336,6 +336,8 @@ type DeviceCollectionRack struct {
 	Location     sql.NullString
 	Rows         int32
 	Columns      int32
+	OrderIndex   int16
+	CoolingType  int16
 }
 
 type DeviceMetric struct {

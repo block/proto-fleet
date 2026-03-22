@@ -90,7 +90,7 @@ export class GroupsPage extends BasePage {
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
-    await popover.getByText(type, { exact: true }).click();
+    await popover.getByTestId(`filter-option-${type}`).click();
     await popover.getByRole("button", { name: "Apply" }).click();
     await expect(popover).toBeHidden();
   }

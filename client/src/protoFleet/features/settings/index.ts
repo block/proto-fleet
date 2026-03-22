@@ -1,8 +1,9 @@
 import Authentication from "./components/Auth";
 import Cooling from "./components/Cooling";
+import Firmware from "./components/Firmware";
 import General from "./components/General";
 import MiningPools from "./components/MiningPools";
 import SettingsLayout from "./components/SettingsLayout";
 import Team from "./components/Team";
 
-export { Authentication, General, MiningPools, Cooling, SettingsLayout, Team };
+export { Authentication, Firmware, General, MiningPools, Cooling, SettingsLayout, Team };

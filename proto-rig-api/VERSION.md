@@ -2,9 +2,9 @@
 
 ## Source
 - Repository: miner-firmware (private)
-- Commit SHA: fc548319feaa402303f8a2e8cc4fe534d0ff2b82
-- Commit Date: 2026-02-18
-- Extraction Date: 2026-02-20
+- Commit SHA: 10dc0d5ad3833cdf881aee5b834a3ba85f6cc7a7
+- Commit Date: 2026-03-20
+- Extraction Date: 2026-03-21
 
 ## Files Extracted
 
@@ -22,6 +22,13 @@
 - miner_psu_test_api.proto
 - miner_system_api.proto
 - miner_ui_api.proto
+
+### Hashboard Proto Files (from `crates/mcdd/hashboard/lib/protobuf/protos/`)
+- hashboard.proto
+- hashboard_async.proto
+- hashboard_cmd.proto
+- hashboard_cmd_debug.proto
+- hashboard_cmd_mfgtest.proto
 
 ### OpenAPI Spec (from `crates/miner-api-server/docs/`)
 - MDK-API.json

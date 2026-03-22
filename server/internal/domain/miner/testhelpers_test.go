@@ -77,7 +77,7 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 	// Use standard ports for each device type
 	port := "4028" // default
 	if deviceType == "proto" {
-		port = "2121"
+		port = "8080"
 	}
 
 	discoveredDeviceID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{

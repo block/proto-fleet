@@ -140,6 +140,15 @@ func (h *Handler) GetCollectionStats(ctx context.Context, r *connect.Request[pb.
 	return connect.NewResponse(result), nil
 }
 
+// ListRackTypes returns all distinct rack types for the organization.
+func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[pb.ListRackTypesRequest]) (*connect.Response[pb.ListRackTypesResponse], error) {
+	result, err := h.collectionSvc.ListRackTypes(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+
 // ListRackLocations returns all distinct rack locations for the organization.
 func (h *Handler) ListRackLocations(ctx context.Context, r *connect.Request[pb.ListRackLocationsRequest]) (*connect.Response[pb.ListRackLocationsResponse], error) {
 	result, err := h.collectionSvc.ListRackLocations(ctx, r.Msg)

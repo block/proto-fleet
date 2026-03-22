@@ -129,10 +129,11 @@ func TestService_CreateCollection_RackCreatesExtension(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange
-	rackInfo := &pb.RackInfo{Rows: 4, Columns: 8}
+	loc := "Building A"
+	rackInfo := &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "", int32(4), int32(8)).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
 		Return(nil)
 
 	// Act
@@ -148,6 +149,75 @@ func TestService_CreateCollection_RackCreatesExtension(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Rack A", resp.Collection.Label)
 	assert.Equal(t, rackInfo, resp.Collection.GetRackInfo())
+}
+
+func TestService_GetCollection_RackPopulatesTypeDetails(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	loc := "Building A"
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
+
+	resp, err := svc.GetCollection(ctx, &pb.GetCollectionRequest{CollectionId: testCollectionID})
+
+	require.NoError(t, err)
+	assert.NotNil(t, resp.Collection.GetRackInfo())
+	assert.Equal(t, int32(4), resp.Collection.GetRackInfo().Rows)
+	assert.Equal(t, int32(8), resp.Collection.GetRackInfo().Columns)
+	assert.Equal(t, "Building A", resp.Collection.GetRackInfo().GetLocation())
+}
+
+func TestService_GetCollection_GroupDoesNotFetchRackInfo(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "My Group", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	// GetRackInfo should NOT be called for group collections
+
+	resp, err := svc.GetCollection(ctx, &pb.GetCollectionRequest{CollectionId: testCollectionID})
+
+	require.NoError(t, err)
+	assert.Nil(t, resp.Collection.GetRackInfo())
+}
+
+func TestService_CreateCollection_RackRejectsUnspecifiedOrderIndex(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	loc := "Building A"
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
+		Label: "Rack A",
+		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "order_index")
+}
+
+func TestService_CreateCollection_RackRejectsUnspecifiedCoolingType(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	loc := "Building A"
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
+		Label: "Rack A",
+		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "cooling_type")
 }
 
 func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {

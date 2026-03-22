@@ -26,6 +26,7 @@ services:
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
+      PROTO_MINER_PORT: "8080"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -87,14 +88,14 @@ services:
       context: ..
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
-      GRPC_PORT: "2121"
+      HTTP_PORT: "8080"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2121/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
     expose:
-      - 2121
+      - 8080
     deploy:
       replicas: 5 # Default is 5 instances, can be overridden with --scale
       resources:
@@ -255,15 +256,15 @@ services:
       context: ..
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
-      GRPC_PORT: "2121"
+      HTTP_PORT: "8080"
       SERIAL_NUMBER: "PROTO-SIM-001"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2121/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
     ports:
-      - "2121:2121"
+      - "8080:8080"
     deploy:
       resources:
         limits:

@@ -115,6 +115,20 @@ func (mr *MockMessageQueueMockRecorder) MarkFailed(ctx, messageID, errorInfo any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFailed", reflect.TypeOf((*MockMessageQueue)(nil).MarkFailed), ctx, messageID, errorInfo)
 }
 
+// MarkPermanentlyFailed mocks base method.
+func (m *MockMessageQueue) MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPermanentlyFailed", ctx, messageID, errorInfo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkPermanentlyFailed indicates an expected call of MarkPermanentlyFailed.
+func (mr *MockMessageQueueMockRecorder) MarkPermanentlyFailed(ctx, messageID, errorInfo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPermanentlyFailed", reflect.TypeOf((*MockMessageQueue)(nil).MarkPermanentlyFailed), ctx, messageID, errorInfo)
+}
+
 // MarkSuccess mocks base method.
 func (m *MockMessageQueue) MarkSuccess(ctx context.Context, messageID int64) error {
 	m.ctrl.T.Helper()

@@ -54,17 +54,17 @@ format:
   goimports -w .
 
 # run all code gen tasks
-gen: gen-db-queries gen-miner-protos gen-go
+gen: gen-db-queries gen-sdk-protos gen-go
 
-# generate query via sqlc 
+# generate query via sqlc
 gen-db-queries:
   sqlc generate
   goimports -w generated/sqlc
 
-# generate miner protobuf code
-gen-miner-protos:
+# generate SDK protobuf code
+gen-sdk-protos:
   buf generate
-  goimports -w generated/miner-api
+  goimports -w sdk/v1/pb/generated
 
 # go generate, this will run all go:generate directives in the project
 gen-go:
@@ -113,20 +113,3 @@ clean-build: _build-plugins-docker
 # restart and rebuild fleet-api only
 rebuild-fleet-api:
   docker compose up fleet-api -d --build --force-recreate
-
-# Internal helper to build and execute miner-debug-cli with specified action
-_miner-debug-exec miner_name action error_code index:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  GOOS=linux GOARCH=amd64 go build -o /tmp/miner-debug-cli-linux ./cmd/miner-debug-cli
-  docker cp /tmp/miner-debug-cli-linux server-{{miner_name}}:/tmp/miner-debug-cli
-  docker exec server-{{miner_name}} /tmp/miner-debug-cli -action {{action}} -error {{error_code}} -index {{index}}
-  rm -f /tmp/miner-debug-cli-linux
-
-# inject an error on a miner using the debug API (example: just miner-inject-error mms-1 PSU_ERROR_CODE_OVER_TEMPERATURE 1)
-miner-inject-error miner_name error_code index="1":
-  just _miner-debug-exec {{miner_name}} inject {{error_code}} {{index}}
-
-# resolve an error on a miner using the debug API (example: just miner-resolve-error mms-1 PSU_ERROR_CODE_OVER_TEMPERATURE 1)
-miner-resolve-error miner_name error_code index="1":
-  just _miner-debug-exec {{miner_name}} resolve {{error_code}} {{index}}

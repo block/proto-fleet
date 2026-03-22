@@ -458,3 +458,197 @@ func TestConfigHandler_DefaultsChunkSizeWhenZero(t *testing.T) {
 
 	assert.Equal(t, int64(5*1024*1024), resp.ChunkSizeBytes)
 }
+
+// --- List files handler tests ---
+
+func (e *testEnv) listFilesHandler() *listFilesHandler {
+	return &listFilesHandler{
+		filesService:   e.fileSvc,
+		sessionService: e.sessionSvc,
+		userStore:      e.userStoreMock,
+	}
+}
+
+func (e *testEnv) deleteFileHandler() *deleteFileHandler {
+	return &deleteFileHandler{
+		filesService:   e.fileSvc,
+		sessionService: e.sessionSvc,
+		userStore:      e.userStoreMock,
+	}
+}
+
+func (e *testEnv) deleteAllFilesHandler() *deleteAllFilesHandler {
+	return &deleteAllFilesHandler{
+		filesService:   e.fileSvc,
+		sessionService: e.sessionSvc,
+		userStore:      e.userStoreMock,
+	}
+}
+
+func TestListFilesHandler_RejectsNoCookie(t *testing.T) {
+	env := newTestEnv(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/files", nil)
+	rr := httptest.NewRecorder()
+
+	env.listFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestListFilesHandler_ReturnsEmptyArray(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/files", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.listFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
+
+	var resp listFilesResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotNil(t, resp.Files)
+	assert.Empty(t, resp.Files)
+}
+
+func TestListFilesHandler_ReturnsSavedFiles(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	_, err := env.fileSvc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha"))
+	require.NoError(t, err)
+	_, err = env.fileSvc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content"))
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/firmware/files", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.listFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp listFilesResponse
+	err = json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.Files, 2)
+}
+
+// --- Delete file handler tests ---
+
+func TestDeleteFileHandler_RejectsNoCookie(t *testing.T) {
+	env := newTestEnv(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/some-id", nil)
+	rr := httptest.NewRecorder()
+
+	env.deleteFileHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestDeleteFileHandler_DeletesExistingFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"))
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/"+fileID, nil)
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.deleteFileHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+
+	_, err = env.fileSvc.GetFirmwareFilePath(fileID)
+	assert.Error(t, err, "file should be deleted")
+}
+
+func TestDeleteFileHandler_Returns400ForInvalidID(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/not-a-uuid", nil)
+	req.SetPathValue("fileId", "not-a-uuid")
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.deleteFileHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "invalid firmware file ID")
+}
+
+func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	missingID := "00000000-0000-0000-0000-000000000000"
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files/"+missingID, nil)
+	req.SetPathValue("fileId", missingID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.deleteFileHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Contains(t, rr.Body.String(), "firmware file not found")
+}
+
+// --- Delete all files handler tests ---
+
+func TestDeleteAllFilesHandler_RejectsNoCookie(t *testing.T) {
+	env := newTestEnv(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
+	rr := httptest.NewRecorder()
+
+	env.deleteAllFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestDeleteAllFilesHandler_DeletesAllFiles(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	_, err := env.fileSvc.SaveFirmwareFile("one.swu", strings.NewReader("one"))
+	require.NoError(t, err)
+	_, err = env.fileSvc.SaveFirmwareFile("two.swu", strings.NewReader("two"))
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.deleteAllFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp deleteAllFilesResponse
+	err = json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, 2, resp.DeletedCount)
+}
+
+func TestDeleteAllFilesHandler_EmptyReturnsZero(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/firmware/files", nil)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.deleteAllFilesHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp deleteAllFilesResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, 0, resp.DeletedCount)
+}

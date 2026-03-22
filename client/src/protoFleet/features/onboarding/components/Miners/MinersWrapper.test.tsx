@@ -91,6 +91,19 @@ describe("MinersWrapper", () => {
         expect(screen.getByText("Finding miners on your network")).toBeInTheDocument();
       });
       expect(mockDiscover).toHaveBeenCalled();
+      expect(mockDiscover).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discoverRequest: expect.objectContaining({
+            mode: expect.objectContaining({
+              case: "nmap",
+              value: expect.objectContaining({
+                target: "192.168.1.0/24",
+                ports: ["443", "8080", "4028"],
+              }),
+            }),
+          }),
+        }),
+      );
     });
 
     it("disables Find miners button while network info is loading", () => {

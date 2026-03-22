@@ -20,6 +20,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 interface GroupModalProps {
+  show: boolean;
   onDismiss: () => void;
   onSuccess: () => void;
   group?: DeviceCollection;
@@ -96,7 +97,7 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   groupLabels: miner.groupLabels,
 });
 
-const GroupModal = ({ onDismiss, onSuccess, group }: GroupModalProps) => {
+const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
   const isEditMode = Boolean(group);
   const { createGroup, updateGroup, deleteGroup, listGroups, listRacks, listGroupMembers } = useCollections();
   const [groupName, setGroupName] = useState(group?.label ?? "");
@@ -344,11 +345,13 @@ const GroupModal = ({ onDismiss, onSuccess, group }: GroupModalProps) => {
     return buttons;
   }, [isEditMode, handleSave, isSubmitting, isMembersLoading]);
 
+  if (show === false) return null;
+
   return (
     <>
       <Modal
         onDismiss={onDismiss}
-        open={!showDeleteConfirm}
+        open={show && !showDeleteConfirm}
         size="extraLarge"
         title={isEditMode ? "Edit group" : "Add group"}
         description={

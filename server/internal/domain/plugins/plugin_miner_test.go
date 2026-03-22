@@ -1127,3 +1127,67 @@ func TestIsNetworkError(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapPluginError(t *testing.T) {
+	tests := []struct {
+		name                string
+		err                 error
+		format              string
+		args                []any
+		expectNil           bool
+		expectUnimplemented bool
+		expectContains      string
+	}{
+		{
+			name:      "nil error returns nil",
+			err:       nil,
+			format:    "reboot failed",
+			expectNil: true,
+		},
+		{
+			name:                "gRPC Unimplemented maps to fleeterror Unimplemented",
+			err:                 grpcstatus.Error(codes.Unimplemented, "capability not supported"),
+			format:              "reboot failed for device %s",
+			args:                []any{"device-123"},
+			expectUnimplemented: true,
+			expectContains:      "reboot failed for device device-123",
+		},
+		{
+			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
+			err:                 grpcstatus.Error(codes.Internal, "something broke"),
+			format:              "reboot failed",
+			expectUnimplemented: false,
+			expectContains:      "reboot failed",
+		},
+		{
+			name:                "generic error maps to fleeterror Internal",
+			err:                 errors.New("connection refused"),
+			format:              "set power target failed",
+			expectUnimplemented: false,
+			expectContains:      "set power target failed",
+		},
+		{
+			name:                "gRPC Unavailable maps to fleeterror Internal (not Unimplemented)",
+			err:                 grpcstatus.Error(codes.Unavailable, "service unavailable"),
+			format:              "stop mining failed",
+			expectUnimplemented: false,
+			expectContains:      "stop mining failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			result := wrapPluginError(tt.err, tt.format, tt.args...)
+
+			// Assert
+			if tt.expectNil {
+				assert.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			assert.Equal(t, tt.expectUnimplemented, fleeterror.IsUnimplementedError(result))
+			assert.Contains(t, result.Error(), tt.expectContains)
+		})
+	}
+}

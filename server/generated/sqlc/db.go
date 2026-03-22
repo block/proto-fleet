@@ -132,6 +132,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCollectionTypeStmt, err = db.PrepareContext(ctx, getCollectionType); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCollectionType: %w", err)
 	}
+	if q.getCollectionTypesBatchStmt, err = db.PrepareContext(ctx, getCollectionTypesBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCollectionTypesBatch: %w", err)
+	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
 	}
@@ -273,6 +276,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRackInfoStmt, err = db.PrepareContext(ctx, getRackInfo); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackInfo: %w", err)
 	}
+	if q.getRackInfoBatchStmt, err = db.PrepareContext(ctx, getRackInfoBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRackInfoBatch: %w", err)
+	}
 	if q.getRackLabelsForDevicesStmt, err = db.PrepareContext(ctx, getRackLabelsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackLabelsForDevices: %w", err)
 	}
@@ -350,6 +356,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listPoolsStmt, err = db.PrepareContext(ctx, listPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPools: %w", err)
+	}
+	if q.listRackLocationsStmt, err = db.PrepareContext(ctx, listRackLocations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRackLocations: %w", err)
+	}
+	if q.listRackTypesStmt, err = db.PrepareContext(ctx, listRackTypes); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRackTypes: %w", err)
 	}
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
@@ -449,6 +461,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateMessageAfterFailureStmt, err = db.PrepareContext(ctx, updateMessageAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageAfterFailure: %w", err)
+	}
+	if q.updateMessagePermanentlyFailedStmt, err = db.PrepareContext(ctx, updateMessagePermanentlyFailed); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateMessagePermanentlyFailed: %w", err)
 	}
 	if q.updateMessageStatusStmt, err = db.PrepareContext(ctx, updateMessageStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageStatus: %w", err)
@@ -689,6 +704,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCollectionTypeStmt: %w", cerr)
 		}
 	}
+	if q.getCollectionTypesBatchStmt != nil {
+		if cerr := q.getCollectionTypesBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCollectionTypesBatchStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
 		if cerr := q.getDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByDeviceIdentifierStmt: %w", cerr)
@@ -924,6 +944,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRackInfoStmt: %w", cerr)
 		}
 	}
+	if q.getRackInfoBatchStmt != nil {
+		if cerr := q.getRackInfoBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRackInfoBatchStmt: %w", cerr)
+		}
+	}
 	if q.getRackLabelsForDevicesStmt != nil {
 		if cerr := q.getRackLabelsForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackLabelsForDevicesStmt: %w", cerr)
@@ -1052,6 +1077,16 @@ func (q *Queries) Close() error {
 	if q.listPoolsStmt != nil {
 		if cerr := q.listPoolsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPoolsStmt: %w", cerr)
+		}
+	}
+	if q.listRackLocationsStmt != nil {
+		if cerr := q.listRackLocationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRackLocationsStmt: %w", cerr)
+		}
+	}
+	if q.listRackTypesStmt != nil {
+		if cerr := q.listRackTypesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRackTypesStmt: %w", cerr)
 		}
 	}
 	if q.listRolesStmt != nil {
@@ -1219,6 +1254,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateMessageAfterFailureStmt: %w", cerr)
 		}
 	}
+	if q.updateMessagePermanentlyFailedStmt != nil {
+		if cerr := q.updateMessagePermanentlyFailedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateMessagePermanentlyFailedStmt: %w", cerr)
+		}
+	}
 	if q.updateMessageStatusStmt != nil {
 		if cerr := q.updateMessageStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageStatusStmt: %w", cerr)
@@ -1384,6 +1424,7 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getCollectionStmt                                   *sql.Stmt
 	getCollectionTypeStmt                               *sql.Stmt
+	getCollectionTypesBatchStmt                         *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
 	getDeviceCollectionsStmt                            *sql.Stmt
@@ -1431,6 +1472,7 @@ type Queries struct {
 	getPairedDevicesIdsStmt                             *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
+	getRackInfoBatchStmt                                *sql.Stmt
 	getRackLabelsForDevicesStmt                         *sql.Stmt
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
@@ -1457,6 +1499,8 @@ type Queries struct {
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
+	listRackLocationsStmt                               *sql.Stmt
+	listRackTypesStmt                                   *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
@@ -1490,6 +1534,7 @@ type Queries struct {
 	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
+	updateMessagePermanentlyFailedStmt                  *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
 	updateMinerPasswordStmt                             *sql.Stmt
 	updateOpenErrorStmt                                 *sql.Stmt
@@ -1550,6 +1595,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getCollectionStmt:                                   q.getCollectionStmt,
 		getCollectionTypeStmt:                               q.getCollectionTypeStmt,
+		getCollectionTypesBatchStmt:                         q.getCollectionTypesBatchStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
 		getDeviceCollectionsStmt:                            q.getDeviceCollectionsStmt,
@@ -1597,6 +1643,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,
+		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
 		getRackLabelsForDevicesStmt:                         q.getRackLabelsForDevicesStmt,
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
@@ -1623,6 +1670,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
+		listRackLocationsStmt:                               q.listRackLocationsStmt,
+		listRackTypesStmt:                                   q.listRackTypesStmt,
 		listRolesStmt:                                       q.listRolesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
@@ -1656,6 +1705,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
+		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
 		updateMinerPasswordStmt:                             q.updateMinerPasswordStmt,
 		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,

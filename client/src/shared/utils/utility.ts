@@ -43,9 +43,9 @@ export const getRandomFloat = (min: number, max: number, precision: number = 100
   );
 };
 
-export const convertMegahashSecToTerahashSec = (value: number = 0) => value / 1000000;
-export const convertGigahashSecToTerahashSec = (value: number = 0) => value / 1000;
-export const convertWtoKW = (value: number = 0) => value / 1000;
+export const convertMegahashSecToTerahashSec = (value?: number | null) => (value ?? 0) / 1000000;
+export const convertGigahashSecToTerahashSec = (value?: number | null) => (value ?? 0) / 1000;
+export const convertWtoKW = (value?: number | null) => (value ?? 0) / 1000;
 
 // Hashrate unit conversion constants
 export const TH_TO_PH_THRESHOLD = 1000;

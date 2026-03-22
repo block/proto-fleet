@@ -11,7 +11,7 @@ import (
 
 // TestDriverDescribe tests driver capability reporting.
 func TestDriverDescribe(t *testing.T) {
-	driver, err := driver.New(2121)
+	driver, err := driver.New(443)
 	require.NoError(t, err, "Failed to create driver")
 
 	ctx := t.Context()
@@ -57,7 +57,7 @@ func TestDeviceInfoValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			driver, err := driver.New(2121)
+			driver, err := driver.New(443)
 			require.NoError(t, err, "Failed to create driver")
 
 			_, err = driver.NewDevice(t.Context(), tt.deviceInfo.SerialNumber, tt.deviceInfo, sdk.SecretBundle{})

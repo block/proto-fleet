@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -303,11 +304,13 @@ func TestDeleteFirmwareFile_RemovesFromChecksumIndex(t *testing.T) {
 	assert.NotEqual(t, fileID, newID, "re-upload after delete should get a new fileID")
 }
 
-func TestDeleteFirmwareFile_NoErrorForAlreadyDeleted(t *testing.T) {
+func TestDeleteFirmwareFile_ReturnsNotFoundForMissingFile(t *testing.T) {
 	svc := setupService(t)
 
 	err := svc.DeleteFirmwareFile("00000000-0000-0000-0000-000000000000")
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firmware file not found")
+	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
 func TestDeleteFirmwareFile_RejectsInvalidFileID(t *testing.T) {
@@ -514,4 +517,115 @@ func TestSaveFirmwareFileFromPath_RejectsEmptyFile(t *testing.T) {
 	_, err := svc.SaveFirmwareFileFromPath("empty.swu", srcPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
+}
+
+func TestListFirmwareFiles_EmptyReturnsEmptySlice(t *testing.T) {
+	svc := setupService(t)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.NotNil(t, files, "should return empty slice, not nil")
+	assert.Empty(t, files)
+}
+
+func TestListFirmwareFiles_ReturnsSavedFiles(t *testing.T) {
+	svc := setupService(t)
+
+	id1, err := svc.SaveFirmwareFile("alpha.swu", strings.NewReader("alpha content"))
+	require.NoError(t, err)
+
+	id2, err := svc.SaveFirmwareFile("beta.tar.gz", strings.NewReader("beta content here"))
+	require.NoError(t, err)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Len(t, files, 2)
+
+	ids := map[string]bool{files[0].ID: true, files[1].ID: true}
+	assert.True(t, ids[id1], "should contain first file ID")
+	assert.True(t, ids[id2], "should contain second file ID")
+
+	for _, f := range files {
+		if f.ID == id1 {
+			assert.Equal(t, "alpha.swu", f.Filename)
+			assert.Equal(t, int64(len("alpha content")), f.Size)
+		} else {
+			assert.Equal(t, "beta.tar.gz", f.Filename)
+			assert.Equal(t, int64(len("beta content here")), f.Size)
+		}
+		assert.False(t, f.UploadedAt.IsZero(), "upload time should be set")
+	}
+}
+
+func TestListFirmwareFiles_SkipsStagingDir(t *testing.T) {
+	svc := setupService(t)
+
+	// Place a file in the staging dir
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "orphan"), []byte("data"), 0600))
+
+	_, err := svc.SaveFirmwareFile("real.swu", strings.NewReader("real content"))
+	require.NoError(t, err)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Len(t, files, 1, "staging files should not appear in the list")
+	assert.Equal(t, "real.swu", files[0].Filename)
+}
+
+func TestListFirmwareFiles_SortedByUploadTimeDescending(t *testing.T) {
+	svc := setupService(t)
+
+	_, err := svc.SaveFirmwareFile("first.swu", strings.NewReader("first"))
+	require.NoError(t, err)
+
+	_, err = svc.SaveFirmwareFile("second.swu", strings.NewReader("second"))
+	require.NoError(t, err)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+	assert.True(t, !files[0].UploadedAt.Before(files[1].UploadedAt),
+		"first entry should have the most recent upload time")
+}
+
+func TestDeleteAllFirmwareFiles_RemovesAllFiles(t *testing.T) {
+	svc := setupService(t)
+
+	_, err := svc.SaveFirmwareFile("one.swu", strings.NewReader("one"))
+	require.NoError(t, err)
+	_, err = svc.SaveFirmwareFile("two.swu", strings.NewReader("two"))
+	require.NoError(t, err)
+
+	deleted, err := svc.DeleteAllFirmwareFiles()
+	require.NoError(t, err)
+	assert.Equal(t, 2, deleted)
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Empty(t, files, "no files should remain after delete-all")
+}
+
+func TestDeleteAllFirmwareFiles_EmptyReturnsZero(t *testing.T) {
+	svc := setupService(t)
+
+	deleted, err := svc.DeleteAllFirmwareFiles()
+	require.NoError(t, err)
+	assert.Equal(t, 0, deleted)
+}
+
+func TestDeleteAllFirmwareFiles_CleansChecksumIndex(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware for checksum cleanup test"
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
+	require.NoError(t, err)
+
+	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content))
+	require.True(t, ok, "checksum should be found before delete-all")
+
+	_, err = svc.DeleteAllFirmwareFiles()
+	require.NoError(t, err)
+
+	_, ok = svc.FindFirmwareFileByChecksum(checksumOf(content))
+	assert.False(t, ok, "checksum should not be found after delete-all")
 }

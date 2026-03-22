@@ -1,16 +1,6 @@
 version: v2
 plugins:
   - local: protoc-gen-go
-    out: generated/miner-api
-    opt: module=github.com/proto-at-block/proto-fleet/server/generated/miner-api
-    exclude_types:
-      - sdk.v1
-  - local: protoc-gen-connect-go
-    out: generated/miner-api
-    opt: module=github.com/proto-at-block/proto-fleet/server/generated/miner-api
-    exclude_types:
-      - sdk.v1
-  - local: protoc-gen-go
     out: sdk/v1/pb/generated
     opt: module=github.com/proto-at-block/proto-fleet/server/sdk/v1/pb
     types:
@@ -36,43 +26,3 @@ plugins:
       - sdk.v1
 managed:
   enabled: true
-  override:
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/mfgtool_api
-      path: mfgtool_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/mfgtool_test_commands
-      path: mfgtool_test_commands.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api
-      path: miner_command_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api
-      path: miner_common_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api
-      path: miner_data_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_debug_api
-      path: miner_debug_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_system_api
-      path: miner_system_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_ui_api
-      path: miner_ui_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_error_code
-      path: miner_error_code.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_api
-      path: miner_psu_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_hb_api
-      path: miner_hb_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_fan_api
-      path: miner_fan_api.proto
-    - file_option: go_package
-      value: github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_test_api
-      path: miner_psu_test_api.proto

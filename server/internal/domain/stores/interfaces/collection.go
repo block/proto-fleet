@@ -17,21 +17,21 @@ type CollectionStore interface {
 
 	// CreateRackExtension creates the rack extension record with dimensions.
 	// Must be called after CreateCollection for rack-type collections.
-	CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32) error
+	CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
 
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
 
 	// GetRackInfo retrieves rack-specific info for a collection.
 	// Returns nil if the collection is not a rack.
-	GetRackInfo(ctx context.Context, collectionID int64) (*pb.RackInfo, error)
+	GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error)
 
 	// UpdateCollection updates a collection's label and/or description.
 	// Only non-nil values are updated.
 	UpdateCollection(ctx context.Context, orgID int64, collectionID int64, label, description *string) error
 
 	// UpdateRackInfo updates rack-specific info.
-	UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32) error
+	UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
 
 	// SoftDeleteCollection marks a collection as deleted.
 	// Returns the number of rows affected (0 if not found).
@@ -82,14 +82,17 @@ type CollectionStore interface {
 	GetRackLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]string, error)
 
 	// SetRackSlotPosition assigns a device to a specific slot position in a rack.
-	SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32) error
+	SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32, orgID int64) error
 
 	// ClearRackSlotPosition removes a device's slot position assignment from a rack.
-	ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string) error
+	ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, orgID int64) error
 
 	// GetRackSlots returns all occupied slot positions in a rack.
-	GetRackSlots(ctx context.Context, collectionID int64) ([]*pb.RackSlot, error)
+	GetRackSlots(ctx context.Context, collectionID int64, orgID int64) ([]*pb.RackSlot, error)
 
 	// ListRackLocations returns all distinct non-empty rack locations for an organization.
 	ListRackLocations(ctx context.Context, orgID int64) ([]string, error)
+
+	// ListRackTypes returns all distinct rack types (row/column combinations) for an organization.
+	ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error)
 }

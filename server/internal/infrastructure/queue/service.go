@@ -122,6 +122,19 @@ func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, e
 	})
 }
 
+func (d DatabaseMessageQueue) MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error {
+	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
+		err := q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
+			ID:        messageID,
+			ErrorInfo: sql.NullString{String: errorInfo, Valid: true},
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to mark message as permanently failed: %v", err)
+		}
+		return nil
+	})
+}
+
 type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bool, error)
 
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {

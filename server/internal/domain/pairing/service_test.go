@@ -360,13 +360,13 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice("192.168.1.20", "80", "proto")
+		mockDevice := createMockDevice("192.168.1.20", "8080", "proto")
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(mockDevice, nil)
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "80").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(nil, assert.AnError)
 
@@ -378,7 +378,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.20",
 			EndIp:   "192.168.1.21",
-			Ports:   []string{"80"},
+			Ports:   []string{"8080"},
 		}
 
 		// Act
@@ -632,7 +632,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		host := "192.168.1.100"
-		portStr := "80"
+		portStr := "8080"
 		expectedFirmwareVersion := "1.2.3"
 
 		mockDiscoverer := &MockDiscoverer{}
@@ -699,7 +699,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		host := "192.168.1.101"
-		portStr := "80"
+		portStr := "8080"
 
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := createMockDevice(host, portStr, "proto")
@@ -853,7 +853,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 
 		oldIP := "172.16.21.10"
 		newIP := "172.16.25.10"
-		port := "80"
+		port := "8080"
 		mac := "AA:BB:CC:DD:EE:01"
 		normalizedMAC := "AA:BB:CC:DD:EE:01"
 
@@ -994,7 +994,7 @@ func TestDiscoveryReconciliation_DeletesUnpairedStaleEndpointRecord(t *testing.T
 
 	oldIP := "172.16.31.10"
 	newIP := "172.16.41.10"
-	port := "80"
+	port := "8080"
 	mac := "AA:BB:CC:DD:EE:11"
 
 	mockDiscoverer := &MockDiscoverer{}
@@ -1119,7 +1119,7 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 
 	occupantIP := "172.16.51.10"
 	originalIP := "172.16.61.10"
-	port := "80"
+	port := "8080"
 	occupantMAC := "AA:BB:CC:DD:EE:21"
 	reconciledMAC := "AA:BB:CC:DD:EE:22"
 	occupantIdentifier := "occupant-device"
@@ -1217,7 +1217,7 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		Device: pb.Device{
 			DeviceIdentifier: originalIdentifier,
 			IpAddress:        "172.16.21.10",
-			Port:             "80",
+			Port:             "8080",
 			UrlScheme:        "http",
 			DriverName:       "proto",
 			MacAddress:       "AA:BB:CC:DD:EE:01",
@@ -1234,7 +1234,7 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		Device: pb.Device{
 			DeviceIdentifier: orphanIdentifier,
 			IpAddress:        "172.16.25.10",
-			Port:             "80",
+			Port:             "8080",
 			UrlScheme:        "http",
 			DriverName:       "proto",
 			MacAddress:       "AA:BB:CC:DD:EE:01",

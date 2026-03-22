@@ -6,6 +6,10 @@ import {
   type CollectionStats,
   CollectionType,
   type DeviceCollection,
+  type RackCoolingType,
+  RackInfoSchema,
+  type RackOrderIndex,
+  type RackType,
 } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   DeviceIdentifierListSchema,
@@ -66,8 +70,26 @@ interface GetCollectionStatsProps {
   onFinally?: () => void;
 }
 
+interface CreateRackProps {
+  label: string;
+  location: string;
+  rows: number;
+  columns: number;
+  orderIndex: RackOrderIndex;
+  coolingType: RackCoolingType;
+  onSuccess?: (collection: DeviceCollection) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface ListRackLocationsProps {
   onSuccess?: (locations: string[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface ListRackTypesProps {
+  onSuccess?: (rackTypes: RackType[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -346,6 +368,57 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const createRack = useCallback(
+    async ({
+      label,
+      location,
+      rows,
+      columns,
+      orderIndex,
+      coolingType,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateRackProps) => {
+      try {
+        const rackInfo = create(RackInfoSchema, {
+          rows,
+          columns,
+          location,
+          orderIndex,
+          coolingType,
+        });
+
+        const createResponse = await collectionClient.createCollection({
+          type: CollectionType.RACK,
+          label,
+          typeDetails: {
+            case: "rackInfo",
+            value: rackInfo,
+          },
+        });
+
+        const collection = createResponse.collection;
+        if (!collection) {
+          onError?.("Failed to create rack");
+          return;
+        }
+
+        onSuccess?.(collection);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   const listRackLocations = useCallback(
     async ({ onSuccess, onError, onFinally }: ListRackLocationsProps) => {
       try {
@@ -365,13 +438,34 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const listRackTypes = useCallback(
+    async ({ onSuccess, onError, onFinally }: ListRackTypesProps) => {
+      try {
+        const response = await collectionClient.listRackTypes({});
+        onSuccess?.(response.rackTypes);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
+    createRack,
     updateGroup,
     deleteGroup,
     listGroups,
     listRacks,
     listRackLocations,
+    listRackTypes,
     listGroupMembers,
     getCollectionStats,
     addDevicesToCollection,
