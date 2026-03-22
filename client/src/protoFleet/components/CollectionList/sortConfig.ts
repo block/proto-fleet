@@ -13,6 +13,9 @@ const SORT_CONFIG: Partial<Record<CollectionColumn, CollectionSortConfig>> = {
   [collectionCols.name]: {
     defaultDirection: SORT_ASC,
   },
+  [collectionCols.location]: {
+    defaultDirection: SORT_ASC,
+  },
   [collectionCols.miners]: {
     defaultDirection: SORT_DESC,
   },

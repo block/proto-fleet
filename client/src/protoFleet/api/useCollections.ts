@@ -49,6 +49,7 @@ interface ListCollectionsProps {
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
+  locations?: string[];
   onSuccess?: (collections: DeviceCollection[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -257,7 +258,16 @@ const useCollections = () => {
   );
 
   const listRacks = useCallback(
-    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListCollectionsProps) => {
+    async ({
+      pageSize,
+      pageToken,
+      sort,
+      errorComponentTypes,
+      locations,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListCollectionsProps) => {
       try {
         const response = await collectionClient.listCollections({
           type: CollectionType.RACK,
@@ -265,6 +275,7 @@ const useCollections = () => {
           pageToken: pageToken ?? "",
           sort,
           errorComponentTypes: errorComponentTypes ?? [],
+          locations: locations ?? [],
         });
         onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
       } catch (err) {

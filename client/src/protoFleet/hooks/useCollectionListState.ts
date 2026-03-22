@@ -15,6 +15,7 @@ import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
 
 const SORT_FIELD_MAP: Partial<Record<CollectionColumn, SortField>> = {
   name: SortField.NAME,
+  location: SortField.LOCATION,
   miners: SortField.DEVICE_COUNT,
 };
 
@@ -29,7 +30,12 @@ const DEFAULT_SORT = toProtoSort("name", SORT_ASC);
 
 type ListFn = (props: ListCollectionsProps) => Promise<void>;
 
-export function useCollectionListState(listFn: ListFn, pageSize: number, getErrorComponentTypes?: () => number[]) {
+export function useCollectionListState(
+  listFn: ListFn,
+  pageSize: number,
+  getErrorComponentTypes?: () => number[],
+  getLocations?: () => string[],
+) {
   const { getCollectionStats } = useCollections();
   const [collections, setCollections] = useState<DeviceCollection[]>([]);
   const [statsMap, setStatsMap] = useState<Map<bigint, CollectionStats>>(new Map());
@@ -83,6 +89,7 @@ export function useCollectionListState(listFn: ListFn, pageSize: number, getErro
         pageToken,
         sort: sortRef.current,
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
+        locations: getLocations?.() ?? [],
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -109,7 +116,7 @@ export function useCollectionListState(listFn: ListFn, pageSize: number, getErro
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes],
+    [listFn, pageSize, fetchStats, getErrorComponentTypes, getLocations],
   );
 
   const resetAndFetch = useCallback(() => {

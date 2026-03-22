@@ -272,6 +272,10 @@ message ListCollectionsRequest {
     // When non-empty, only collections with at least one device having an open error
     // matching any of the specified component types are returned.
     repeated errors.v1.ComponentType error_component_types = 5;
+
+    // Filter by rack locations. Only valid when type is RACK.
+    // When non-empty, only racks at any of the specified locations are returned.
+    repeated string locations = 6;
 }
 
 // Response containing collections

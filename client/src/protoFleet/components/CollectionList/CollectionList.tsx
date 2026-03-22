@@ -15,7 +15,7 @@ export type CollectionListItem = {
   stats?: CollectionStats;
 };
 
-const activeCols: CollectionColumn[] = [
+const DEFAULT_ACTIVE_COLS: CollectionColumn[] = [
   "name",
   "miners",
   "issues",
@@ -34,6 +34,7 @@ type CollectionListProps = {
   currentSort: { field: CollectionColumn; direction: SortDirection };
   onSort: (field: CollectionColumn, direction: SortDirection) => void;
   itemName: { singular: string; plural: string };
+  columns?: CollectionColumn[];
   loading?: boolean;
   total?: number;
   pageSize?: number;
@@ -52,6 +53,7 @@ const CollectionList = ({
   currentSort,
   onSort,
   itemName,
+  columns = DEFAULT_ACTIVE_COLS,
   loading,
   total,
   pageSize = DEFAULT_PAGE_SIZE,
@@ -89,7 +91,7 @@ const CollectionList = ({
     <>
       <div ref={topRef} />
       <List<CollectionListItem, string, CollectionColumn>
-        activeCols={activeCols}
+        activeCols={columns}
         colTitles={collectionColTitles}
         colConfig={colConfig}
         items={items}
