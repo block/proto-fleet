@@ -258,15 +258,9 @@ func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) 
 	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
 		IpAddresses: []string{"192.168.1.10"},
 	})
-	require.NoError(t, err)
-
-	var results []*pb.DiscoverResponse
-	for result := range resultChan {
-		results = append(results, result)
-	}
-
-	require.Len(t, results, 1)
-	assert.Contains(t, results[0].Error, "no discovery ports were provided")
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	assert.Contains(t, err.Error(), "no discovery ports were provided")
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -281,15 +275,9 @@ func TestDiscoverWithIPRange_EmptyPortsWithoutMetadataReturnsError(t *testing.T)
 		StartIp: "192.168.1.10",
 		EndIp:   "192.168.1.10",
 	})
-	require.NoError(t, err)
-
-	var results []*pb.DiscoverResponse
-	for result := range resultChan {
-		results = append(results, result)
-	}
-
-	require.Len(t, results, 1)
-	assert.Contains(t, results[0].Error, "no discovery ports were provided")
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	assert.Contains(t, err.Error(), "no discovery ports were provided")
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 

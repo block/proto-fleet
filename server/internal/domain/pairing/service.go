@@ -255,11 +255,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 	resultChan := make(chan *pb.DiscoverResponse)
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
-		go func() {
-			defer close(resultChan)
-			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
-		}()
-		return resultChan, nil
+		return nil, err
 	}
 
 	// Apply server-controlled timeout for the entire discovery operation
@@ -439,11 +435,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
-		go func() {
-			defer close(resultChan)
-			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
-		}()
-		return resultChan, nil
+		return nil, err
 	}
 
 	// Apply server-controlled timeout for the entire discovery operation
@@ -493,11 +485,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	resultChan := make(chan *pb.DiscoverResponse)
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
-		go func() {
-			defer close(resultChan)
-			resultChan <- &pb.DiscoverResponse{Error: err.Error()}
-		}()
-		return resultChan, nil
+		return nil, err
 	}
 
 	// Apply server-controlled timeout for the entire discovery operation
