@@ -35,6 +35,20 @@ func TestDriverDescribe(t *testing.T) {
 	assert.Equal(t, []string{"443", "8080"}, driver.GetDiscoveryPorts(ctx))
 }
 
+func TestDriverGetDiscoveryPorts_Override(t *testing.T) {
+	driver, err := driver.New(8080)
+	require.NoError(t, err, "Failed to create driver")
+
+	assert.Equal(t, []string{"8080", "443"}, driver.GetDiscoveryPorts(t.Context()))
+}
+
+func TestDriverGetDiscoveryPorts_NonCanonicalOverride(t *testing.T) {
+	driver, err := driver.New(9000)
+	require.NoError(t, err, "Failed to create driver")
+
+	assert.Equal(t, []string{"9000"}, driver.GetDiscoveryPorts(t.Context()))
+}
+
 // TestDeviceInfoValidation tests device info validation.
 func TestDeviceInfoValidation(t *testing.T) {
 	tests := []struct {

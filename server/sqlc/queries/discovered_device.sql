@@ -49,6 +49,8 @@ INSERT INTO discovered_device (
     $10
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
+    model = EXCLUDED.model,
+    manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,

@@ -136,10 +136,26 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	return deviceInfo, capabilities, nil
 }
 
-// GetDiscoveryPorts returns every canonical Proto discovery port in stable order.
+// GetDiscoveryPorts returns discovery ports in the order they should be tried.
+// When an explicit driver port override is configured, advertise that port first
+// so default omitted-port discovery follows the configured environment.
 func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
+	if d.requiredPort > 0 && !isCanonicalDiscoveryPort(d.requiredPort) {
+		return []string{fmt.Sprintf("%d", d.requiredPort)}
+	}
+
 	ports := make([]string, 0, len(canonicalDiscoveryPorts))
+	seen := make(map[int]struct{}, len(canonicalDiscoveryPorts)+1)
+
+	if d.requiredPort > 0 {
+		ports = append(ports, fmt.Sprintf("%d", d.requiredPort))
+		seen[d.requiredPort] = struct{}{}
+	}
+
 	for _, port := range canonicalDiscoveryPorts {
+		if _, ok := seen[port]; ok {
+			continue
+		}
 		ports = append(ports, fmt.Sprintf("%d", port))
 	}
 	return ports

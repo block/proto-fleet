@@ -1,5 +1,6 @@
 import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
+import { PROTO_RIG_DISPLAY_NAME, PROTO_RIG_MODEL } from "../helpers/minerModels";
 import { type IssueIconId } from "../helpers/testDataHelper";
 import { BasePage } from "./base";
 
@@ -49,7 +50,7 @@ export class MinersPage extends BasePage {
   }
 
   async filterRigMiners() {
-    await this.filterMinersByModel("Rig");
+    await this.filterMinersByModel(PROTO_RIG_MODEL);
     await this.waitForAntminersToDisappear();
   }
 
@@ -65,7 +66,7 @@ export class MinersPage extends BasePage {
     const rigRows = this.page
       .getByTestId("list-body")
       .locator("tr")
-      .filter({ has: this.page.getByTestId("name").getByText("Rig") });
+      .filter({ has: this.page.getByTestId("name").getByText(PROTO_RIG_DISPLAY_NAME, { exact: true }) });
     await expect(rigRows).toHaveCount(0);
   }
 

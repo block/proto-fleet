@@ -60,8 +60,44 @@ type PluginInfo struct {
 	Capabilities sdk.Capabilities
 }
 
-// GetDiscoveryPorts returns the stable deduplicated union of canonical discovery ports
-// across all loaded discovery-capable plugins.
+// GetDefaultDiscoveryPorts returns one production default discovery port per
+// loaded discovery-capable plugin. The first advertised port is treated as the
+// plugin's canonical default, while any additional ports remain available for
+// explicit override flows.
+func (s *Service) GetDefaultDiscoveryPorts(_ context.Context) []string {
+	plugins := s.manager.GetAllPlugins()
+	if len(plugins) == 0 {
+		return nil
+	}
+
+	orderedPlugins := make([]*LoadedPlugin, 0, len(plugins))
+	for _, plugin := range plugins {
+		if !plugin.Caps[sdk.CapabilityDiscovery] || len(plugin.DiscoveryPorts) == 0 {
+			continue
+		}
+		orderedPlugins = append(orderedPlugins, plugin)
+	}
+
+	sort.Slice(orderedPlugins, func(i, j int) bool {
+		return orderedPlugins[i].Identifier.DriverName < orderedPlugins[j].Identifier.DriverName
+	})
+
+	seen := make(map[string]struct{})
+	var ports []string
+	for _, plugin := range orderedPlugins {
+		port := plugin.DiscoveryPorts[0]
+		if _, ok := seen[port]; ok {
+			continue
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+
+	return ports
+}
+
+// GetDiscoveryPorts returns the stable deduplicated union of all advertised
+// discovery ports across loaded discovery-capable plugins.
 func (s *Service) GetDiscoveryPorts(_ context.Context) []string {
 	plugins := s.manager.GetAllPlugins()
 	if len(plugins) == 0 {

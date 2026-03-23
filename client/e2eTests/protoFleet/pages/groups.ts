@@ -2,7 +2,21 @@ import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
+const EMPTY_GROUP_PLACEHOLDER = "—";
+
 export class GroupsPage extends BasePage {
+  async waitForSavedGroupsListToLoad() {
+    const rows = this.page.getByTestId("list-row");
+
+    await expect(this.page.getByRole("button", { name: "Add group" })).toBeVisible();
+    await expect(async () => {
+      const rowCount = await rows.count();
+      await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
+      const rowCountAfterDelay = await rows.count();
+      expect(rowCountAfterDelay).toBe(rowCount);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
   private async clickDropdownFilterOption(popover: Locator, optionNames: string[]) {
     for (const optionName of optionNames) {
       const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
@@ -79,9 +93,35 @@ export class GroupsPage extends BasePage {
     await expect(groupCell).toHaveText(expectedGroups);
   }
 
+  async getModalRowGroupByIndex(index: number): Promise<string> {
+    const groupCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("group");
+    const groupText = (await groupCell.innerText()).trim();
+    return groupText === EMPTY_GROUP_PLACEHOLDER ? "" : groupText;
+  }
+
   async getModalRowIpAddressByIndex(index: number): Promise<string> {
     const ipCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("ipAddress");
     return (await ipCell.innerText()).trim();
+  }
+
+  async selectMinerByIp(ipAddress: string) {
+    const row = this.page
+      .getByTestId("modal")
+      .getByTestId("list-row")
+      .filter({ has: this.page.getByTestId("ipAddress").getByText(ipAddress, { exact: true }) })
+      .first();
+    await row.scrollIntoViewIfNeeded();
+    await row.getByTestId("checkbox").locator('input[type="checkbox"]').click();
+  }
+
+  async validateMinerGroupsByIp(ipAddress: string, expectedGroups: string) {
+    const groupCell = this.page
+      .getByTestId("modal")
+      .getByTestId("list-row")
+      .filter({ has: this.page.getByTestId("ipAddress").getByText(ipAddress, { exact: true }) })
+      .first()
+      .getByTestId("group");
+    await expect(groupCell).toHaveText(expectedGroups);
   }
 
   async getModalVisibleIpAddresses(): Promise<string[]> {
@@ -153,6 +193,18 @@ export class GroupsPage extends BasePage {
 
   async validateSavedGroupMinerCount(groupName: string, minerCount: number) {
     await expect(this.getGroupRow(groupName).getByTestId("miners")).toHaveText(`${minerCount}`);
+  }
+
+  async listSavedGroupNames(): Promise<string[]> {
+    await this.waitForSavedGroupsListToLoad();
+
+    const nameCells = this.page.getByTestId("list-row").getByTestId("name");
+    const count = await nameCells.count();
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      names.push((await nameCells.nth(i).innerText()).trim());
+    }
+    return names;
   }
 
   private getGroupRow(groupName: string) {

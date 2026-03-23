@@ -7,7 +7,6 @@ import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/net
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
-import { defaultDiscoveryPorts } from "@/protoFleet/features/onboarding/constants";
 
 vi.mock("@/protoFleet/api/useMinerPairing");
 vi.mock("@/protoFleet/api/useNetworkInfo");
@@ -99,12 +98,13 @@ describe("MinersWrapper", () => {
               case: "nmap",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
-                ports: defaultDiscoveryPorts,
               }),
             }),
           }),
         }),
       );
+      const scanRequest = mockDiscover.mock.calls[0][0].discoverRequest;
+      expect(scanRequest.mode.value.ports).toEqual([]);
     });
 
     it("disables Find miners button while network info is loading", () => {
@@ -165,7 +165,7 @@ describe("MinersWrapper", () => {
   });
 
   describe("manual discovery", () => {
-    it("preserves the curated discovery ports for IPs, subnets, and ranges", async () => {
+    it("omits default ports for IPs, subnets, and ranges", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: undefined,
         pending: false,
@@ -198,12 +198,12 @@ describe("MinersWrapper", () => {
               case: "ipList",
               value: expect.objectContaining({
                 ipAddresses: ["192.168.1.100"],
-                ports: defaultDiscoveryPorts,
               }),
             }),
           }),
         }),
       );
+      expect(mockDiscover.mock.calls[0][0].discoverRequest.mode.value.ports).toEqual([]);
 
       expect(mockDiscover).toHaveBeenNthCalledWith(
         2,
@@ -213,12 +213,12 @@ describe("MinersWrapper", () => {
               case: "nmap",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
-                ports: defaultDiscoveryPorts,
               }),
             }),
           }),
         }),
       );
+      expect(mockDiscover.mock.calls[1][0].discoverRequest.mode.value.ports).toEqual([]);
 
       expect(mockDiscover).toHaveBeenNthCalledWith(
         3,
@@ -229,12 +229,12 @@ describe("MinersWrapper", () => {
               value: expect.objectContaining({
                 startIp: "192.168.1.150",
                 endIp: "192.168.1.160",
-                ports: defaultDiscoveryPorts,
               }),
             }),
           }),
         }),
       );
+      expect(mockDiscover.mock.calls[2][0].discoverRequest.mode.value.ports).toEqual([]);
     });
   });
 });

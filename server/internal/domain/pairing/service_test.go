@@ -222,6 +222,33 @@ func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
+func TestDiscoverWithIPList_UsesFirstPluginPortAsDefault(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443", "8080"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
 func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 	mockDiscoverer := &MockDiscoverer{}
 	mockDevice := createMockDevice("192.168.1.10", "8080", "proto")

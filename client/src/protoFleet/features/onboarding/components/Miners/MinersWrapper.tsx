@@ -13,7 +13,7 @@ import {
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
-import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onboarding/constants";
+import { defaultTimeout } from "@/protoFleet/features/onboarding/constants";
 import { useFleetStore, useMinerIds, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
@@ -139,7 +139,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         case: "nmap",
         value: {
           target: networkInfo.subnet,
-          ports: defaultDiscoveryPorts,
         },
       },
     });
@@ -192,7 +191,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               case: "ipList",
               value: {
                 ipAddresses: targets.ipAddresses,
-                ports: defaultDiscoveryPorts,
               },
             },
           }),
@@ -206,7 +204,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               case: "nmap",
               value: {
                 target: subnet,
-                ports: defaultDiscoveryPorts,
               },
             },
           }),
@@ -221,7 +218,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               value: {
                 startIp: range.startIp,
                 endIp: range.endIp,
-                ports: defaultDiscoveryPorts,
               },
             },
           }),
