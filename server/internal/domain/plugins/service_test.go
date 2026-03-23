@@ -158,7 +158,7 @@ func TestService_GetPluginCapabilitiesByDriverName(t *testing.T) {
 	assert.Equal(t, mockCaps, caps)
 }
 
-func TestService_GetDefaultDiscoveryPorts(t *testing.T) {
+func TestService_GetDefaultDiscoveryPorts_ReturnsAllAdvertisedPorts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -206,7 +206,7 @@ func TestService_GetDefaultDiscoveryPorts(t *testing.T) {
 		DiscoveryPorts: []string{"4028"},
 	}
 
-	assert.Equal(t, []string{"4028", "443"}, service.GetDefaultDiscoveryPorts(t.Context()))
+	assert.Equal(t, []string{"4028", "443", "8080"}, service.GetDefaultDiscoveryPorts(t.Context()))
 }
 
 func TestService_GetDiscoveryPorts(t *testing.T) {

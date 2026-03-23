@@ -222,10 +222,12 @@ func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
-func TestDiscoverWithIPList_UsesFirstPluginPortAsDefault(t *testing.T) {
+func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) {
 	mockDiscoverer := &MockDiscoverer{}
 	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
 	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").
+		Return(nil, fleeterror.NewInternalError("not a miner on port 8080")).Once()
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -245,7 +247,8 @@ func TestDiscoverWithIPList_UsesFirstPluginPortAsDefault(t *testing.T) {
 	}
 
 	mockDiscoverer.AssertExpectations(t)
-	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
+	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "443")
+	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 

@@ -117,6 +117,8 @@ type Listener interface {
 // CapabilitiesProvider provides miner capabilities from plugins
 type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pb.Device) *capabilitiespb.MinerCapabilities
+	// GetDefaultDiscoveryPorts returns the stock discovery scan set used when a
+	// discovery request omits explicit ports.
 	GetDefaultDiscoveryPorts(ctx context.Context) []string
 	GetDiscoveryPorts(ctx context.Context) []string
 }
@@ -195,7 +197,7 @@ func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []stri
 		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
 	}
 
-	slog.Debug("Resolved discovery ports from loaded plugin metadata defaults", "ports", ports)
+	slog.Debug("Resolved discovery ports from plugin default scan set", "ports", ports)
 	return ports, nil
 }
 
