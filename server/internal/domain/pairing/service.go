@@ -876,6 +876,21 @@ func isCredentialsRequiredError(err error) bool {
 		strings.Contains(strings.ToLower(err.Error()), "invalid_argument")
 }
 
+// isAlreadyPairedKeyRotationError checks for plugin errors emitted when a device is
+// already paired and the caller did not provide credentials needed to rotate keys.
+// Treating this as an idempotent no-op prevents rediscovered paired devices from
+// causing the entire batch Pair request to fail.
+func isAlreadyPairedKeyRotationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already paired") &&
+		strings.Contains(message, "key rotation") &&
+		strings.Contains(message, "valid credentials")
+}
+
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
@@ -924,6 +939,12 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		OrgID:            orgID,
 	}
 
+	existingDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, orgID)
+	if err != nil && !fleeterror.IsNotFoundError(err) {
+		return "", fleeterror.NewInternalErrorf("error getting existing device from store: %v", err)
+	}
+	knownPairedDevice := existingDevice != nil
+
 	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting device from store: %v", err)
@@ -953,6 +974,16 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 				return "", txErr
 			}
 
+			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
+		}
+
+		// Discovery can legitimately return devices that are already paired.
+		// If the caller did not provide credentials, treat explicit key-rotation
+		// auth failures on known devices as a no-op so Pair remains idempotent.
+		if credentials == nil && knownPairedDevice && isAlreadyPairedKeyRotationError(err) {
+			slog.Info("pair request targeted an already paired device without rotation credentials; treating as already paired",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"driver_name", discoveredDevice.DriverName)
 			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 		}
 
