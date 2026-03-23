@@ -22,4 +22,6 @@ type Info struct {
 	SessionID      string
 	UserID         int64
 	OrganizationID int64
+	ExternalUserID string
+	Username       string
 }

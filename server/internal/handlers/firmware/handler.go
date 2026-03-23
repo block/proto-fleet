@@ -271,7 +271,7 @@ func authenticate(r *http.Request, sessionService *session.Service, userStore in
 		return r.Context(), err
 	}
 
-	_, err = userStore.GetUserByID(r.Context(), sess.UserID)
+	user, err := userStore.GetUserByID(r.Context(), sess.UserID)
 	if err != nil {
 		return r.Context(), fleeterror.NewUnauthenticatedErrorf("user with id %d not found", sess.UserID)
 	}
@@ -280,6 +280,8 @@ func authenticate(r *http.Request, sessionService *session.Service, userStore in
 		SessionID:      sess.SessionID,
 		UserID:         sess.UserID,
 		OrganizationID: sess.OrganizationID,
+		ExternalUserID: user.UserID,
+		Username:       user.Username,
 	}
 
 	return authn.SetInfo(r.Context(), info), nil

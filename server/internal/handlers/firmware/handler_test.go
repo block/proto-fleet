@@ -81,7 +81,41 @@ func (e *testEnv) expectAuth() {
 		Return(nil)
 	e.userStoreMock.EXPECT().
 		GetUserByID(gomock.Any(), int64(1)).
-		Return(interfaces.User{ID: 1, Username: "testuser"}, nil)
+		Return(interfaces.User{ID: 1, UserID: "ext-user-id", Username: "testuser"}, nil)
+}
+
+func TestAuthenticate_PopulatesSessionInfo(t *testing.T) {
+	env := newTestEnv(t)
+
+	testSession := &session.Session{
+		SessionID:      env.sessionID,
+		UserID:         1,
+		OrganizationID: 1,
+		ExpiresAt:      time.Now().Add(24 * time.Hour),
+	}
+	env.sessionStoreMock.EXPECT().
+		GetSessionByID(gomock.Any(), env.sessionID).
+		Return(testSession, nil)
+	env.sessionStoreMock.EXPECT().
+		UpdateSessionActivity(gomock.Any(), env.sessionID, gomock.Any(), gomock.Any()).
+		Return(nil)
+	env.userStoreMock.EXPECT().
+		GetUserByID(gomock.Any(), int64(1)).
+		Return(interfaces.User{ID: 1, UserID: "ext-user-123", Username: "alice@fleet.io"}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	cookie := env.sessionSvc.CreateCookie(env.sessionID)
+	req.AddCookie(cookie)
+
+	ctx, err := authenticate(req, env.sessionSvc, env.userStoreMock)
+	require.NoError(t, err)
+
+	info, err := session.GetInfo(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), info.UserID)
+	assert.Equal(t, int64(1), info.OrganizationID)
+	assert.Equal(t, "ext-user-123", info.ExternalUserID)
+	assert.Equal(t, "alice@fleet.io", info.Username)
 }
 
 func (e *testEnv) uploadHandler() *uploadHandler {

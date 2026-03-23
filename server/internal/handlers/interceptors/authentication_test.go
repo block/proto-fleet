@@ -1,11 +1,18 @@
 package interceptors_test
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/proto-at-block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/proto-at-block/proto-fleet/server/internal/handlers/ping"
 	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 
 	pingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/ping/v1"
@@ -159,4 +166,66 @@ func TestAuthInterceptor(t *testing.T) {
 		// FK constraint prevents orphaned sessions - this is expected and good security
 		assert.Error(t, err, "FK constraint should prevent creating orphaned sessions")
 	})
+
+	t.Run("should populate ExternalUserID and Username in session info", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		sess, err := serviceProvider.SessionService.Create(t.Context(), testUser.DatabaseID, testUser.OrganizationID, "test-agent", "127.0.0.1")
+		assert.NoError(t, err)
+
+		var capturedInfo *session.Info
+		capturer := &sessionInfoCapturer{onCapture: func(info *session.Info) {
+			capturedInfo = info
+		}}
+
+		interceptorsOption := connect.WithInterceptors(
+			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, allowList),
+			capturer,
+		)
+
+		mux := http.NewServeMux()
+		mux.Handle(pingv1connect.NewPingServiceHandler(ping.Handler{}, interceptorsOption))
+		server := httptest.NewServer(mux)
+		t.Cleanup(server.Close)
+
+		client := pingv1connect.NewPingServiceClient(http.DefaultClient, server.URL)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		cookie := serviceProvider.SessionService.CreateCookie(sess.SessionID)
+		req.Header().Set("Cookie", cookie.String())
+
+		resp, err := client.Ping(t.Context(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello", resp.Msg.Text)
+
+		assert.NotZero(t, capturedInfo, "session info should have been captured")
+		assert.Equal(t, testUser.Username, capturedInfo.Username)
+		assert.NotEqual(t, "", capturedInfo.ExternalUserID)
+		assert.Equal(t, testUser.DatabaseID, capturedInfo.UserID)
+		assert.Equal(t, testUser.OrganizationID, capturedInfo.OrganizationID)
+	})
+}
+
+type sessionInfoCapturer struct {
+	onCapture func(*session.Info)
+}
+
+func (c *sessionInfoCapturer) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		if info, ok := authn.GetInfo(ctx).(*session.Info); ok {
+			c.onCapture(info)
+		}
+		return next(ctx, req)
+	}
+}
+
+func (c *sessionInfoCapturer) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (c *sessionInfoCapturer) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return next
 }

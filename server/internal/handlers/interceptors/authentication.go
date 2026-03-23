@@ -77,15 +77,17 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 		return ctx, err
 	}
 
-	_, err = i.userStore.GetUserByID(ctx, sess.UserID)
+	user, err := i.userStore.GetUserByID(ctx, sess.UserID)
 	if err != nil {
-		return ctx, fleeterror.NewUnauthenticatedErrorf("User with id %d not found", sess.UserID)
+		return ctx, fleeterror.NewUnauthenticatedErrorf("user with id %d not found", sess.UserID)
 	}
 
 	info := &session.Info{
 		SessionID:      sess.SessionID,
 		UserID:         sess.UserID,
 		OrganizationID: sess.OrganizationID,
+		ExternalUserID: user.UserID,
+		Username:       user.Username,
 	}
 
 	return authn.SetInfo(ctx, info), nil
