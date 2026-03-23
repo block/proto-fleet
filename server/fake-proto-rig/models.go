@@ -198,7 +198,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 	return &MinerState{
 		SerialNumber:       serialNumber,
 		MacAddress:         macAddress,
-		Model:              "Proto B4",
+		Model:              "Rig",
 		Hostname:           "proto-miner-" + serialNumber[len(serialNumber)-4:],
 		MiningStateVal:     MiningStateMining,
 		CoolingModeVal:     CoolingModeAuto,
