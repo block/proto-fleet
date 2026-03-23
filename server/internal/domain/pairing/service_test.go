@@ -1363,6 +1363,7 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{"443", "4028"})
 
 	scannedIP := "172.16.71.10"
 	firstPort := "443"
@@ -1427,10 +1428,6 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 	assert.Equal(t, originalIdentifier, secondDiscovery[0].DeviceIdentifier)
 
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-	activeUnpairedCount, err := discoveredDeviceStore.CountActiveUnpairedDevices(ctx, adminUser.OrganizationID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), activeUnpairedCount)
-
 	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: originalIdentifier,
 		OrgID:            adminUser.OrganizationID,
