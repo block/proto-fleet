@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -726,9 +727,67 @@ func stripIdentifier(m map[string]*pb.Device) map[string]*pb.Device {
 			panic(fmt.Sprintf("expected *pb.Device from proto.Clone, got %T", clone))
 		}
 		c.DeviceIdentifier = ""
+		if isEmptyMinerCapabilities(c.Capabilities) {
+			c.Capabilities = nil
+		}
 		out[k] = c
 	}
 	return out
+}
+
+func isEmptyMinerCapabilities(caps *capabilitiespb.MinerCapabilities) bool {
+	if caps == nil {
+		return true
+	}
+
+	return caps.Manufacturer == "" &&
+		isEmptyAuthenticationCapabilities(caps.Authentication) &&
+		isEmptyCommandCapabilities(caps.Commands) &&
+		isEmptyTelemetryCapabilities(caps.Telemetry) &&
+		isEmptyFirmwareCapabilities(caps.Firmware)
+}
+
+func isEmptyAuthenticationCapabilities(caps *capabilitiespb.AuthenticationCapabilities) bool {
+	return caps == nil || len(caps.SupportedMethods) == 0
+}
+
+func isEmptyCommandCapabilities(caps *capabilitiespb.CommandCapabilities) bool {
+	return caps == nil ||
+		(!caps.RebootSupported &&
+			!caps.MiningStartSupported &&
+			!caps.MiningStopSupported &&
+			!caps.LedBlinkSupported &&
+			!caps.FactoryResetSupported &&
+			!caps.AirCoolingSupported &&
+			!caps.ImmersionCoolingSupported &&
+			!caps.PoolSwitchingSupported &&
+			caps.PoolMaxCount == 0 &&
+			!caps.PoolPrioritySupported &&
+			!caps.LogsDownloadSupported &&
+			!caps.PowerModeEfficiencySupported &&
+			!caps.UpdateMinerPasswordSupported)
+}
+
+func isEmptyTelemetryCapabilities(caps *capabilitiespb.TelemetryCapabilities) bool {
+	return caps == nil ||
+		(!caps.RealtimeTelemetrySupported &&
+			!caps.HistoricalDataSupported &&
+			!caps.HashrateReported &&
+			!caps.PowerUsageReported &&
+			!caps.TemperatureReported &&
+			!caps.FanSpeedReported &&
+			!caps.EfficiencyReported &&
+			!caps.UptimeReported &&
+			!caps.ErrorCountReported &&
+			!caps.MinerStatusReported &&
+			!caps.PoolStatsReported &&
+			!caps.PerChipStatsReported &&
+			!caps.PerBoardStatsReported &&
+			!caps.PsuStatsReported)
+}
+
+func isEmptyFirmwareCapabilities(caps *capabilitiespb.FirmwareCapabilities) bool {
+	return caps == nil || (!caps.OtaUpdateSupported && !caps.ManualUploadSupported)
 }
 
 func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
