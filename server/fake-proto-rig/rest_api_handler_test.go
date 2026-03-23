@@ -104,6 +104,66 @@ func TestHandleLogin_NoPasswordSet_AcceptsAny(t *testing.T) {
 	}
 }
 
+func TestHandleRefresh_ValidRefreshToken_Returns200(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	loginRR := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"password":"anything"}`))
+	h.handleLogin(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
+	}
+
+	var initialTokens AuthTokens
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &initialTokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
+	}
+
+	refreshRR := httptest.NewRecorder()
+	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		strings.NewReader(fmt.Sprintf(`{"refresh_token":%q}`, initialTokens.RefreshToken)))
+	h.handleRefresh(refreshRR, refreshReq)
+
+	if refreshRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, refreshRR.Code, refreshRR.Body.String())
+	}
+
+	var refreshedTokens AuthTokens
+	if err := json.Unmarshal(refreshRR.Body.Bytes(), &refreshedTokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, refreshRR.Body.String())
+	}
+	if refreshedTokens.AccessToken == "" || refreshedTokens.RefreshToken == "" {
+		t.Fatalf("expected rotated tokens, got %+v", refreshedTokens)
+	}
+	if refreshedTokens.RefreshToken == initialTokens.RefreshToken {
+		t.Fatal("expected refresh token to rotate")
+	}
+	if state.GetAccessToken() != refreshedTokens.AccessToken {
+		t.Fatal("expected access token state to match refreshed token")
+	}
+	if state.GetRefreshToken() != refreshedTokens.RefreshToken {
+		t.Fatal("expected refresh token state to match refreshed token")
+	}
+}
+
+func TestHandleRefresh_InvalidRefreshToken_Returns401(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetRefreshToken("valid-refresh-token")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
+		strings.NewReader(`{"refresh_token":"bogus-refresh-token"}`))
+	h.handleRefresh(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+}
+
 func TestProtectedRouteRequiresBearerToken(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -355,6 +415,8 @@ func TestClearAuthKey_AlsoClearsPassword(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetAuthKey("some-key")
 	state.SetPassword("somePassword")
+	state.SetAccessToken("access-token")
+	state.SetRefreshToken("refresh-token")
 
 	state.ClearAuthKey()
 
@@ -363,6 +425,12 @@ func TestClearAuthKey_AlsoClearsPassword(t *testing.T) {
 	}
 	if state.GetPassword() != "" {
 		t.Fatal("expected password to be cleared")
+	}
+	if state.GetAccessToken() != "" {
+		t.Fatal("expected access token to be cleared")
+	}
+	if state.GetRefreshToken() != "" {
+		t.Fatal("expected refresh token to be cleared")
 	}
 }
 

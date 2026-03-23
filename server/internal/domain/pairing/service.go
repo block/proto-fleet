@@ -52,6 +52,11 @@ const (
 	defaultIPDiscoveryTimeoutSecs = 600              // Overall timeout for IP-based discovery (10 minutes)
 	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
 
+	// Page size for scanning active unpaired discovered rows when reconciling
+	// rediscovery across different ports for plugins that do not expose stable
+	// device identity at discovery time.
+	activeUnpairedReconcilePageSize = 100
+
 	// Nmap tuning parameters for faster scanning
 	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
 
@@ -574,6 +579,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 			// Database error - propagate instead of silently generating new identifier
 			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
 		}
+		if reconciledIdentifier == "" && existingDevice == nil {
+			reconciledIdentifier, err = s.reconcileActiveUnpairedByIPAddress(ctx, discoveredDevice, info.OrganizationID, scannedIP)
+			if err != nil {
+				return err
+			}
+		}
 		switch {
 		case reconciledIdentifier != "":
 			deviceIdentifier = reconciledIdentifier
@@ -689,6 +700,55 @@ func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discover
 	)
 
 	return pairedDevice.DiscoveredDeviceIdentifier, nil
+}
+
+// reconcileActiveUnpairedByIPAddress reuses the identifier of an active unpaired
+// discovery when the same driver/model/manufacturer is rediscovered on the same
+// IP via a different scanned port. This keeps IP-based discovery drivers from
+// creating duplicate rows as the scan iterates through a curated port list.
+func (s *Service) reconcileActiveUnpairedByIPAddress(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, scannedIP string) (string, error) {
+	if scannedIP == "" || discoveredDevice.DriverName == "" {
+		return "", nil
+	}
+	if discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "" {
+		return "", nil
+	}
+
+	cursor := ""
+	for {
+		devices, nextCursor, err := s.discoveredDeviceStore.GetActiveUnpairedDevices(ctx, orgID, cursor, activeUnpairedReconcilePageSize)
+		if err != nil {
+			return "", fleeterror.NewInternalErrorf("failed to list active unpaired devices during reconciliation: %v", err)
+		}
+
+		for _, existingDevice := range devices {
+			if existingDevice.IpAddress != scannedIP {
+				continue
+			}
+			if existingDevice.DriverName != discoveredDevice.DriverName {
+				continue
+			}
+			if !strings.EqualFold(existingDevice.Model, discoveredDevice.Model) {
+				continue
+			}
+			if !strings.EqualFold(existingDevice.Manufacturer, discoveredDevice.Manufacturer) {
+				continue
+			}
+
+			slog.Debug("reused active unpaired discovered device for same-IP cross-port rediscovery",
+				"ip_address", scannedIP,
+				"driver_name", discoveredDevice.DriverName,
+				"existing_port", existingDevice.Port,
+				"rediscovered_port", discoveredDevice.Port,
+				"device_identifier", existingDevice.DeviceIdentifier)
+			return existingDevice.DeviceIdentifier, nil
+		}
+
+		if nextCursor == "" {
+			return "", nil
+		}
+		cursor = nextCursor
+	}
 }
 
 func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool {

@@ -7,6 +7,7 @@ import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/net
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
+import { defaultDiscoveryPorts } from "@/protoFleet/features/onboarding/constants";
 
 vi.mock("@/protoFleet/api/useMinerPairing");
 vi.mock("@/protoFleet/api/useNetworkInfo");
@@ -98,7 +99,7 @@ describe("MinersWrapper", () => {
               case: "nmap",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
-                ports: [],
+                ports: defaultDiscoveryPorts,
               }),
             }),
           }),

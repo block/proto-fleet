@@ -37,6 +37,10 @@ type AuthTokens struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 // PasswordRequest matches the OpenAPI PasswordRequest schema (used for login and set-password).
 type PasswordRequest struct {
 	Password string `json:"password"`
@@ -604,6 +608,7 @@ func (h *RESTApiHandler) issueAuthTokens(prefix string) AuthTokens {
 		RefreshToken: prefix + "-refresh-token-" + issuedAt,
 	}
 	h.state.SetAccessToken(tokens.AccessToken)
+	h.state.SetRefreshToken(tokens.RefreshToken)
 	return tokens
 }
 
@@ -1010,6 +1015,7 @@ func (h *RESTApiHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.state.SetAccessToken("")
+	h.state.SetRefreshToken("")
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Logged out successfully"})
 }
 
@@ -1018,6 +1024,18 @@ func (h *RESTApiHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.RefreshToken == "" || req.RefreshToken != h.state.GetRefreshToken() {
+		h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid refresh token")
+		return
+	}
+
 	h.writeJSON(w, http.StatusOK, h.issueAuthTokens("mock-refreshed"))
 }
 

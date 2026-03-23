@@ -134,6 +134,7 @@ type MinerState struct {
 	AuthPublicKey string
 	Password      string
 	AccessToken   string
+	RefreshToken  string
 
 	// Onboarding status - set to true when pools are configured
 	Onboarded bool
@@ -361,6 +362,7 @@ func (s *MinerState) ClearAuthKey() {
 	s.AuthPublicKey = ""
 	s.Password = ""
 	s.AccessToken = ""
+	s.RefreshToken = ""
 }
 
 // SetPassword safely sets the password.
@@ -389,6 +391,20 @@ func (s *MinerState) GetAccessToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.AccessToken
+}
+
+// SetRefreshToken safely stores the current refresh token issued by the simulator.
+func (s *MinerState) SetRefreshToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RefreshToken = token
+}
+
+// GetRefreshToken returns the current refresh token issued by the simulator.
+func (s *MinerState) GetRefreshToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.RefreshToken
 }
 
 // SetOnboarded sets the onboarding status.

@@ -1,3 +1,11 @@
+// Canonical scan ports for the default onboarding scan.
+// Keep this list curated instead of inheriting every plugin-advertised port so
+// the default flow does not fan out into duplicate discoveries for drivers that
+// probe by IP rather than by scanned port.
+export const protoRigPorts = ["443", "8080"];
+export const antminerPort = "4028";
+export const defaultDiscoveryPorts = [...protoRigPorts, antminerPort];
+
 export const defaultTimeout = 10;
 
 export const STEP_KEYS = {

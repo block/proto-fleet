@@ -1360,6 +1360,85 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 	assert.Equal(t, occupantIdentifier, lookupByEndpoint.DeviceIdentifier)
 }
 
+func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	scannedIP := "172.16.71.10"
+	firstPort := "443"
+	secondPort := "4028"
+
+	mockDiscoverer := &MockDiscoverer{}
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	firstDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:       scannedIP,
+			Port:            firstPort,
+			UrlScheme:       "https",
+			DriverName:      "pyasic",
+			Model:           "M60S",
+			Manufacturer:    "WhatsMiner",
+			MacAddress:      "",
+			SerialNumber:    "",
+			FirmwareVersion: "1.0.0",
+		},
+	}
+	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:       scannedIP,
+			Port:            secondPort,
+			UrlScheme:       "http",
+			DriverName:      "pyasic",
+			Model:           "M60S",
+			Manufacturer:    "WhatsMiner",
+			MacAddress:      "",
+			SerialNumber:    "",
+			FirmwareVersion: "1.0.0",
+		},
+	}
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{firstPort},
+	})
+	require.NoError(t, err)
+
+	var firstDiscovery []*pb.Device
+	for result := range resultChan {
+		firstDiscovery = append(firstDiscovery, result.Devices...)
+	}
+	require.Len(t, firstDiscovery, 1)
+	originalIdentifier := firstDiscovery[0].DeviceIdentifier
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(secondDiscoveryDevice, nil).Once()
+	resultChan, err = pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{secondPort},
+	})
+	require.NoError(t, err)
+
+	var secondDiscovery []*pb.Device
+	for result := range resultChan {
+		secondDiscovery = append(secondDiscovery, result.Devices...)
+	}
+	require.Len(t, secondDiscovery, 1)
+	assert.Equal(t, originalIdentifier, secondDiscovery[0].DeviceIdentifier)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	activeUnpairedCount, err := discoveredDeviceStore.CountActiveUnpairedDevices(ctx, adminUser.OrganizationID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), activeUnpairedCount)
+
+	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: originalIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, secondPort, reconciledDevice.Port)
+}
+
 func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
