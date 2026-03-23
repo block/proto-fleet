@@ -163,4 +163,78 @@ describe("MinersWrapper", () => {
       expect(findMinersButton).toBeDisabled();
     });
   });
+
+  describe("manual discovery", () => {
+    it("preserves the curated discovery ports for IPs, subnets, and ranges", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      renderMinersPage("onboarding");
+
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.change(screen.getByTestId("ipAddresses"), {
+        target: {
+          value: "192.168.1.100\n192.168.1.0/24\n192.168.1.150 - 192.168.1.160",
+        },
+      });
+
+      const findMinersButton = screen.getByTestId("section-search-by-ip").querySelector("button")!;
+      fireEvent.click(findMinersButton);
+
+      await waitFor(() => {
+        expect(mockDiscover).toHaveBeenCalledTimes(3);
+      });
+
+      expect(mockDiscover).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          discoverRequest: expect.objectContaining({
+            mode: expect.objectContaining({
+              case: "ipList",
+              value: expect.objectContaining({
+                ipAddresses: ["192.168.1.100"],
+                ports: defaultDiscoveryPorts,
+              }),
+            }),
+          }),
+        }),
+      );
+
+      expect(mockDiscover).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          discoverRequest: expect.objectContaining({
+            mode: expect.objectContaining({
+              case: "nmap",
+              value: expect.objectContaining({
+                target: "192.168.1.0/24",
+                ports: defaultDiscoveryPorts,
+              }),
+            }),
+          }),
+        }),
+      );
+
+      expect(mockDiscover).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          discoverRequest: expect.objectContaining({
+            mode: expect.objectContaining({
+              case: "ipRange",
+              value: expect.objectContaining({
+                startIp: "192.168.1.150",
+                endIp: "192.168.1.160",
+                ports: defaultDiscoveryPorts,
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+  });
 });

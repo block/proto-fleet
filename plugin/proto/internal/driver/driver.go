@@ -32,6 +32,8 @@ const (
 	maxValidPortNumber = math.MaxUint16
 )
 
+var canonicalDiscoveryPorts = []int{443, 8080}
+
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
 
@@ -134,13 +136,13 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	return deviceInfo, capabilities, nil
 }
 
-// GetDiscoveryPorts returns the canonical scan port for Proto rigs configured
-// for this plugin instance.
+// GetDiscoveryPorts returns every canonical Proto discovery port in stable order.
 func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
-	if d.requiredPort <= 0 {
-		return nil
+	ports := make([]string, 0, len(canonicalDiscoveryPorts))
+	for _, port := range canonicalDiscoveryPorts {
+		ports = append(ports, fmt.Sprintf("%d", port))
 	}
-	return []string{fmt.Sprintf("%d", d.requiredPort)}
+	return ports
 }
 
 // DiscoverDevice implements the SDK Driver interface.
@@ -164,8 +166,8 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	portInt := int(portInt32)
 
 	// Note: In integration tests, we may use different ports due to Docker port mapping
-	if portInt != d.requiredPort && d.requiredPort != 0 {
-		return sdk.DeviceInfo{}, fmt.Errorf("proto miners are configured for port %d, got %s", d.requiredPort, port)
+	if !d.isAllowedDiscoveryPort(portInt) {
+		return sdk.DeviceInfo{}, fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port)
 	}
 
 	if strings.TrimSpace(ipAddress) == "" {
@@ -199,6 +201,32 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	return sdk.DeviceInfo{}, fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port)
+}
+
+func (d *Driver) isAllowedDiscoveryPort(port int) bool {
+	if d.requiredPort == 0 {
+		return true
+	}
+	if isCanonicalDiscoveryPort(d.requiredPort) {
+		return isCanonicalDiscoveryPort(port)
+	}
+	return port == d.requiredPort
+}
+
+func (d *Driver) expectedDiscoveryPorts() string {
+	if !isCanonicalDiscoveryPort(d.requiredPort) {
+		return fmt.Sprintf("port %d", d.requiredPort)
+	}
+	return "ports 443 or 8080"
+}
+
+func isCanonicalDiscoveryPort(port int) bool {
+	for _, canonicalPort := range canonicalDiscoveryPorts {
+		if port == canonicalPort {
+			return true
+		}
+	}
+	return false
 }
 
 func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto.DeviceInfo, error) {

@@ -192,6 +192,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               case: "ipList",
               value: {
                 ipAddresses: targets.ipAddresses,
+                ports: defaultDiscoveryPorts,
               },
             },
           }),
@@ -205,6 +206,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               case: "nmap",
               value: {
                 target: subnet,
+                ports: defaultDiscoveryPorts,
               },
             },
           }),
@@ -219,6 +221,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
               value: {
                 startIp: range.startIp,
                 endIp: range.endIp,
+                ports: defaultDiscoveryPorts,
               },
             },
           }),
