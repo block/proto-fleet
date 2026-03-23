@@ -1,8 +1,26 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
 export class GroupsPage extends BasePage {
+  private async clickDropdownFilterOption(popover: Locator, optionNames: string[]) {
+    for (const optionName of optionNames) {
+      const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
+      if (await optionByTestId.isVisible().catch(() => false)) {
+        await optionByTestId.click();
+        return;
+      }
+
+      const optionByText = popover.getByText(optionName, { exact: true }).first();
+      if (await optionByText.isVisible().catch(() => false)) {
+        await optionByText.click();
+        return;
+      }
+    }
+
+    throw new Error(`Unable to find filter option. Tried: ${optionNames.join(", ")}`);
+  }
+
   async clickAddGroupButton() {
     await this.clickButton("Add group");
     await this.validateModalIsOpen();
@@ -90,7 +108,7 @@ export class GroupsPage extends BasePage {
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
-    await popover.getByTestId(`filter-option-${type}`).click();
+    await this.clickDropdownFilterOption(popover, [type]);
     await popover.getByRole("button", { name: "Apply" }).click();
     await expect(popover).toBeHidden();
   }

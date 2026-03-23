@@ -1,5 +1,6 @@
 /* eslint-disable playwright/expect-expect */
 import { test } from "../fixtures/pageFixtures";
+import { generateRandomText } from "../helpers/testDataHelper";
 
 test.describe("Groups", () => {
   test.beforeEach(async ({ page }) => {
@@ -7,6 +8,9 @@ test.describe("Groups", () => {
   });
 
   test("Create, edit, and delete groups", async ({ groupsPage, commonSteps }) => {
+    const groupName = generateRandomText("group");
+    const editedGroupName = generateRandomText("edited-group");
+
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to Groups page", async () => {
@@ -15,7 +19,7 @@ test.describe("Groups", () => {
 
     await test.step("Create new group with all miners", async () => {
       await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName("test");
+      await groupsPage.inputGroupName(groupName);
 
       await groupsPage.waitForModalListToLoad();
       const allMinersCount = await groupsPage.getModalListRowCount();
@@ -23,16 +27,16 @@ test.describe("Groups", () => {
       await groupsPage.clickSelectAllCheckboxInModal();
       await groupsPage.clickSaveInModal();
 
-      await groupsPage.validateTextInToast('Group "test" created');
-      await groupsPage.validateSavedGroupVisible("test");
-      await groupsPage.validateSavedGroupMinerCount("test", allMinersCount);
+      await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+      await groupsPage.validateSavedGroupVisible(groupName);
+      await groupsPage.validateSavedGroupMinerCount(groupName, allMinersCount);
     });
 
     await test.step("Edit group to only rig miners", async () => {
-      await groupsPage.openSavedGroup("test");
+      await groupsPage.openSavedGroup(groupName);
       await groupsPage.waitForModalListToLoad();
 
-      await groupsPage.inputGroupName("edited-group");
+      await groupsPage.inputGroupName(editedGroupName);
 
       // clear previous selection
       await groupsPage.clickSelectAllCheckboxInModal();
@@ -45,23 +49,27 @@ test.describe("Groups", () => {
 
       await groupsPage.clickSaveInModal();
 
-      await groupsPage.validateTextInToast('Group "edited-group" updated');
-      await groupsPage.validateSavedGroupVisible("edited-group");
-      await groupsPage.validateSavedGroupMinerCount("edited-group", rigMinersCount);
+      await groupsPage.validateTextInToast(`Group "${editedGroupName}" updated`);
+      await groupsPage.validateSavedGroupVisible(editedGroupName);
+      await groupsPage.validateSavedGroupMinerCount(editedGroupName, rigMinersCount);
     });
 
     await test.step("Delete group", async () => {
-      await groupsPage.openSavedGroup("edited-group");
+      await groupsPage.openSavedGroup(editedGroupName);
       await groupsPage.clickDeleteGroupInModal();
-      await groupsPage.validateTitle(`Delete "edited-group"?`);
+      await groupsPage.validateTitle(`Delete "${editedGroupName}"?`);
       await groupsPage.clickDeleteConfirm();
 
-      await groupsPage.validateTextInToast('Group "edited-group" deleted');
-      await groupsPage.validateSavedGroupNotVisible("edited-group");
+      await groupsPage.validateTextInToast(`Group "${editedGroupName}" deleted`);
+      await groupsPage.validateSavedGroupNotVisible(editedGroupName);
     });
   });
 
   test("Validate groups association to miners", async ({ groupsPage, commonSteps }) => {
+    const group1Name = generateRandomText("group1");
+    const group2Name = generateRandomText("group2");
+    const group3Name = generateRandomText("group3");
+
     await commonSteps.loginAsAdmin();
 
     const minerIps: string[] = [];
@@ -81,64 +89,64 @@ test.describe("Groups", () => {
 
     await test.step("Create group1 with miners 0-2", async () => {
       await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName("group1");
+      await groupsPage.inputGroupName(group1Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.selectMinersByIndex([0, 1, 2]);
       await groupsPage.clickSaveInModal();
-      await groupsPage.validateTextInToast('Group "group1" created');
-      await groupsPage.validateSavedGroupVisible("group1");
-      await groupsPage.validateSavedGroupMinerCount("group1", 3);
+      await groupsPage.validateTextInToast(`Group "${group1Name}" created`);
+      await groupsPage.validateSavedGroupVisible(group1Name);
+      await groupsPage.validateSavedGroupMinerCount(group1Name, 3);
     });
 
     await test.step("Validate specific miners have group1 in group column", async () => {
       await groupsPage.clickAddGroupButton();
       await groupsPage.waitForModalListToLoad();
-      await groupsPage.validateMinerGroupsByIndex(0, "group1");
-      await groupsPage.validateMinerGroupsByIndex(1, "group1");
-      await groupsPage.validateMinerGroupsByIndex(2, "group1");
+      await groupsPage.validateMinerGroupsByIndex(0, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(1, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(2, group1Name);
       await groupsPage.closeModal();
     });
 
     await test.step("Create group2 with miners 1-3", async () => {
       await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName("group2");
+      await groupsPage.inputGroupName(group2Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.selectMinersByIndex([1, 2, 3]);
       await groupsPage.clickSaveInModal();
-      await groupsPage.validateTextInToast('Group "group2" created');
-      await groupsPage.validateSavedGroupVisible("group2");
-      await groupsPage.validateSavedGroupMinerCount("group2", 3);
+      await groupsPage.validateTextInToast(`Group "${group2Name}" created`);
+      await groupsPage.validateSavedGroupVisible(group2Name);
+      await groupsPage.validateSavedGroupMinerCount(group2Name, 3);
     });
 
     await test.step("Validate specific miners have group1 & group2 in group column", async () => {
       await groupsPage.clickAddGroupButton();
       await groupsPage.waitForModalListToLoad();
-      await groupsPage.validateMinerGroupsByIndex(0, "group1");
-      await groupsPage.validateMinerGroupsByIndex(1, "group1, group2");
-      await groupsPage.validateMinerGroupsByIndex(2, "group1, group2");
-      await groupsPage.validateMinerGroupsByIndex(3, "group2");
+      await groupsPage.validateMinerGroupsByIndex(0, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(1, `${group1Name}, ${group2Name}`);
+      await groupsPage.validateMinerGroupsByIndex(2, `${group1Name}, ${group2Name}`);
+      await groupsPage.validateMinerGroupsByIndex(3, group2Name);
       await groupsPage.closeModal();
     });
 
     await test.step("Create group3 with miners 2-4", async () => {
       await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName("group3");
+      await groupsPage.inputGroupName(group3Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.selectMinersByIndex([2, 3, 4]);
       await groupsPage.clickSaveInModal();
-      await groupsPage.validateTextInToast('Group "group3" created');
-      await groupsPage.validateSavedGroupVisible("group3");
-      await groupsPage.validateSavedGroupMinerCount("group3", 3);
+      await groupsPage.validateTextInToast(`Group "${group3Name}" created`);
+      await groupsPage.validateSavedGroupVisible(group3Name);
+      await groupsPage.validateSavedGroupMinerCount(group3Name, 3);
     });
 
     await test.step("Validate specific miners have group1, group2 & group3 in group column", async () => {
       await groupsPage.clickAddGroupButton();
       await groupsPage.waitForModalListToLoad();
-      await groupsPage.validateMinerGroupsByIndex(0, "group1");
-      await groupsPage.validateMinerGroupsByIndex(1, "group1, group2");
-      await groupsPage.validateMinerGroupsByIndex(2, "group1, group2, group3");
-      await groupsPage.validateMinerGroupsByIndex(3, "group2, group3");
-      await groupsPage.validateMinerGroupsByIndex(4, "group3");
+      await groupsPage.validateMinerGroupsByIndex(0, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(1, `${group1Name}, ${group2Name}`);
+      await groupsPage.validateMinerGroupsByIndex(2, `${group1Name}, ${group2Name}, ${group3Name}`);
+      await groupsPage.validateMinerGroupsByIndex(3, `${group2Name}, ${group3Name}`);
+      await groupsPage.validateMinerGroupsByIndex(4, group3Name);
       await groupsPage.closeModal();
     });
 
@@ -146,15 +154,15 @@ test.describe("Groups", () => {
       await groupsPage.clickAddGroupButton();
       await groupsPage.waitForModalListToLoad();
 
-      await groupsPage.filterModalGroup("group1");
+      await groupsPage.filterModalGroup(group1Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.validateOnlyTheseIpsVisibleInModal([minerIps[0], minerIps[1], minerIps[2]]);
 
-      await groupsPage.filterModalGroup("group2");
+      await groupsPage.filterModalGroup(group2Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.validateOnlyTheseIpsVisibleInModal([minerIps[1], minerIps[2], minerIps[3]]);
 
-      await groupsPage.filterModalGroup("group3");
+      await groupsPage.filterModalGroup(group3Name);
       await groupsPage.waitForModalListToLoad();
       await groupsPage.validateOnlyTheseIpsVisibleInModal([minerIps[2], minerIps[3], minerIps[4]]);
 
@@ -162,27 +170,30 @@ test.describe("Groups", () => {
     });
 
     await test.step("Delete group2", async () => {
-      await groupsPage.openSavedGroup("group2");
+      await groupsPage.openSavedGroup(group2Name);
       await groupsPage.clickDeleteGroupInModal();
-      await groupsPage.validateTitle(`Delete "group2"?`);
+      await groupsPage.validateTitle(`Delete "${group2Name}"?`);
       await groupsPage.clickDeleteConfirm();
-      await groupsPage.validateTextInToast('Group "group2" deleted');
-      await groupsPage.validateSavedGroupNotVisible("group2");
+      await groupsPage.validateTextInToast(`Group "${group2Name}" deleted`);
+      await groupsPage.validateSavedGroupNotVisible(group2Name);
     });
 
     await test.step("Validate specific miners have group1, group3 in group column", async () => {
       await groupsPage.clickAddGroupButton();
       await groupsPage.waitForModalListToLoad();
-      await groupsPage.validateMinerGroupsByIndex(0, "group1");
-      await groupsPage.validateMinerGroupsByIndex(1, "group1");
-      await groupsPage.validateMinerGroupsByIndex(2, "group1, group3");
-      await groupsPage.validateMinerGroupsByIndex(3, "group3");
-      await groupsPage.validateMinerGroupsByIndex(4, "group3");
+      await groupsPage.validateMinerGroupsByIndex(0, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(1, group1Name);
+      await groupsPage.validateMinerGroupsByIndex(2, `${group1Name}, ${group3Name}`);
+      await groupsPage.validateMinerGroupsByIndex(3, group3Name);
+      await groupsPage.validateMinerGroupsByIndex(4, group3Name);
       await groupsPage.closeModal();
     });
   });
 
   test("Cannot create group with no title or miners or with duplicate name", async ({ groupsPage, commonSteps }) => {
+    const groupName = generateRandomText("group");
+    const secondGroupName = generateRandomText("group");
+
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to Groups page", async () => {
@@ -199,7 +210,7 @@ test.describe("Groups", () => {
     });
 
     await test.step("Try to create a group without any miner", async () => {
-      await groupsPage.inputGroupName("test");
+      await groupsPage.inputGroupName(groupName);
       await groupsPage.clickSaveInModal();
     });
 
@@ -210,13 +221,13 @@ test.describe("Groups", () => {
     await test.step("Finish creating a valid group", async () => {
       await groupsPage.clickSelectAllCheckboxInModal();
       await groupsPage.clickSaveInModal();
-      await groupsPage.validateTextInToast('Group "test" created');
-      await groupsPage.validateSavedGroupVisible("test");
+      await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+      await groupsPage.validateSavedGroupVisible(groupName);
     });
 
     await test.step("Try to create a group with an existing group name", async () => {
       await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName("test");
+      await groupsPage.inputGroupName(groupName);
       await groupsPage.clickSelectAllCheckboxInModal();
       await groupsPage.clickSaveInModal();
     });
@@ -226,11 +237,11 @@ test.describe("Groups", () => {
     });
 
     await test.step("Finish creating a second valid group", async () => {
-      await groupsPage.inputGroupName("test1");
+      await groupsPage.inputGroupName(secondGroupName);
       await groupsPage.clickSaveInModal();
-      await groupsPage.validateTextInToast('Group "test1" created');
-      await groupsPage.validateSavedGroupVisible("test");
-      await groupsPage.validateSavedGroupVisible("test1");
+      await groupsPage.validateTextInToast(`Group "${secondGroupName}" created`);
+      await groupsPage.validateSavedGroupVisible(groupName);
+      await groupsPage.validateSavedGroupVisible(secondGroupName);
     });
   });
 });

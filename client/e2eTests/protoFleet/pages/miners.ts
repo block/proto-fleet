@@ -6,6 +6,24 @@ import { BasePage } from "./base";
 const PROLONGED_TIMEOUT = DEFAULT_TIMEOUT * 4;
 
 export class MinersPage extends BasePage {
+  private async clickDropdownFilterOption(popover: Locator, optionNames: string[]) {
+    for (const optionName of optionNames) {
+      const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
+      if (await optionByTestId.isVisible().catch(() => false)) {
+        await optionByTestId.click();
+        return;
+      }
+
+      const optionByText = popover.getByText(optionName, { exact: true }).first();
+      if (await optionByText.isVisible().catch(() => false)) {
+        await optionByText.click();
+        return;
+      }
+    }
+
+    throw new Error(`Unable to find filter option. Tried: ${optionNames.join(", ")}`);
+  }
+
   async validateMinersPageOpened() {
     await this.validateTitle("Miners");
   }
@@ -25,7 +43,7 @@ export class MinersPage extends BasePage {
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
-    await popover.getByTestId(`filter-option-${minerType}`).click();
+    await this.clickDropdownFilterOption(popover, [minerType]);
     await popover.getByRole("button", { name: "Apply" }).click();
     await expect(popover).toBeHidden();
   }
