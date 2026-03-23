@@ -13,6 +13,7 @@ export class GroupsPage extends BasePage {
       const rowCount = await rows.count();
       await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
       const rowCountAfterDelay = await rows.count();
+      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(rowCountAfterDelay).toBe(rowCount);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
@@ -102,6 +103,20 @@ export class GroupsPage extends BasePage {
   async getModalRowIpAddressByIndex(index: number): Promise<string> {
     const ipCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("ipAddress");
     return (await ipCell.innerText()).trim();
+  }
+
+  async getUngroupedMinerIps(limit: number): Promise<string[]> {
+    const rowCount = await this.getModalListRowCount();
+    const minerIps: string[] = [];
+
+    for (let i = 0; i < rowCount && minerIps.length < limit; i++) {
+      if ((await this.getModalRowGroupByIndex(i)) !== "") {
+        continue;
+      }
+      minerIps.push(await this.getModalRowIpAddressByIndex(i));
+    }
+
+    return minerIps;
   }
 
   async selectMinerByIp(ipAddress: string) {
@@ -205,6 +220,18 @@ export class GroupsPage extends BasePage {
       names.push((await nameCells.nth(i).innerText()).trim());
     }
     return names;
+  }
+
+  async deleteSavedGroupIfVisible(groupName: string) {
+    const groupRow = this.getGroupRow(groupName);
+    if (!(await groupRow.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.openSavedGroup(groupName);
+    await this.clickDeleteGroupInModal();
+    await this.clickDeleteConfirm();
+    await this.validateSavedGroupNotVisible(groupName);
   }
 
   private getGroupRow(groupName: string) {

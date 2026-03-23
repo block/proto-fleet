@@ -2,6 +2,7 @@
 import { test } from "../fixtures/pageFixtures";
 import { PROTO_RIG_MODEL } from "../helpers/minerModels";
 import { generateRandomText } from "../helpers/testDataHelper";
+import { GroupsPage } from "../pages/groups";
 
 test.describe("Groups", () => {
   const testGroupPrefixes = ["group_", "group1_", "group2_", "group3_", "edited-group_"];
@@ -10,7 +11,7 @@ test.describe("Groups", () => {
     await page.goto("/");
   });
 
-  async function cleanupLeakedTestGroups(groupsPage: any) {
+  async function cleanupLeakedTestGroups(groupsPage: GroupsPage) {
     while (true) {
       const existingGroupNames = await groupsPage.listSavedGroupNames();
       const leakedGroupNames = existingGroupNames.filter((groupName: string) =>
@@ -89,7 +90,7 @@ test.describe("Groups", () => {
     });
   });
 
-  test("Validate groups association to miners", async ({ groupsPage, commonSteps, page }) => {
+  test("Validate groups association to miners", async ({ groupsPage, commonSteps }) => {
     const group1Name = generateRandomText("group1");
     const group2Name = generateRandomText("group2");
     const group3Name = generateRandomText("group3");
@@ -107,13 +108,7 @@ test.describe("Groups", () => {
       await test.step("Capture 5 clean miners with no existing groups", async () => {
         await groupsPage.clickAddGroupButton();
         await groupsPage.waitForModalListToLoad();
-        const rowCount = await groupsPage.getModalListRowCount();
-        for (let i = 0; i < rowCount && minerIps.length < 5; i++) {
-          if ((await groupsPage.getModalRowGroupByIndex(i)) !== "") {
-            continue;
-          }
-          minerIps.push(await groupsPage.getModalRowIpAddressByIndex(i));
-        }
+        minerIps.push(...(await groupsPage.getUngroupedMinerIps(5)));
         test.expect(minerIps).toHaveLength(5);
         await groupsPage.closeModal();
       });
@@ -233,17 +228,7 @@ test.describe("Groups", () => {
       for (const groupName of [...createdGroups].reverse()) {
         try {
           await groupsPage.navigateToGroupsPage();
-          const groupRow = page
-            .getByTestId("list-row")
-            .filter({ has: page.getByTestId("name").getByText(groupName, { exact: true }) })
-            .first();
-          if (!(await groupRow.isVisible().catch(() => false))) {
-            continue;
-          }
-          await groupsPage.openSavedGroup(groupName);
-          await groupsPage.clickDeleteGroupInModal();
-          await groupsPage.clickDeleteConfirm();
-          await groupsPage.validateSavedGroupNotVisible(groupName);
+          await groupsPage.deleteSavedGroupIfVisible(groupName);
         } catch {
           // Best-effort cleanup to keep later runs isolated.
         }
