@@ -2,9 +2,14 @@ package queue
 
 import (
 	"context"
+	"errors"
 
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
 )
+
+// ErrStale is returned when a MarkSuccess/MarkFailed/MarkPermanentlyFailed update
+// finds 0 rows affected because the message is no longer in PROCESSING state (e.g., already reaped).
+var ErrStale = errors.New("stale: message no longer PROCESSING")
 
 type Message struct {
 	ID           int64
@@ -22,13 +27,16 @@ type MessageQueue interface {
 	// Dequeue retrieves and locks batch of commands for processing
 	Dequeue(ctx context.Context) ([]Message, error)
 
-	// MarkSuccess updates a command as successfully processed
+	// MarkSuccess updates a command as successfully processed.
+	// Returns ErrStale if the message is no longer PROCESSING.
 	MarkSuccess(ctx context.Context, messageID int64) error
 
-	// MarkFailed updates a command as failed with error info (may retry if under max retries)
+	// MarkFailed updates a command as failed with error info (may retry if under max retries).
+	// Returns ErrStale if the message is no longer PROCESSING.
 	MarkFailed(ctx context.Context, messageID int64, errorInfo string) error
 
-	// MarkPermanentlyFailed marks a command as failed with no retries (for permanent errors like unsupported capabilities)
+	// MarkPermanentlyFailed marks a command as failed with no retries (for permanent errors like unsupported capabilities).
+	// Returns ErrStale if the message is no longer PROCESSING.
 	MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error
 
 	IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error)

@@ -33,6 +33,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
+	}
 	if q.clearRackSlotPositionStmt, err = db.PrepareContext(ctx, clearRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackSlotPosition: %w", err)
 	}
@@ -390,6 +393,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.queryErrorsStmt, err = db.PrepareContext(ctx, queryErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query QueryErrors: %w", err)
 	}
+	if q.reapStuckProcessingMessagesStmt, err = db.PrepareContext(ctx, reapStuckProcessingMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ReapStuckProcessingMessages: %w", err)
+	}
 	if q.removeAllDevicesFromCollectionStmt, err = db.PrepareContext(ctx, removeAllDevicesFromCollection); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromCollection: %w", err)
 	}
@@ -537,6 +543,11 @@ func (q *Queries) Close() error {
 	if q.allDevicesBelongToOrgStmt != nil {
 		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
+		}
+	}
+	if q.claimMessageForProcessingStmt != nil {
+		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
 		}
 	}
 	if q.clearRackSlotPositionStmt != nil {
@@ -1134,6 +1145,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing queryErrorsStmt: %w", cerr)
 		}
 	}
+	if q.reapStuckProcessingMessagesStmt != nil {
+		if cerr := q.reapStuckProcessingMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reapStuckProcessingMessagesStmt: %w", cerr)
+		}
+	}
 	if q.removeAllDevicesFromCollectionStmt != nil {
 		if cerr := q.removeAllDevicesFromCollectionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeAllDevicesFromCollectionStmt: %w", cerr)
@@ -1391,6 +1407,7 @@ type Queries struct {
 	addDevicesToCollectionStmt                          *sql.Stmt
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
+	claimMessageForProcessingStmt                       *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
 	closeStaleErrorsStmt                                *sql.Stmt
 	collectionBelongsToOrgStmt                          *sql.Stmt
@@ -1510,6 +1527,7 @@ type Queries struct {
 	queryComponentKeysWithErrorsStmt                    *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
 	queryErrorsStmt                                     *sql.Stmt
+	reapStuckProcessingMessagesStmt                     *sql.Stmt
 	removeAllDevicesFromCollectionStmt                  *sql.Stmt
 	removeDevicesFromCollectionStmt                     *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
@@ -1562,6 +1580,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addDevicesToCollectionStmt:                          q.addDevicesToCollectionStmt,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
+		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
 		collectionBelongsToOrgStmt:                          q.collectionBelongsToOrgStmt,
@@ -1681,6 +1700,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
 		queryErrorsStmt:                                     q.queryErrorsStmt,
+		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
 		removeAllDevicesFromCollectionStmt:                  q.removeAllDevicesFromCollectionStmt,
 		removeDevicesFromCollectionStmt:                     q.removeDevicesFromCollectionStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,

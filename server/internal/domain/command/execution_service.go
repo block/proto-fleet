@@ -27,6 +27,8 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
 )
 
+const dbWriteTimeout = 10 * time.Second
+
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
@@ -48,9 +50,16 @@ type ExecutionService struct {
 
 	queueProcessorMu      sync.Mutex
 	queueProcessorRunning bool
+	reaperCancel          context.CancelFunc
 }
 
 func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+	if config.StuckMessageTimeout <= 0 {
+		config.StuckMessageTimeout = 5 * time.Minute
+	}
+	if config.ReaperInterval <= 0 {
+		config.ReaperInterval = 30 * time.Second
+	}
 	return &ExecutionService{
 		config:                config,
 		conn:                  conn,
@@ -77,9 +86,18 @@ func (es *ExecutionService) Start(ctx context.Context) error {
 
 	es.queueProcessorRunning = true
 
+	if es.reaperCancel != nil {
+		es.reaperCancel()
+	}
+	reaperCtx, reaperCancel := context.WithCancel(ctx)
+	es.reaperCancel = reaperCancel
+
+	go es.startStuckMessageReaper(reaperCtx)
+
 	// Start the queue processor thread
 	go func() {
 		err := es.startQueueProcessorThread(ctx)
+		reaperCancel()
 		es.queueProcessorMu.Lock()
 		es.queueProcessorRunning = false
 		es.queueProcessorMu.Unlock()
@@ -97,6 +115,61 @@ func (es *ExecutionService) IsRunning() bool {
 	defer es.queueProcessorMu.Unlock()
 
 	return es.queueProcessorRunning
+}
+
+func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
+	ticker := time.NewTicker(es.config.ReaperInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if es.conn == nil {
+				continue
+			}
+			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
+			count, err := es.reapStuckMessages(reapCtx)
+			reapCancel()
+			if err != nil {
+				slog.Error("stuck message reaper error", "error", err)
+				continue
+			}
+			if count > 0 {
+				slog.Warn("stuck message reaper moved messages to FAILED", "count", count)
+			}
+		}
+	}
+}
+
+// reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
+// writes the corresponding audit log entries in a single transaction.
+func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, error) {
+	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
+	var count int
+	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
+			Cutoff:    cutoff,
+			ReapLimit: 100,
+		})
+		if err != nil {
+			return err
+		}
+		count = len(reaped)
+		for _, msg := range reaped {
+			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid:      msg.CommandBatchLogUuid,
+				DeviceID:  msg.DeviceID,
+				Status:    sqlc.DeviceCommandStatusEnumFAILED,
+				UpdatedAt: time.Now(),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return count, err
 }
 
 func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
@@ -172,9 +245,22 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
 	workerError := es.workerExecuteCommand(ctx, message.CommandType, message)
+
+	// If the message was already reaped, the reaper handled the audit log atomically.
+	// Do not overwrite it with a stale result.
+	if errors.Is(workerError, queue.ErrStale) {
+		slog.Warn("skipping audit log for stale message", "message_id", message.ID)
+		return
+	}
+
+	// Use a detached context for post-execution DB writes so they succeed even
+	// when the worker's WorkerExecutionTimeout has cancelled ctx.
+	// WithoutCancel preserves tracing/request-ID values from the parent context.
+	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer dbCancel()
 	timeNow := time.Now()
-	dbError := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
-		return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
+	dbError := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+		return q.UpsertCommandOnDeviceLog(dbCtx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      message.BatchLogUUID,
 			DeviceID:  message.DeviceID,
 			Status:    upsertCommandOnDeviceStatus(workerError),
@@ -182,7 +268,6 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		})
 	})
 	if dbError != nil {
-		// TODO what to do if commandOnDeviceLog fails
 		slog.Error("error creating command on device log", "error", dbError)
 	}
 }
@@ -190,8 +275,13 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
 	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
-		markFailedErr := es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
+		dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+		defer dbCancel()
+		markFailedErr := es.messageQueue.MarkFailed(dbCtx, message.ID, err.Error())
 		if markFailedErr != nil {
+			if errors.Is(markFailedErr, queue.ErrStale) {
+				return markFailedErr
+			}
 			return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v, and also error marking as failed: %v", message.DeviceID, err, markFailedErr)
 		}
 		return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
@@ -286,20 +376,29 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 
 	if err != nil {
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
+		dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+		defer dbCancel()
 		// Permanent errors (e.g. unsupported capability) should not be retried
 		var markErr error
 		if fleeterror.IsUnimplementedError(err) {
-			markErr = es.messageQueue.MarkPermanentlyFailed(ctx, message.ID, err.Error())
+			markErr = es.messageQueue.MarkPermanentlyFailed(dbCtx, message.ID, err.Error())
 		} else {
-			markErr = es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
+			markErr = es.messageQueue.MarkFailed(dbCtx, message.ID, err.Error())
 		}
 		if markErr != nil {
+			if errors.Is(markErr, queue.ErrStale) {
+				return markErr
+			}
 			return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v (original error: %v)", markErr, err)
 		}
 		return err
 	}
-	err = es.messageQueue.MarkSuccess(ctx, message.ID)
-	if err != nil {
+	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer dbCancel()
+	if err := es.messageQueue.MarkSuccess(dbCtx, message.ID); err != nil {
+		if errors.Is(err, queue.ErrStale) {
+			return err
+		}
 		return fleeterror.NewInternalErrorf("error setting message as success on queue: %v", err)
 	}
 	return nil

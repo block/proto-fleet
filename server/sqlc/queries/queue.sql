@@ -15,13 +15,14 @@ INSERT INTO queue_message (
      $6
 );
 
--- name: UpdateMessageStatus :exec
+-- name: UpdateMessageStatus :execresult
 UPDATE queue_message
 SET status = $1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $2;
+WHERE id = $2
+  AND status = 'PROCESSING';
 
--- name: UpdateMessageAfterFailure :exec
+-- name: UpdateMessageAfterFailure :execresult
 UPDATE queue_message
 SET status = CASE
         WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
@@ -30,14 +31,23 @@ SET status = CASE
     retry_count = retry_count + 1,
     error_info = $2,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $3;
+WHERE id = $3
+  AND status = 'PROCESSING';
 
--- name: UpdateMessagePermanentlyFailed :exec
+-- name: UpdateMessagePermanentlyFailed :execresult
 UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = $1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $2;
+WHERE id = $2
+  AND status = 'PROCESSING';
+
+-- name: ClaimMessageForProcessing :execresult
+UPDATE queue_message
+SET status = 'PROCESSING'::queue_status_enum,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PENDING';
 
 -- name: GetMessagesToProcess :many
 SELECT m.*
@@ -53,6 +63,22 @@ WHERE m.status = 'PENDING'
 )
 ORDER BY m.created_at
 LIMIT $2;
+
+-- name: ReapStuckProcessingMessages :many
+WITH stuck AS (
+    SELECT m.id FROM queue_message m
+    WHERE m.status = 'PROCESSING'
+      AND m.updated_at < @cutoff
+    LIMIT @reap_limit
+)
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = 'reaped: stuck in PROCESSING beyond timeout',
+    updated_at = CURRENT_TIMESTAMP
+FROM stuck
+WHERE queue_message.id = stuck.id
+  AND queue_message.status = 'PROCESSING'
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid;
 
 -- name: IsBatchFinished :one
 SELECT

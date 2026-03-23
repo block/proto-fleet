@@ -8,9 +8,22 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/sqlc-dev/pqtype"
 )
+
+const claimMessageForProcessing = `-- name: ClaimMessageForProcessing :execresult
+UPDATE queue_message
+SET status = 'PROCESSING'::queue_status_enum,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PENDING'
+`
+
+func (q *Queries) ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error) {
+	return q.exec(ctx, q.claimMessageForProcessingStmt, claimMessageForProcessing, id)
+}
 
 const createQueueMessage = `-- name: CreateQueueMessage :exec
 INSERT INTO queue_message (
@@ -142,7 +155,58 @@ func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid str
 	return is_processing, err
 }
 
-const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :exec
+const reapStuckProcessingMessages = `-- name: ReapStuckProcessingMessages :many
+WITH stuck AS (
+    SELECT m.id FROM queue_message m
+    WHERE m.status = 'PROCESSING'
+      AND m.updated_at < $1
+    LIMIT $2
+)
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = 'reaped: stuck in PROCESSING beyond timeout',
+    updated_at = CURRENT_TIMESTAMP
+FROM stuck
+WHERE queue_message.id = stuck.id
+  AND queue_message.status = 'PROCESSING'
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid
+`
+
+type ReapStuckProcessingMessagesParams struct {
+	Cutoff    time.Time
+	ReapLimit int32
+}
+
+type ReapStuckProcessingMessagesRow struct {
+	ID                  int64
+	DeviceID            int64
+	CommandBatchLogUuid string
+}
+
+func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error) {
+	rows, err := q.query(ctx, q.reapStuckProcessingMessagesStmt, reapStuckProcessingMessages, arg.Cutoff, arg.ReapLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReapStuckProcessingMessagesRow
+	for rows.Next() {
+		var i ReapStuckProcessingMessagesRow
+		if err := rows.Scan(&i.ID, &i.DeviceID, &i.CommandBatchLogUuid); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :execresult
 UPDATE queue_message
 SET status = CASE
         WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
@@ -152,6 +216,7 @@ SET status = CASE
     error_info = $2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
+  AND status = 'PROCESSING'
 `
 
 type UpdateMessageAfterFailureParams struct {
@@ -160,17 +225,17 @@ type UpdateMessageAfterFailureParams struct {
 	ID         int64
 }
 
-func (q *Queries) UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessageAfterFailureParams) error {
-	_, err := q.exec(ctx, q.updateMessageAfterFailureStmt, updateMessageAfterFailure, arg.RetryCount, arg.ErrorInfo, arg.ID)
-	return err
+func (q *Queries) UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessageAfterFailureParams) (sql.Result, error) {
+	return q.exec(ctx, q.updateMessageAfterFailureStmt, updateMessageAfterFailure, arg.RetryCount, arg.ErrorInfo, arg.ID)
 }
 
-const updateMessagePermanentlyFailed = `-- name: UpdateMessagePermanentlyFailed :exec
+const updateMessagePermanentlyFailed = `-- name: UpdateMessagePermanentlyFailed :execresult
 UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = $1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $2
+  AND status = 'PROCESSING'
 `
 
 type UpdateMessagePermanentlyFailedParams struct {
@@ -178,16 +243,16 @@ type UpdateMessagePermanentlyFailedParams struct {
 	ID        int64
 }
 
-func (q *Queries) UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) error {
-	_, err := q.exec(ctx, q.updateMessagePermanentlyFailedStmt, updateMessagePermanentlyFailed, arg.ErrorInfo, arg.ID)
-	return err
+func (q *Queries) UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) (sql.Result, error) {
+	return q.exec(ctx, q.updateMessagePermanentlyFailedStmt, updateMessagePermanentlyFailed, arg.ErrorInfo, arg.ID)
 }
 
-const updateMessageStatus = `-- name: UpdateMessageStatus :exec
+const updateMessageStatus = `-- name: UpdateMessageStatus :execresult
 UPDATE queue_message
 SET status = $1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $2
+  AND status = 'PROCESSING'
 `
 
 type UpdateMessageStatusParams struct {
@@ -195,7 +260,6 @@ type UpdateMessageStatusParams struct {
 	ID     int64
 }
 
-func (q *Queries) UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) error {
-	_, err := q.exec(ctx, q.updateMessageStatusStmt, updateMessageStatus, arg.Status, arg.ID)
-	return err
+func (q *Queries) UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (sql.Result, error) {
+	return q.exec(ctx, q.updateMessageStatusStmt, updateMessageStatus, arg.Status, arg.ID)
 }

@@ -85,6 +85,39 @@ func TestExecutionService_Start(t *testing.T) {
 	})
 }
 
+func TestStuckMessageReaper(t *testing.T) {
+	t.Run("reaper goroutine runs alongside processor", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}).AnyTimes()
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+
+		// conn=nil makes reapStuckMessages skip the DB call, so we just test
+		// that the goroutine starts and the processor runs alongside it.
+		svc := NewExecutionService(t.Context(), &Config{
+			MaxWorkers:            5,
+			MasterPollingInterval: 10 * time.Millisecond,
+			StuckMessageTimeout:   5 * time.Minute,
+			ReaperInterval:        10 * time.Millisecond,
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+		// Act
+		err := svc.Start(t.Context())
+
+		// Assert
+		require.NoError(t, err)
+		assert.Eventually(t, func() bool {
+			return svc.IsRunning()
+		}, 100*time.Millisecond, 5*time.Millisecond)
+	})
+}
+
 func TestQueueProcessorRetries(t *testing.T) {
 	t.Run("retries dequeue errors and continues running", func(t *testing.T) {
 		// Arrange
