@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
+import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import { Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
@@ -8,7 +9,7 @@ import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import { formatTimestamp } from "@/shared/utils/formatTimestamp";
+import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 type FirmwareFileData = {
   id: string;
@@ -47,7 +48,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     id: info.id,
     filename: info.filename,
     size: info.size,
-    uploadedAt: Math.floor(new Date(info.uploaded_at).getTime() / 1000),
+    uploadedAt: isoToEpochSeconds(info.uploaded_at),
   };
 }
 
@@ -55,6 +56,7 @@ const Firmware = () => {
   const { listFirmwareFiles, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
@@ -124,6 +126,15 @@ const Firmware = () => {
       });
   }, [deleteAllFirmwareFiles, fetchFiles]);
 
+  const handleUploadSuccess = useCallback(() => {
+    setShowUploadDialog(false);
+    fetchFiles();
+    pushToast({
+      message: "Firmware file uploaded successfully",
+      status: STATUSES.success,
+    });
+  }, [fetchFiles]);
+
   const availableActions = useMemo(
     () => [
       {
@@ -140,13 +151,21 @@ const Firmware = () => {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <Header title="Firmware" titleSize="text-heading-300" />
-        <Button
-          variant={variants.danger}
-          size={sizes.base}
-          text="Delete all"
-          onClick={() => setShowDeleteAllDialog(true)}
-          disabled={files.length === 0 || isDeletingAll}
-        />
+        <div className="flex gap-3">
+          <Button
+            variant={variants.primary}
+            size={sizes.base}
+            text="Upload firmware"
+            onClick={() => setShowUploadDialog(true)}
+          />
+          <Button
+            variant={variants.danger}
+            size={sizes.base}
+            text="Delete all"
+            onClick={() => setShowDeleteAllDialog(true)}
+            disabled={files.length === 0 || isDeletingAll}
+          />
+        </div>
       </div>
 
       {isLoading ? (
@@ -164,6 +183,12 @@ const Firmware = () => {
           actions={availableActions}
         />
       )}
+
+      <FirmwareUploadDialog
+        open={showUploadDialog}
+        onSuccess={handleUploadSuccess}
+        onDismiss={() => setShowUploadDialog(false)}
+      />
 
       <DeleteAllFirmwareDialog
         open={showDeleteAllDialog}

@@ -1,3 +1,5 @@
+export const isoToEpochSeconds = (isoString: string): number => Math.floor(new Date(isoString).getTime() / 1000);
+
 /**
  * Format timestamp as "M/D/YY at h:mmA"
  *
