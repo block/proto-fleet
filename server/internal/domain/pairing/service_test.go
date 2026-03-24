@@ -940,6 +940,87 @@ func TestPairDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus))
 	})
+
+	t.Run("marks externally paired unpaired devices as AUTHENTICATION_NEEDED", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+
+		deviceIdentifier := "externally-paired-unpaired-device-001"
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}, &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				IpAddress:        "172.16.21.151",
+				Port:             "443",
+				UrlScheme:        "https",
+				DriverName:       "proto",
+			},
+			OrgID:    adminUser.OrganizationID,
+			IsActive: true,
+		})
+		require.NoError(t, err)
+
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+
+		_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+			OrgID:              adminUser.OrganizationID,
+			DiscoveredDeviceID: discoveredDevice.ID,
+			DeviceIdentifier:   deviceIdentifier,
+			MacAddress:         "C8:98:DB:10:D1:96",
+		})
+		require.NoError(t, err)
+
+		deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier)
+		require.NoError(t, err)
+
+		_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+			DeviceID:      deviceID,
+			PairingStatus: sqlc.PairingStatusEnumUNPAIRED,
+		})
+		require.NoError(t, err)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockPairer := pairingMocks.NewMockPairer(ctrl)
+		mockPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(fmt.Errorf("rpc error: code = Unknown desc = pairing failed: unauthenticated: device is already paired and requires valid credentials for key rotation"))
+
+		tokenService := testContext.ServiceProvider.TokenService
+		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+		pluginService := testContext.ServiceProvider.PluginService
+		mockListener := pairingMocks.NewMockListener(ctrl)
+
+		pairingService := pairing.NewService(
+			discoveredDeviceStore,
+			deviceStore,
+			transactor,
+			tokenService,
+			&MockDiscoverer{},
+			pluginService,
+			mockListener,
+			mockPairer,
+		)
+
+		resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{deviceIdentifier}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.FailedDeviceIds)
+
+		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus))
+	})
 }
 
 func assertDevicesEqual(t *testing.T, actual []*pb.Device, expected []*discoverymodels.DiscoveredDevice) {

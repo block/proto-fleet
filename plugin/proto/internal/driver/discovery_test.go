@@ -219,14 +219,14 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 			driverPort:   443,
 			targetPort:   "8080",
 			expectError:  true,
-			errorMessage: "failed to discover proto miner",
+			errorMessage: "proto miners are configured for port 443",
 		},
 		{
-			name:         "strict driver on 8080 accepts default https port before probing",
+			name:         "strict driver on 8080 rejects canonical https port before probing",
 			driverPort:   8080,
 			targetPort:   "443",
 			expectError:  true,
-			errorMessage: "failed to discover proto miner",
+			errorMessage: "proto miners are configured for port 8080",
 		},
 		{
 			name:         "strict driver on 8080 accepts configured port before network call",

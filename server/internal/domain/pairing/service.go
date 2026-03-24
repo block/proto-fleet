@@ -1036,7 +1036,19 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	if err != nil && !fleeterror.IsNotFoundError(err) {
 		return "", fleeterror.NewInternalErrorf("error getting existing device from store: %v", err)
 	}
-	knownPairedDevice := existingDevice != nil
+	knownPairedDevice := false
+	if existingDevice != nil {
+		statusProvider, ok := s.deviceStore.(devicePairingStatusProvider)
+		if ok {
+			pairingStatus, statusErr := statusProvider.GetDevicePairingStatusByIdentifier(ctx, deviceID, orgID)
+			if statusErr != nil && !fleeterror.IsNotFoundError(statusErr) {
+				return "", fleeterror.NewInternalErrorf("error getting existing device pairing status: %v", statusErr)
+			}
+			knownPairedDevice = pairingStatus == StatusPaired || pairingStatus == StatusAuthenticationNeeded
+		} else {
+			knownPairedDevice = true
+		}
+	}
 
 	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 	if err != nil {
@@ -1077,6 +1089,20 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 			slog.Info("pair request targeted an already paired device without rotation credentials; treating as already paired",
 				"device_identifier", discoveredDevice.DeviceIdentifier,
 				"driver_name", discoveredDevice.DriverName)
+			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
+		}
+		if credentials == nil && isAlreadyPairedKeyRotationError(err) {
+			slog.Info("device is already paired externally, marking as AUTHENTICATION_NEEDED",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"driver_name", discoveredDevice.DriverName)
+
+			if txErr := s.handleAuthenticationRequiredPairing(ctx, discoveredDevice); txErr != nil {
+				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record for externally paired device",
+					"device_identifier", discoveredDevice.DeviceIdentifier,
+					"error", txErr)
+				return "", txErr
+			}
+
 			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 		}
 
