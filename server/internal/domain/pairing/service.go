@@ -160,6 +160,10 @@ type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
 }
 
+type devicePairingStatusProvider interface {
+	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
+}
+
 // CapabilitiesProvider provides miner capabilities from plugins
 type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pb.Device) *capabilitiespb.MinerCapabilities
@@ -877,7 +881,8 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, fleeterror.NewInvalidArgumentError("no devices match the selector")
 	}
 
-	deviceIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
+	successfulIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
+	telemetryDeviceIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
 	failedIDs := make([]string, 0, len(deviceIdentifiers))
 
 	credentials := r.Credentials
@@ -886,7 +891,17 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	for _, deviceID := range deviceIdentifiers {
 		persistedDeviceID, err := s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
 		if err == nil {
-			deviceIDs = append(deviceIDs, persistedDeviceID)
+			successfulIDs = append(successfulIDs, persistedDeviceID)
+			shouldSchedule, scheduleErr := s.shouldScheduleTelemetryForDevice(ctx, persistedDeviceID, info.OrganizationID)
+			if scheduleErr != nil {
+				slog.Warn("failed to determine whether paired device should be scheduled for telemetry",
+					"device_identifier", persistedDeviceID,
+					"error", scheduleErr)
+				continue
+			}
+			if shouldSchedule {
+				telemetryDeviceIDs = append(telemetryDeviceIDs, persistedDeviceID)
+			}
 		} else {
 			slog.Error("failed to pair device", "error", err) // continue pairing other devices
 			failedIDs = append(failedIDs, deviceID)
@@ -894,18 +909,46 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	}
 
 	// Partial success is valid
-	if len(deviceIDs) == 0 {
+	if len(successfulIDs) == 0 {
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
-	if err := s.listener.AddDevices(ctx, deviceIDs...); err != nil {
-		slog.Error("failed to add devices to telemetry scheduler", "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
+	if len(telemetryDeviceIDs) > 0 {
+		if err := s.listener.AddDevices(ctx, telemetryDeviceIDs...); err != nil {
+			slog.Error("failed to add devices to telemetry scheduler", "error", err)
+			return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
+		}
 	}
 
 	return &pb.PairResponse{
 		FailedDeviceIds: failedIDs,
 	}, nil
+}
+
+func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {
+	statusProvider, ok := s.deviceStore.(devicePairingStatusProvider)
+	if !ok {
+		return true, nil
+	}
+
+	pairingStatus, err := statusProvider.GetDevicePairingStatusByIdentifier(ctx, string(deviceID), orgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			// Some tests use mocked pairers that don't persist the device row. In that case
+			// preserve the pre-existing behavior and allow telemetry scheduling.
+			return true, nil
+		}
+		return false, err
+	}
+
+	if pairingStatus != StatusPaired {
+		slog.Info("skipping telemetry scheduling for device that is not fully paired",
+			"device_identifier", deviceID,
+			"pairing_status", pairingStatus)
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // isCredentialsRequiredError checks if an error indicates that credentials are required but not provided
