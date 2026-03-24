@@ -1240,6 +1240,69 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
 	})
+
+	t.Run("preserves firmware learned during pairing when post-pair device info omits it", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		host := "192.168.1.102"
+		portStr := "8080"
+		discoveredFirmwareVersion := "9.9.9"
+		pairedFirmwareVersion := "1.2.3"
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := createMockDevice(host, portStr, "proto")
+		mockDevice.FirmwareVersion = discoveredFirmwareVersion
+		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
+
+		mockProtoPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			DoAndReturn(func(_ context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+				discoveredDevice.FirmwareVersion = pairedFirmwareVersion
+				return nil
+			})
+		mockProtoPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials any) (*pb.Device, error) {
+				return &pb.Device{
+					DeviceIdentifier: discoveredDevice.DeviceIdentifier,
+					FirmwareVersion:  "",
+				}, nil
+			})
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockProtoPairer, mockDiscoverer)
+
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{host},
+			Ports:       []string{portStr},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{devices[0].DeviceIdentifier}))
+		require.NoError(t, err)
+
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+		require.True(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be preserved when pairing already learned it")
+		assert.Equal(t, pairedFirmwareVersion, discoveredDevice.FirmwareVersion.String, "firmware_version should preserve the value learned during pairing")
+	})
 }
 
 func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
@@ -1348,11 +1411,12 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := &discoverymodels.DiscoveredDevice{
 			Device: pb.Device{
-				IpAddress:  oldIP,
-				Port:       port,
-				UrlScheme:  "http",
-				DriverName: "proto",
-				MacAddress: mac,
+				IpAddress:       oldIP,
+				Port:            port,
+				UrlScheme:       "http",
+				DriverName:      "proto",
+				MacAddress:      mac,
+				FirmwareVersion: "1.2.3",
 			},
 		}
 		mockDiscoverer.On("Discover", mock.Anything, oldIP, port).Return(mockDevice, nil)
@@ -1462,6 +1526,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		dd, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 		require.NoError(t, err)
 		assert.Equal(t, newIP, dd.IpAddress, "discovered_device IP should be updated to the new subnet IP")
+		assert.Equal(t, "1.2.3", dd.FirmwareVersion, "MAC-reconciled rediscovery should preserve existing firmware when the new discovery omits it")
 
 		// Verify no duplicate device records were created
 		deviceID1, err := queries.GetDeviceIDByDeviceIdentifier(ctx, originalDeviceIdentifier)
@@ -1710,15 +1775,14 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 	}
 	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			IpAddress:       scannedIP,
-			Port:            secondPort,
-			UrlScheme:       "http",
-			DriverName:      "pyasic",
-			Model:           "M60S",
-			Manufacturer:    "WhatsMiner",
-			MacAddress:      "",
-			SerialNumber:    "",
-			FirmwareVersion: "1.0.0",
+			IpAddress:    scannedIP,
+			Port:         secondPort,
+			UrlScheme:    "http",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+			MacAddress:   "",
+			SerialNumber: "",
 		},
 	}
 
@@ -1757,6 +1821,7 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 	})
 	require.NoError(t, err)
 	assert.Equal(t, secondPort, reconciledDevice.Port)
+	assert.Empty(t, reconciledDevice.FirmwareVersion, "weak same-IP cross-port reconciliation should clear stale firmware when the new discovery omits it")
 }
 
 func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {

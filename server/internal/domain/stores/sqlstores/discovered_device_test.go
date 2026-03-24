@@ -193,6 +193,67 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldRefreshModelAndManufacturerOnRedisc
 	assert.Equal(t, "192.168.1.101", updated.IpAddress)
 }
 
+func TestSQLDiscoveredDeviceStore_Save_ShouldClearFirmwareVersionWhenRediscoveryOmitsIt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
+	ctx := t.Context()
+
+	queries := sqlc.New(db)
+	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		OrgID:               "test-org-clear-firmware",
+		Name:                "Test Org Clear Firmware",
+		MinerAuthPrivateKey: "test-key",
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
+		_ = queries.DeleteOrganization(ctx, orgID)
+	})
+
+	deviceIdentifier := "test-device-clear-firmware"
+	doi := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	}
+
+	_, err = store.Save(ctx, doi, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			Model:            "Proto Rig",
+			Manufacturer:     "Proto",
+			FirmwareVersion:  "1.2.3",
+			DriverName:       "proto",
+			IpAddress:        "192.168.1.100",
+			Port:             "443",
+			UrlScheme:        "https",
+		},
+		OrgID: orgID,
+	})
+	require.NoError(t, err)
+
+	updated, err := store.Save(ctx, doi, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			Model:            "Proto Rig",
+			Manufacturer:     "Proto",
+			DriverName:       "proto",
+			IpAddress:        "192.168.1.101",
+			Port:             "443",
+			UrlScheme:        "https",
+		},
+		OrgID: orgID,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, updated.FirmwareVersion)
+	assert.Equal(t, "192.168.1.101", updated.IpAddress)
+}
+
 func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnExistingDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")

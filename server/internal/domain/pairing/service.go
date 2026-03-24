@@ -616,11 +616,13 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
+	preserveMissingFirmware := deviceIdentifier != ""
 	if deviceIdentifier == "" {
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil {
 			return err
 		}
+		reconciledByMAC := reconciledIdentifier != ""
 
 		// Check if we've already discovered a device at this scanned IP:port
 		// This prevents duplicate entries during network rescans
@@ -640,9 +642,11 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		switch {
 		case reconciledIdentifier != "":
 			deviceIdentifier = reconciledIdentifier
+			preserveMissingFirmware = reconciledByMAC
 		case existingDevice != nil:
 			// Reuse the existing device_identifier to update the same row
 			deviceIdentifier = existingDevice.DeviceIdentifier
+			preserveMissingFirmware = false
 			slog.Debug("reusing existing device identifier for rescan",
 				"scanned_ip", scannedIP,
 				"scanned_port", scannedPort,
@@ -697,6 +701,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	// or if its configuration has changed, but we want to store it at the IP:port we scanned
 	discoveredDevice.IpAddress = scannedIP
 	discoveredDevice.Port = scannedPort
+	if err := s.hydrateMissingFirmwareVersion(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            info.OrganizationID,
+	}, discoveredDevice, preserveMissingFirmware); err != nil {
+		return err
+	}
 
 	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
@@ -713,6 +723,28 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	case <-ctx.Done():
 	}
 
+	return nil
+}
+
+func (s *Service) hydrateMissingFirmwareVersion(
+	ctx context.Context,
+	doi discoverymodels.DeviceOrgIdentifier,
+	discoveredDevice *discoverymodels.DiscoveredDevice,
+	preserveMissingFirmware bool,
+) error {
+	if !preserveMissingFirmware || discoveredDevice.FirmwareVersion != "" {
+		return nil
+	}
+
+	existingDevice, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
+	switch {
+	case fleeterror.IsNotFoundError(err):
+		return nil
+	case err != nil:
+		return fleeterror.NewInternalErrorf("failed to load existing discovered device firmware: %v", err)
+	}
+
+	discoveredDevice.FirmwareVersion = existingDevice.FirmwareVersion
 	return nil
 }
 
@@ -1119,8 +1151,10 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		slog.Warn("failed to get device info after pairing, continuing without firmware version",
 			"device_identifier", discoveredDevice.DeviceIdentifier,
 			"error", err)
-	} else {
-		// Update firmware version from authenticated device info
+	} else if updatedDeviceInfo.FirmwareVersion != "" {
+		// Preserve firmware learned during PairDevice when the follow-up describe
+		// omits firmware. The plugin path converts from sdk.DeviceInfo, where
+		// firmware is a plain string without field presence.
 		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 	}
 

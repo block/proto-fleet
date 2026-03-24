@@ -141,6 +141,8 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 				"device_identifier", discoveredDevice.DeviceIdentifier,
 				"error", err)
 		} else if deviceInfo.FirmwareVersion != "" {
+			// Preserve firmware learned from PairDevice when DescribeDevice omits it.
+			// sdk.DeviceInfo.FirmwareVersion has no field presence, so empty is ambiguous.
 			discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
 		}
 

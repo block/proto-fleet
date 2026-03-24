@@ -657,6 +657,11 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 
 // persistFirmwareVersionIfChanged updates the discovered_device table when the
 // firmware version reported by the device differs from the last known value.
+//
+// Telemetry firmware_version comes from a proto3 string without field presence,
+// so an empty string is ambiguous: the driver may have omitted the field rather
+// than explicitly reporting "no firmware version". We therefore treat empty
+// telemetry values as "no update" instead of clearing stored firmware.
 func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, deviceID models.DeviceIdentifier, firmwareVersion string) {
 	if firmwareVersion == "" {
 		return
