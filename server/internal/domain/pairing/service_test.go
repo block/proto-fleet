@@ -1241,7 +1241,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
 	})
 
-	t.Run("preserves discovered firmware version when post-pair device info omits it", func(t *testing.T) {
+	t.Run("clears discovered firmware version when post-pair device info omits it", func(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
