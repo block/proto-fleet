@@ -29,6 +29,7 @@ type errorMapping struct {
 	causeSummary      string
 	recommendedAction string
 	impact            string
+	formatSummary     func(proto.NotificationError) string
 }
 
 // Rig error mappings keyed by error_code string
@@ -39,6 +40,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Reported hashrate won't match hashrate reported by the pool",
 		recommendedAction: "Check the network connection to the pool and restart the miner",
 		impact:            "Reduced mining revenue",
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board detected low hashrate"
+		},
 	},
 	"OverHeat": {
 		minerError:        sdkerrors.DeviceOverTemperature,
@@ -46,6 +50,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "System cooling failure",
 		recommendedAction: "Inspect fans for sufficient cooling",
 		impact:            "System shutdown",
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board is overheating"
+		},
 	},
 	"InsufficientCooling": {
 		minerError:        sdkerrors.FanFailed,
@@ -53,6 +60,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Not enough fans or critical cooling fan not operating correctly",
 		recommendedAction: "Check fan connections and cooling, hashboard harness/connections, replace fan module if consistent failure. Check hashboard configuration (hashboards must be installed in slots (1,3,4,6,7,9))",
 		impact:            "Hashboards in affected bay are unable to start mining",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Bay %d has insufficient cooling", "Bay has insufficient cooling")
+		},
 	},
 	"PoolConnectionFailure": {
 		minerError:        sdkerrors.DeviceCommunicationLost,
@@ -60,6 +70,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Incorrect pool URL, bad credentials, pool communication failure",
 		recommendedAction: "Update mining pool. Update firmware if failure persists",
 		impact:            impactUnableToStartMining,
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board is unable to connect to pool"
+		},
 	},
 	"PoolConfigMissing": {
 		minerError:        sdkerrors.FirmwareConfigInvalid,
@@ -67,6 +80,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "There is no mining pool configuration",
 		recommendedAction: "Update mining pool configuration",
 		impact:            impactUnableToStartMining,
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board pool configuration missing"
+		},
 	},
 	"MiningStoppedDueToPhaseImbalance": {
 		minerError:        sdkerrors.PSUInputPhaseImbalance,
@@ -74,6 +90,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Full bay failure when phase balancing is enabled",
 		recommendedAction: "Address root cause of the bay failure (PSU, hashboards, etc)",
 		impact:            "Mining Stopped, will not restart until the bay is repaired",
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Mining stopped due to phase imbalance"
+		},
 	},
 	"PSURecoveryInProgress": {
 		minerError:        sdkerrors.PSUFaultGeneric,
@@ -81,6 +100,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "It may indicate an issue in the LLC section of that PSU",
 		recommendedAction: "Check for PSU errors, retest, replace if consistent failure. Check fan and cooling, replace if consistent failure",
 		impact:            "Hashboards in affected bay are unable to start mining",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "PSU recovery in progress for bay %d", "PSU recovery in progress for bay")
+		},
 	},
 	"NetworkError": {
 		minerError:        sdkerrors.DeviceCommunicationLost,
@@ -88,6 +110,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Damaged ethernet cable or tray",
 		recommendedAction: "Inspect IO module, ethernet cable. Replace if consistent failure",
 		impact:            "Unable to connect to mining pool",
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board is unable to connect to the network"
+		},
 	},
 	"FirmwareUpdateFailure": {
 		minerError:        sdkerrors.FirmwareImageInvalid,
@@ -95,6 +120,9 @@ var rigErrorMappings = map[string]errorMapping{
 		causeSummary:      "Invalid/corrupt firmware image",
 		recommendedAction: "Factory reset then update firmware, replace if consistent failure",
 		impact:            "Unable to update firmware",
+		formatSummary: func(_ proto.NotificationError) string {
+			return "Control board encountered a firmware update error"
+		},
 	},
 }
 
@@ -106,6 +134,9 @@ var fanErrorMappings = map[string]errorMapping{
 		causeSummary:      "Unseated/damaged connector, missing power",
 		recommendedAction: "Replace fan, inspect fan module wiring if consistent failure",
 		impact:            "Miner overheating",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Fan %d hardware error", "Fan hardware error")
+		},
 	},
 	"FanSlow": {
 		minerError:        sdkerrors.FanSpeedDeviation,
@@ -113,6 +144,9 @@ var fanErrorMappings = map[string]errorMapping{
 		causeSummary:      "Mechanical damage, dust, worn motor, Connector/cable issue",
 		recommendedAction: "Replace fan module",
 		impact:            "Miner overheating",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Fan %d has stalled", "Fan has stalled")
+		},
 	},
 	"SetFanSpeedFailed": {
 		minerError:        sdkerrors.FanSpeedDeviation,
@@ -120,6 +154,9 @@ var fanErrorMappings = map[string]errorMapping{
 		causeSummary:      "Failed to set fan speed",
 		recommendedAction: "Monitor fan control system",
 		impact:            "Cannot adjust cooling dynamically",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Fan %d failed to set fan speed", "Fan failed to set fan speed")
+		},
 	},
 	"FanConnectedInImmersion": {
 		minerError:        sdkerrors.VendorErrorUnmapped,
@@ -127,6 +164,9 @@ var fanErrorMappings = map[string]errorMapping{
 		causeSummary:      "Remove fans for immersion cooling",
 		recommendedAction: "Remove fans for immersion mode",
 		impact:            "Mining Disabled",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Fan %d connected in immersion mode", "Fan connected in immersion mode")
+		},
 	},
 }
 
@@ -138,6 +178,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Insufficient cooling",
 		recommendedAction: actionCheckFanCoolingReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d overheating", "Hashboard overheating")
+		},
 	},
 	"AsicEnumeration": {
 		minerError:        sdkerrors.HashboardMissingChips,
@@ -145,6 +188,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Damaged fuse, clock crystal, MCU, or faulty ASIC",
 		recommendedAction: actionRetestReplace,
 		impact:            impactUnableToStartMining,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d unable to start mining", "Hashboard unable to start mining")
+		},
 	},
 	"HbCommunication": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -152,6 +198,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"CommTasksNotInitialized": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -159,6 +206,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"InvalidAddWorkResponse": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -166,6 +214,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"InvalidMetadataResponse": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -173,6 +222,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"MissingCommChannel": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -180,6 +230,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"CommandTimeout": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -187,6 +238,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"TaskCommunicationError": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -194,6 +246,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"CommsAlive": {
 		minerError:        sdkerrors.ASICChainCommunicationLost,
@@ -201,6 +254,7 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary:     hashboardCommunicationSummary,
 	},
 	"AsicEcc": {
 		minerError:        sdkerrors.ASICCRCErrorExcessive,
@@ -208,6 +262,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Communication channel (e.g. SLINK) electrical failure, software bug",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d excessive ECC errors detected", "Hashboard excessive ECC errors detected")
+		},
 	},
 	"HbUnderVoltage": {
 		minerError:        sdkerrors.BoardPowerRailUndervolt,
@@ -215,6 +272,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Voltage droop",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d undervoltage detected", "Hashboard undervoltage detected")
+		},
 	},
 	"HbOverVoltage": {
 		minerError:        sdkerrors.BoardPowerRailOvervolt,
@@ -222,6 +282,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "PSU spike",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d overvoltage detected", "Hashboard overvoltage detected")
+		},
 	},
 	"HbOverCurrent": {
 		minerError:        sdkerrors.BoardPowerOvercurrent,
@@ -229,6 +292,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "PSU spike, ASIC malfunction",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d overcurrent detected", "Hashboard overcurrent detected")
+		},
 	},
 	"AsicOverHeat": {
 		minerError:        sdkerrors.HashboardASICOverTemperature,
@@ -236,6 +302,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "TIM wearout",
 		recommendedAction: actionCheckFanCoolingReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d ASIC is overheating", "Hashboard ASIC is overheating")
+		},
 	},
 	"AsicUnderHeat": {
 		minerError:        sdkerrors.HashboardASICUnderTemperature,
@@ -243,6 +312,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "ASIC outside of operating temperature, ambient too cold",
 		recommendedAction: actionRetestReplace,
 		impact:            impactReducedHashrateBoardShut,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d ASIC temperature is too low", "Hashboard ASIC temperature is too low")
+		},
 	},
 	"AsicNotHashing": {
 		minerError:        sdkerrors.HashrateBelowTarget,
@@ -250,6 +322,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "The ASIC may get stuck while SLINK remains functional; this could be due to unfavorable temperature, frequency, or voltage conditions",
 		recommendedAction: "The firmware will restart mining with the hashboard; however, if the same ASIC continues to appear as not mining, the ASICs need to be inspected",
 		impact:            "Reduced hashrate",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d ASIC is not hashing", "Hashboard ASIC is not hashing")
+		},
 	},
 	"PowerLost": {
 		minerError:        sdkerrors.BoardPowerPGOODMissing,
@@ -257,6 +332,9 @@ var hashboardErrorMappings = map[string]errorMapping{
 		causeSummary:      "Sudden loss of power to hashboard",
 		recommendedAction: actionCheckPSURetestReplace,
 		impact:            "board shutdowns, unable to start mining",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d has lost power", "Hashboard has lost power")
+		},
 	},
 }
 
@@ -268,6 +346,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "I2C mux/bus contention, I2C bus signal integrity issue, command/response timeout",
 		recommendedAction: "Not a concerning failure if intermittent, replace if consistent",
 		impact:            "Loss of control, status messages",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d communication error", "Power supply communication error")
+		},
 	},
 	"PsuOutputUnderVoltage": {
 		minerError:        sdkerrors.PSUOutputVoltageFault,
@@ -275,6 +356,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Output undervoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d output voltage is too low", "Power supply output voltage is too low")
+		},
 	},
 	"PsuOutputOverVoltage": {
 		minerError:        sdkerrors.PSUOutputVoltageFault,
@@ -282,6 +366,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Output overvoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d output voltage is too high", "Power supply output voltage is too high")
+		},
 	},
 	"PsuOutputFailure": {
 		minerError:        sdkerrors.PSUOutputVoltageFault,
@@ -289,6 +376,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Output failure",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d output fault", "Power supply output fault")
+		},
 	},
 	"PsuOutputOverCurrent": {
 		minerError:        sdkerrors.PSUOutputOvercurrent,
@@ -296,6 +386,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Loose AC connection",
 		recommendedAction: actionCheckACConnectorsReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d load is drawing too much current", "Power supply load is drawing too much current")
+		},
 	},
 	"PsuFans": {
 		minerError:        sdkerrors.PSUFanFault,
@@ -303,6 +396,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "PSU fan failure",
 		recommendedAction: actionRetestVerifyPSUFansReplace,
 		impact:            "Over temperature",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d fan failure", "Power supply fan failure")
+		},
 	},
 	"PsuOverTemperature": {
 		minerError:        sdkerrors.PSUOverTemperature,
@@ -310,6 +406,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Fan cooling system failure, high ambient temperatures",
 		recommendedAction: actionRetestVerifyPSUFansReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d overheating", "Power supply overheating")
+		},
 	},
 	"PsuUnderTemperature": {
 		minerError:        sdkerrors.PSUUnderTemperature,
@@ -317,6 +416,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "PSU operating in too cold/out of spec ambient conditions",
 		recommendedAction: "N/A",
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d temperature is too low", "Power supply temperature is too low")
+		},
 	},
 	"PsuInput": {
 		minerError:        sdkerrors.PSUFaultGeneric,
@@ -324,6 +426,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Input voltage fault",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d is detecting an input voltage fault", "Power supply is detecting an input voltage fault")
+		},
 	},
 	"PsuInputUnderVoltage": {
 		minerError:        sdkerrors.PSUInputVoltageLow,
@@ -331,6 +436,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Input undervoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d input voltage is too low", "Power supply input voltage is too low")
+		},
 	},
 	"PsuInputOverVoltage": {
 		minerError:        sdkerrors.PSUInputVoltageHigh,
@@ -338,6 +446,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Input overvoltage",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d input voltage is too high", "Power supply input voltage is too high")
+		},
 	},
 	"PsuInputOverCurrent": {
 		minerError:        sdkerrors.PSUFaultGeneric,
@@ -345,6 +456,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Input overcurrent",
 		recommendedAction: actionRetestReplace,
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d input current is too high", "Power supply input current is too high")
+		},
 	},
 	"PsuNoInputVoltage": {
 		minerError:        sdkerrors.PSUInputVoltageLow,
@@ -352,6 +466,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Loose power cables",
 		recommendedAction: "Tighten the power cable connections, replace any faulty cables, or verify the input power supply",
 		impact:            impactBayShutdown,
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d is not detecting input voltage", "Power supply is not detecting input voltage")
+		},
 	},
 	"PsuPowerNoGood": {
 		minerError:        sdkerrors.PSUFaultGeneric,
@@ -359,6 +476,9 @@ var psuErrorMappings = map[string]errorMapping{
 		causeSummary:      "Damaged PSU - It may indicate an issue in the LLC section of that PSU",
 		recommendedAction: actionRetestReplace,
 		impact:            "PSU damaged",
+		formatSummary: func(notifErr proto.NotificationError) string {
+			return formatSummaryWithOptionalSlot(notifErr.Slot, "Power supply %d detected a power fault", "Power supply detected a power fault")
+		},
 	},
 }
 
@@ -405,6 +525,9 @@ func convertNotificationError(notifErr proto.NotificationError, deviceID string)
 		baseError.RecommendedAction = mapping.recommendedAction
 		baseError.Impact = mapping.impact
 		baseError.Summary = notifErr.Message
+		if baseError.Summary == "" && mapping.formatSummary != nil {
+			baseError.Summary = mapping.formatSummary(notifErr)
+		}
 	} else {
 		baseError.MinerError = sdkerrors.VendorErrorUnmapped
 		baseError.Severity = sdkerrors.SeverityInfo
@@ -468,6 +591,17 @@ func lookupErrorMapping(source, errorCode string) (errorMapping, bool) {
 	default:
 		return errorMapping{}, false
 	}
+}
+
+func hashboardCommunicationSummary(notifErr proto.NotificationError) string {
+	return formatSummaryWithOptionalSlot(notifErr.Slot, "Hashboard %d communication error", "Hashboard communication error")
+}
+
+func formatSummaryWithOptionalSlot(slot int, withSlotFormat string, withoutSlot string) string {
+	if slot > 0 {
+		return fmt.Sprintf(withSlotFormat, slot)
+	}
+	return withoutSlot
 }
 
 func formatDefaultSummary(notifErr proto.NotificationError) string {

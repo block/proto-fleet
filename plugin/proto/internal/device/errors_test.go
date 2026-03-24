@@ -82,7 +82,7 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Fan 3 detected an error: FanSlow"},
+			expectedSummaries: []string{"Fan 3 has stalled"},
 		},
 		{
 			name: "rig pool connection failure with URL in message",
@@ -129,7 +129,38 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
-			expectedSummaries: []string{"Control board detected an error: InsufficientCooling"},
+			expectedSummaries: []string{"Bay has insufficient cooling"},
+		},
+		{
+			name: "rig insufficient cooling without message uses slot as bay context",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "rig",
+						Slot:      2,
+						ErrorCode: "InsufficientCooling",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Bay 2 has insufficient cooling"},
+		},
+		{
+			name: "rig pool connection failure without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "rig",
+						ErrorCode: "PoolConnectionFailure",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Control board is unable to connect to pool"},
 		},
 		{
 			name: "hashboard ASIC overheat with temperature in message",
@@ -183,6 +214,22 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Hashboard 1 overcurrent detected: 42.50 A"},
 		},
 		{
+			name: "hashboard overcurrent without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "hashboard",
+						Slot:      1,
+						ErrorCode: "HbOverCurrent",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Hashboard 1 overcurrent detected"},
+		},
+		{
 			name: "hashboard communication errors map to same miner error",
 			response: &proto.ErrorsResponse{
 				Errors: []proto.NotificationError{
@@ -208,6 +255,22 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 				"Hashboard 2 communication error",
 				"Hashboard 3 communication error",
 			},
+		},
+		{
+			name: "PSU no input voltage without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "psu",
+						Slot:      2,
+						ErrorCode: "PsuNoInputVoltage",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Power supply 2 is not detecting input voltage"},
 		},
 		{
 			name:          "nil response returns empty errors",

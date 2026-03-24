@@ -63,13 +63,17 @@ type PluginInfo struct {
 // GetDefaultDiscoveryPorts returns the stock discovery scan set used when the
 // caller omits an explicit port list. Default discovery should probe every
 // advertised plugin port so multi-port drivers remain reachable without a
-// client-side override.
+// client-side override. This is intentionally separate from GetDiscoveryPorts:
+// pairing uses the default scan set when a request omits ports, while same-IP
+// reconciliation iterates the canonical plugin-advertised discovery ports.
 func (s *Service) GetDefaultDiscoveryPorts(ctx context.Context) []string {
 	return s.GetDiscoveryPorts(ctx)
 }
 
 // GetDiscoveryPorts returns the stable deduplicated union of all advertised
-// discovery ports across loaded discovery-capable plugins.
+// discovery ports across loaded discovery-capable plugins. It currently matches
+// GetDefaultDiscoveryPorts, but remains a separate concept so callers can ask
+// for the canonical plugin port set without tying that to request defaults.
 func (s *Service) GetDiscoveryPorts(_ context.Context) []string {
 	plugins := s.manager.GetAllPlugins()
 	if len(plugins) == 0 {
