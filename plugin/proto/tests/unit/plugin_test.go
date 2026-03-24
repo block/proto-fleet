@@ -32,14 +32,14 @@ func TestDriverDescribe(t *testing.T) {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
 
-	assert.Equal(t, []string{"443", "8080"}, driver.GetDiscoveryPorts(ctx))
+	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
 }
 
 func TestDriverGetDiscoveryPorts_Override(t *testing.T) {
 	driver, err := driver.New(8080)
 	require.NoError(t, err, "Failed to create driver")
 
-	assert.Equal(t, []string{"8080", "443"}, driver.GetDiscoveryPorts(t.Context()))
+	assert.Equal(t, []string{"8080"}, driver.GetDiscoveryPorts(t.Context()))
 }
 
 func TestDriverGetDiscoveryPorts_NonCanonicalOverride(t *testing.T) {

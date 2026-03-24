@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
@@ -55,6 +55,22 @@ const Miners = ({
 
   const discoveryPending = scanDiscoveryPending || ipListDiscoveryPending;
   const showLoadingSkeleton = showScanLoading || discoveryPending;
+  const displayMiners = useMemo(() => {
+    const seen = new Set<string>();
+
+    return foundMiners.filter((miner) => {
+      const identity = miner.ipAddress || miner.deviceIdentifier;
+      if (!identity) {
+        return true;
+      }
+      if (seen.has(identity)) {
+        return false;
+      }
+      seen.add(identity);
+      return true;
+    });
+  }, [foundMiners]);
+  const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -217,24 +233,22 @@ const Miners = ({
                       text: "Choose miners",
                       disabled: pairingPending,
                       className: clsx({
-                        hidden: activeStep !== "pairing" || foundMiners.length <= 1,
+                        hidden: activeStep !== "pairing" || displayMiners.length <= 1,
                       }),
                     },
                     {
                       variant: variants.primary,
                       loading: pairingPending,
                       onClick: () => {
-                        const selectedMinerIdentifiers = foundMiners
-                          .filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier))
-                          .map((miner) => miner.deviceIdentifier);
+                        const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
                         onContinue(selectedMinerIdentifiers);
                       },
-                      disabled: pairingPending || foundMiners.length === deselectedMiners.length,
+                      disabled: pairingPending || selectedDisplayMiners.length === 0,
                       text: pairingPending
-                        ? `Adding ${foundMiners.length - deselectedMiners.length} miners...`
-                        : `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
+                        ? `Adding ${selectedDisplayMiners.length} miners...`
+                        : `Continue with ${selectedDisplayMiners.length} miners`,
                       className: clsx({
-                        hidden: activeStep !== "pairing" || foundMiners.length === 0,
+                        hidden: activeStep !== "pairing" || displayMiners.length === 0,
                       }),
                     },
                   ]
@@ -347,15 +361,15 @@ const Miners = ({
                 </>
               ) : (
                 <>
-                  <FoundMiners miners={foundMiners} deselectedMiners={deselectedMiners} className="" />
+                  <FoundMiners miners={displayMiners} deselectedMiners={deselectedMiners} className="" />
                   <FoundMinersModal
                     open={showFoundMinersModal}
                     setDeselectedMiners={setDeselectedMiners}
-                    miners={foundMiners.map((miner) => ({
+                    miners={displayMiners.map((miner) => ({
                       ...miner,
                       selected: !deselectedMiners.includes(miner.deviceIdentifier),
                     }))}
-                    models={Array.from(new Set(foundMiners.map((miner) => miner.model)))}
+                    models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
                     onDismiss={() => setShowFoundMinersModal(false)}
                   />
                 </>

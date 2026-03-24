@@ -32,7 +32,7 @@ const (
 	maxValidPortNumber = math.MaxUint16
 )
 
-var canonicalDiscoveryPorts = []int{443, 8080}
+var canonicalDiscoveryPorts = []int{443}
 
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
@@ -233,7 +233,7 @@ func (d *Driver) expectedDiscoveryPorts() string {
 	if !isCanonicalDiscoveryPort(d.requiredPort) {
 		return fmt.Sprintf("port %d", d.requiredPort)
 	}
-	return "ports 443 or 8080"
+	return "port 443"
 }
 
 func isCanonicalDiscoveryPort(port int) bool {

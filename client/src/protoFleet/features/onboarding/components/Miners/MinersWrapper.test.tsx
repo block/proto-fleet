@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
 import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
+import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -67,6 +68,15 @@ function renderMinersPage(mode: "onboarding" | "pairing" = "onboarding") {
       <MinersPage mode={mode} />
     </MemoryRouter>,
   );
+}
+
+function createDiscoveredMiner(deviceIdentifier: string, ipAddress: string) {
+  return create(DeviceSchema, {
+    deviceIdentifier,
+    ipAddress,
+    model: "Proto Rig",
+    manufacturer: "Proto",
+  });
 }
 
 describe("MinersWrapper", () => {
@@ -161,6 +171,47 @@ describe("MinersWrapper", () => {
 
       const findMinersButton = screen.getByTestId("section-scan-network").querySelector("button")!;
       expect(findMinersButton).toBeDisabled();
+    });
+
+    it("deduplicates duplicate discoveries in the add-miners UI count", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+        onStreamData([
+          createDiscoveredMiner("miner-1-443", "192.168.1.101"),
+          createDiscoveredMiner("miner-1-8080", "192.168.1.101"),
+          createDiscoveredMiner("miner-2-443", "192.168.1.102"),
+          createDiscoveredMiner("miner-2-8080", "192.168.1.102"),
+          createDiscoveredMiner("miner-3-443", "192.168.1.103"),
+          createDiscoveredMiner("miner-3-8080", "192.168.1.103"),
+          createDiscoveredMiner("miner-4-443", "192.168.1.104"),
+          createDiscoveredMiner("miner-4-8080", "192.168.1.104"),
+        ]);
+      });
+
+      renderMinersPage("onboarding");
+
+      fireEvent.click(screen.getByText("Get started"));
+
+      const findMinersButton = screen.getByTestId("section-scan-network").querySelector("button")!;
+      fireEvent.click(findMinersButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("Finding miners on your network")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("4 miners found on your network")).toBeInTheDocument();
+      }, { timeout: 4000 });
+
+      expect(screen.getByRole("button", { name: "Continue with 4 miners" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Continue with 8 miners" })).not.toBeInTheDocument();
     });
   });
 

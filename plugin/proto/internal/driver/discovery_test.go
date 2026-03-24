@@ -240,7 +240,7 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 			driverPort:   443,
 			targetPort:   "80",
 			expectError:  true,
-			errorMessage: "proto miners are configured for ports 443 or 8080",
+			errorMessage: "proto miners are configured for port 443",
 		},
 		{
 			name:         "invalid port with flexible driver - negative",
