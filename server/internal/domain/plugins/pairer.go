@@ -174,7 +174,9 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
-	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+	if updatedDeviceInfo.FirmwareVersion != "" {
+		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+	}
 
 	return nil
 }

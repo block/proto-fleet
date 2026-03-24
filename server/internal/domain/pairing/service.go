@@ -1119,7 +1119,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		slog.Warn("failed to get device info after pairing, continuing without firmware version",
 			"device_identifier", discoveredDevice.DeviceIdentifier,
 			"error", err)
-	} else {
+	} else if updatedDeviceInfo.FirmwareVersion != "" {
 		// Update firmware version from authenticated device info
 		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 	}

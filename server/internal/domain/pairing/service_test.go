@@ -1240,6 +1240,65 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
 	})
+
+	t.Run("preserves discovered firmware version when post-pair device info omits it", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		host := "192.168.1.102"
+		portStr := "8080"
+		discoveredFirmwareVersion := "9.9.9"
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDevice := createMockDevice(host, portStr, "proto")
+		mockDevice.FirmwareVersion = discoveredFirmwareVersion
+		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockProtoPairer := pairingMocks.NewMockPairer(ctrl)
+
+		mockProtoPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(nil)
+		mockProtoPairer.EXPECT().
+			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials any) (*pb.Device, error) {
+				return &pb.Device{
+					DeviceIdentifier: discoveredDevice.DeviceIdentifier,
+					FirmwareVersion:  "",
+				}, nil
+			})
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockProtoPairer, mockDiscoverer)
+
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{host},
+			Ports:       []string{portStr},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{devices[0].DeviceIdentifier}))
+		require.NoError(t, err)
+
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+		assert.True(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should remain set")
+		assert.Equal(t, discoveredFirmwareVersion, discoveredDevice.FirmwareVersion.String)
+	})
 }
 
 func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
