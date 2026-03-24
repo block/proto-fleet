@@ -142,3 +142,17 @@ func (mr *MockMessageQueueMockRecorder) MarkSuccess(ctx, messageID any) *gomock.
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSuccess", reflect.TypeOf((*MockMessageQueue)(nil).MarkSuccess), ctx, messageID)
 }
+
+// MaxFailureRetries mocks base method.
+func (m *MockMessageQueue) MaxFailureRetries() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MaxFailureRetries")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// MaxFailureRetries indicates an expected call of MaxFailureRetries.
+func (mr *MockMessageQueueMockRecorder) MaxFailureRetries() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxFailureRetries", reflect.TypeOf((*MockMessageQueue)(nil).MaxFailureRetries))
+}

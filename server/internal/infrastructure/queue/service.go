@@ -173,3 +173,7 @@ func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatc
 		return q.IsBatchProcessing(ctx, commandBatchLogUUID)
 	})
 }
+
+func (d DatabaseMessageQueue) MaxFailureRetries() int32 {
+	return d.config.MaxFailureRetries
+}

@@ -244,46 +244,79 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 }
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
-	workerError := es.workerExecuteCommand(ctx, message.CommandType, message)
+	// Step 1: Execute the command (pure execution, no queue status side-effects).
+	workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
 
-	// If the message was already reaped, the reaper handled the audit log atomically.
-	// Do not overwrite it with a stale result.
-	if errors.Is(workerError, queue.ErrStale) {
-		slog.Warn("skipping audit log for stale message", "message_id", message.ID)
-		return
-	}
-
-	// Use a detached context for post-execution DB writes so they succeed even
-	// when the worker's WorkerExecutionTimeout has cancelled ctx.
-	// WithoutCancel preserves tracing/request-ID values from the parent context.
+	// Step 2: Atomically update queue status AND write device log in a single transaction.
+	// If the queue row is no longer PROCESSING (reaped), the transaction commits
+	// as a no-op and neither the queue status nor the device log is modified.
 	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer dbCancel()
-	timeNow := time.Now()
-	dbError := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+
+	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+		// First: transition queue_message status (detects staleness via rowsAffected).
+		updated, err := es.markQueueMessageStatus(dbCtx, q, message.ID, workerError)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			slog.Warn("skipping audit log for stale message",
+				"message_id", message.ID, "device_id", message.DeviceID)
+			return nil
+		}
+
+		// Second: write device log only if the queue transition succeeded.
 		return q.UpsertCommandOnDeviceLog(dbCtx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      message.BatchLogUUID,
 			DeviceID:  message.DeviceID,
 			Status:    upsertCommandOnDeviceStatus(workerError),
-			UpdatedAt: timeNow,
+			UpdatedAt: time.Now(),
 		})
 	})
-	if dbError != nil {
-		slog.Error("error creating command on device log", "error", dbError)
+	if txErr != nil {
+		slog.Error("error in post-execution transaction",
+			"message_id", message.ID, "error", txErr)
 	}
 }
 
-func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
+// markQueueMessageStatus transitions the queue_message to its next state within an
+// existing transaction. Returns (true, nil) on success, (false, nil) when the row
+// is no longer PROCESSING (stale/reaped), or (false, err) on DB error.
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, messageID int64, workerError error) (bool, error) {
+	var result sql.Result
+	var err error
+
+	switch {
+	case workerError == nil:
+		result, err = q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
+			ID:     messageID,
+			Status: sqlc.QueueStatusEnumSUCCESS,
+		})
+	case fleeterror.IsUnimplementedError(workerError):
+		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
+			ID:        messageID,
+			ErrorInfo: sql.NullString{String: workerError.Error(), Valid: true},
+		})
+	default:
+		result, err = q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
+			ID:         messageID,
+			RetryCount: es.messageQueue.MaxFailureRetries(),
+			ErrorInfo:  sql.NullString{String: workerError.Error(), Valid: true},
+		})
+	}
+
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	return rowsAffected > 0, nil
+}
+
+// executeCommandOnDevice runs the command and returns the execution error (if any).
+// It does NOT mark queue message status — the caller is responsible for that.
+func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
 	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
-		dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
-		defer dbCancel()
-		markFailedErr := es.messageQueue.MarkFailed(dbCtx, message.ID, err.Error())
-		if markFailedErr != nil {
-			if errors.Is(markFailedErr, queue.ErrStale) {
-				return markFailedErr
-			}
-			return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v, and also error marking as failed: %v", message.DeviceID, err, markFailedErr)
-		}
 		return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 
@@ -376,32 +409,8 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 
 	if err != nil {
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
-		dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
-		defer dbCancel()
-		// Permanent errors (e.g. unsupported capability) should not be retried
-		var markErr error
-		if fleeterror.IsUnimplementedError(err) {
-			markErr = es.messageQueue.MarkPermanentlyFailed(dbCtx, message.ID, err.Error())
-		} else {
-			markErr = es.messageQueue.MarkFailed(dbCtx, message.ID, err.Error())
-		}
-		if markErr != nil {
-			if errors.Is(markErr, queue.ErrStale) {
-				return markErr
-			}
-			return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v (original error: %v)", markErr, err)
-		}
-		return err
 	}
-	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
-	defer dbCancel()
-	if err := es.messageQueue.MarkSuccess(dbCtx, message.ID); err != nil {
-		if errors.Is(err, queue.ErrStale) {
-			return err
-		}
-		return fleeterror.NewInternalErrorf("error setting message as success on queue: %v", err)
-	}
-	return nil
+	return err
 }
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair

@@ -116,6 +116,7 @@ func (n *noopMessageQueue) IsBatchFinished(_ context.Context, _ string) (bool, e
 func (n *noopMessageQueue) IsBatchProcessing(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
+func (n *noopMessageQueue) MaxFailureRetries() int32 { return 5 }
 
 func TestReaperIntegration(t *testing.T) {
 	if testing.Short() {

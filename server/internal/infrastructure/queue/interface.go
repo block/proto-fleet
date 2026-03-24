@@ -42,4 +42,8 @@ type MessageQueue interface {
 	IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error)
 
 	IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error)
+
+	// MaxFailureRetries returns the configured maximum number of retry attempts
+	// before a message is permanently marked FAILED.
+	MaxFailureRetries() int32
 }

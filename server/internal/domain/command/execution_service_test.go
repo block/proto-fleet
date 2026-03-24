@@ -218,8 +218,8 @@ func TestQueueProcessorRetries(t *testing.T) {
 	})
 }
 
-func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
-	t.Run("unimplemented error calls MarkPermanentlyFailed", func(t *testing.T) {
+func TestExecuteCommandOnDevice(t *testing.T) {
+	t.Run("unimplemented error is returned as-is", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -243,10 +243,6 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(fleeterror.NewUnimplementedError("reboot not supported"))
 
-		mockQueue.EXPECT().
-			MarkPermanentlyFailed(gomock.Any(), int64(1), gomock.Any()).
-			Return(nil)
-
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
@@ -254,14 +250,14 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.workerExecuteCommand(t.Context(), commandtype.Reboot, message)
+		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
 		assert.True(t, fleeterror.IsUnimplementedError(err))
 	})
 
-	t.Run("retryable error calls MarkFailed not MarkPermanentlyFailed", func(t *testing.T) {
+	t.Run("retryable error is returned as-is", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -285,10 +281,6 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(fleeterror.NewInternalErrorf("temporary failure"))
 
-		mockQueue.EXPECT().
-			MarkFailed(gomock.Any(), int64(2), gomock.Any()).
-			Return(nil)
-
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
@@ -296,14 +288,14 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.workerExecuteCommand(t.Context(), commandtype.Reboot, message)
+		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
 		assert.False(t, fleeterror.IsUnimplementedError(err))
 	})
 
-	t.Run("successful command calls MarkSuccess", func(t *testing.T) {
+	t.Run("successful command returns nil", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -327,9 +319,37 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(nil)
 
-		mockQueue.EXPECT().
-			MarkSuccess(gomock.Any(), int64(3)).
-			Return(nil)
+		svc := NewExecutionService(t.Context(), &Config{
+			MaxWorkers:             5,
+			MasterPollingInterval:  10 * time.Millisecond,
+			WorkerExecutionTimeout: 5 * time.Second,
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+		// Act
+		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+
+		// Assert
+		assert.NoError(t, err)
+	})
+
+	t.Run("GetMiner failure returns error", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+
+		message := queue.Message{
+			ID:           4,
+			BatchLogUUID: "batch-101",
+			CommandType:  commandtype.Reboot,
+			DeviceID:     45,
+		}
+
+		mockMinerGetter.EXPECT().
+			GetMiner(gomock.Any(), int64(45)).
+			Return(nil, errors.New("device not found"))
 
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:             5,
@@ -338,9 +358,10 @@ func TestWorkerExecuteCommand_PermanentFailureHandling(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.workerExecuteCommand(t.Context(), commandtype.Reboot, message)
+		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
-		assert.NoError(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "error getting miner connection info")
 	})
 }
