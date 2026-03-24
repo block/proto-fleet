@@ -1241,13 +1241,14 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be NULL when unavailable")
 	})
 
-	t.Run("clears discovered firmware version when post-pair device info omits it", func(t *testing.T) {
+	t.Run("preserves firmware learned during pairing when post-pair device info omits it", func(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		host := "192.168.1.102"
 		portStr := "8080"
 		discoveredFirmwareVersion := "9.9.9"
+		pairedFirmwareVersion := "1.2.3"
 
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := createMockDevice(host, portStr, "proto")
@@ -1260,7 +1261,10 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 
 		mockProtoPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
-			Return(nil)
+			DoAndReturn(func(_ context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+				discoveredDevice.FirmwareVersion = pairedFirmwareVersion
+				return nil
+			})
 		mockProtoPairer.EXPECT().
 			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials any) (*pb.Device, error) {
@@ -1296,7 +1300,8 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 			OrgID:            adminUser.OrganizationID,
 		})
 		require.NoError(t, err)
-		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be cleared when authenticated device info omits it")
+		require.True(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be preserved when pairing already learned it")
+		assert.Equal(t, pairedFirmwareVersion, discoveredDevice.FirmwareVersion.String, "firmware_version should preserve the value learned during pairing")
 	})
 }
 

@@ -672,6 +672,113 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 	assert.Equal(t, "1.0.0", device.FirmwareVersion, "Firmware version should be populated from GetDeviceInfo")
 }
 
+func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenDescribeOmitsIt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	pairingDeviceInfo := sdk.DeviceInfo{
+		Host:            "192.168.1.100",
+		Port:            80,
+		URLScheme:       "http",
+		SerialNumber:    "ANTMINER123",
+		Model:           "S19",
+		Manufacturer:    "Bitmain",
+		MacAddress:      "00:11:22:33:44:55",
+		FirmwareVersion: "1.0.0",
+	}
+	describeDeviceInfo := pairingDeviceInfo
+	describeDeviceInfo.FirmwareVersion = ""
+
+	expectedSecretBundle := sdk.SecretBundle{
+		Version: "v1",
+		Kind: sdk.UsernamePassword{
+			Username: "root",
+			Password: "root",
+		},
+	}
+
+	mockSDKDevice := sdkMocks.NewMockDevice(ctrl)
+	mockSDKDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(describeDeviceInfo, sdk.Capabilities{}, nil)
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		Return(pairingDeviceInfo, nil)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "antminer-device-001", gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil)
+
+	driverWithCreds := &mockDriverWithDefaultCredentials{
+		Driver: mockDriver,
+		defaultCredentials: []sdk.UsernamePassword{
+			{Username: "root", Password: "root"},
+		},
+	}
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     driverWithCreds,
+		Caps: sdk.Capabilities{
+			sdk.CapabilityPairing: true,
+		},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	userStore := mocks.NewMockUserStore(ctrl)
+	tokenService := &token.Service{}
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	})
+	require.NoError(t, err)
+
+	pairer := NewPairer(manager, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
+
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "antminer-device-001",
+			IpAddress:        "192.168.1.100",
+			Port:             "80",
+			UrlScheme:        "http",
+			SerialNumber:     "ANTMINER123",
+			Model:            "S19",
+			Manufacturer:     "Bitmain",
+			MacAddress:       "00:11:22:33:44:55",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+
+	var credentials *pb.Credentials
+	ctx := t.Context()
+
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(ctx)
+		},
+	)
+
+	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
+	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
+	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
+	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
+	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
+	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
+
+	err = pairer.PairDevice(ctx, device, credentials)
+
+	require.NoError(t, err)
+	assert.Equal(t, pairingDeviceInfo.FirmwareVersion, device.FirmwareVersion, "DescribeDevice should not erase firmware learned during PairDevice")
+}
+
 // TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure tests that when default
 // credentials fail with an authentication error, the pairer returns a "credentials required"
 // error to trigger the AUTHENTICATION_NEEDED flow.

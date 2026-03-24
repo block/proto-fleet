@@ -140,7 +140,9 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			slog.Warn("Failed to get device info after auto-auth pairing",
 				"device_identifier", discoveredDevice.DeviceIdentifier,
 				"error", err)
-		} else {
+		} else if deviceInfo.FirmwareVersion != "" {
+			// Preserve firmware learned from PairDevice when DescribeDevice omits it.
+			// sdk.DeviceInfo.FirmwareVersion has no field presence, so empty is ambiguous.
 			discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
 		}
 
