@@ -1724,12 +1724,9 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 	const firmwareV1 = "1.2.3"
 	const firmwareV2 = "1.2.4"
 
-	t.Run("persists clearing firmware version", func(t *testing.T) {
+	t.Run("skips empty firmware version", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-		mockDeviceStore.EXPECT().
-			UpdateFirmwareVersion(gomock.Any(), deviceID, "").
-			Return(nil)
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, "")
