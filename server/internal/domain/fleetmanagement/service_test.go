@@ -178,6 +178,66 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.
 	}
 }
 
+func TestService_AddMinersFlowShouldUseUnpairedFilterForDiscoveredCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Existing fleet miners that should not be counted by the add-miners CTA.
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
+
+	// Newly discovered miners that are candidates for the add-miners flow.
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for i := 1; i <= 4; i++ {
+		deviceIdentifier := fmt.Sprintf("newly-discovered-device-%d", i)
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "Proto Rig",
+				Manufacturer:     "Proto",
+				DriverName:       "proto",
+				IpAddress:        fmt.Sprintf("192.168.50.%d", 100+i),
+				Port:             "80",
+				UrlScheme:        "https",
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+	}
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	discoveredCount, err := discoveredDeviceStore.CountActiveUnpairedDevices(ctx, testUser.OrganizationID)
+	require.NoError(t, err)
+
+	allDevicesResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+
+	unpairedResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 20,
+		Filter: &pb.MinerListFilter{
+			PairingStatuses: []pb.PairingStatus{pb.PairingStatus_PAIRING_STATUS_UNPAIRED},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(4), discoveredCount, "discovery should report only newly found miners")
+	assert.Equal(t, int32(4), unpairedResp.TotalMiners, "UNPAIRED filter matches the discovery count")
+	assert.Equal(t, int32(8), allDevicesResp.TotalMiners, "unfiltered miner list should include both fleet and newly discovered miners")
+}
+
 func TestService_ListMinerStateSnapshots_ShouldFilterByDeviceStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")

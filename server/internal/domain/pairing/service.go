@@ -109,6 +109,52 @@ func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
 	return ipAddr
 }
 
+func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
+	resultChan := make(chan *pb.DiscoverResponse)
+
+	go func() {
+		defer close(resultChan)
+
+		seenDevices := make(map[string]struct{})
+
+		for result := range source {
+			if result == nil {
+				continue
+			}
+
+			dedupedDevices := make([]*pb.Device, 0, len(result.Devices))
+			for _, device := range result.Devices {
+				if device == nil {
+					continue
+				}
+
+				identity := device.DeviceIdentifier
+				if identity == "" {
+					identity = fmt.Sprintf("%s:%s", device.IpAddress, device.Port)
+				}
+
+				if _, alreadySeen := seenDevices[identity]; alreadySeen {
+					continue
+				}
+
+				seenDevices[identity] = struct{}{}
+				dedupedDevices = append(dedupedDevices, device)
+			}
+
+			if len(dedupedDevices) == 0 && result.Error == "" {
+				continue
+			}
+
+			resultChan <- &pb.DiscoverResponse{
+				Devices: dedupedDevices,
+				Error:   result.Error,
+			}
+		}
+	}()
+
+	return resultChan
+}
+
 //go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener,CapabilitiesProvider
 type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
@@ -203,7 +249,8 @@ func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []stri
 
 // DiscoverWithMDNS discovers devices using mDNS
 func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -215,11 +262,11 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		err := resolver.Browse(timeoutCtx, r.ServiceType, "local.", entries)
 		if err != nil {
-			resultChan <- &pb.DiscoverResponse{
+			rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to browse: %v", err),
 			}
 			return
@@ -239,7 +286,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 				ipAddress := entry.AddrIPv4[0].String()
 				portStr := fmt.Sprintf("%d", entry.Port)
 
-				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
+				err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
 				if err != nil {
 					slog.Debug("device discovery failed", "error", err)
 				}
@@ -255,7 +302,8 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 // DiscoverWithNmap discovers devices using Nmap
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
 		return nil, err
@@ -266,7 +314,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var scanner *nmap.Scanner
 		var err error
@@ -285,7 +333,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
 		if err != nil {
-			resultChan <- &pb.DiscoverResponse{
+			rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to create scanner: %v", err),
 			}
 			return
@@ -305,7 +353,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 				// After timeout, we cannot probe hosts because the context is expired.
 				// Send timeout error and return.
 				select {
-				case resultChan <- &pb.DiscoverResponse{
+				case rawResultChan <- &pb.DiscoverResponse{
 					Error: fmt.Sprintf("scan timed out after %d seconds; some devices may not have been discovered", defaultNmapTimeoutSeconds),
 				}:
 				case <-timeoutCtx.Done():
@@ -314,7 +362,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			}
 			// Non-timeout error
 			select {
-			case resultChan <- &pb.DiscoverResponse{
+			case rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan failed: %v", err),
 			}:
 			case <-timeoutCtx.Done():
@@ -325,7 +373,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		if result == nil {
 			// Scan timed out with no results - notify caller explicitly
 			select {
-			case resultChan <- &pb.DiscoverResponse{
+			case rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan timed out after %d seconds without finding any hosts; verify the target network range is correct and devices are powered on", defaultNmapTimeoutSeconds),
 			}:
 			case <-timeoutCtx.Done():
@@ -407,7 +455,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					err := s.discoverDevice(timeoutCtx, ip, port, resultChan)
+					err := s.discoverDevice(timeoutCtx, ip, port, rawResultChan)
 					if err != nil {
 						slog.Debug("device discovery failed", "ip", ip, "port", port, "error", err)
 					}
@@ -423,7 +471,8 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 // DiscoverWithIPRange discovers devices using IP range
 func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 	startIP, err := ipToUint32(r.StartIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
@@ -446,7 +495,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
@@ -468,7 +517,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}
@@ -485,7 +534,8 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 
 // DiscoverWithIPList discovers devices from a list of IPs
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
 		return nil, err
@@ -496,7 +546,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
@@ -518,7 +568,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}

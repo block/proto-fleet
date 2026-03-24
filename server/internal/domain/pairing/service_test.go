@@ -279,6 +279,59 @@ func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
+func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRequest(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	scannedIP := "192.168.1.10"
+	firstPort := "443"
+	secondPort := "4028"
+
+	firstDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    scannedIP,
+			Port:         firstPort,
+			UrlScheme:    "https",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+		},
+	}
+	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    scannedIP,
+			Port:         secondPort,
+			UrlScheme:    "http",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+		},
+	}
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(secondDiscoveryDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{firstPort, secondPort})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{firstPort, secondPort},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	require.Len(t, devices, 1, "the same physical device should only be streamed once per discovery request")
+	assert.NotEmpty(t, devices[0].DeviceIdentifier)
+}
+
 func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
 	mockDiscoverer := &MockDiscoverer{}
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
