@@ -140,7 +140,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			slog.Warn("Failed to get device info after auto-auth pairing",
 				"device_identifier", discoveredDevice.DeviceIdentifier,
 				"error", err)
-		} else if deviceInfo.FirmwareVersion != "" {
+		} else {
 			discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
 		}
 
@@ -174,9 +174,7 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
-	if updatedDeviceInfo.FirmwareVersion != "" {
-		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
-	}
+	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 
 	return nil
 }

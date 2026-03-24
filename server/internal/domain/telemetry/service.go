@@ -658,9 +658,6 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 // persistFirmwareVersionIfChanged updates the discovered_device table when the
 // firmware version reported by the device differs from the last known value.
 func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, deviceID models.DeviceIdentifier, firmwareVersion string) {
-	if firmwareVersion == "" {
-		return
-	}
 	oldFW, _ := s.lastKnownFirmware.Load(deviceID)
 	if oldFW == firmwareVersion {
 		return

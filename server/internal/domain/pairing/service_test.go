@@ -1296,8 +1296,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 			OrgID:            adminUser.OrganizationID,
 		})
 		require.NoError(t, err)
-		assert.True(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should remain set")
-		assert.Equal(t, discoveredFirmwareVersion, discoveredDevice.FirmwareVersion.String)
+		assert.False(t, discoveredDevice.FirmwareVersion.Valid, "firmware_version should be cleared when authenticated device info omits it")
 	})
 }
 
@@ -1407,11 +1406,12 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := &discoverymodels.DiscoveredDevice{
 			Device: pb.Device{
-				IpAddress:  oldIP,
-				Port:       port,
-				UrlScheme:  "http",
-				DriverName: "proto",
-				MacAddress: mac,
+				IpAddress:       oldIP,
+				Port:            port,
+				UrlScheme:       "http",
+				DriverName:      "proto",
+				MacAddress:      mac,
+				FirmwareVersion: "1.2.3",
 			},
 		}
 		mockDiscoverer.On("Discover", mock.Anything, oldIP, port).Return(mockDevice, nil)
@@ -1521,6 +1521,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 		dd, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 		require.NoError(t, err)
 		assert.Equal(t, newIP, dd.IpAddress, "discovered_device IP should be updated to the new subnet IP")
+		assert.Equal(t, "1.2.3", dd.FirmwareVersion, "MAC-reconciled rediscovery should preserve existing firmware when the new discovery omits it")
 
 		// Verify no duplicate device records were created
 		deviceID1, err := queries.GetDeviceIDByDeviceIdentifier(ctx, originalDeviceIdentifier)
@@ -1769,15 +1770,14 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 	}
 	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			IpAddress:       scannedIP,
-			Port:            secondPort,
-			UrlScheme:       "http",
-			DriverName:      "pyasic",
-			Model:           "M60S",
-			Manufacturer:    "WhatsMiner",
-			MacAddress:      "",
-			SerialNumber:    "",
-			FirmwareVersion: "1.0.0",
+			IpAddress:    scannedIP,
+			Port:         secondPort,
+			UrlScheme:    "http",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+			MacAddress:   "",
+			SerialNumber: "",
 		},
 	}
 
@@ -1816,6 +1816,7 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 	})
 	require.NoError(t, err)
 	assert.Equal(t, secondPort, reconciledDevice.Port)
+	assert.Empty(t, reconciledDevice.FirmwareVersion, "weak same-IP cross-port reconciliation should clear stale firmware when the new discovery omits it")
 }
 
 func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {

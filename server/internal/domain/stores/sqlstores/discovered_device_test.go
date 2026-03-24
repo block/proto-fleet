@@ -193,7 +193,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldRefreshModelAndManufacturerOnRedisc
 	assert.Equal(t, "192.168.1.101", updated.IpAddress)
 }
 
-func TestSQLDiscoveredDeviceStore_Save_ShouldPreserveExistingFirmwareVersionWhenRediscoveryOmitsIt(t *testing.T) {
+func TestSQLDiscoveredDeviceStore_Save_ShouldClearFirmwareVersionWhenRediscoveryOmitsIt(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
@@ -204,8 +204,8 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldPreserveExistingFirmwareVersionWhen
 
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-preserve-firmware",
-		Name:                "Test Org Preserve Firmware",
+		OrgID:               "test-org-clear-firmware",
+		Name:                "Test Org Clear Firmware",
 		MinerAuthPrivateKey: "test-key",
 	})
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldPreserveExistingFirmwareVersionWhen
 		_ = queries.DeleteOrganization(ctx, orgID)
 	})
 
-	deviceIdentifier := "test-device-preserve-firmware"
+	deviceIdentifier := "test-device-clear-firmware"
 	doi := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
@@ -250,7 +250,7 @@ func TestSQLDiscoveredDeviceStore_Save_ShouldPreserveExistingFirmwareVersionWhen
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "1.2.3", updated.FirmwareVersion)
+	assert.Empty(t, updated.FirmwareVersion)
 	assert.Equal(t, "192.168.1.101", updated.IpAddress)
 }
 

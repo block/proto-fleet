@@ -309,7 +309,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
     url_scheme = EXCLUDED.url_scheme,
-    firmware_version = COALESCE(EXCLUDED.firmware_version, discovered_device.firmware_version),
+    firmware_version = EXCLUDED.firmware_version,
     is_active = EXCLUDED.is_active,
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
