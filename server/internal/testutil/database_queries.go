@@ -183,7 +183,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, driverName string) 
 
 		port := "4028"
 		if driverName == "proto" {
-			port = "2121"
+			port = "8080"
 		}
 
 		discoveredDeviceID, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
@@ -285,7 +285,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		deviceIDs[i] = device.ID
 
 		// Make each device have a unique IP to avoid constraint violations
-		// Port remains constant for the device type (e.g., 2121 for Proto, 4028 for Antminer)
+		// Port remains constant for the device type (e.g., 80 for Proto, 4028 for Antminer)
 		// Increment the last octet of the IP address for each device
 		uniqueHost := host
 		if count > 1 {

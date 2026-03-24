@@ -35,6 +35,16 @@ async def test_handshake_roundtrip(driver_stub):
 
 
 @pytest.mark.asyncio
+async def test_get_discovery_ports_roundtrip(driver_stub):
+    """Test optional discovery-port RPC end-to-end."""
+    from google.protobuf.empty_pb2 import Empty
+
+    response = await driver_stub.GetDiscoveryPorts(Empty())
+
+    assert response.ports == ["443", "8080"]
+
+
+@pytest.mark.asyncio
 async def test_device_lifecycle(driver_stub):
     """Test device creation, status, and cleanup."""
     # Create device

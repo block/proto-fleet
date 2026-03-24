@@ -4,9 +4,6 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
-
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_command_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 )
 
 // Default telemetry values for a simulated Proto miner
@@ -65,6 +62,65 @@ const (
 	telemetryVariation = 0.05 // 5% random variation
 )
 
+// MiningState represents the mining state as a string.
+type MiningState string
+
+const (
+	MiningStateMining        MiningState = "Mining"
+	MiningStateStopped       MiningState = "Stopped"
+	MiningStateNoPools       MiningState = "NoPools"
+	MiningStatePoweringOn    MiningState = "PoweringOn"
+	MiningStateDegraded      MiningState = "DegradedMining"
+	MiningStatePoweringOff   MiningState = "PoweringOff"
+	MiningStateError         MiningState = "Error"
+	MiningStateUninitialized MiningState = "Uninitialized"
+	MiningStateUnknown       MiningState = "Unknown"
+)
+
+// CoolingMode represents the cooling mode as a string.
+type CoolingMode string
+
+const (
+	CoolingModeAuto    CoolingMode = "auto"
+	CoolingModeManual  CoolingMode = "manual"
+	CoolingModeOff     CoolingMode = "off"
+	CoolingModeUnknown CoolingMode = "unknown"
+)
+
+// PerformanceMode represents the performance mode as a string.
+type PerformanceMode string
+
+const (
+	PerformanceModeMaxHashrate PerformanceMode = "maximum_hashrate"
+	PerformanceModeEfficiency  PerformanceMode = "efficiency"
+)
+
+// TuningAlgorithm represents the tuning algorithm as a string.
+type TuningAlgorithm string
+
+const (
+	TuningAlgorithmNone                         TuningAlgorithm = "None"
+	TuningAlgorithmVoltageImbalanceCompensation TuningAlgorithm = "VoltageImbalanceCompensation"
+	TuningAlgorithmFuzzing                      TuningAlgorithm = "Fuzzing"
+)
+
+// PoolStatistics holds pool performance statistics.
+type PoolStatistics struct {
+	AcceptedShares    uint64  `json:"accepted_shares"`
+	RejectedShares    uint64  `json:"rejected_shares"`
+	CurrentDifficulty float64 `json:"current_difficulty"`
+}
+
+// Pool represents a mining pool configuration.
+type Pool struct {
+	Idx        uint32          `json:"idx"`
+	Priority   int             `json:"priority"`
+	Url        string          `json:"url"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password"`
+	Statistics *PoolStatistics `json:"statistics,omitempty"`
+}
+
 // MinerState holds the complete state of the simulated miner.
 type MinerState struct {
 	mu sync.RWMutex
@@ -78,22 +134,24 @@ type MinerState struct {
 	// Authentication
 	AuthPublicKey string
 	Password      string
+	AccessToken   string
+	RefreshToken  string
 
 	// Onboarding status - set to true when pools are configured
 	Onboarded bool
 
 	// Mining state
-	MiningState      miner_data_api.MiningState
-	CoolingMode      miner_data_api.CoolingMode
-	FanSpeedPct      uint32
-	TargetTempC      float64
-	PowerTargetW     uint32
-	PerformanceMode  miner_data_api.PerformanceMode
-	HashOnDisconnect bool
-	TuningAlgorithm  miner_command_api.TuningAlgorithm
+	MiningStateVal     MiningState
+	CoolingModeVal     CoolingMode
+	FanSpeedPct        uint32
+	TargetTempC        float64
+	PowerTargetW       uint32
+	PerformanceModeVal PerformanceMode
+	HashOnDisconnect   bool
+	TuningAlgorithmVal TuningAlgorithm
 
 	// Configured pools
-	Pools []*miner_data_api.Pool
+	Pools []*Pool
 
 	// Network configuration
 	IPAddress string
@@ -120,7 +178,7 @@ type MinerState struct {
 // ErrorConfig holds configuration for simulating various error conditions.
 type ErrorConfig struct {
 	// Mining state override
-	ForceMiningState *miner_data_api.MiningState
+	ForceMiningState *MiningState
 
 	// Temperature errors
 	OverrideTemperature float64 // Override average temperature (0 = use default)
@@ -140,33 +198,37 @@ type ErrorConfig struct {
 // NewMinerState creates a new MinerState with default values.
 func NewMinerState(serialNumber, macAddress string) *MinerState {
 	return &MinerState{
-		SerialNumber:      serialNumber,
-		MacAddress:        macAddress,
-		Model:             "Proto B4",
-		Hostname:          "proto-miner-" + serialNumber[len(serialNumber)-4:],
-		MiningState:       miner_data_api.MiningState_MINING_STATE_MINING,
-		CoolingMode:       miner_data_api.CoolingMode_COOLING_MODE_AUTO,
-		FanSpeedPct:       defaultFanSpeedPct,
-		TargetTempC:       defaultTargetTempC,
-		PowerTargetW:      defaultPowerTargetW,
-		PerformanceMode:   miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE,
-		DHCP:              true,
-		NetMask:           "255.255.255.0",
-		Gateway:           "192.168.2.1",
-		BaseHashrateTHS:   defaultHashrateTHS,
-		BaseTemperatureC:  defaultTemperatureC,
-		BasePowerW:        defaultPowerW,
-		BaseEfficiencyJTH: defaultEfficiencyJTH,
-		Pools:             make([]*miner_data_api.Pool, 0),
-		StartTime:         time.Now(),
+		SerialNumber:       serialNumber,
+		MacAddress:         macAddress,
+		Model:              "Rig",
+		Hostname:           "proto-miner-" + serialNumber[len(serialNumber)-4:],
+		MiningStateVal:     MiningStateMining,
+		CoolingModeVal:     CoolingModeAuto,
+		FanSpeedPct:        defaultFanSpeedPct,
+		TargetTempC:        defaultTargetTempC,
+		PowerTargetW:       defaultPowerTargetW,
+		PerformanceModeVal: PerformanceModeMaxHashrate,
+		DHCP:               true,
+		NetMask:            "255.255.255.0",
+		Gateway:            "192.168.2.1",
+		BaseHashrateTHS:    defaultHashrateTHS,
+		BaseTemperatureC:   defaultTemperatureC,
+		BasePowerW:         defaultPowerW,
+		BaseEfficiencyJTH:  defaultEfficiencyJTH,
+		Pools:              make([]*Pool, 0),
+		StartTime:          time.Now(),
 	}
 }
 
 // GetMiningState returns the current mining state.
-func (s *MinerState) GetMiningState() miner_data_api.MiningState {
+func (s *MinerState) GetMiningState() MiningState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.miningState()
+}
 
+// miningState returns the effective mining state. Must be called with s.mu held.
+func (s *MinerState) miningState() MiningState {
 	// Check for forced state override
 	if s.ErrorConfig.ForceMiningState != nil {
 		return *s.ErrorConfig.ForceMiningState
@@ -174,10 +236,10 @@ func (s *MinerState) GetMiningState() miner_data_api.MiningState {
 
 	// If no pools configured, report NO_POOLS state
 	if len(s.Pools) == 0 {
-		return miner_data_api.MiningState_MINING_STATE_NO_POOLS
+		return MiningStateNoPools
 	}
 
-	return s.MiningState
+	return s.MiningStateVal
 }
 
 // GetMinerTelemetry returns current miner-level telemetry values with random variation.
@@ -196,9 +258,10 @@ func (s *MinerState) GetMinerTelemetry() (hashrate, temperature, power, efficien
 		temperature = s.ErrorConfig.OverrideTemperature
 	}
 
-	// If not mining, reduce hashrate to 0
-	if s.MiningState != miner_data_api.MiningState_MINING_STATE_MINING &&
-		s.MiningState != miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING {
+	// If not actively mining, reduce hashrate to 0
+	effectiveState := s.miningState()
+	if effectiveState != MiningStateMining &&
+		effectiveState != MiningStateDegraded {
 		hashrate = 0
 		power = applyVariation(200.0, telemetryVariation) // Idle power
 	}
@@ -273,10 +336,10 @@ func (s *MinerState) IsPSUInError(index int) bool {
 }
 
 // SetMiningState safely updates the mining state.
-func (s *MinerState) SetMiningState(state miner_data_api.MiningState) {
+func (s *MinerState) SetMiningState(state MiningState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.MiningState = state
+	s.MiningStateVal = state
 }
 
 // SetAuthKey safely sets the authentication public key.
@@ -299,6 +362,8 @@ func (s *MinerState) ClearAuthKey() {
 	defer s.mu.Unlock()
 	s.AuthPublicKey = ""
 	s.Password = ""
+	s.AccessToken = ""
+	s.RefreshToken = ""
 }
 
 // SetPassword safely sets the password.
@@ -313,6 +378,34 @@ func (s *MinerState) GetPassword() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Password
+}
+
+// SetAccessToken safely stores the current bearer token issued by the simulator.
+func (s *MinerState) SetAccessToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AccessToken = token
+}
+
+// GetAccessToken returns the current bearer token issued by the simulator.
+func (s *MinerState) GetAccessToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.AccessToken
+}
+
+// SetRefreshToken safely stores the current refresh token issued by the simulator.
+func (s *MinerState) SetRefreshToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RefreshToken = token
+}
+
+// GetRefreshToken returns the current refresh token issued by the simulator.
+func (s *MinerState) GetRefreshToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.RefreshToken
 }
 
 // SetOnboarded sets the onboarding status.
@@ -330,7 +423,7 @@ func (s *MinerState) IsOnboarded() bool {
 }
 
 // AddPool adds a pool to the configuration.
-func (s *MinerState) AddPool(pool *miner_data_api.Pool) {
+func (s *MinerState) AddPool(pool *Pool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Pools = append(s.Pools, pool)
@@ -348,7 +441,7 @@ func (s *MinerState) RemovePools(indices []uint32) {
 	}
 
 	// Filter out removed pools
-	newPools := make([]*miner_data_api.Pool, 0, len(s.Pools))
+	newPools := make([]*Pool, 0, len(s.Pools))
 	for _, pool := range s.Pools {
 		if !toRemove[pool.Idx] {
 			newPools = append(newPools, pool)
@@ -358,21 +451,21 @@ func (s *MinerState) RemovePools(indices []uint32) {
 }
 
 // GetPools returns a copy of the current pool configuration.
-func (s *MinerState) GetPools() []*miner_data_api.Pool {
+func (s *MinerState) GetPools() []*Pool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pools := make([]*miner_data_api.Pool, len(s.Pools))
+	pools := make([]*Pool, len(s.Pools))
 	copy(pools, s.Pools)
 	return pools
 }
 
 // SetCoolingMode updates the cooling mode, fan speed, and target temperature.
-func (s *MinerState) SetCoolingMode(mode miner_data_api.CoolingMode, speedPct *uint32, targetTempC *float64) {
+func (s *MinerState) SetCoolingMode(mode CoolingMode, speedPct *uint32, targetTempC *float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.CoolingMode = mode
+	s.CoolingModeVal = mode
 	if speedPct != nil {
 		s.FanSpeedPct = *speedPct
 	}
@@ -382,22 +475,22 @@ func (s *MinerState) SetCoolingMode(mode miner_data_api.CoolingMode, speedPct *u
 }
 
 // SetPowerTarget updates the power target, performance mode, and optionally hash-on-disconnect.
-func (s *MinerState) SetPowerTarget(powerW uint32, mode miner_data_api.PerformanceMode, hashOnDisconnect *bool) {
+func (s *MinerState) SetPowerTarget(powerW uint32, mode PerformanceMode, hashOnDisconnect *bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.PowerTargetW = powerW
-	s.PerformanceMode = mode
+	s.PerformanceModeVal = mode
 	if hashOnDisconnect != nil {
 		s.HashOnDisconnect = *hashOnDisconnect
 	}
 }
 
 // SetTuningAlgorithm updates the performance tuning algorithm.
-func (s *MinerState) SetTuningAlgorithm(algo miner_command_api.TuningAlgorithm) {
+func (s *MinerState) SetTuningAlgorithm(algo TuningAlgorithm) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.TuningAlgorithm = algo
+	s.TuningAlgorithmVal = algo
 }
 
 // SetLocateActive sets the locate sequence active state.

@@ -244,6 +244,17 @@ func (s *DriverGRPCServer) GetCapabilitiesForModel(ctx context.Context, req *pb.
 	}, nil
 }
 
+func (s *DriverGRPCServer) GetDiscoveryPorts(ctx context.Context, _ *emptypb.Empty) (*pb.GetDiscoveryPortsResponse, error) {
+	provider, ok := s.Impl.(DiscoveryPortsProvider)
+	if !ok {
+		return &pb.GetDiscoveryPortsResponse{}, nil
+	}
+
+	return &pb.GetDiscoveryPortsResponse{
+		Ports: provider.GetDiscoveryPorts(ctx),
+	}, nil
+}
+
 func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceRequest) (*pb.NewDeviceResponse, error) {
 	// Convert the secret bundle from proto
 	secret := secretBundleFromProto(req.Secret)
@@ -729,6 +740,7 @@ type DriverGRPCClient struct {
 var _ Driver = (*DriverGRPCClient)(nil)
 var _ DefaultCredentialsProvider = (*DriverGRPCClient)(nil)
 var _ ModelCapabilitiesProvider = (*DriverGRPCClient)(nil)
+var _ DiscoveryPortsProvider = (*DriverGRPCClient)(nil)
 
 func (c *DriverGRPCClient) Handshake(ctx context.Context) (DriverIdentifier, error) {
 	resp, err := c.client.Handshake(ctx, &emptypb.Empty{})
@@ -837,6 +849,25 @@ func (c *DriverGRPCClient) GetCapabilitiesForModel(ctx context.Context, model st
 	}
 
 	return resp.Caps.Flags
+}
+
+// GetDiscoveryPorts implements DiscoveryPortsProvider for the gRPC client.
+// Returns nil if the plugin doesn't implement the method.
+func (c *DriverGRPCClient) GetDiscoveryPorts(ctx context.Context) []string {
+	resp, err := c.client.GetDiscoveryPorts(ctx, &emptypb.Empty{})
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+			return nil
+		}
+		slog.Warn("Failed to get discovery ports from plugin", "error", err)
+		return nil
+	}
+
+	if resp == nil || len(resp.Ports) == 0 {
+		return nil
+	}
+
+	return resp.Ports
 }
 
 func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {

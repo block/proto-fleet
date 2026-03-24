@@ -472,6 +472,18 @@ class DriverServicer(driver_pb2_grpc.DriverServicer):
         )
 
     @_rpc_handler
+    async def GetDiscoveryPorts(
+        self, request: Empty, context: grpc.ServicerContext
+    ) -> driver_pb2.GetDiscoveryPortsResponse:
+        del request
+
+        if not hasattr(self.driver, "get_discovery_ports"):
+            raise UnsupportedCapabilityError("get_discovery_ports")
+
+        ports = await self.driver.get_discovery_ports(context)
+        return driver_pb2.GetDiscoveryPortsResponse(ports=ports)
+
+    @_rpc_handler
     async def DiscoverDevice(
         self, request: driver_pb2.DiscoverDeviceRequest, context: grpc.ServicerContext
     ) -> driver_pb2.DiscoverDeviceResponse:

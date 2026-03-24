@@ -16,15 +16,13 @@ package device
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
-
-	"connectrpc.com/connect"
 
 	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device/types"
 	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
@@ -122,18 +120,10 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 }
 
 // isAuthenticationError checks if the error is an authentication failure from the miner.
-// It uses Connect-RPC error codes when available, with string matching as fallback
-// for errors that have been wrapped or serialized.
+// It checks for HTTP 401 status codes in error messages and common auth error strings.
 func isAuthenticationError(err error) bool {
 	if err == nil {
 		return false
-	}
-
-	var connectErr *connect.Error
-	if errors.As(err, &connectErr) {
-		if connectErr.Code() == connect.CodeUnauthenticated || connectErr.Code() == connect.CodePermissionDenied {
-			return true
-		}
 	}
 
 	msg := strings.ToLower(err.Error())
@@ -141,7 +131,8 @@ func isAuthenticationError(err error) bool {
 		strings.Contains(msg, "missing api key") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "authentication failed") ||
-		strings.Contains(msg, "invalid credentials")
+		strings.Contains(msg, "invalid credentials") ||
+		strings.Contains(msg, fmt.Sprintf("status %d", http.StatusUnauthorized))
 }
 
 // ID implements the SDK Device interface.
@@ -527,6 +518,9 @@ func (d *Device) SetPowerTarget(ctx context.Context, performanceMode sdk.Perform
 	powerTargetInfo, err := d.client.GetPowerTarget(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get power target info: %w", err)
+	}
+	if powerTargetInfo == nil {
+		return fmt.Errorf("power target not available yet (device returned 204)")
 	}
 
 	var powerTargetW uint32

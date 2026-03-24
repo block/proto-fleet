@@ -1,7 +1,3 @@
-// TODO where to get ports?
-export const antminerPort = "4028";
-export const protoRigPort = "2121";
-export const defaultDiscoveryPorts = [antminerPort, protoRigPort];
 export const defaultTimeout = 10;
 
 export const STEP_KEYS = {

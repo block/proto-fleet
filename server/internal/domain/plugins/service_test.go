@@ -158,6 +158,98 @@ func TestService_GetPluginCapabilitiesByDriverName(t *testing.T) {
 	assert.Equal(t, mockCaps, caps)
 }
 
+func TestService_GetDefaultDiscoveryPorts_ReturnsAllAdvertisedPorts(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	manager.plugins["proto-plugin"] = &LoadedPlugin{
+		Name: "proto-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "proto",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"443", "8080"},
+	}
+	manager.plugins["antminer-plugin"] = &LoadedPlugin{
+		Name: "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "antminer",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"4028", "443"},
+	}
+	manager.plugins["pyasic-plugin"] = &LoadedPlugin{
+		Name: "pyasic-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "pyasic",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"443", "4028"},
+	}
+	manager.plugins["virtual-plugin"] = &LoadedPlugin{
+		Name: "virtual-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "virtual",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"4028"},
+	}
+
+	assert.Equal(t, []string{"4028", "443", "8080"}, service.GetDefaultDiscoveryPorts(t.Context()))
+}
+
+func TestService_GetDiscoveryPorts(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	manager.plugins["proto-plugin"] = &LoadedPlugin{
+		Name: "proto-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "proto",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"443", "8080"},
+	}
+	manager.plugins["antminer-plugin"] = &LoadedPlugin{
+		Name: "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "antminer",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"4028", "443"},
+	}
+	manager.plugins["virtual-plugin"] = &LoadedPlugin{
+		Name: "virtual-plugin",
+		Identifier: sdk.DriverIdentifier{
+			DriverName: "virtual",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: []string{"4028"},
+	}
+
+	assert.Equal(t, []string{"4028", "443", "8080"}, service.GetDiscoveryPorts(t.Context()))
+}
+
 func TestService_ValidatePluginHealth_NoPlugins(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

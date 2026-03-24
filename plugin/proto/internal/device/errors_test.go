@@ -4,12 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_error_code"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_fan_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_hb_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_psu_api"
+	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
 	sdkerrors "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +28,7 @@ const (
 func TestDevice_ConvertErrorsResponse(t *testing.T) {
 	tests := []struct {
 		name              string
-		response          *miner_data_api.ErrorsResponse
+		response          *proto.ErrorsResponse
 		expectedCount     int
 		validationType    errorValidationType
 		expectedSummaries []string
@@ -41,18 +36,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 	}{
 		{
 			name: "PSU output overvoltage includes slot number",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      2,
+						ErrorCode: "PsuOutputOverVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE,
-									Index: 2,
-								},
-							},
-						},
+						Message:   "Power supply 2 output voltage is too high",
 					},
 				},
 			},
@@ -61,25 +52,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Power supply 2 output voltage is too high"},
 		},
 		{
-			name: "fan slow spin with RPM details",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "fan slow spin with message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "fan",
+						Slot:      5,
+						ErrorCode: "FanSlow",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_FanError{
-								FanError: &miner_fan_api.FanError{
-									Code:  miner_fan_api.FanErrorCode_FAN_ERROR_CODE_SLOW_SPIN,
-									Index: 5,
-									Detail: &miner_fan_api.FanError_FanSpeed_{
-										FanSpeed: &miner_fan_api.FanError_FanSpeed{
-											FanPwmTargetPct: 5000,
-											FanRpmTach:      1200,
-										},
-									},
-								},
-							},
-						},
+						Message:   "Fan 5 has stalled. Target RPM: 5000, Actual RPM: 1200",
 					},
 				},
 			},
@@ -88,20 +69,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Fan 5 has stalled. Target RPM: 5000, Actual RPM: 1200"},
 		},
 		{
-			name: "fan slow spin without details falls back gracefully",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "fan slow spin without message falls back to default summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "fan",
+						Slot:      3,
+						ErrorCode: "FanSlow",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_FanError{
-								FanError: &miner_fan_api.FanError{
-									Code:   miner_fan_api.FanErrorCode_FAN_ERROR_CODE_SLOW_SPIN,
-									Index:  3,
-									Detail: nil,
-								},
-							},
-						},
 					},
 				},
 			},
@@ -110,23 +85,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Fan 3 has stalled"},
 		},
 		{
-			name: "rig pool connection failure with URL",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "rig pool connection failure with URL in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "rig",
+						ErrorCode: "PoolConnectionFailure",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_RigError{
-								RigError: &miner_error_code.RigError{
-									Code: miner_error_code.RigErrorCode_RIG_ERROR_CODE_POOL_CONNECTION_FAILURE,
-									Detail: &miner_error_code.RigError_PoolInfo_{
-										PoolInfo: &miner_error_code.RigError_PoolInfo{
-											Url: "stratum+tcp://pool.example.com:3333",
-										},
-									},
-								},
-							},
-						},
+						Message:   "Control board is unable to connect to pool stratum+tcp://pool.example.com:3333",
 					},
 				},
 			},
@@ -135,23 +101,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Control board is unable to connect to pool stratum+tcp://pool.example.com:3333"},
 		},
 		{
-			name: "rig insufficient cooling with bay index",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "rig insufficient cooling with bay index in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "rig",
+						ErrorCode: "InsufficientCooling",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_RigError{
-								RigError: &miner_error_code.RigError{
-									Code: miner_error_code.RigErrorCode_RIG_ERROR_CODE_INSUFFICIENT_COOLING,
-									Detail: &miner_error_code.RigError_BayIndex_{
-										BayIndex: &miner_error_code.RigError_BayIndex{
-											BayIndex: 2,
-										},
-									},
-								},
-							},
-						},
+						Message:   "Bay 2 has insufficient cooling",
 					},
 				},
 			},
@@ -160,19 +117,13 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Bay 2 has insufficient cooling"},
 		},
 		{
-			name: "rig insufficient cooling without bay index",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "rig insufficient cooling without message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "rig",
+						ErrorCode: "InsufficientCooling",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_RigError{
-								RigError: &miner_error_code.RigError{
-									Code:   miner_error_code.RigErrorCode_RIG_ERROR_CODE_INSUFFICIENT_COOLING,
-									Detail: nil,
-								},
-							},
-						},
 					},
 				},
 			},
@@ -181,23 +132,46 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Bay has insufficient cooling"},
 		},
 		{
-			name: "hashboard ASIC overheat with temperature and ASIC index",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "rig insufficient cooling without message uses slot as bay context",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "rig",
+						Slot:      2,
+						ErrorCode: "InsufficientCooling",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:      miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_OVER_HEAT,
-									Index:     4,
-									AsicIndex: &[]uint32{12}[0],
-									Detail: &miner_hb_api.HbError_Temperature{
-										Temperature: 95.3,
-									},
-								},
-							},
-						},
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Bay 2 has insufficient cooling"},
+		},
+		{
+			name: "rig pool connection failure without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "rig",
+						ErrorCode: "PoolConnectionFailure",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Control board is unable to connect to pool"},
+		},
+		{
+			name: "hashboard ASIC overheat with temperature in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "hashboard",
+						Slot:      4,
+						ErrorCode: "AsicOverHeat",
+						Timestamp: testTimestamp1,
+						Message:   "Hashboard 4 ASIC is overheating: 95.3 °C, first detected at ASIC 13",
 					},
 				},
 			},
@@ -206,22 +180,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Hashboard 4 ASIC is overheating: 95.3 °C, first detected at ASIC 13"},
 		},
 		{
-			name: "hashboard board overheat with temperature",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "hashboard board overheat with temperature in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      2,
+						ErrorCode: "HbOverHeat",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_OVER_HEAT,
-									Index: 2,
-									Detail: &miner_hb_api.HbError_Temperature{
-										Temperature: 88.5,
-									},
-								},
-							},
-						},
+						Message:   "Hashboard 2 overheating: 88.5 °C",
 					},
 				},
 			},
@@ -230,22 +197,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Hashboard 2 overheating: 88.5 °C"},
 		},
 		{
-			name: "hashboard overcurrent with amperage",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "hashboard overcurrent with amperage in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      1,
+						ErrorCode: "HbOverCurrent",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_OVER_CURRENT,
-									Index: 1,
-									Detail: &miner_hb_api.HbError_Current{
-										Current: 42.5,
-									},
-								},
-							},
-						},
+						Message:   "Hashboard 1 overcurrent detected: 42.50 A",
 					},
 				},
 			},
@@ -254,30 +214,38 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Hashboard 1 overcurrent detected: 42.50 A"},
 		},
 		{
-			name: "hashboard communication errors map to same message",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "hashboard overcurrent without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      1,
+						ErrorCode: "HbOverCurrent",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMMUNICATION,
-									Index: 2,
-								},
-							},
-						},
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Hashboard 1 overcurrent detected"},
+		},
+		{
+			name: "hashboard communication errors map to same miner error",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "hashboard",
+						Slot:      2,
+						ErrorCode: "HbCommunication",
+						Timestamp: testTimestamp1,
+						Message:   "Hashboard 2 communication error",
 					},
 					{
+						Source:    "hashboard",
+						Slot:      3,
+						ErrorCode: "CommandTimeout",
 						Timestamp: testTimestamp2,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_COMMAND_TIMEOUT,
-									Index: 3,
-								},
-							},
-						},
+						Message:   "Hashboard 3 communication error",
 					},
 				},
 			},
@@ -289,65 +257,57 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 		},
 		{
+			name: "PSU no input voltage without message restores computed summary",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "psu",
+						Slot:      2,
+						ErrorCode: "PsuNoInputVoltage",
+						Timestamp: testTimestamp1,
+					},
+				},
+			},
+			expectedCount:     1,
+			validationType:    validateSummaries,
+			expectedSummaries: []string{"Power supply 2 is not detecting input voltage"},
+		},
+		{
 			name:          "nil response returns empty errors",
 			response:      nil,
 			expectedCount: 0,
 		},
 		{
 			name: "empty errors array returns empty errors",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{},
-			},
-			expectedCount: 0,
-		},
-		{
-			name: "error with nil Error field is skipped",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
-					{
-						Timestamp: testTimestamp1,
-						Error:     nil,
-					},
-				},
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{},
 			},
 			expectedCount: 0,
 		},
 		{
 			name: "multiple errors of different types",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      1,
+						ErrorCode: "PsuOutputOverVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE,
-									Index: 1,
-								},
-							},
-						},
+						Message:   "Power supply 1 output voltage is too high",
 					},
 					{
+						Source:    "fan",
+						Slot:      2,
+						ErrorCode: "FanHardware",
 						Timestamp: testTimestamp2,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_FanError{
-								FanError: &miner_fan_api.FanError{
-									Code:  miner_fan_api.FanErrorCode_FAN_ERROR_CODE_HARDWARE,
-									Index: 2,
-								},
-							},
-						},
+						Message:   "Fan 2 hardware error",
 					},
 					{
+						Source:    "hashboard",
+						Slot:      3,
+						ErrorCode: "PowerLost",
 						Timestamp: testTimestamp3,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_POWER_LOST,
-									Index: 3,
-								},
-							},
-						},
+						Message:   "Hashboard 3 has lost power",
 					},
 				},
 			},
@@ -360,19 +320,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 		},
 		{
-			name: "PSU error maps to correct severity and cause",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "PSU no input voltage maps to correct severity and cause",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      2,
+						ErrorCode: "PsuNoInputVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_NO_INPUT_VOLTAGE,
-									Index: 2,
-								},
-							},
-						},
+						Message:   "Power supply 2 is not detecting input voltage",
 					},
 				},
 			},
@@ -387,18 +343,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "PSU communication error",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      1,
+						ErrorCode: "PsuCommLost",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_COMM_LOST,
-									Index: 1,
-								},
-							},
-						},
+						Message:   "Power supply 1 communication error",
 					},
 				},
 			},
@@ -408,18 +360,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "PSU overtemperature",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      3,
+						ErrorCode: "PsuOverTemperature",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_OVER_TEMPERATURE,
-									Index: 3,
-								},
-							},
-						},
+						Message:   "Power supply 3 overheating",
 					},
 				},
 			},
@@ -429,18 +377,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "PSU input undervoltage",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      1,
+						ErrorCode: "PsuInputUnderVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE,
-									Index: 1,
-								},
-							},
-						},
+						Message:   "Power supply 1 input voltage is too low",
 					},
 				},
 			},
@@ -455,18 +399,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "PSU input overvoltage",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      2,
+						ErrorCode: "PsuInputOverVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_VOLTAGE,
-									Index: 2,
-								},
-							},
-						},
+						Message:   "Power supply 2 input voltage is too high",
 					},
 				},
 			},
@@ -481,18 +421,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "PSU input overcurrent",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "psu",
+						Slot:      3,
+						ErrorCode: "PsuInputOverCurrent",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_PsuError{
-								PsuError: &miner_psu_api.PsuError{
-									Code:  miner_psu_api.PsuErrorCode_PSU_ERROR_CODE_INPUT_OVER_CURRENT,
-									Index: 3,
-								},
-							},
-						},
+						Message:   "Power supply 3 input current is too high",
 					},
 				},
 			},
@@ -506,22 +442,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			},
 		},
 		{
-			name: "hashboard undervoltage with voltage",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "hashboard undervoltage with voltage in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      1,
+						ErrorCode: "HbUnderVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_UNDER_VOLTAGE,
-									Index: 1,
-									Detail: &miner_hb_api.HbError_Voltage{
-										Voltage: 10.5,
-									},
-								},
-							},
-						},
+						Message:   "Hashboard 1 undervoltage detected: 10.50 V",
 					},
 				},
 			},
@@ -530,22 +459,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 			expectedSummaries: []string{"Hashboard 1 undervoltage detected: 10.50 V"},
 		},
 		{
-			name: "hashboard overvoltage with voltage",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			name: "hashboard overvoltage with voltage in message",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      2,
+						ErrorCode: "HbOverVoltage",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:  miner_hb_api.HbErrorCode_HB_ERROR_CODE_OVER_VOLTAGE,
-									Index: 2,
-									Detail: &miner_hb_api.HbError_Voltage{
-										Voltage: 14.8,
-									},
-								},
-							},
-						},
+						Message:   "Hashboard 2 overvoltage detected at 14.80 V",
 					},
 				},
 			},
@@ -555,19 +477,14 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "hashboard ASIC not hashing",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "hashboard",
+						Slot:      3,
+						ErrorCode: "AsicNotHashing",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_HbError{
-								HbError: &miner_hb_api.HbError{
-									Code:      miner_hb_api.HbErrorCode_HB_ERROR_CODE_ASIC_NOT_HASHING,
-									Index:     3,
-									AsicIndex: &[]uint32{8}[0],
-								},
-							},
-						},
+						Message:   "Hashboard 3 ASIC is not hashing, first detected at ASIC 9",
 					},
 				},
 			},
@@ -577,17 +494,13 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "rig network error",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "rig",
+						ErrorCode: "NetworkError",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_RigError{
-								RigError: &miner_error_code.RigError{
-									Code: miner_error_code.RigErrorCode_RIG_ERROR_CODE_NETWORK_ERROR,
-								},
-							},
-						},
+						Message:   "Control board is unable to connect to the network",
 					},
 				},
 			},
@@ -597,24 +510,41 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 		},
 		{
 			name: "fan hardware error",
-			response: &miner_data_api.ErrorsResponse{
-				Errors: []*miner_data_api.ErrorFromDb{
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
 					{
+						Source:    "fan",
+						Slot:      4,
+						ErrorCode: "FanHardware",
 						Timestamp: testTimestamp1,
-						Error: &miner_error_code.Error{
-							Err: &miner_error_code.Error_FanError{
-								FanError: &miner_fan_api.FanError{
-									Code:  miner_fan_api.FanErrorCode_FAN_ERROR_CODE_HARDWARE,
-									Index: 4,
-								},
-							},
-						},
+						Message:   "Fan 4 hardware error",
 					},
 				},
 			},
 			expectedCount:     1,
 			validationType:    validateSummaries,
 			expectedSummaries: []string{"Fan 4 hardware error"},
+		},
+		{
+			name: "unknown error code maps to VendorErrorUnmapped",
+			response: &proto.ErrorsResponse{
+				Errors: []proto.NotificationError{
+					{
+						Source:    "rig",
+						ErrorCode: "SomeUnknownError",
+						Timestamp: testTimestamp1,
+						Message:   "Something unexpected happened",
+					},
+				},
+			},
+			expectedCount:  1,
+			validationType: validateFullError,
+			expectedFullError: map[string]any{
+				"summary":      "Something unexpected happened",
+				"minerError":   sdkerrors.VendorErrorUnmapped,
+				"severity":     sdkerrors.SeverityInfo,
+				"causeSummary": "Unhandled error code: rig/SomeUnknownError",
+			},
 		},
 	}
 
@@ -652,18 +582,15 @@ func TestDevice_ConvertErrorsResponse(t *testing.T) {
 }
 
 func TestConvertErrorsResponse_LastSeenAtIsCurrentTime(t *testing.T) {
-	rigErr := &miner_error_code.RigError{
-		Code: miner_error_code.RigErrorCode_RIG_ERROR_CODE_LOW_HASH_RATE,
-	}
-	errorFromDb := &miner_data_api.ErrorFromDb{
-		Timestamp: historicalErrorTimestamp, // 2021-01-01 00:00:00 UTC
-		Error: &miner_error_code.Error{
-			Err: &miner_error_code.Error_RigError{RigError: rigErr},
+	response := &proto.ErrorsResponse{
+		Errors: []proto.NotificationError{
+			{
+				Source:    "rig",
+				ErrorCode: "LowHashRate",
+				Timestamp: historicalErrorTimestamp, // 2021-01-01 00:00:00 UTC
+				Message:   "Hashrate is below target",
+			},
 		},
-	}
-	response := &miner_data_api.ErrorsResponse{
-		Result: miner_common_api.ApiResult_RESULT_SUCCESS,
-		Errors: []*miner_data_api.ErrorFromDb{errorFromDb},
 	}
 
 	device := &Device{
@@ -689,4 +616,138 @@ func TestConvertErrorsResponse_LastSeenAtIsCurrentTime(t *testing.T) {
 		"LastSeenAt should be at or after the call time")
 	assert.True(t, err.LastSeenAt.Before(afterCall) || err.LastSeenAt.Equal(afterCall),
 		"LastSeenAt should be at or before the call completion")
+}
+
+func TestConvertNotificationError_ComponentInfo(t *testing.T) {
+	tests := []struct {
+		name             string
+		notifErr         proto.NotificationError
+		expectedCompType sdkerrors.ComponentType
+		expectedCompID   string
+		hasComponentID   bool
+	}{
+		{
+			name: "fan sets component type and ID",
+			notifErr: proto.NotificationError{
+				Source:    "fan",
+				Slot:      3,
+				ErrorCode: "FanHardware",
+				Message:   "Fan 3 hardware error",
+			},
+			expectedCompType: sdkerrors.ComponentTypeFan,
+			expectedCompID:   "3",
+			hasComponentID:   true,
+		},
+		{
+			name: "hashboard sets component type and ID",
+			notifErr: proto.NotificationError{
+				Source:    "hashboard",
+				Slot:      5,
+				ErrorCode: "HbOverHeat",
+				Message:   "Hashboard 5 overheating",
+			},
+			expectedCompType: sdkerrors.ComponentTypeHashBoard,
+			expectedCompID:   "5",
+			hasComponentID:   true,
+		},
+		{
+			name: "psu sets component type and ID",
+			notifErr: proto.NotificationError{
+				Source:    "psu",
+				Slot:      1,
+				ErrorCode: "PsuFans",
+				Message:   "Power supply 1 fan failure",
+			},
+			expectedCompType: sdkerrors.ComponentTypePSU,
+			expectedCompID:   "1",
+			hasComponentID:   true,
+		},
+		{
+			name: "rig has no component ID",
+			notifErr: proto.NotificationError{
+				Source:    "rig",
+				ErrorCode: "LowHashRate",
+				Message:   "Low hashrate detected",
+			},
+			hasComponentID: false,
+		},
+		{
+			name: "fan_slot_zero_has_no_component_id",
+			notifErr: proto.NotificationError{
+				Source:    "fan",
+				Slot:      0,
+				ErrorCode: "FanHardware",
+				Message:   "Fan fault",
+			},
+			hasComponentID: false,
+		},
+		{
+			name: "hashboard_slot_zero_has_no_component_id",
+			notifErr: proto.NotificationError{
+				Source:    "hashboard",
+				Slot:      0,
+				ErrorCode: "HbOverHeat",
+				Message:   "Hashboard thermal",
+			},
+			hasComponentID: false,
+		},
+		{
+			name: "psu_slot_zero_has_no_component_id",
+			notifErr: proto.NotificationError{
+				Source:    "psu",
+				Slot:      0,
+				ErrorCode: "PsuFans",
+				Message:   "PSU fan",
+			},
+			hasComponentID: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertNotificationError(tt.notifErr, "test-device")
+
+			if tt.hasComponentID {
+				require.NotNil(t, result.ComponentID)
+				assert.Equal(t, tt.expectedCompID, *result.ComponentID)
+				assert.Equal(t, tt.expectedCompType, result.ComponentType)
+			} else {
+				assert.Nil(t, result.ComponentID)
+			}
+		})
+	}
+}
+
+func TestLookupErrorMapping_AllSources(t *testing.T) {
+	// Verify rig mappings
+	m, ok := lookupErrorMapping("rig", "PoolConnectionFailure")
+	assert.True(t, ok)
+	assert.Equal(t, sdkerrors.DeviceCommunicationLost, m.minerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, m.severity)
+
+	// Verify fan mappings
+	m, ok = lookupErrorMapping("fan", "FanSlow")
+	assert.True(t, ok)
+	assert.Equal(t, sdkerrors.FanSpeedDeviation, m.minerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, m.severity)
+
+	// Verify hashboard mappings
+	m, ok = lookupErrorMapping("hashboard", "AsicOverHeat")
+	assert.True(t, ok)
+	assert.Equal(t, sdkerrors.HashboardASICOverTemperature, m.minerError)
+	assert.Equal(t, sdkerrors.SeverityCritical, m.severity)
+
+	// Verify PSU mappings
+	m, ok = lookupErrorMapping("psu", "PsuOutputOverVoltage")
+	assert.True(t, ok)
+	assert.Equal(t, sdkerrors.PSUOutputVoltageFault, m.minerError)
+	assert.Equal(t, sdkerrors.SeverityCritical, m.severity)
+
+	// Verify unknown source returns not found
+	_, ok = lookupErrorMapping("unknown", "SomeError")
+	assert.False(t, ok)
+
+	// Verify unknown error code returns not found
+	_, ok = lookupErrorMapping("rig", "NonExistentError")
+	assert.False(t, ok)
 }

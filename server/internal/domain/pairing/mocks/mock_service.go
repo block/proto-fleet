@@ -62,6 +62,45 @@ func (mr *MockListenerMockRecorder) AddDevices(ctx any, deviceID ...any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevices", reflect.TypeOf((*MockListener)(nil).AddDevices), varargs...)
 }
 
+// MockdevicePairingStatusProvider is a mock of devicePairingStatusProvider interface.
+type MockdevicePairingStatusProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockdevicePairingStatusProviderMockRecorder
+	isgomock struct{}
+}
+
+// MockdevicePairingStatusProviderMockRecorder is the mock recorder for MockdevicePairingStatusProvider.
+type MockdevicePairingStatusProviderMockRecorder struct {
+	mock *MockdevicePairingStatusProvider
+}
+
+// NewMockdevicePairingStatusProvider creates a new mock instance.
+func NewMockdevicePairingStatusProvider(ctrl *gomock.Controller) *MockdevicePairingStatusProvider {
+	mock := &MockdevicePairingStatusProvider{ctrl: ctrl}
+	mock.recorder = &MockdevicePairingStatusProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockdevicePairingStatusProvider) EXPECT() *MockdevicePairingStatusProviderMockRecorder {
+	return m.recorder
+}
+
+// GetDevicePairingStatusByIdentifier mocks base method.
+func (m *MockdevicePairingStatusProvider) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicePairingStatusByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicePairingStatusByIdentifier indicates an expected call of GetDevicePairingStatusByIdentifier.
+func (mr *MockdevicePairingStatusProviderMockRecorder) GetDevicePairingStatusByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePairingStatusByIdentifier", reflect.TypeOf((*MockdevicePairingStatusProvider)(nil).GetDevicePairingStatusByIdentifier), ctx, deviceIdentifier, orgID)
+}
+
 // MockCapabilitiesProvider is a mock of CapabilitiesProvider interface.
 type MockCapabilitiesProvider struct {
 	ctrl     *gomock.Controller
@@ -84,6 +123,34 @@ func NewMockCapabilitiesProvider(ctrl *gomock.Controller) *MockCapabilitiesProvi
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockCapabilitiesProvider) EXPECT() *MockCapabilitiesProviderMockRecorder {
 	return m.recorder
+}
+
+// GetDefaultDiscoveryPorts mocks base method.
+func (m *MockCapabilitiesProvider) GetDefaultDiscoveryPorts(ctx context.Context) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDefaultDiscoveryPorts", ctx)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetDefaultDiscoveryPorts indicates an expected call of GetDefaultDiscoveryPorts.
+func (mr *MockCapabilitiesProviderMockRecorder) GetDefaultDiscoveryPorts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultDiscoveryPorts", reflect.TypeOf((*MockCapabilitiesProvider)(nil).GetDefaultDiscoveryPorts), ctx)
+}
+
+// GetDiscoveryPorts mocks base method.
+func (m *MockCapabilitiesProvider) GetDiscoveryPorts(ctx context.Context) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDiscoveryPorts", ctx)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetDiscoveryPorts indicates an expected call of GetDiscoveryPorts.
+func (mr *MockCapabilitiesProviderMockRecorder) GetDiscoveryPorts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiscoveryPorts", reflect.TypeOf((*MockCapabilitiesProvider)(nil).GetDiscoveryPorts), ctx)
 }
 
 // GetMinerCapabilitiesForDevice mocks base method.

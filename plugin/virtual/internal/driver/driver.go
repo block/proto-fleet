@@ -25,6 +25,7 @@ const (
 
 // Compile-time interface assertion for DefaultCredentialsProvider.
 var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
+var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
 
 // defaultCredentials contains credentials for virtual miners.
 // Virtual miners accept any credentials, but we provide defaults for consistency.
@@ -104,6 +105,11 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 			sdk.CapabilityPerBoardStats:     true,
 			sdk.CapabilityPSUStats:          true,
 		}, nil
+}
+
+// GetDiscoveryPorts returns the canonical discovery port for virtual miners.
+func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
+	return []string{virtualDiscoveryPort}
 }
 
 // DiscoverDevice implements sdk.Driver.

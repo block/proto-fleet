@@ -1,29 +1,21 @@
 # Fake Proto Rig
 
-A simulator for Proto Bitcoin mining devices, implementing both gRPC/Connect-RPC and REST API interfaces.
+A simulator for Proto Bitcoin mining devices, implementing the REST API interface.
 
 ## Overview
 
 This simulator allows the fleet management system to be tested without physical hardware. It implements:
 
-**gRPC Services** (for ProtoFleet):
-- **MinerDataApi** - 14 methods for telemetry and status
-- **MinerCommandApi** - 9 methods for controlling mining operations
-- **MinerSystemApi** - 9 methods for system operations
-- **MinerPairingApi** - 3 methods for device pairing (no auth required)
-
-**REST API** (for ProtoOS):
-- ~40 endpoints matching the MDK OpenAPI spec (`proto-rig-api/openapi/MDK-API.json`)
-- Pools, mining, system, hardware, telemetry, cooling, network, and auth endpoints
+**REST API** (~45 endpoints matching the MDK OpenAPI spec):
+- Pools, mining, system, hardware, telemetry, cooling, network, auth, and pairing endpoints
 
 ## Features
 
 - Stateful simulation of mining state, pools, and configuration
 - Realistic telemetry data with random variation
-- Authentication via Bearer tokens (when auth key is set)
+- Authentication: mutating REST endpoints require a Bearer token (access token from `/api/v1/auth/login` or a paired EdDSA JWT), while read-only endpoints remain accessible without auth
 - Error injection via environment variables
-- HTTP/2 cleartext (h2c) support for gRPC communication
-- REST API for ProtoOS dashboard compatibility
+- REST API for both ProtoFleet plugin and ProtoOS dashboard
 
 ## Usage
 
@@ -37,14 +29,14 @@ go run .
 
 ```bash
 docker build -t fake-proto-rig -f Dockerfile ../..
-docker run -p 2121:2121 fake-proto-rig
+docker run -p 8080:8080 fake-proto-rig
 ```
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GRPC_PORT` | Port to listen on | `2121` |
+| `HTTP_PORT` | Port to listen on | `8080` |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
 
@@ -65,7 +57,7 @@ Inject errors for testing error handling:
 
 ```bash
 # Run with one hashboard missing and high temperature
-docker run -p 2121:2121 \
+docker run -p 8080:8080 \
   -e ERROR_HASHBOARD_MISSING=2 \
   -e ERROR_TEMPERATURE=92.5 \
   fake-proto-rig
@@ -76,29 +68,32 @@ docker run -p 2121:2121 \
 ### Health Check
 
 ```bash
-curl http://localhost:2121/health
+curl http://localhost:8080/health
 # Returns: OK
 ```
 
-### REST API (for ProtoOS)
+### REST API
 
 The REST API implements endpoints matching the MDK OpenAPI spec:
 
 ```bash
 # Mining status
-curl http://localhost:2121/api/v1/mining
+curl http://localhost:8080/api/v1/mining
 
 # System info
-curl http://localhost:2121/api/v1/system
+curl http://localhost:8080/api/v1/system
 
 # Pool configuration
-curl http://localhost:2121/api/v1/pools
+curl http://localhost:8080/api/v1/pools
 
 # Hardware info
-curl http://localhost:2121/api/v1/hardware
+curl http://localhost:8080/api/v1/hardware
 
 # Telemetry data
-curl http://localhost:2121/api/v1/telemetry?level=miner
+curl http://localhost:8080/api/v1/telemetry?level=miner
+
+# Pairing info
+curl http://localhost:8080/api/v1/pairing/info
 ```
 
 **Available REST endpoints:**
@@ -114,31 +109,12 @@ curl http://localhost:2121/api/v1/telemetry?level=miner
 - `/api/v1/network` - Network configuration (GET, PUT)
 - `/api/v1/telemetry` - Telemetry data (GET)
 - `/api/v1/auth/*` - Authentication endpoints
-
-### gRPC Services (for ProtoFleet)
-
-All services are available at `http://localhost:2121`:
-
-- `miner_data_api.MinerDataApi`
-- `miner_command_api.MinerCommandApi`
-- `miner_system_api.MinerSystemApi`
-- `miner_system_api.MinerPairingApi`
-
-### Testing with grpcurl
-
-```bash
-# Get pairing info (no auth required)
-grpcurl -plaintext localhost:2121 miner_system_api.MinerPairingApi/GetPairingInfo
-
-# Get mining status (requires auth if key is set)
-grpcurl -plaintext \
-  -H "Authorization: Bearer <token>" \
-  localhost:2121 miner_data_api.MinerDataApi/GetMiningStatus
-```
+- `/api/v1/pairing/info` - Pairing info (GET)
+- `/api/v1/pairing/auth-key` - Auth key management (POST, DELETE)
 
 ## Default Values
 
-The simulator uses realistic default values for a Proto B4 miner:
+The simulator uses realistic default values for a Proto Rig miner:
 
 | Metric | Default Value |
 |--------|---------------|
@@ -155,12 +131,10 @@ The simulator uses realistic default values for a Proto B4 miner:
 
 ```
 fake-proto-rig/
-├── main.go                 # Entry point, server setup, auth interceptor
+├── main.go                 # Entry point, HTTP server setup
 ├── models.go               # MinerState and configuration structs
-├── data_api_handler.go     # MinerDataApi gRPC implementation (14 methods)
-├── command_api_handler.go  # MinerCommandApi gRPC implementation (9 methods)
-├── system_api_handler.go   # MinerSystemApi & MinerPairingApi gRPC (12 methods)
-├── rest_api_handler.go     # REST API implementation (~40 endpoints)
+├── rest_api_handler.go     # REST API implementation (~45 endpoints)
+├── rest_api_handler_test.go # Tests
 ├── Dockerfile              # Docker build configuration
 └── README.md               # This file
 ```
@@ -190,7 +164,7 @@ The REST API is manually implemented based on the OpenAPI spec at `proto-rig-api
    cd server && docker compose build proto-sim && docker compose up proto-sim -d
 
    # Test endpoints
-   curl http://localhost:2121/api/v1/<endpoint>
+   curl http://localhost:8080/api/v1/<endpoint>
    ```
 
 ### OpenAPI Compliance Checklist
@@ -212,28 +186,16 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
 
-**Wrapper patterns in OpenAPI spec:**
-- `MiningStatus` → wrapped in `"mining-status"`
-- `SystemInfo` → wrapped in `"system-info"`
-- `CoolingStatus` → wrapped in `"cooling-status"`
-- `HardwareInfo` → wrapped in `"hardware-info"`
-- `HashboardsInfo` → wrapped in `"hashboards-info"`
-- `HashboardStats` → wrapped in `"hashboard-stats"`
-- `PsusInfo` → wrapped in `"psus-info"`
-- `LogsResponse` → wrapped in `"logs"`
-- `MiningTargetResponse` → **NO wrapper** (flat fields at top level)
-
 ### Cross-Reference with miner-firmware
 
 The reference implementation is in the private `miner-firmware` repository at:
 - `crates/miner-api-server/src/models/` - Rust struct definitions with `#[serde(rename = "...")]`
 - `crates/miner-api-server/src/controllers/` - Handler implementations
 
-When in doubt, check the Rust models to see the exact JSON field names expected
+When in doubt, check the Rust models to see the exact JSON field names expected.
 
 ### Source of Truth
 
-- **gRPC API**: Generated from `proto-rig-api/grpc/*.proto` files
 - **REST API**: Manually implemented from `proto-rig-api/openapi/MDK-API.json`
 
 The OpenAPI spec is vendored from the private `miner-firmware` repository. See `proto-rig-api/VERSION.md` for the source commit.

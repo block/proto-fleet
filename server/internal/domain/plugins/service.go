@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 
 	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
@@ -57,6 +58,53 @@ type PluginInfo struct {
 	DriverName   string
 	APIVersion   string
 	Capabilities sdk.Capabilities
+}
+
+// GetDefaultDiscoveryPorts returns the stock discovery scan set used when the
+// caller omits an explicit port list. Default discovery should probe every
+// advertised plugin port so multi-port drivers remain reachable without a
+// client-side override. This is intentionally separate from GetDiscoveryPorts:
+// pairing uses the default scan set when a request omits ports, while same-IP
+// reconciliation iterates the canonical plugin-advertised discovery ports.
+func (s *Service) GetDefaultDiscoveryPorts(ctx context.Context) []string {
+	return s.GetDiscoveryPorts(ctx)
+}
+
+// GetDiscoveryPorts returns the stable deduplicated union of all advertised
+// discovery ports across loaded discovery-capable plugins. It currently matches
+// GetDefaultDiscoveryPorts, but remains a separate concept so callers can ask
+// for the canonical plugin port set without tying that to request defaults.
+func (s *Service) GetDiscoveryPorts(_ context.Context) []string {
+	plugins := s.manager.GetAllPlugins()
+	if len(plugins) == 0 {
+		return nil
+	}
+
+	orderedPlugins := make([]*LoadedPlugin, 0, len(plugins))
+	for _, plugin := range plugins {
+		if !plugin.Caps[sdk.CapabilityDiscovery] || len(plugin.DiscoveryPorts) == 0 {
+			continue
+		}
+		orderedPlugins = append(orderedPlugins, plugin)
+	}
+
+	sort.Slice(orderedPlugins, func(i, j int) bool {
+		return orderedPlugins[i].Identifier.DriverName < orderedPlugins[j].Identifier.DriverName
+	})
+
+	seen := make(map[string]struct{})
+	var ports []string
+	for _, plugin := range orderedPlugins {
+		for _, port := range plugin.DiscoveryPorts {
+			if _, ok := seen[port]; ok {
+				continue
+			}
+			seen[port] = struct{}{}
+			ports = append(ports, port)
+		}
+	}
+
+	return ports
 }
 
 // GetPluginCapabilitiesByDriverName returns the capabilities of a plugin for a given driver name

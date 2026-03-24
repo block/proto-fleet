@@ -1,6 +1,9 @@
 package networking
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
 
 func TestNormalizeMAC(t *testing.T) {
 	t.Parallel()
@@ -62,6 +65,48 @@ func TestNormalizeMAC(t *testing.T) {
 			t.Parallel()
 			if got := NormalizeMAC(tt.input); got != tt.expected {
 				t.Fatalf("NormalizeMAC(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSubnetCIDR(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		ipNet    *net.IPNet
+		expected string
+	}{
+		{
+			name: "ipv4 host address is normalized to network cidr",
+			ipNet: &net.IPNet{
+				IP:   net.ParseIP("192.168.2.17").To4(),
+				Mask: net.CIDRMask(24, 32),
+			},
+			expected: "192.168.2.0/24",
+		},
+		{
+			name: "existing network address stays unchanged",
+			ipNet: &net.IPNet{
+				IP:   net.ParseIP("10.0.0.0").To4(),
+				Mask: net.CIDRMask(16, 32),
+			},
+			expected: "10.0.0.0/16",
+		},
+		{
+			name:     "nil input returns empty string",
+			ipNet:    nil,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := subnetCIDR(tt.ipNet); got != tt.expected {
+				t.Fatalf("subnetCIDR(%v) = %q, want %q", tt.ipNet, got, tt.expected)
 			}
 		})
 	}

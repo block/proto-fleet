@@ -2466,7 +2466,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2490,7 +2490,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2510,7 +2510,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2540,7 +2540,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 44.8,
                             "outlet": 67.9,
                             "average": 56.35
@@ -2570,7 +2570,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.5,
                             "outlet": 69.1,
                             "average": 57.3
@@ -2613,7 +2613,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -2633,7 +2633,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "°C"
+                          "unit": "\u00b0C"
                         },
                         "power": {
                           "value": 3250,
@@ -2653,7 +2653,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2683,7 +2683,7 @@
                               ]
                             },
                             "temperature": {
-                              "unit": "°C",
+                              "unit": "\u00b0C",
                               "values": [
                                 72.5,
                                 73.0
@@ -2718,7 +2718,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "°C",
+                            "unit": "\u00b0C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -5231,7 +5231,7 @@
                   "unit": "TH/s"
                 },
                 "temperature": {
-                  "unit": "°C",
+                  "unit": "\u00b0C",
                   "inlet": 45.2,
                   "outlet": 68.5,
                   "average": 56.85
@@ -5261,7 +5261,7 @@
                     ]
                   },
                   "temperature": {
-                    "unit": "°C",
+                    "unit": "\u00b0C",
                     "values": [
                       72.5,
                       73.0
@@ -5297,7 +5297,7 @@
                   "output": 3250
                 },
                 "temperature": {
-                  "unit": "°C",
+                  "unit": "\u00b0C",
                   "hotspot": 65.5,
                   "ambient": 45.2,
                   "average": 55.4
@@ -5340,7 +5340,7 @@
           },
           "temperature": {
             "value": 65.5,
-            "unit": "°C"
+            "unit": "\u00b0C"
           },
           "power": {
             "value": 3250,
@@ -5525,7 +5525,7 @@
         "type": "string",
         "enum": [
           "TH/s",
-          "°C",
+          "\u00b0C",
           "W",
           "J/TH",
           "V",

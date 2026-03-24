@@ -1,11 +1,30 @@
 import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
+import { PROTO_RIG_DISPLAY_NAME, PROTO_RIG_MODEL } from "../helpers/minerModels";
 import { type IssueIconId } from "../helpers/testDataHelper";
 import { BasePage } from "./base";
 
 const PROLONGED_TIMEOUT = DEFAULT_TIMEOUT * 4;
 
 export class MinersPage extends BasePage {
+  private async clickDropdownFilterOption(popover: Locator, optionNames: string[]) {
+    for (const optionName of optionNames) {
+      const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
+      if (await optionByTestId.isVisible().catch(() => false)) {
+        await optionByTestId.click();
+        return;
+      }
+
+      const optionByText = popover.getByText(optionName, { exact: true }).first();
+      if (await optionByText.isVisible().catch(() => false)) {
+        await optionByText.click();
+        return;
+      }
+    }
+
+    throw new Error(`Unable to find filter option. Tried: ${optionNames.join(", ")}`);
+  }
+
   async validateMinersPageOpened() {
     await this.validateTitle("Miners");
   }
@@ -25,13 +44,13 @@ export class MinersPage extends BasePage {
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
-    await popover.getByText(minerType, { exact: true }).click();
+    await this.clickDropdownFilterOption(popover, [minerType]);
     await popover.getByRole("button", { name: "Apply" }).click();
     await expect(popover).toBeHidden();
   }
 
   async filterRigMiners() {
-    await this.filterMinersByModel("Rig");
+    await this.filterMinersByModel(PROTO_RIG_MODEL);
     await this.waitForAntminersToDisappear();
   }
 
@@ -47,7 +66,7 @@ export class MinersPage extends BasePage {
     const rigRows = this.page
       .getByTestId("list-body")
       .locator("tr")
-      .filter({ has: this.page.getByTestId("name").getByText("Rig") });
+      .filter({ has: this.page.getByTestId("name").getByText(PROTO_RIG_DISPLAY_NAME, { exact: true }) });
     await expect(rigRows).toHaveCount(0);
   }
 
@@ -244,16 +263,40 @@ export class MinersPage extends BasePage {
   async ensureBulkRenamePropertyFirst(propertyId: string) {
     await expect(this.page.getByTestId(`bulk-rename-row-${propertyId}`)).toBeVisible();
 
-    const order = await this.getBulkRenamePropertyOrder();
+    let order = await this.getBulkRenamePropertyOrder();
     if (order[0] === propertyId) {
       return;
     }
 
-    const currentFirst = order[0];
-    const source = this.page.getByTestId(`bulk-rename-reorder-${propertyId}`);
-    const target = this.page.getByTestId(`bulk-rename-row-${currentFirst}`);
+    if (this.isMobile) {
+      while (order[0] !== propertyId) {
+        const currentIndex = order.indexOf(propertyId);
+        if (currentIndex <= 0) {
+          break;
+        }
 
-    await source.dragTo(target);
+        const previousPropertyId = order[currentIndex - 1];
+        const source = this.page.getByTestId(`bulk-rename-reorder-${propertyId}`);
+        const target = this.page.getByTestId(`bulk-rename-reorder-${previousPropertyId}`);
+
+        await source.scrollIntoViewIfNeeded();
+        await target.scrollIntoViewIfNeeded();
+        await source.dragTo(target, { steps: 20 });
+
+        await expect
+          .poll(async () => (await this.getBulkRenamePropertyOrder()).indexOf(propertyId), {
+            message: `Waiting for ${propertyId} to move above ${previousPropertyId}`,
+          })
+          .toBe(currentIndex - 1);
+
+        order = await this.getBulkRenamePropertyOrder();
+      }
+    } else {
+      const currentFirst = order[0];
+      const source = this.page.getByTestId(`bulk-rename-reorder-${propertyId}`);
+      const target = this.page.getByTestId(`bulk-rename-row-${currentFirst}`);
+      await source.dragTo(target);
+    }
 
     await expect.poll(async () => (await this.getBulkRenamePropertyOrder())[0]).toBe(propertyId);
     // Wait for UI to stabilize after drag-and-drop to prevent race condition with subsequent property toggles

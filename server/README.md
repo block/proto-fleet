@@ -36,7 +36,7 @@ go test ./internal/domain/pairing -v -run TestFunctionName
 ```bash
 just gen              # Run all code generation
 just gen-db-queries   # Generate database query bindings (sqlc)
-just gen-miner-protos # Generate protobuf/gRPC code
+just gen-sdk-protos   # Generate SDK protobuf code
 just gen-go           # Run go:generate directives
 ```
 
@@ -133,8 +133,6 @@ Scale replicas with: `docker compose up --scale fake-proto-rig=10`
 The service is configured using environment variables or command-line flags. See `internal/domain/config.go`. For local development, create a `.env` file in this directory.
 
 ## API Testing
-
-Use the `.http` files in `testing/` with GoLand's HTTP Client or the VS Code Rest Client extension. Each service has its own file (e.g., `testing/auth.http`, `testing/telemetry.http`).
 
 ## Error Query Service (Testing/Development Only)
 

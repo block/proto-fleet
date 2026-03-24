@@ -1,4 +1,5 @@
 import { expect, type Locator } from "@playwright/test";
+import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
 export class AddMinersPage extends BasePage {
@@ -63,7 +64,7 @@ export class AddMinersPage extends BasePage {
     await expect(minerRows).toHaveCount(1);
 
     const firstMinerRow = minerRows.first();
-    await expect(firstMinerRow).toContainText("Proto Rig");
+    await expect(firstMinerRow).toContainText(PROTO_RIG_DISPLAY_NAME);
     await expect(firstMinerRow).toContainText("1 miners");
 
     const continueButton = this.page.getByRole("button", { name: "Continue with 1 miners" });

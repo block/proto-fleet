@@ -139,6 +139,9 @@ class StubDriver:
     async def describe_driver(self, ctx: grpc.ServicerContext) -> tuple[DriverIdentifier, Capabilities]:
         return DriverIdentifier(driver_name="stub-plugin", api_version="v1"), {}
 
+    async def get_discovery_ports(self, ctx: grpc.ServicerContext) -> list[str]:
+        return ["443", "8080"]
+
     async def discover_device(self, ctx: grpc.ServicerContext, ip_address: str, port: int) -> DeviceInfo:
         return DeviceInfo(
             host=ip_address, port=port, url_scheme="http", serial_number="",

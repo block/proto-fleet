@@ -63,12 +63,23 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 				Interface: iface.Name,
 				LocalIP:   ipNet.IP.String(),
 				Gateway:   gatewayIP.String(),
-				Subnet:    ipNet.String(),
+				Subnet:    subnetCIDR(ipNet),
 			}, nil
 		}
 	}
 
 	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
+}
+
+func subnetCIDR(ipNet *net.IPNet) string {
+	if ipNet == nil {
+		return ""
+	}
+
+	return (&net.IPNet{
+		IP:   ipNet.IP.Mask(ipNet.Mask),
+		Mask: ipNet.Mask,
+	}).String()
 }
 
 // NormalizeMAC normalizes a MAC address to uppercase colon-separated format

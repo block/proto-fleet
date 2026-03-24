@@ -230,6 +230,27 @@ func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Conte
 	return nil
 }
 
+func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
+	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return "", handleQueryError(err,
+			fmt.Sprintf("device not found for pairing status with identifier=%s org_id=%d", deviceIdentifier, orgID),
+			"failed to query device")
+	}
+
+	pairingStatus, err := s.getQueries(ctx).GetDevicePairingStatusByDeviceDatabaseID(ctx, device.ID)
+	if err != nil {
+		return "", handleQueryError(err,
+			fmt.Sprintf("pairing status not found for device_id=%d identifier=%s", device.ID, deviceIdentifier),
+			"failed to query device pairing status")
+	}
+
+	return string(pairingStatus), nil
+}
+
 func (s *SQLDeviceStore) GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error) {
 	dbDevice, err := s.GetQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: device.DeviceIdentifier,

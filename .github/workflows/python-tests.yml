@@ -82,14 +82,14 @@ jobs:
         working-directory: packages/proto-python-gen
 
       - name: Regenerate Python SDK stubs
-        run: just gen-miner-protos
+        run: just gen-sdk-protos
         working-directory: server
 
       - name: Check for staleness
         run: |
           if ! git diff --exit-code server/sdk/v1/python/proto_fleet_sdk/generated/; then
             echo "ERROR: Generated Python SDK stubs are out of date."
-            echo "Run 'cd server && just gen-miner-protos' and commit the changes."
+            echo "Run 'cd server && just gen-sdk-protos' and commit the changes."
             exit 1
           fi
           echo "Generated stubs are up to date."

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"fmt"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_common_api"
-	"github.com/proto-at-block/proto-fleet/server/generated/miner-api/miner_data_api"
 	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,14 +38,14 @@ func TestClientCreation(t *testing.T) {
 		{
 			name:    "valid HTTP client",
 			host:    "192.168.1.100",
-			port:    2121,
+			port:    80,
 			scheme:  "http",
 			wantErr: false,
 		},
 		{
 			name:    "valid HTTPS client",
 			host:    "192.168.1.100",
-			port:    2121,
+			port:    80,
 			scheme:  "https",
 			wantErr: false,
 		},
@@ -62,7 +59,7 @@ func TestClientCreation(t *testing.T) {
 		{
 			name:    "IPv6 address",
 			host:    "::1",
-			port:    2121,
+			port:    80,
 			scheme:  "http",
 			wantErr: false,
 		},
@@ -93,10 +90,6 @@ func TestClientCreation(t *testing.T) {
 			// Verify client properties
 			assert.Contains(t, client.baseURL, tt.host, "BaseURL should contain host")
 			assert.NotNil(t, client.httpClient, "HTTP client should be set")
-			assert.NotNil(t, client.dataClient, "Data client should be set")
-			assert.NotNil(t, client.commandClient, "Command client should be set")
-			assert.NotNil(t, client.systemClient, "System client should be set")
-			assert.NotNil(t, client.pairingClient, "Pairing client should be set")
 
 			// Test Close method
 			err = client.Close()
@@ -148,90 +141,20 @@ func TestHTTPSClientCreation(t *testing.T) {
 	})
 }
 
-// TestTLSVerificationConfiguration tests TLS verification environment variable handling
+// TestTLSVerificationConfiguration verifies Proto HTTPS always skips certificate verification.
 func TestTLSVerificationConfiguration(t *testing.T) {
-	// Reset clients before each test
 	resetClients()
 
-	tests := []struct {
-		name          string
-		skipTLSVerify string
-		insecureTLS   string
-		expectedSkip  bool
-	}{
-		{
-			name:          "default - verification enabled",
-			skipTLSVerify: "",
-			insecureTLS:   "",
-			expectedSkip:  false,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=true",
-			skipTLSVerify: "true",
-			insecureTLS:   "",
-			expectedSkip:  true,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=TRUE (case insensitive)",
-			skipTLSVerify: "TRUE",
-			insecureTLS:   "",
-			expectedSkip:  true,
-		},
-		{
-			name:          "INSECURE_TLS=true",
-			skipTLSVerify: "",
-			insecureTLS:   "true",
-			expectedSkip:  true,
-		},
-		{
-			name:          "SKIP_TLS_VERIFY=false",
-			skipTLSVerify: "false",
-			insecureTLS:   "",
-			expectedSkip:  false,
-		},
-		{
-			name:          "both set to true",
-			skipTLSVerify: "true",
-			insecureTLS:   "true",
-			expectedSkip:  true,
-		},
-		{
-			name:          "invalid values",
-			skipTLSVerify: "invalid",
-			insecureTLS:   "invalid",
-			expectedSkip:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Reset clients for each test
-			resetClients()
-
-			// Set environment variables
-			if tt.skipTLSVerify != "" {
-				t.Setenv("SKIP_TLS_VERIFY", tt.skipTLSVerify)
-			}
-			if tt.insecureTLS != "" {
-				t.Setenv("INSECURE_TLS", tt.insecureTLS)
-			}
-
-			// Test the function directly
-			result := shouldSkipTLSVerification()
-			assert.Equal(t, tt.expectedSkip, result, "shouldSkipTLSVerification() result")
-
-			// Test that HTTPS client respects the setting
-			client := createHTTPSClient()
-			transport, ok := client.Transport.(*http.Transport)
-			require.True(t, ok, "Transport should be *http.Transport")
-			assert.Equal(t, tt.expectedSkip, transport.TLSClientConfig.InsecureSkipVerify, "TLS InsecureSkipVerify setting")
-		})
-	}
+	client := createHTTPSClient()
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok, "Transport should be *http.Transport")
+	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "Proto HTTPS should always skip certificate verification")
 }
 
 // TestCredentialManagement tests credential setting and usage
 func TestCredentialManagement(t *testing.T) {
-	client, err := NewClient("localhost", 2121, "http")
+	client, err := NewClient("localhost", 80, "http")
 	require.NoError(t, err, "Failed to create client")
 
 	tests := []struct {
@@ -261,167 +184,14 @@ func TestCredentialManagement(t *testing.T) {
 	}
 }
 
-// TestAuthTokenContextHandling tests auth token context operations
-func TestAuthTokenContextHandling(t *testing.T) {
-	tests := []struct {
-		name     string
-		token    string
-		expected string
-	}{
-		{
-			name:     "valid token",
-			token:    "test-token-123",
-			expected: "test-token-123",
-		},
-		{
-			name:     "empty token",
-			token:    "",
-			expected: "",
-		},
-		{
-			name:     "JWT token",
-			token:    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature",
-			expected: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test adding token to context
-			ctx := t.Context()
-			ctxWithToken := withAuthToken(ctx, tt.token)
-
-			// Test extracting token from context
-			extractedToken := getAuthTokenFromContext(ctxWithToken)
-			assert.Equal(t, tt.expected, extractedToken, "Extracted token should match expected")
-
-			// Test with context without token
-			emptyToken := getAuthTokenFromContext(t.Context())
-			assert.Empty(t, emptyToken, "Context without token should return empty string")
-
-			// Test with context without token (second check)
-			emptyToken2 := getAuthTokenFromContext(t.Context())
-			assert.Empty(t, emptyToken2, "Context without token should return empty string")
-		})
-	}
-}
-
-// TestWithAuthMethod tests the client's withAuth method
-func TestWithAuthMethod(t *testing.T) {
-	client, err := NewClient("localhost", 2121, "http")
-	require.NoError(t, err, "Failed to create client")
-
-	t.Run("with bearer token", func(t *testing.T) {
-		token := sdk.BearerToken{Token: "test-token"}
-		err := client.SetCredentials(token)
-		require.NoError(t, err, "SetCredentials should not return error")
-
-		ctx := t.Context()
-		authCtx := client.withAuth(ctx)
-
-		extractedToken := getAuthTokenFromContext(authCtx)
-		assert.Equal(t, token.Token, extractedToken, "Token should be extracted from context")
-	})
-
-	t.Run("without bearer token", func(t *testing.T) {
-		err := client.SetCredentials(sdk.BearerToken{Token: ""})
-		require.NoError(t, err, "SetCredentials should not return error")
-
-		ctx := t.Context()
-		authCtx := client.withAuth(ctx)
-
-		extractedToken := getAuthTokenFromContext(authCtx)
-		assert.Empty(t, extractedToken, "Token should be empty")
-	})
-}
-
-// TestAuthInterceptor tests the auth interceptor functionality
-func TestAuthInterceptor(t *testing.T) {
-	interceptor := newAuthInterceptor()
-	require.NotNil(t, interceptor, "Interceptor should be created")
-
-	// Test that it implements connect.Interceptor interface
-	_, ok := interceptor.(connect.Interceptor)
-	assert.True(t, ok, "Interceptor should implement connect.Interceptor")
-
-	// Test that WrapUnary method exists and returns a function
-	mockNext := func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-		return nil, nil
-	}
-
-	wrappedFunc := interceptor.WrapUnary(mockNext)
-	assert.NotNil(t, wrappedFunc, "Wrapped function should be returned")
-
-	// Test WrapStreamingClient method exists
-	mockStreamingNext := func(ctx context.Context, _ connect.Spec) connect.StreamingClientConn {
-		return nil
-	}
-
-	wrappedStreamingFunc := interceptor.WrapStreamingClient(mockStreamingNext)
-	assert.NotNil(t, wrappedStreamingFunc, "Wrapped streaming function should be returned")
-}
-
-// TestTimeToAPITimestamp tests timestamp conversion functionality
-func TestTimeToAPITimestamp(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     time.Time
-		wantNil   bool
-		wantSecs  uint64
-		wantNanos uint32
-	}{
-		{
-			name:    "zero time",
-			input:   time.Time{},
-			wantNil: true,
-		},
-		{
-			name:      "epoch time",
-			input:     time.Unix(0, 0),
-			wantNil:   false,
-			wantSecs:  0,
-			wantNanos: 0,
-		},
-		{
-			name:      "specific time",
-			input:     time.Unix(1234567890, 123456789),
-			wantNil:   false,
-			wantSecs:  1234567890,
-			wantNanos: 123456789,
-		},
-		{
-			name:      "negative time",
-			input:     time.Unix(-1, 0),
-			wantNil:   false,
-			wantSecs:  0, // Should be clamped to 0
-			wantNanos: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := timeToAPITimestamp(tt.input)
-
-			if tt.wantNil {
-				assert.Nil(t, result, "Result should be nil")
-				return
-			}
-
-			require.NotNil(t, result, "Result should not be nil")
-			assert.Equal(t, tt.wantSecs, result.Seconds, "Seconds should match")
-			assert.Equal(t, tt.wantNanos, result.Nanos, "Nanos should match")
-		})
-	}
-}
-
 // TestClientSingletonBehavior tests that HTTP clients are properly shared
 func TestClientSingletonBehavior(t *testing.T) {
 	// Reset clients
 	resetClients()
 
 	// Create multiple clients with same scheme
-	client1, err1 := NewClient("host1", 2121, "http")
-	client2, err2 := NewClient("host2", 2121, "http")
+	client1, err1 := NewClient("host1", 80, "http")
+	client2, err2 := NewClient("host2", 80, "http")
 
 	require.NoError(t, err1, "Failed to create client1")
 	require.NoError(t, err2, "Failed to create client2")
@@ -430,8 +200,8 @@ func TestClientSingletonBehavior(t *testing.T) {
 	assert.Same(t, client1.httpClient, client2.httpClient, "HTTP clients should be shared (singleton)")
 
 	// Test with HTTPS
-	client3, err3 := NewClient("host3", 2121, "https")
-	client4, err4 := NewClient("host4", 2121, "https")
+	client3, err3 := NewClient("host3", 80, "https")
+	client4, err4 := NewClient("host4", 80, "https")
 
 	require.NoError(t, err3, "Failed to create HTTPS client3")
 	require.NoError(t, err4, "Failed to create HTTPS client4")
@@ -443,46 +213,31 @@ func TestClientSingletonBehavior(t *testing.T) {
 	assert.NotSame(t, client1.httpClient, client3.httpClient, "HTTP and HTTPS clients should be different")
 }
 
-// TestClientRuntimeEnvChange tests runtime environment variable changes with client reset
-// This aligns with the server's create_client_test.go TestCreateClientRuntimeEnvChange
+// TestClientRuntimeConfigChange verifies environment changes do not alter Proto TLS behavior.
 func TestClientRuntimeEnvChange(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
 
-	// Start with TLS verification enabled
 	t.Setenv("SKIP_TLS_VERIFY", "false")
-
-	// Create first client with TLS verification enabled
 	client1, err1 := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err1, "Failed to create first client")
 	require.NotNil(t, client1, "First client should be created")
-	// Verify TLS verification is enabled
 	transport, ok := client1.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.False(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be enabled initially")
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
+		"Proto HTTPS should skip certificate verification regardless of environment")
 
-	// Change environment variable at runtime
 	t.Setenv("SKIP_TLS_VERIFY", "true")
-
-	// Reset clients to force recreation with new environment
 	resetClients()
 
-	// Create second client with TLS verification disabled
 	client2, err2 := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err2, "Failed to create second client")
 	require.NotNil(t, client2, "Second client should be created")
-	// Verify TLS verification is now disabled
 	transport, ok = client2.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be disabled after environment change")
-
-	// Verify both clients were created (errors are expected for connection, not creation)
+		"Proto HTTPS should keep skipping certificate verification after environment changes")
 }
 
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
@@ -512,7 +267,7 @@ func TestUnsupportedScheme(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewClient("localhost", 2121, tt.scheme)
+			client, err := NewClient("localhost", 80, tt.scheme)
 
 			// Should either return an error or create a client that will fail on actual use
 			// The current implementation doesn't validate schemes upfront, but this test
@@ -524,61 +279,38 @@ func TestUnsupportedScheme(t *testing.T) {
 	}
 }
 
-// TestClientCreationWithInsecureTLS tests client creation with TLS verification disabled
-// This mirrors the server's TestCreateClientWithInsecureTLS
+// TestClientCreationWithInsecureTLS verifies HTTPS client creation uses Proto's fixed TLS policy.
 func TestClientCreationWithInsecureTLS(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
-
-	t.Setenv("SKIP_TLS_VERIFY", "true")
-
-	// Test that the client can be created with HTTPS protocol
-	// when TLS verification is disabled
 	client, err := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err, "Failed to create client with insecure TLS")
 	require.NotNil(t, client, "Client should be created")
-
-	// Verify TLS verification is disabled
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be disabled when SKIP_TLS_VERIFY=true")
-
-	// Clean up
+		"Proto HTTPS should always disable certificate verification")
 	_ = client.Close()
 }
 
-// TestClientCreationWithoutInsecureTLS tests client creation with TLS verification enabled
-// This mirrors the server's TestCreateClientWithoutInsecureTLS
+// TestClientCreationWithoutInsecureTLS verifies environment values do not re-enable verification.
 func TestClientCreationWithoutInsecureTLS(t *testing.T) {
-	// Reset clients to ensure we start fresh
 	resetClients()
-
-	// Explicitly set TLS verification to enabled (default behavior)
 	t.Setenv("SKIP_TLS_VERIFY", "false")
-
 	client, err := NewClient("localhost", 8443, "https")
-
 	require.NoError(t, err, "Failed to create client with secure TLS")
 	require.NotNil(t, client, "Client should be created")
-
-	// Verify TLS verification is enabled
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok, "Transport should be *http.Transport")
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.False(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"TLS verification should be enabled by default")
-
-	// Clean up
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
+		"Proto HTTPS should ignore environment attempts to re-enable verification")
 	_ = client.Close()
 }
 
 // newTestClient creates a Client pointed at the given httptest.Server.
 // The singleton HTTP/2 transport is replaced with a plain HTTP/1.1 client so
 // that the client works with httptest.Server (which only speaks HTTP/1.1).
-// webUIBaseURL is also pointed at the test server since tests use a random port.
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
 	u, err := url.Parse(server.URL)
@@ -588,9 +320,6 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	client, err := NewClient(u.Hostname(), int32(port), "http")
 	require.NoError(t, err)
 	client.httpClient = &http.Client{}
-	// In production webUIBaseURL uses the standard port (80/443); override here so
-	// loginWithPassword and ChangePassword hit the same test server handler.
-	client.webUIBaseURL = server.URL
 	return client
 }
 
@@ -719,98 +448,39 @@ func TestChangePassword(t *testing.T) {
 func resetClients() {
 	httpClientOnce = &sync.Once{}
 	httpsClientOnce = &sync.Once{}
-	httpClient = nil
-	httpsClient = nil
+	sharedHTTPClient = nil
+	sharedHTTPSClient = nil
 }
 
-// mockDataClient implements miner_data_apiconnect.MinerDataApiClient for testing
-type mockDataClient struct {
-	miningStatusResponse *miner_data_api.MiningStatusResponse
-	miningStatusError    error
-	poolsResponse        *miner_data_api.PoolsResponse
-	poolsError           error
-	coolingModeResponse  *miner_data_api.CoolingModeResponse
-	coolingModeError     error
-	hardwareInfoResponse *miner_data_api.HardwareInfoResponse
-	hardwareInfoError    error
-}
-
-func (m *mockDataClient) GetMiningStatus(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
-	if m.miningStatusError != nil {
-		return nil, m.miningStatusError
-	}
-	return connect.NewResponse(m.miningStatusResponse), nil
-}
-
-func (m *mockDataClient) GetPools(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error) {
-	if m.poolsError != nil {
-		return nil, m.poolsError
-	}
-	return connect.NewResponse(m.poolsResponse), nil
-}
-
-func (m *mockDataClient) GetSoftwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error) {
-	return connect.NewResponse(&miner_data_api.SoftwareInfoResponse{}), nil
-}
-
-func (m *mockDataClient) GetCoolingMode(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
-	if m.coolingModeError != nil {
-		return nil, m.coolingModeError
-	}
-	if m.coolingModeResponse != nil {
-		return connect.NewResponse(m.coolingModeResponse), nil
-	}
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPowerTarget(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetHardwareInfo(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error) {
-	if m.hardwareInfoError != nil {
-		return nil, m.hardwareInfoError
-	}
-	if m.hardwareInfoResponse != nil {
-		return connect.NewResponse(m.hardwareInfoResponse), nil
-	}
-	return connect.NewResponse(&miner_data_api.HardwareInfoResponse{}), nil
-}
-
-func (m *mockDataClient) GetHashboardStatus(_ context.Context, _ *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetAsicStatus(_ context.Context, _ *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetUnifiedTimeSeriesData(_ context.Context, _ *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetErrors(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.ErrorsResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPsuStatusList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetPsuInfoList(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuInfoListResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetTelemetryValues(_ context.Context, _ *connect.Request[miner_data_api.GetTelemetryValuesRequest]) (*connect.Response[miner_data_api.GetTelemetryValuesResponse], error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockDataClient) GetAsicMetadata(_ context.Context, _ *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.GetAsicMetadataResponse], error) {
-	return nil, fmt.Errorf("not implemented")
+// newStatusTestServer creates an httptest.Server that serves JSON responses for
+// /api/v1/mining, /api/v1/pools, and /api/v1/system endpoints.
+func newStatusTestServer(t *testing.T, miningStatus string, pools []poolData, systemErr bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/mining":
+			resp := miningStatusResponse{
+				MiningStatus: miningStatusInner{Status: miningStatus},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/pools":
+			resp := poolsList{Pools: pools}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/system":
+			if systemErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			resp := systemInfoResponse{}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
 }
 
 // TestGetStatusPoolStateOverride tests that the actual pool list is the source of truth
@@ -818,75 +488,68 @@ func (m *mockDataClient) GetAsicMetadata(_ context.Context, _ *connect.Request[m
 func TestGetStatusPoolStateOverride(t *testing.T) {
 	tests := []struct {
 		name          string
-		miningState   miner_data_api.MiningState
-		pools         []*miner_data_api.Pool
+		miningStatus  string
+		pools         []poolData
 		expectedState sdk.HealthStatus
 	}{
 		{
-			name:        "firmware reports NO_POOLS but pools are configured",
-			miningState: miner_data_api.MiningState_MINING_STATE_NO_POOLS,
-			pools: []*miner_data_api.Pool{
-				{Url: "stratum+tcp://pool.example.com:3333"},
+			name:         "firmware reports no_pools but pools are configured",
+			miningStatus: "no_pools",
+			pools: []poolData{
+				{URL: "stratum+tcp://pool.example.com:3333"},
 			},
 			expectedState: sdk.HealthHealthyInactive,
 		},
 		{
-			name:          "firmware reports MINING but no pools configured",
-			miningState:   miner_data_api.MiningState_MINING_STATE_MINING,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports mining but no pools configured",
+			miningStatus:  "mining",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:        "firmware reports MINING but all pools have empty URLs",
-			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
-			pools: []*miner_data_api.Pool{
-				{Url: ""},
-				{Url: ""},
+			name:         "firmware reports mining but all pools have empty URLs",
+			miningStatus: "mining",
+			pools: []poolData{
+				{URL: ""},
+				{URL: ""},
 			},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:          "firmware reports NO_POOLS and no pools configured",
-			miningState:   miner_data_api.MiningState_MINING_STATE_NO_POOLS,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports no_pools and no pools configured",
+			miningStatus:  "no_pools",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:        "firmware reports MINING and pools are configured",
-			miningState: miner_data_api.MiningState_MINING_STATE_MINING,
-			pools: []*miner_data_api.Pool{
-				{Url: "stratum+tcp://pool.example.com:3333"},
+			name:         "firmware reports mining and pools are configured",
+			miningStatus: "mining",
+			pools: []poolData{
+				{URL: "stratum+tcp://pool.example.com:3333"},
 			},
 			expectedState: sdk.HealthHealthyActive,
 		},
 		{
-			name:          "firmware reports STOPPED but no pools",
-			miningState:   miner_data_api.MiningState_MINING_STATE_STOPPED,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports stopped but no pools",
+			miningStatus:  "stopped",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
-			name:          "firmware reports DEGRADED_MINING but no pools",
-			miningState:   miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING,
-			pools:         []*miner_data_api.Pool{},
+			name:          "firmware reports degraded_mining but no pools",
+			miningStatus:  "degraded_mining",
+			pools:         []poolData{},
 			expectedState: sdk.HealthNeedsMiningPool,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockDataClient{
-				miningStatusResponse: &miner_data_api.MiningStatusResponse{
-					State: tt.miningState,
-				},
-				poolsResponse: &miner_data_api.PoolsResponse{
-					Pools: tt.pools,
-				},
-			}
+			server := newStatusTestServer(t, tt.miningStatus, tt.pools, false)
+			defer server.Close()
 
-			client := &Client{
-				dataClient: mockClient,
-			}
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
 
 			status, err := client.GetStatus(t.Context())
 
@@ -901,26 +564,30 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 func TestGetCoolingMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		apiMode     miner_data_api.CoolingMode
+		fanMode     string
 		expectedSDK sdk.CoolingMode
 	}{
-		{"auto maps to air cooled", miner_data_api.CoolingMode_COOLING_MODE_AUTO, sdk.CoolingModeAirCooled},
-		{"off maps to immersion cooled", miner_data_api.CoolingMode_COOLING_MODE_OFF, sdk.CoolingModeImmersionCooled},
-		{"manual maps to manual", miner_data_api.CoolingMode_COOLING_MODE_MANUAL, sdk.CoolingModeManual},
-		{"unknown maps to unspecified", miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN, sdk.CoolingModeUnspecified},
+		{"auto maps to air cooled", "auto", sdk.CoolingModeAirCooled},
+		{"off maps to immersion cooled", "off", sdk.CoolingModeImmersionCooled},
+		{"manual maps to manual", "manual", sdk.CoolingModeManual},
+		{"unknown maps to unspecified", "unknown", sdk.CoolingModeUnspecified},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockDataClient{
-				coolingModeResponse: &miner_data_api.CoolingModeResponse{
-					Mode: tt.apiMode,
-				},
-			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/api/v1/cooling", r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				resp := coolingStatusResponse{
+					CoolingStatus: coolingStatusInner{FanMode: tt.fanMode},
+				}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
 
-			client := &Client{
-				dataClient: mockClient,
-			}
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
 
 			mode, err := client.GetCoolingMode(t.Context())
 
@@ -931,13 +598,14 @@ func TestGetCoolingMode(t *testing.T) {
 }
 
 func TestGetCoolingMode_Error(t *testing.T) {
-	mockClient := &mockDataClient{
-		coolingModeError: fmt.Errorf("connection refused"),
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("connection refused"))
+	}))
+	defer server.Close()
 
-	client := &Client{
-		dataClient: mockClient,
-	}
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
 
 	mode, err := client.GetCoolingMode(t.Context())
 
@@ -946,58 +614,49 @@ func TestGetCoolingMode_Error(t *testing.T) {
 	assert.Equal(t, sdk.CoolingModeUnspecified, mode)
 }
 
-// TestGetFirmwareVersion tests the GetFirmwareVersion helper that extracts
-// ControlBoardInfo.firmware.version from the GetHardwareInfo response.
+// TestGetFirmwareVersion tests the REST-backed firmware version helper.
 func TestGetFirmwareVersion(t *testing.T) {
 	tests := []struct {
 		name            string
-		response        *miner_data_api.HardwareInfoResponse
-		err             error
+		statusCode      int
+		responseBody    string
 		expectedVersion string
 		expectErr       bool
 		errContains     string
 	}{
 		{
-			name: "success with firmware version populated",
-			response: &miner_data_api.HardwareInfoResponse{
-				CbInfo: &miner_data_api.ControlBoardInfo{
-					Firmware: &miner_data_api.ControlBoardInfo_ControlBoardLinuxAsset{
-						Version: "1.2.3",
-					},
-				},
-			},
+			name:            "success with firmware version populated",
+			statusCode:      http.StatusOK,
+			responseBody:    `{"system-info":{"os":{"version":"1.2.3"}}}`,
 			expectedVersion: "1.2.3",
 		},
 		{
-			name:            "CbInfo is nil",
-			response:        &miner_data_api.HardwareInfoResponse{},
+			name:            "missing os section",
+			statusCode:      http.StatusOK,
+			responseBody:    `{"system-info":{}}`,
 			expectedVersion: "",
 		},
 		{
-			name: "Firmware is nil",
-			response: &miner_data_api.HardwareInfoResponse{
-				CbInfo: &miner_data_api.ControlBoardInfo{},
-			},
-			expectedVersion: "",
-		},
-		{
-			name:        "GetHardwareInfo returns error",
-			err:         fmt.Errorf("connection refused"),
-			expectErr:   true,
-			errContains: "failed to get hardware info",
+			name:         "system endpoint returns error",
+			statusCode:   http.StatusInternalServerError,
+			responseBody: `connection refused`,
+			expectErr:    true,
+			errContains:  "failed to get system info",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockDataClient{
-				hardwareInfoResponse: tt.response,
-				hardwareInfoError:    tt.err,
-			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/api/v1/system", r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
 
-			client := &Client{
-				dataClient: mockClient,
-			}
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
 
 			version, err := client.GetFirmwareVersion(t.Context())
 
@@ -1015,22 +674,87 @@ func TestGetFirmwareVersion(t *testing.T) {
 
 // TestGetStatusPoolCheckError tests behavior when pool check fails
 func TestGetStatusPoolCheckError(t *testing.T) {
-	mockClient := &mockDataClient{
-		miningStatusResponse: &miner_data_api.MiningStatusResponse{
-			State: miner_data_api.MiningState_MINING_STATE_MINING,
-		},
-		poolsError: fmt.Errorf("connection refused"),
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/mining":
+			resp := miningStatusResponse{
+				MiningStatus: miningStatusInner{Status: "mining"},
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/v1/pools":
+			// Simulate pool endpoint failure
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("connection refused"))
+		case "/api/v1/system":
+			resp := systemInfoResponse{}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
 
-	client := &Client{
-		dataClient: mockClient,
-	}
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
 
 	status, err := client.GetStatus(t.Context())
 
 	require.NoError(t, err, "GetStatus should not fail when pool check fails")
 	assert.Equal(t, sdk.HealthHealthyActive, status.State,
 		"Should fall back to firmware-reported state when pool check fails")
+}
+
+func TestGetStatusNoMiningStatistics(t *testing.T) {
+	tests := []struct {
+		name          string
+		pools         []poolData
+		expectedState sdk.HealthStatus
+	}{
+		{
+			name: "configured pools remain inactive when mining stats are unavailable",
+			pools: []poolData{
+				{URL: "stratum+tcp://pool.example.com:3333"},
+			},
+			expectedState: sdk.HealthHealthyInactive,
+		},
+		{
+			name:          "missing pools still report needs mining pool when mining stats are unavailable",
+			pools:         []poolData{},
+			expectedState: sdk.HealthNeedsMiningPool,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/mining":
+					w.WriteHeader(http.StatusNoContent)
+				case "/api/v1/pools":
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(poolsList{Pools: tt.pools})
+				case "/api/v1/system":
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(systemInfoResponse{})
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			status, err := client.GetStatus(t.Context())
+
+			require.NoError(t, err, "GetStatus should not fail for 204 No Content")
+			assert.Equal(t, tt.expectedState, status.State)
+		})
+	}
 }
 
 // TestUploadFirmware tests the multipart firmware upload to the MDK REST API.
@@ -1218,4 +942,36 @@ func TestUploadFirmware_NilReader(t *testing.T) {
 	err := client.UploadFirmware(context.Background(), firmware)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "firmware reader is required")
+}
+
+func TestErrorsResponse_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("wrapped_object", func(t *testing.T) {
+		t.Parallel()
+		const payload = `{"errors":[{"source":"fan","slot":1,"error_code":"FanSlow","timestamp":1,"message":"slow"}]}`
+		var got ErrorsResponse
+		require.NoError(t, json.Unmarshal([]byte(payload), &got))
+		require.Len(t, got.Errors, 1)
+		assert.Equal(t, "fan", got.Errors[0].Source)
+		assert.Equal(t, 1, got.Errors[0].Slot)
+		assert.Equal(t, "FanSlow", got.Errors[0].ErrorCode)
+	})
+
+	t.Run("bare_array", func(t *testing.T) {
+		t.Parallel()
+		const payload = `[{"source":"rig","slot":0,"error_code":"LowHashRate","timestamp":2,"message":"low"}]`
+		var got ErrorsResponse
+		require.NoError(t, json.Unmarshal([]byte(payload), &got))
+		require.Len(t, got.Errors, 1)
+		assert.Equal(t, "rig", got.Errors[0].Source)
+		assert.Equal(t, "LowHashRate", got.Errors[0].ErrorCode)
+	})
+
+	t.Run("empty_array", func(t *testing.T) {
+		t.Parallel()
+		var got ErrorsResponse
+		require.NoError(t, json.Unmarshal([]byte(`[]`), &got))
+		assert.Empty(t, got.Errors)
+	})
 }

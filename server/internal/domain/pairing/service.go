@@ -63,6 +63,8 @@ const (
 	// This sets a floor on how long nmap waits before retransmitting probes. 100ms is a reasonable
 	// baseline for local networks - lower values may cause unnecessary retransmissions.
 	nmapMinRTTTimeoutMilliseconds = 100
+
+	discoveryPortsUnavailableError = "no discovery ports were provided and no loaded plugins reported canonical discovery ports"
 )
 
 // shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
@@ -107,14 +109,68 @@ func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
 	return ipAddr
 }
 
+func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
+	resultChan := make(chan *pb.DiscoverResponse)
+
+	go func() {
+		defer close(resultChan)
+
+		seenDevices := make(map[string]struct{})
+
+		for result := range source {
+			if result == nil {
+				continue
+			}
+
+			dedupedDevices := make([]*pb.Device, 0, len(result.Devices))
+			for _, device := range result.Devices {
+				if device == nil {
+					continue
+				}
+
+				identity := device.DeviceIdentifier
+				if identity == "" {
+					identity = fmt.Sprintf("%s:%s", device.IpAddress, device.Port)
+				}
+
+				if _, alreadySeen := seenDevices[identity]; alreadySeen {
+					continue
+				}
+
+				seenDevices[identity] = struct{}{}
+				dedupedDevices = append(dedupedDevices, device)
+			}
+
+			if len(dedupedDevices) == 0 && result.Error == "" {
+				continue
+			}
+
+			resultChan <- &pb.DiscoverResponse{
+				Devices: dedupedDevices,
+				Error:   result.Error,
+			}
+		}
+	}()
+
+	return resultChan
+}
+
 //go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener,CapabilitiesProvider
 type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
 }
 
+type devicePairingStatusProvider interface {
+	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
+}
+
 // CapabilitiesProvider provides miner capabilities from plugins
 type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pb.Device) *capabilitiespb.MinerCapabilities
+	// GetDefaultDiscoveryPorts returns the stock discovery scan set used when a
+	// discovery request omits explicit ports.
+	GetDefaultDiscoveryPorts(ctx context.Context) []string
+	GetDiscoveryPorts(ctx context.Context) []string
 }
 
 // Service handles the core device discovery functionality
@@ -180,9 +236,25 @@ func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
 	return &NetworkInfo{info}, nil
 }
 
+func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
+	if len(requestPorts) > 0 {
+		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
+		return requestPorts, nil
+	}
+
+	ports := s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
+	if len(ports) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+	}
+
+	slog.Debug("Resolved discovery ports from plugin default scan set", "ports", ports)
+	return ports, nil
+}
+
 // DiscoverWithMDNS discovers devices using mDNS
 func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -194,11 +266,11 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		err := resolver.Browse(timeoutCtx, r.ServiceType, "local.", entries)
 		if err != nil {
-			resultChan <- &pb.DiscoverResponse{
+			rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to browse: %v", err),
 			}
 			return
@@ -218,7 +290,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 				ipAddress := entry.AddrIPv4[0].String()
 				portStr := fmt.Sprintf("%d", entry.Port)
 
-				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
+				err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
 				if err != nil {
 					slog.Debug("device discovery failed", "error", err)
 				}
@@ -234,14 +306,19 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 // DiscoverWithNmap discovers devices using Nmap
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		return nil, err
+	}
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var scanner *nmap.Scanner
 		var err error
@@ -256,17 +333,11 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			nmap.WithMinRTTTimeout(time.Duration(nmapMinRTTTimeoutMilliseconds) * time.Millisecond),
 		}
 
-		if len(r.Ports) == 0 {
-			resultChan <- &pb.DiscoverResponse{
-				Error: "ports must be specified for nmap discovery",
-			}
-			return
-		}
-		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(r.Ports, ",")))
+		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(ports, ",")))
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
 		if err != nil {
-			resultChan <- &pb.DiscoverResponse{
+			rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to create scanner: %v", err),
 			}
 			return
@@ -274,7 +345,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		slog.Debug("Starting nmap scan",
 			"target", r.Target,
-			"ports", r.Ports,
+			"ports", ports,
 			"timeout_seconds", defaultNmapTimeoutSeconds)
 
 		result, _, err := scanner.Run()
@@ -286,7 +357,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 				// After timeout, we cannot probe hosts because the context is expired.
 				// Send timeout error and return.
 				select {
-				case resultChan <- &pb.DiscoverResponse{
+				case rawResultChan <- &pb.DiscoverResponse{
 					Error: fmt.Sprintf("scan timed out after %d seconds; some devices may not have been discovered", defaultNmapTimeoutSeconds),
 				}:
 				case <-timeoutCtx.Done():
@@ -295,7 +366,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			}
 			// Non-timeout error
 			select {
-			case resultChan <- &pb.DiscoverResponse{
+			case rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan failed: %v", err),
 			}:
 			case <-timeoutCtx.Done():
@@ -306,7 +377,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		if result == nil {
 			// Scan timed out with no results - notify caller explicitly
 			select {
-			case resultChan <- &pb.DiscoverResponse{
+			case rawResultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan timed out after %d seconds without finding any hosts; verify the target network range is correct and devices are powered on", defaultNmapTimeoutSeconds),
 			}:
 			case <-timeoutCtx.Done():
@@ -388,7 +459,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					err := s.discoverDevice(timeoutCtx, ip, port, resultChan)
+					err := s.discoverDevice(timeoutCtx, ip, port, rawResultChan)
 					if err != nil {
 						slog.Debug("device discovery failed", "ip", ip, "port", port, "error", err)
 					}
@@ -404,7 +475,8 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 // DiscoverWithIPRange discovers devices using IP range
 func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 	startIP, err := ipToUint32(r.StartIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
@@ -417,12 +489,17 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	// Skip network address (.0) and gateway (.1) to avoid discovery issues
 	startIP = adjustIPRangeStartForNetworkAddresses(startIP)
 
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		return nil, err
+	}
+
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
@@ -440,11 +517,11 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					for _, port := range r.Ports {
+					for _, port := range ports {
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}
@@ -461,14 +538,19 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 
 // DiscoverWithIPList discovers devices from a list of IPs
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	resultChan := make(chan *pb.DiscoverResponse)
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
+	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
+	if err != nil {
+		return nil, err
+	}
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
 
 	go func() {
 		defer cancel()
-		defer close(resultChan)
+		defer close(rawResultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
@@ -486,11 +568,11 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					for _, port := range r.Ports {
+					for _, port := range ports {
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}
@@ -548,6 +630,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			// Database error - propagate instead of silently generating new identifier
 			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
+		}
+		if reconciledIdentifier == "" && existingDevice == nil {
+			reconciledIdentifier, err = s.reconcileByIPAcrossDiscoveryPorts(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
+			if err != nil {
+				return err
+			}
 		}
 		switch {
 		case reconciledIdentifier != "":
@@ -666,6 +754,54 @@ func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discover
 	return pairedDevice.DiscoveredDeviceIdentifier, nil
 }
 
+// reconcileByIPAcrossDiscoveryPorts reuses an existing discovered device
+// identifier when the same driver/model/manufacturer is rediscovered on the
+// same IP via a different canonical discovery port. This covers discovery
+// drivers that probe primarily by IP and therefore cannot distinguish the same
+// physical device across multiple scanned ports.
+func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, scannedIP string, scannedPort string) (string, error) {
+	if scannedIP == "" || scannedPort == "" || discoveredDevice.DriverName == "" {
+		return "", nil
+	}
+	if discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "" {
+		return "", nil
+	}
+
+	for _, port := range s.capabilitiesProvider.GetDiscoveryPorts(ctx) {
+		if port == "" || port == scannedPort {
+			continue
+		}
+
+		existingDevice, err := s.discoveredDeviceStore.GetByIPAndPort(ctx, orgID, scannedIP, port)
+		switch {
+		case fleeterror.IsNotFoundError(err):
+			continue
+		case err != nil:
+			return "", fleeterror.NewInternalErrorf("failed to query discovered device during same-IP reconciliation: %v", err)
+		}
+
+		if existingDevice.DriverName != discoveredDevice.DriverName {
+			continue
+		}
+		if !strings.EqualFold(existingDevice.Model, discoveredDevice.Model) {
+			continue
+		}
+		if !strings.EqualFold(existingDevice.Manufacturer, discoveredDevice.Manufacturer) {
+			continue
+		}
+
+		slog.Debug("reused discovered device for same-IP cross-port rediscovery",
+			"ip_address", scannedIP,
+			"driver_name", discoveredDevice.DriverName,
+			"existing_port", existingDevice.Port,
+			"rediscovered_port", scannedPort,
+			"device_identifier", existingDevice.DeviceIdentifier)
+		return existingDevice.DeviceIdentifier, nil
+	}
+
+	return "", nil
+}
+
 func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool {
 	pairedDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, pairedDeviceIdentifier, orgID)
 	if err != nil {
@@ -745,7 +881,8 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, fleeterror.NewInvalidArgumentError("no devices match the selector")
 	}
 
-	deviceIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
+	successfulIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
+	telemetryDeviceIDs := make([]models.DeviceIdentifier, 0, len(deviceIdentifiers))
 	failedIDs := make([]string, 0, len(deviceIdentifiers))
 
 	credentials := r.Credentials
@@ -754,7 +891,17 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	for _, deviceID := range deviceIdentifiers {
 		persistedDeviceID, err := s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
 		if err == nil {
-			deviceIDs = append(deviceIDs, persistedDeviceID)
+			successfulIDs = append(successfulIDs, persistedDeviceID)
+			shouldSchedule, scheduleErr := s.shouldScheduleTelemetryForDevice(ctx, persistedDeviceID, info.OrganizationID)
+			if scheduleErr != nil {
+				slog.Warn("failed to determine whether paired device should be scheduled for telemetry",
+					"device_identifier", persistedDeviceID,
+					"error", scheduleErr)
+				continue
+			}
+			if shouldSchedule {
+				telemetryDeviceIDs = append(telemetryDeviceIDs, persistedDeviceID)
+			}
 		} else {
 			slog.Error("failed to pair device", "error", err) // continue pairing other devices
 			failedIDs = append(failedIDs, deviceID)
@@ -762,18 +909,46 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	}
 
 	// Partial success is valid
-	if len(deviceIDs) == 0 {
+	if len(successfulIDs) == 0 {
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
-	if err := s.listener.AddDevices(ctx, deviceIDs...); err != nil {
-		slog.Error("failed to add devices to telemetry scheduler", "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
+	if len(telemetryDeviceIDs) > 0 {
+		if err := s.listener.AddDevices(ctx, telemetryDeviceIDs...); err != nil {
+			slog.Error("failed to add devices to telemetry scheduler", "error", err)
+			return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
+		}
 	}
 
 	return &pb.PairResponse{
 		FailedDeviceIds: failedIDs,
 	}, nil
+}
+
+func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {
+	statusProvider, ok := s.deviceStore.(devicePairingStatusProvider)
+	if !ok {
+		return true, nil
+	}
+
+	pairingStatus, err := statusProvider.GetDevicePairingStatusByIdentifier(ctx, string(deviceID), orgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			// Some tests use mocked pairers that don't persist the device row. In that case
+			// preserve the pre-existing behavior and allow telemetry scheduling.
+			return true, nil
+		}
+		return false, err
+	}
+
+	if pairingStatus != StatusPaired {
+		slog.Info("skipping telemetry scheduling for device that is not fully paired",
+			"device_identifier", deviceID,
+			"pairing_status", pairingStatus)
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // isCredentialsRequiredError checks if an error indicates that credentials are required but not provided
@@ -792,6 +967,21 @@ func isCredentialsRequiredError(err error) bool {
 	// Also check the error message string directly for wrapped errors
 	return strings.Contains(strings.ToLower(err.Error()), "credentials are required") &&
 		strings.Contains(strings.ToLower(err.Error()), "invalid_argument")
+}
+
+// isAlreadyPairedKeyRotationError checks for plugin errors emitted when a device is
+// already paired and the caller did not provide credentials needed to rotate keys.
+// Treating this as an idempotent no-op prevents rediscovered paired devices from
+// causing the entire batch Pair request to fail.
+func isAlreadyPairedKeyRotationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already paired") &&
+		strings.Contains(message, "key rotation") &&
+		strings.Contains(message, "valid credentials")
 }
 
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
@@ -842,6 +1032,24 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		OrgID:            orgID,
 	}
 
+	existingDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, orgID)
+	if err != nil && !fleeterror.IsNotFoundError(err) {
+		return "", fleeterror.NewInternalErrorf("error getting existing device from store: %v", err)
+	}
+	knownPairedDevice := false
+	if existingDevice != nil {
+		statusProvider, ok := s.deviceStore.(devicePairingStatusProvider)
+		if ok {
+			pairingStatus, statusErr := statusProvider.GetDevicePairingStatusByIdentifier(ctx, deviceID, orgID)
+			if statusErr != nil && !fleeterror.IsNotFoundError(statusErr) {
+				return "", fleeterror.NewInternalErrorf("error getting existing device pairing status: %v", statusErr)
+			}
+			knownPairedDevice = pairingStatus == StatusPaired || pairingStatus == StatusAuthenticationNeeded
+		} else {
+			knownPairedDevice = true
+		}
+	}
+
 	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting device from store: %v", err)
@@ -866,6 +1074,30 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 
 			if txErr := s.handleAuthenticationRequiredPairing(ctx, discoveredDevice); txErr != nil {
 				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record",
+					"device_identifier", discoveredDevice.DeviceIdentifier,
+					"error", txErr)
+				return "", txErr
+			}
+
+			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
+		}
+
+		// Discovery can legitimately return devices that are already paired.
+		// If the caller did not provide credentials, treat explicit key-rotation
+		// auth failures on known devices as a no-op so Pair remains idempotent.
+		if credentials == nil && knownPairedDevice && isAlreadyPairedKeyRotationError(err) {
+			slog.Info("pair request targeted an already paired device without rotation credentials; treating as already paired",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"driver_name", discoveredDevice.DriverName)
+			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
+		}
+		if credentials == nil && isAlreadyPairedKeyRotationError(err) {
+			slog.Info("device is already paired externally, marking as AUTHENTICATION_NEEDED",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"driver_name", discoveredDevice.DriverName)
+
+			if txErr := s.handleAuthenticationRequiredPairing(ctx, discoveredDevice); txErr != nil {
+				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record for externally paired device",
 					"device_identifier", discoveredDevice.DeviceIdentifier,
 					"error", txErr)
 				return "", txErr

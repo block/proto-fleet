@@ -12,7 +12,7 @@ import grpc
 from proto_fleet_sdk.auth import SecretBundle, UsernamePassword
 from proto_fleet_sdk.types import Capabilities, DeviceInfo, DriverIdentifier, NewDeviceResult
 
-__all__ = ["Driver", "DefaultCredentialsProvider", "ModelCapabilitiesProvider"]
+__all__ = ["Driver", "DefaultCredentialsProvider", "ModelCapabilitiesProvider", "DiscoveryPortsProvider"]
 
 
 class Driver(Protocol):
@@ -85,4 +85,11 @@ class ModelCapabilitiesProvider(Protocol):
     """
 
     async def get_capabilities_for_model(self, ctx: grpc.ServicerContext, model: str) -> Capabilities:
+        ...
+
+
+class DiscoveryPortsProvider(Protocol):
+    """Optional interface for providing canonical discovery scan ports."""
+
+    async def get_discovery_ports(self, ctx: grpc.ServicerContext) -> list[str]:
         ...

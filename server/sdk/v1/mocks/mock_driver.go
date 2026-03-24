@@ -1011,3 +1011,41 @@ func (mr *MockModelCapabilitiesProviderMockRecorder) GetCapabilitiesForModel(ctx
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCapabilitiesForModel", reflect.TypeOf((*MockModelCapabilitiesProvider)(nil).GetCapabilitiesForModel), ctx, model)
 }
+
+// MockDiscoveryPortsProvider is a mock of DiscoveryPortsProvider interface.
+type MockDiscoveryPortsProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockDiscoveryPortsProviderMockRecorder
+	isgomock struct{}
+}
+
+// MockDiscoveryPortsProviderMockRecorder is the mock recorder for MockDiscoveryPortsProvider.
+type MockDiscoveryPortsProviderMockRecorder struct {
+	mock *MockDiscoveryPortsProvider
+}
+
+// NewMockDiscoveryPortsProvider creates a new mock instance.
+func NewMockDiscoveryPortsProvider(ctrl *gomock.Controller) *MockDiscoveryPortsProvider {
+	mock := &MockDiscoveryPortsProvider{ctrl: ctrl}
+	mock.recorder = &MockDiscoveryPortsProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDiscoveryPortsProvider) EXPECT() *MockDiscoveryPortsProviderMockRecorder {
+	return m.recorder
+}
+
+// GetDiscoveryPorts mocks base method.
+func (m *MockDiscoveryPortsProvider) GetDiscoveryPorts(ctx context.Context) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDiscoveryPorts", ctx)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetDiscoveryPorts indicates an expected call of GetDiscoveryPorts.
+func (mr *MockDiscoveryPortsProviderMockRecorder) GetDiscoveryPorts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiscoveryPorts", reflect.TypeOf((*MockDiscoveryPortsProvider)(nil).GetDiscoveryPorts), ctx)
+}

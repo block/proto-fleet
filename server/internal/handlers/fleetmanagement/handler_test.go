@@ -18,7 +18,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 		{
 			name: "Proto miner with HTTPS",
 			minerURLs: []string{
-				"https://172.17.0.1:2121",
+				"https://172.17.0.1:80",
 			},
 			expectedURLs: []string{
 				"https://172.17.0.1",
@@ -27,7 +27,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 		{
 			name: "Miner with HTTP",
 			minerURLs: []string{
-				"http://172.17.0.2:2121",
+				"http://172.17.0.2:80",
 			},
 			expectedURLs: []string{
 				"http://172.17.0.2",
@@ -45,8 +45,8 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 		{
 			name: "Multiple miners",
 			minerURLs: []string{
-				"https://172.17.0.1:2121",
-				"http://172.17.0.2:2121",
+				"https://172.17.0.1:80",
+				"http://172.17.0.2:80",
 				"http://172.17.0.3:4028",
 			},
 			expectedURLs: []string{

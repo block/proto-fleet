@@ -38,6 +38,7 @@ const (
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
 var _ sdk.ModelCapabilitiesProvider = (*Driver)(nil)
+var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
 
 // defaultCredentials contains well-known factory defaults for Bitmain Antminer devices.
 // These are publicly documented and tried in order during auto-authentication.
@@ -157,6 +158,11 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	}
 
 	return deviceInfo, capabilities, nil
+}
+
+// GetDiscoveryPorts returns the canonical RPC discovery port for Antminers.
+func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
+	return []string{fmt.Sprint(requiredRPCPort)}
 }
 
 // DiscoverDevice implements the SDK Driver interface.

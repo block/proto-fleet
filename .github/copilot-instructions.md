@@ -34,19 +34,18 @@ This is a monorepo for a miner management system with the following structure:
 ### Tech Stack
 
 - Go
-- Connect RPC (gRPC-compatible) for API endpoints
+- Connect RPC (gRPC-compatible) for fleet API endpoints
 - MySQL database with golang-migrate for migrations
 - sqlc for type-safe SQL query generation
-- Protobuf for API definitions
+- Protobuf for fleet API definitions
 - Docker for containerization
 
 ### Key Directories
 
 - `cmd/`: Entry points for the service
 - `internal/`: Core business logic and domain models
-- `generated/`: Auto-generated code (sqlc, protobuf, gRPC)
+- `generated/`: Auto-generated code (sqlc, fleet gRPC)
 - `migrations/`: Database migration files
-- `proto/`: Protobuf API definitions (in parent directory)
 - `sqlc/`: SQL query definitions for code generation
 
 ### Server Development Guidelines
@@ -97,6 +96,7 @@ This is a monorepo for a miner management system with the following structure:
 
 - ProtoOS uses auto-generated TypeScript types from `src/protoOS/api/types.ts` (this file is auto-generated and should **not** be reviewed or modified; it is referenced here for context only)
 - ProtoFleet connects to the Go backend service via gRPC-web
+- Proto plugin communicates with miners via REST API (MDK-API OpenAPI spec)
 - Development proxies configured in vite.config.ts
 
 ### Client Development Guidelines

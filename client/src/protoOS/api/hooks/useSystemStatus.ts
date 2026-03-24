@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useOnboarded, usePasswordSet, useSetOnboarded, useSetPasswordSet } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 /**
  * API hook for fetching system status.
@@ -17,42 +18,39 @@ const useSystemStatus = () => {
   const setPasswordSet = useSetPasswordSet();
   const onboarded = useOnboarded();
   const passwordSet = usePasswordSet();
-  const hasFetchedRef = useRef<boolean>(false);
+  const isFetchingRef = useRef(false);
+  const hasLoadedStatus = onboarded !== undefined && passwordSet !== undefined;
 
   const data = useMemo(() => ({ onboarded, passwordSet }), [onboarded, passwordSet]);
 
-  useEffect(() => {
-    if (!api || hasFetchedRef.current) return;
+  const fetchData = useCallback(() => {
+    if (!api || isFetchingRef.current) return;
 
-    api
+    isFetchingRef.current = true;
+    return api
       .getSystemStatus()
       .then((res) => {
         setOnboarded(res?.data.onboarded);
         setPasswordSet(res?.data.password_set);
-        hasFetchedRef.current = true;
       })
       .catch((err) => {
         console.error("[useSystemStatus API hook] Error:", err);
-        hasFetchedRef.current = true;
+      })
+      .finally(() => {
+        isFetchingRef.current = false;
       });
   }, [api, setOnboarded, setPasswordSet]);
+
+  usePoll({
+    fetchData,
+    poll: true,
+    pollIntervalMs: 5000,
+    enabled: !!api && !hasLoadedStatus,
+  });
 
   const reload = useCallback(() => {
-    hasFetchedRef.current = false;
-    if (!api) return;
-
-    api
-      .getSystemStatus()
-      .then((res) => {
-        setOnboarded(res?.data.onboarded);
-        setPasswordSet(res?.data.password_set);
-        hasFetchedRef.current = true;
-      })
-      .catch((err) => {
-        console.error("[useSystemStatus API hook] Reload error:", err);
-        hasFetchedRef.current = true;
-      });
-  }, [api, setOnboarded, setPasswordSet]);
+    return fetchData();
+  }, [fetchData]);
 
   return useMemo(() => ({ data, reload }), [data, reload]);
 };

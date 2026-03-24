@@ -458,6 +458,14 @@ type ModelCapabilitiesProvider interface {
 	GetCapabilitiesForModel(ctx context.Context, model string) Capabilities
 }
 
+// DiscoveryPortsProvider is an optional interface that drivers can implement
+// to provide canonical discovery scan ports for server-side port derivation.
+type DiscoveryPortsProvider interface {
+	// GetDiscoveryPorts returns canonical discovery ports in driver-preferred order.
+	// Return nil or an empty slice when the driver does not advertise discovery ports.
+	GetDiscoveryPorts(ctx context.Context) []string
+}
+
 // Standard capability flags
 const (
 	// CoreV1 capabilities

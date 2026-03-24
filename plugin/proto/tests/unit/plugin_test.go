@@ -11,7 +11,7 @@ import (
 
 // TestDriverDescribe tests driver capability reporting.
 func TestDriverDescribe(t *testing.T) {
-	driver, err := driver.New(2121)
+	driver, err := driver.New(443)
 	require.NoError(t, err, "Failed to create driver")
 
 	ctx := t.Context()
@@ -31,6 +31,22 @@ func TestDriverDescribe(t *testing.T) {
 	for _, cap := range requiredCaps {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
+
+	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
+}
+
+func TestDriverGetDiscoveryPorts_Override(t *testing.T) {
+	driver, err := driver.New(8080)
+	require.NoError(t, err, "Failed to create driver")
+
+	assert.Equal(t, []string{"8080"}, driver.GetDiscoveryPorts(t.Context()))
+}
+
+func TestDriverGetDiscoveryPorts_NonCanonicalOverride(t *testing.T) {
+	driver, err := driver.New(9000)
+	require.NoError(t, err, "Failed to create driver")
+
+	assert.Equal(t, []string{"9000"}, driver.GetDiscoveryPorts(t.Context()))
 }
 
 // TestDeviceInfoValidation tests device info validation.
@@ -57,7 +73,7 @@ func TestDeviceInfoValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			driver, err := driver.New(2121)
+			driver, err := driver.New(443)
 			require.NoError(t, err, "Failed to create driver")
 
 			_, err = driver.NewDevice(t.Context(), tt.deviceInfo.SerialNumber, tt.deviceInfo, sdk.SecretBundle{})

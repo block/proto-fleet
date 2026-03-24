@@ -32,7 +32,10 @@ const (
 	maxValidPortNumber = math.MaxUint16
 )
 
+var canonicalDiscoveryPorts = []int{443}
+
 var _ sdk.Driver = (*Driver)(nil)
+var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
@@ -133,6 +136,31 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 	return deviceInfo, capabilities, nil
 }
 
+// GetDiscoveryPorts returns discovery ports in the order they should be tried.
+// When an explicit driver port override is configured, advertise that port first
+// so default omitted-port discovery follows the configured environment.
+func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
+	if d.requiredPort > 0 && !isCanonicalDiscoveryPort(d.requiredPort) {
+		return []string{fmt.Sprintf("%d", d.requiredPort)}
+	}
+
+	ports := make([]string, 0, len(canonicalDiscoveryPorts))
+	seen := make(map[int]struct{}, len(canonicalDiscoveryPorts)+1)
+
+	if d.requiredPort > 0 {
+		ports = append(ports, fmt.Sprintf("%d", d.requiredPort))
+		seen[d.requiredPort] = struct{}{}
+	}
+
+	for _, port := range canonicalDiscoveryPorts {
+		if _, ok := seen[port]; ok {
+			continue
+		}
+		ports = append(ports, fmt.Sprintf("%d", port))
+	}
+	return ports
+}
+
 // DiscoverDevice implements the SDK Driver interface.
 //
 // This method attempts to discover a Proto miner at the given network address.
@@ -154,8 +182,8 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	portInt := int(portInt32)
 
 	// Note: In integration tests, we may use different ports due to Docker port mapping
-	if portInt != d.requiredPort && d.requiredPort != 0 {
-		return sdk.DeviceInfo{}, fmt.Errorf("proto miners typically use port 2121, got %s", port)
+	if !d.isAllowedDiscoveryPort(portInt) {
+		return sdk.DeviceInfo{}, fmt.Errorf("proto miners are configured for %s, got %s", d.expectedDiscoveryPorts(), port)
 	}
 
 	if strings.TrimSpace(ipAddress) == "" {
@@ -189,6 +217,32 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	return sdk.DeviceInfo{}, fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port)
+}
+
+func (d *Driver) isAllowedDiscoveryPort(port int) bool {
+	if d.requiredPort == 0 {
+		return true
+	}
+	if isCanonicalDiscoveryPort(d.requiredPort) {
+		return isCanonicalDiscoveryPort(port)
+	}
+	return port == d.requiredPort
+}
+
+func (d *Driver) expectedDiscoveryPorts() string {
+	if !isCanonicalDiscoveryPort(d.requiredPort) {
+		return fmt.Sprintf("port %d", d.requiredPort)
+	}
+	return "port 443"
+}
+
+func isCanonicalDiscoveryPort(port int) bool {
+	for _, canonicalPort := range canonicalDiscoveryPorts {
+		if port == canonicalPort {
+			return true
+		}
+	}
+	return false
 }
 
 func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto.DeviceInfo, error) {

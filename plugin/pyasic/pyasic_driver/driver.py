@@ -256,6 +256,10 @@ class PyAsicDriver:
                         seen.add(key)
         return creds
 
+    async def get_discovery_ports(self, ctx: grpc.ServicerContext) -> list[str]:
+        del ctx
+        return [str(port) for port in sorted(_DISCOVERY_PORTS)]
+
     def _update_model_capabilities(self, model: str, caps: Capabilities) -> None:
         """Callback for devices to update model capabilities on reconnect."""
         self._model_capabilities[model] = caps

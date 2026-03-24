@@ -105,7 +105,7 @@ test.describe("Miners", () => {
 
     await test.step("Validate update process", async () => {
       await minersPage.validateTextInToastGroup("Waking up");
-      await minersPage.validateTextInToast("Woke up");
+      await minersPage.validateTextInToastGroup("Woke up");
     });
 
     await test.step("Validate none of the miners are sleeping", async () => {

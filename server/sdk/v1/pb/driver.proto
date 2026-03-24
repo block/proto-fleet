@@ -392,6 +392,11 @@ message GetCapabilitiesForModelResponse {
   Capabilities caps = 1; // Model-specific capability flags
 }
 
+// GetDiscoveryPortsResponse returns canonical discovery scan ports.
+message GetDiscoveryPortsResponse {
+  repeated string ports = 1;
+}
+
 message GetDeviceWebViewURLResponse {
   string url = 1; // URL to access device web interface
 }
@@ -588,6 +593,9 @@ service Driver {
 
   // Optional - Returns model-specific capabilities for devices
   rpc GetCapabilitiesForModel(GetCapabilitiesForModelRequest) returns (GetCapabilitiesForModelResponse);
+
+  // Optional - Returns canonical discovery scan ports for server-side port derivation
+  rpc GetDiscoveryPorts(google.protobuf.Empty) returns (GetDiscoveryPortsResponse);
   
   // CoreV1 - Device Management - Required methods
   rpc NewDevice(NewDeviceRequest) returns (NewDeviceResponse);

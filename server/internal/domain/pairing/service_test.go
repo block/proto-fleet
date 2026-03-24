@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -16,9 +17,11 @@ import (
 	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
 	pairingMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
+	pluginsdomain "github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
@@ -92,6 +95,23 @@ func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.Disco
 			DriverName: deviceType,
 		},
 	}
+}
+
+func registerDiscoveryPortsPlugin(t *testing.T, testContext *testutil.TestContext, driverName string, ports []string) {
+	t.Helper()
+
+	err := testContext.ServiceProvider.PluginService.GetManager().RegisterPluginForTest(&pluginsdomain.LoadedPlugin{
+		Name: fmt.Sprintf("%s-plugin", driverName),
+		Identifier: sdk.DriverIdentifier{
+			DriverName: driverName,
+			APIVersion: "v1",
+		},
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true,
+		},
+		DiscoveryPorts: ports,
+	})
+	require.NoError(t, err)
 }
 
 // createPairRequest creates a PairRequest with the given device identifiers using DeviceSelector.
@@ -174,6 +194,175 @@ func TestDiscoverWithIPList(t *testing.T) {
 
 		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2})
 	})
+}
+
+func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
+func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").
+		Return(nil, fleeterror.NewInternalError("not a miner on port 8080")).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443", "8080"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "443")
+	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
+func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "8080", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"443"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+		Ports:       []string{"8080"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
+}
+
+func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRequest(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	scannedIP := "192.168.1.10"
+	firstPort := "443"
+	secondPort := "4028"
+
+	firstDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    scannedIP,
+			Port:         firstPort,
+			UrlScheme:    "https",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+		},
+	}
+	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    scannedIP,
+			Port:         secondPort,
+			UrlScheme:    "http",
+			DriverName:   "pyasic",
+			Model:        "M60S",
+			Manufacturer: "WhatsMiner",
+		},
+	}
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(secondDiscoveryDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{firstPort, secondPort})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{firstPort, secondPort},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertExpectations(t)
+	require.Len(t, devices, 1, "the same physical device should only be streamed once per discovery request")
+	assert.NotEmpty(t, devices[0].DeviceIdentifier)
+}
+
+func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+	})
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	assert.Contains(t, err.Error(), "no discovery ports were provided")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDiscoverWithIPRange_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPRange(ctx, &pb.IPRangeModeRequest{
+		StartIp: "192.168.1.10",
+		EndIp:   "192.168.1.10",
+	})
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	assert.Contains(t, err.Error(), "no discovery ports were provided")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDiscoverWithIPRange(t *testing.T) {
@@ -360,13 +549,13 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		discoverWg.Add(2)
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice("192.168.1.20", "80", "proto")
+		mockDevice := createMockDevice("192.168.1.20", "8080", "proto")
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(mockDevice, nil)
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "80").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(nil, assert.AnError)
 
@@ -378,7 +567,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.20",
 			EndIp:   "192.168.1.21",
-			Ports:   []string{"80"},
+			Ports:   []string{"8080"},
 		}
 
 		// Act
@@ -592,6 +781,246 @@ func TestPairDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, totalPairedDevices)
 	})
+
+	t.Run("treats already paired key rotation auth failures as idempotent without credentials", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+
+		deviceIdentifier := "paired-device-001"
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}, &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				IpAddress:        "172.16.21.149",
+				Port:             "443",
+				UrlScheme:        "https",
+				DriverName:       "proto",
+			},
+			OrgID:    adminUser.OrganizationID,
+			IsActive: true,
+		})
+		require.NoError(t, err)
+
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+
+		_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+			OrgID:              adminUser.OrganizationID,
+			DiscoveredDeviceID: discoveredDevice.ID,
+			DeviceIdentifier:   deviceIdentifier,
+			MacAddress:         "C8:98:DB:10:D1:94",
+		})
+		require.NoError(t, err)
+
+		deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier)
+		require.NoError(t, err)
+
+		_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+			DeviceID:      deviceID,
+			PairingStatus: sqlc.PairingStatusEnumPAIRED,
+		})
+		require.NoError(t, err)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockPairer := pairingMocks.NewMockPairer(ctrl)
+		mockPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(fmt.Errorf("rpc error: code = Unknown desc = pairing failed: unauthenticated: device is already paired and requires valid credentials for key rotation"))
+
+		tokenService := testContext.ServiceProvider.TokenService
+		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+		pluginService := testContext.ServiceProvider.PluginService
+		mockListener := pairingMocks.NewMockListener(ctrl)
+		mockListener.EXPECT().AddDevices(gomock.Any(), tmodels.DeviceIdentifier(deviceIdentifier)).Return(nil)
+
+		pairingService := pairing.NewService(
+			discoveredDeviceStore,
+			deviceStore,
+			transactor,
+			tokenService,
+			&MockDiscoverer{},
+			pluginService,
+			mockListener,
+			mockPairer,
+		)
+
+		resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{deviceIdentifier}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.FailedDeviceIds)
+	})
+
+	t.Run("does not schedule telemetry for already known devices that are not fully paired", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+
+		deviceIdentifier := "auth-needed-device-001"
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}, &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				IpAddress:        "172.16.21.150",
+				Port:             "443",
+				UrlScheme:        "https",
+				DriverName:       "proto",
+			},
+			OrgID:    adminUser.OrganizationID,
+			IsActive: true,
+		})
+		require.NoError(t, err)
+
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+
+		_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+			OrgID:              adminUser.OrganizationID,
+			DiscoveredDeviceID: discoveredDevice.ID,
+			DeviceIdentifier:   deviceIdentifier,
+			MacAddress:         "C8:98:DB:10:D1:95",
+		})
+		require.NoError(t, err)
+
+		deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier)
+		require.NoError(t, err)
+
+		_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+			DeviceID:      deviceID,
+			PairingStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		})
+		require.NoError(t, err)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockPairer := pairingMocks.NewMockPairer(ctrl)
+		mockPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(fmt.Errorf("rpc error: code = Unknown desc = pairing failed: unauthenticated: device is already paired and requires valid credentials for key rotation"))
+
+		tokenService := testContext.ServiceProvider.TokenService
+		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+		pluginService := testContext.ServiceProvider.PluginService
+		mockListener := pairingMocks.NewMockListener(ctrl)
+
+		pairingService := pairing.NewService(
+			discoveredDeviceStore,
+			deviceStore,
+			transactor,
+			tokenService,
+			&MockDiscoverer{},
+			pluginService,
+			mockListener,
+			mockPairer,
+		)
+
+		resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{deviceIdentifier}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.FailedDeviceIds)
+
+		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus))
+	})
+
+	t.Run("marks externally paired unpaired devices as AUTHENTICATION_NEEDED", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+		queries := sqlc.New(testContext.ServiceProvider.DB)
+
+		deviceIdentifier := "ext-paired-unpaired-device-001"
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}, &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				IpAddress:        "172.16.21.151",
+				Port:             "443",
+				UrlScheme:        "https",
+				DriverName:       "proto",
+			},
+			OrgID:    adminUser.OrganizationID,
+			IsActive: true,
+		})
+		require.NoError(t, err)
+
+		discoveredDevice, err := queries.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		})
+		require.NoError(t, err)
+
+		_, err = queries.InsertDevice(ctx, sqlc.InsertDeviceParams{
+			OrgID:              adminUser.OrganizationID,
+			DiscoveredDeviceID: discoveredDevice.ID,
+			DeviceIdentifier:   deviceIdentifier,
+			MacAddress:         "C8:98:DB:10:D1:96",
+		})
+		require.NoError(t, err)
+
+		deviceID, err := queries.GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier)
+		require.NoError(t, err)
+
+		_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+			DeviceID:      deviceID,
+			PairingStatus: sqlc.PairingStatusEnumUNPAIRED,
+		})
+		require.NoError(t, err)
+
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockPairer := pairingMocks.NewMockPairer(ctrl)
+		mockPairer.EXPECT().
+			PairDevice(gomock.Any(), gomock.Any(), nil).
+			Return(fmt.Errorf("rpc error: code = Unknown desc = pairing failed: unauthenticated: device is already paired and requires valid credentials for key rotation"))
+
+		tokenService := testContext.ServiceProvider.TokenService
+		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+		pluginService := testContext.ServiceProvider.PluginService
+		mockListener := pairingMocks.NewMockListener(ctrl)
+
+		pairingService := pairing.NewService(
+			discoveredDeviceStore,
+			deviceStore,
+			transactor,
+			tokenService,
+			&MockDiscoverer{},
+			pluginService,
+			mockListener,
+			mockPairer,
+		)
+
+		resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{deviceIdentifier}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.FailedDeviceIds)
+
+		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+		require.NoError(t, err)
+		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus))
+	})
 }
 
 func assertDevicesEqual(t *testing.T, actual []*pb.Device, expected []*discoverymodels.DiscoveredDevice) {
@@ -621,9 +1050,67 @@ func stripIdentifier(m map[string]*pb.Device) map[string]*pb.Device {
 			panic(fmt.Sprintf("expected *pb.Device from proto.Clone, got %T", clone))
 		}
 		c.DeviceIdentifier = ""
+		if isEmptyMinerCapabilities(c.Capabilities) {
+			c.Capabilities = nil
+		}
 		out[k] = c
 	}
 	return out
+}
+
+func isEmptyMinerCapabilities(caps *capabilitiespb.MinerCapabilities) bool {
+	if caps == nil {
+		return true
+	}
+
+	return caps.Manufacturer == "" &&
+		isEmptyAuthenticationCapabilities(caps.Authentication) &&
+		isEmptyCommandCapabilities(caps.Commands) &&
+		isEmptyTelemetryCapabilities(caps.Telemetry) &&
+		isEmptyFirmwareCapabilities(caps.Firmware)
+}
+
+func isEmptyAuthenticationCapabilities(caps *capabilitiespb.AuthenticationCapabilities) bool {
+	return caps == nil || len(caps.SupportedMethods) == 0
+}
+
+func isEmptyCommandCapabilities(caps *capabilitiespb.CommandCapabilities) bool {
+	return caps == nil ||
+		(!caps.RebootSupported &&
+			!caps.MiningStartSupported &&
+			!caps.MiningStopSupported &&
+			!caps.LedBlinkSupported &&
+			!caps.FactoryResetSupported &&
+			!caps.AirCoolingSupported &&
+			!caps.ImmersionCoolingSupported &&
+			!caps.PoolSwitchingSupported &&
+			caps.PoolMaxCount == 0 &&
+			!caps.PoolPrioritySupported &&
+			!caps.LogsDownloadSupported &&
+			!caps.PowerModeEfficiencySupported &&
+			!caps.UpdateMinerPasswordSupported)
+}
+
+func isEmptyTelemetryCapabilities(caps *capabilitiespb.TelemetryCapabilities) bool {
+	return caps == nil ||
+		(!caps.RealtimeTelemetrySupported &&
+			!caps.HistoricalDataSupported &&
+			!caps.HashrateReported &&
+			!caps.PowerUsageReported &&
+			!caps.TemperatureReported &&
+			!caps.FanSpeedReported &&
+			!caps.EfficiencyReported &&
+			!caps.UptimeReported &&
+			!caps.ErrorCountReported &&
+			!caps.MinerStatusReported &&
+			!caps.PoolStatsReported &&
+			!caps.PerChipStatsReported &&
+			!caps.PerBoardStatsReported &&
+			!caps.PsuStatsReported)
+}
+
+func isEmptyFirmwareCapabilities(caps *capabilitiespb.FirmwareCapabilities) bool {
+	return caps == nil || (!caps.OtaUpdateSupported && !caps.ManualUploadSupported)
 }
 
 func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
@@ -632,7 +1119,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		host := "192.168.1.100"
-		portStr := "80"
+		portStr := "8080"
 		expectedFirmwareVersion := "1.2.3"
 
 		mockDiscoverer := &MockDiscoverer{}
@@ -699,7 +1186,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 		host := "192.168.1.101"
-		portStr := "80"
+		portStr := "8080"
 
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := createMockDevice(host, portStr, "proto")
@@ -853,7 +1340,7 @@ func TestDiscoveryReconciliation_SubnetMigration(t *testing.T) {
 
 		oldIP := "172.16.21.10"
 		newIP := "172.16.25.10"
-		port := "80"
+		port := "8080"
 		mac := "AA:BB:CC:DD:EE:01"
 		normalizedMAC := "AA:BB:CC:DD:EE:01"
 
@@ -994,7 +1481,7 @@ func TestDiscoveryReconciliation_DeletesUnpairedStaleEndpointRecord(t *testing.T
 
 	oldIP := "172.16.31.10"
 	newIP := "172.16.41.10"
-	port := "80"
+	port := "8080"
 	mac := "AA:BB:CC:DD:EE:11"
 
 	mockDiscoverer := &MockDiscoverer{}
@@ -1119,7 +1606,7 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 
 	occupantIP := "172.16.51.10"
 	originalIP := "172.16.61.10"
-	port := "80"
+	port := "8080"
 	occupantMAC := "AA:BB:CC:DD:EE:21"
 	reconciledMAC := "AA:BB:CC:DD:EE:22"
 	occupantIdentifier := "occupant-device"
@@ -1196,6 +1683,82 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 	assert.Equal(t, occupantIdentifier, lookupByEndpoint.DeviceIdentifier)
 }
 
+func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{"443", "4028"})
+
+	scannedIP := "172.16.71.10"
+	firstPort := "443"
+	secondPort := "4028"
+
+	mockDiscoverer := &MockDiscoverer{}
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	firstDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:       scannedIP,
+			Port:            firstPort,
+			UrlScheme:       "https",
+			DriverName:      "pyasic",
+			Model:           "M60S",
+			Manufacturer:    "WhatsMiner",
+			MacAddress:      "",
+			SerialNumber:    "",
+			FirmwareVersion: "1.0.0",
+		},
+	}
+	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:       scannedIP,
+			Port:            secondPort,
+			UrlScheme:       "http",
+			DriverName:      "pyasic",
+			Model:           "M60S",
+			Manufacturer:    "WhatsMiner",
+			MacAddress:      "",
+			SerialNumber:    "",
+			FirmwareVersion: "1.0.0",
+		},
+	}
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{firstPort},
+	})
+	require.NoError(t, err)
+
+	var firstDiscovery []*pb.Device
+	for result := range resultChan {
+		firstDiscovery = append(firstDiscovery, result.Devices...)
+	}
+	require.Len(t, firstDiscovery, 1)
+	originalIdentifier := firstDiscovery[0].DeviceIdentifier
+
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(secondDiscoveryDevice, nil).Once()
+	resultChan, err = pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{secondPort},
+	})
+	require.NoError(t, err)
+
+	var secondDiscovery []*pb.Device
+	for result := range resultChan {
+		secondDiscovery = append(secondDiscovery, result.Devices...)
+	}
+	require.Len(t, secondDiscovery, 1)
+	assert.Equal(t, originalIdentifier, secondDiscovery[0].DeviceIdentifier)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	reconciledDevice, err := discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: originalIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, secondPort, reconciledDevice.Port)
+}
+
 func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -1217,7 +1780,7 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		Device: pb.Device{
 			DeviceIdentifier: originalIdentifier,
 			IpAddress:        "172.16.21.10",
-			Port:             "80",
+			Port:             "8080",
 			UrlScheme:        "http",
 			DriverName:       "proto",
 			MacAddress:       "AA:BB:CC:DD:EE:01",
@@ -1234,7 +1797,7 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 		Device: pb.Device{
 			DeviceIdentifier: orphanIdentifier,
 			IpAddress:        "172.16.25.10",
-			Port:             "80",
+			Port:             "8080",
 			UrlScheme:        "http",
 			DriverName:       "proto",
 			MacAddress:       "AA:BB:CC:DD:EE:01",

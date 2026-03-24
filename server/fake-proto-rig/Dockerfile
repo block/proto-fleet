@@ -28,6 +28,6 @@ RUN apk add --no-cache ca-certificates wget
 
 COPY --from=builder /fake-proto-rig /fake-proto-rig
 
-EXPOSE 2121
+EXPOSE 8080
 
 ENTRYPOINT ["/fake-proto-rig"]
