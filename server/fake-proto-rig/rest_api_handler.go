@@ -74,6 +74,7 @@ type PoolsList struct {
 // PoolData is a single pool data
 type PoolData struct {
 	ID               int    `json:"id"`
+	Priority         int    `json:"priority"`
 	URL              string `json:"url"`
 	User             string `json:"user"`
 	Status           string `json:"status"`
@@ -765,6 +766,7 @@ func (h *RESTApiHandler) getPools(w http.ResponseWriter, r *http.Request) {
 
 		poolList[i] = PoolData{
 			ID:               int(p.Idx),
+			Priority:         p.Priority,
 			URL:              p.Url,
 			User:             p.Username,
 			Status:           status,
@@ -801,8 +803,14 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 
 	// Add new pools
 	for i, p := range pools {
+		priority := i
+		if p.Priority != nil {
+			priority = *p.Priority
+		}
+
 		pool := &Pool{
 			Idx:      uint32(i),
+			Priority: priority,
 			Url:      p.URL,
 			Username: p.Username,
 			Password: p.Password,
@@ -864,6 +872,7 @@ func (h *RESTApiHandler) getPool(w http.ResponseWriter, r *http.Request, id int)
 			h.writeJSON(w, http.StatusOK, PoolResponse{
 				Pool: PoolData{
 					ID:             int(p.Idx),
+					Priority:       p.Priority,
 					URL:            p.Url,
 					User:           p.Username,
 					Status:         "Active",
@@ -906,6 +915,9 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 			}
 			if config.Password != "" {
 				p.Password = config.Password
+			}
+			if config.Priority != nil {
+				p.Priority = *config.Priority
 			}
 			h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Pool updated successfully"})
 			return

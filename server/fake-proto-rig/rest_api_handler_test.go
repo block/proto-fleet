@@ -508,6 +508,89 @@ func TestCreatePools_InvalidURL_DoesNotClearExistingPools(t *testing.T) {
 	}
 }
 
+func TestCreatePools_PersistsConfiguredPriorities(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools", strings.NewReader(`[
+		{"url":"stratum+tcp://pool-a.example.com:3333","username":"worker-a","priority":2},
+		{"url":"stratum+tcp://pool-b.example.com:3333","username":"worker-b","priority":0},
+		{"url":"stratum+tcp://pool-c.example.com:3333","username":"worker-c","priority":1}
+	]`))
+	h.createPools(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 3 {
+		t.Fatalf("expected 3 pools, got %d", len(pools))
+	}
+	if pools[0].Priority != 2 || pools[1].Priority != 0 || pools[2].Priority != 1 {
+		t.Fatalf("expected priorities [2 0 1], got [%d %d %d]", pools[0].Priority, pools[1].Priority, pools[2].Priority)
+	}
+
+	getRR := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	h.getPools(getRR, getReq)
+
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, getRR.Code, getRR.Body.String())
+	}
+
+	var resp PoolsList
+	if err := json.Unmarshal(getRR.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+
+	if len(resp.Pools) != 3 {
+		t.Fatalf("expected 3 pools in response, got %d", len(resp.Pools))
+	}
+	if resp.Pools[0].Priority != 2 || resp.Pools[1].Priority != 0 || resp.Pools[2].Priority != 1 {
+		t.Fatalf("expected response priorities [2 0 1], got [%d %d %d]", resp.Pools[0].Priority, resp.Pools[1].Priority, resp.Pools[2].Priority)
+	}
+}
+
+func TestUpdatePool_PersistsPriorityAndSerializesIt(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{Idx: 0, Priority: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	updateRR := httptest.NewRecorder()
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/pools/0", strings.NewReader(`{"priority":2}`))
+	h.updatePool(updateRR, updateReq, 0)
+
+	if updateRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, updateRR.Code, updateRR.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if pools[0].Priority != 2 {
+		t.Fatalf("expected pool priority to be updated to 2, got %d", pools[0].Priority)
+	}
+
+	getRR := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pools/0", nil)
+	h.getPool(getRR, getReq, 0)
+
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, getRR.Code, getRR.Body.String())
+	}
+
+	var resp PoolResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+	if resp.Pool.Priority != 2 {
+		t.Fatalf("expected serialized pool priority 2, got %d", resp.Pool.Priority)
+	}
+}
+
 func TestHandleMiningTarget_HashOnDisconnectOnly(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)

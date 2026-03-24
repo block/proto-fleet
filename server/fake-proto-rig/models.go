@@ -114,6 +114,7 @@ type PoolStatistics struct {
 // Pool represents a mining pool configuration.
 type Pool struct {
 	Idx        uint32          `json:"idx"`
+	Priority   int             `json:"priority"`
 	Url        string          `json:"url"`
 	Username   string          `json:"username"`
 	Password   string          `json:"password"`
