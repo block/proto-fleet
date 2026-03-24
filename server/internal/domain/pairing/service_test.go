@@ -947,7 +947,7 @@ func TestPairDevices(t *testing.T) {
 		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 		queries := sqlc.New(testContext.ServiceProvider.DB)
 
-		deviceIdentifier := "externally-paired-unpaired-device-001"
+		deviceIdentifier := "ext-paired-unpaired-device-001"
 		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 		_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
 			DeviceIdentifier: deviceIdentifier,
