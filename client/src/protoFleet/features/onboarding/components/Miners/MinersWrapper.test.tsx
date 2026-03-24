@@ -206,9 +206,12 @@ describe("MinersWrapper", () => {
         expect(screen.getByText("Finding miners on your network")).toBeInTheDocument();
       });
 
-      await waitFor(() => {
-        expect(screen.getByText("4 miners found on your network")).toBeInTheDocument();
-      }, { timeout: 4000 });
+      await waitFor(
+        () => {
+          expect(screen.getByText("4 miners found on your network")).toBeInTheDocument();
+        },
+        { timeout: 4000 },
+      );
 
       expect(screen.getByRole("button", { name: "Continue with 4 miners" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Continue with 8 miners" })).not.toBeInTheDocument();
