@@ -298,7 +298,7 @@ func testAuthentication(t *testing.T, ctx context.Context) {
 // TestCompletePluginWorkflow validates the full discovery → pairing → telemetry flow
 // This test ensures the proto plugin actually works end-to-end through the Fleet API.
 //
-// Prerequisites: This test triggers `just clean-build` to reset the docker-compose environment.
+// Prerequisites: This test triggers `just rebuild-all` to reset the docker-compose environment.
 // It then tests against the real fleet-api at localhost:4000.
 //
 // The test validates:
@@ -312,14 +312,13 @@ func TestCompletePluginWorkflow(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Step 0: Trigger clean build to reset environment
-	t.Log("Running 'just clean-build' to reset docker-compose environment...")
-	cleanBuildCmd := exec.Command("just", "clean-build")
-	cleanBuildCmd.Dir = ".." // Run from server/ parent directory
-	cleanBuildCmd.Stdout = os.Stdout
-	cleanBuildCmd.Stderr = os.Stderr
-	err := cleanBuildCmd.Run()
-	require.NoError(t, err, "just clean-build should succeed")
+	// Step 0: Reset docker-compose environment
+	t.Log("Running 'just rebuild-all' to reset docker-compose environment...")
+	rebuildAllCmd := exec.Command("just", "rebuild-all")
+	rebuildAllCmd.Stdout = os.Stdout
+	rebuildAllCmd.Stderr = os.Stderr
+	err := rebuildAllCmd.Run()
+	require.NoError(t, err, "just rebuild-all should succeed")
 
 	// Wait for services to be healthy
 	t.Log("Waiting for fleet-api to be ready...")

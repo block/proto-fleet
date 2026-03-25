@@ -4,7 +4,7 @@
 #
 # Called by:
 #   - `just setup` (in packages/proto-python-gen or root justfile)
-#   - `just init` (root justfile, via _python-gen-init)
+#   - `just setup` (root justfile, via _python-gen-init)
 #
 set -euo pipefail
 

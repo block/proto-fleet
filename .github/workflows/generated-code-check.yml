@@ -31,7 +31,7 @@ jobs:
         uses: ./.github/actions/go-cache-setup
 
       - name: Install dependencies
-        run: just init
+        run: just setup
 
       - name: Generate code
         run: just gen

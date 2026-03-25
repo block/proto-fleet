@@ -19,7 +19,7 @@ The e2e tests validate that:
 2. **Plugin system** loads and initializes correctly
 3. **Complete workflows** function end-to-end (discovery → pairing → telemetry)
 
-These tests run against the actual docker-compose environment (`just clean-build`), not isolated test infrastructure. This ensures we're testing the real system as users would deploy it.
+These tests run against the actual docker-compose environment (`just rebuild-all`), not isolated test infrastructure. This ensures we're testing the real system as users would deploy it.
 
 ## Architecture
 
@@ -51,7 +51,7 @@ The e2e tests follow a **system testing** approach:
 - Tests interact with the real Fleet API at `http://localhost:4000`
 - Uses actual docker-compose services (not mocks or isolated infrastructure)
 - Validates complete workflows through public API endpoints
-- Triggers `just clean-build` to ensure clean environment state
+- Triggers `just rebuild-all` to ensure clean environment state
 
 **Key Design Principle**: Tests should interact with the system exactly as a real client would - through the Fleet API using Connect RPC (gRPC-Web).
 
@@ -117,7 +117,7 @@ Validates the full device lifecycle: discovery → pairing → telemetry collect
 │              TestCompletePluginWorkflow                      │
 │                                                              │
 │  Prerequisites:                                              │
-│    - Triggers 'just clean-build' to reset environment       │
+│    - Triggers 'just rebuild-all' to reset environment       │
 │    - Waits for fleet-api to be healthy                      │
 │    - Creates admin user and authenticates                   │
 │                                                              │
@@ -188,7 +188,7 @@ go test -tags=e2e ./e2e
 ```
 
 **Test Duration**: `TestCompletePluginWorkflow` takes 2-5 minutes because it:
-- Runs `just clean-build` (rebuilds containers, runs migrations, loads plugins)
+- Runs `just rebuild-all` (rebuilds containers, runs migrations, loads plugins)
 - Waits for services to be healthy
 - Polls for telemetry data (up to 30s)
 
@@ -210,7 +210,7 @@ go test -short ./...
      │
      ▼
 ┌─────────────────────┐
-│ just clean-build    │  Resets docker-compose environment
+│ just rebuild-all    │  Resets docker-compose environment
 │ (2-3 minutes)       │  Rebuilds containers, runs migrations
 └─────────┬───────────┘
           │
@@ -345,7 +345,7 @@ docker ps | grep server-
 docker logs server-fleet-api-1
 
 # Restart environment
-just clean-build
+just rebuild-all
 ```
 
 #### 3. "plugin binary should be ELF binary"
@@ -403,7 +403,7 @@ docker logs server-fleet-api-1 | grep "Collecting telemetry"
 **Solution**: This is expected. TestPluginIntegration tests accept "already exists" errors. If you need a truly clean environment, run:
 
 ```bash
-just clean-build
+just rebuild-all
 ```
 
 ### Debugging Test Failures

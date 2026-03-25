@@ -10,9 +10,9 @@ Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It p
 just dev              # Run local server with Docker Compose (watch mode)
 just start            # Start all services (without watch)
 just stop             # Stop services
-just build-all        # Build all Go packages
+just build            # Build all Go packages
 just install          # Install fleetd binary
-just clean-build      # Clean rebuild (wipes all data)
+just rebuild-all    # Clean rebuild (wipes all data)
 just rebuild-fleet-api  # Rebuild just fleet-api
 ```
 
@@ -47,10 +47,10 @@ All generated code must be checked into Git. Run `just gen` after modifying prot
 ```bash
 just db-up            # Start PostgreSQL/TimescaleDB
 just db-migrate       # Run migrations
-just new-migration <name>  # Create new migration
+just db-migration-new <name>  # Create new migration
 just db-shell         # Interactive PostgreSQL shell
 just db-down          # Stop database
-just db-clean         # Run down migrations
+just db-reset         # Run down migrations
 ```
 
 Migrations are sequential and run automatically on startup. **Never modify existing migrations after they have been deployed.**
@@ -92,7 +92,7 @@ Configuration is in `cmd/fleetd/config.go` with options for plugin directories, 
 ### Data Layer
 
 - **PostgreSQL/TimescaleDB**: Primary data store with schema defined in `migrations/`. Migrations run automatically on startup.
-- **sqlc**: Type-safe Go code generated from SQL queries in `sqlc/queries/`. Regenerate with `just gen-db-queries`.
+- **sqlc**: Type-safe Go code generated from SQL queries in `sqlc/queries/`. Regenerate with `just gen-db-queries` from the server directory.
 - **Stores**: Repository pattern implementations in `internal/domain/stores/sqlstores/`.
 - **Transactions**: Transactor pattern (`sqlstores.NewSQLTransactor`) for managing transactions across multiple operations.
 

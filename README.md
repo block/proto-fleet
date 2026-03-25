@@ -102,7 +102,7 @@ Go service handling device pairing, telemetry collection, command execution, fle
 ./bin/activate-hermit
 
 # Install all dependencies
-just init
+just setup
 ```
 
 ### Start Development

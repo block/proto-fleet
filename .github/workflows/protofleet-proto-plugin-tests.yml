@@ -5,12 +5,14 @@ on:
     paths:
       - ".github/workflows/protofleet-proto-plugin-tests.yml"
       - "plugin/proto/**"
+      - "just/go-plugin.just"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/protofleet-proto-plugin-tests.yml"
       - "plugin/proto/**"
+      - "just/go-plugin.just"
   workflow_dispatch:
 
 jobs:
@@ -24,8 +26,7 @@ jobs:
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
       - name: Lint protocol buffers
-        run: |
-          just lint
+        run: buf lint
 
       - name: Lint protocol golang
         run: |

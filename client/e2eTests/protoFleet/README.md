@@ -18,7 +18,7 @@ The E2E test suite validates critical user workflows and functionality across th
 The test configuration is already set up with default values. Simply run:
 
 ```bash
-just test-e2e
+just test-e2e-fleet
 ```
 
 This command will:
@@ -34,10 +34,10 @@ This command will:
 **Using justfile (recommended):**
 
 ```bash
-just test-e2e              # Run all tests (desktop)
-just test-e2e-ui           # Run in interactive UI mode
-just test-e2e-headed       # Run with visible browser
-just test-e2e-wip          # Run only tests tagged @wip
+just test-e2e-fleet              # Run all tests (desktop)
+just test-e2e-fleet-ui           # Run in interactive UI mode
+just test-e2e-fleet-headed       # Run with visible browser
+just test-e2e-fleet-wip          # Run only tests tagged @wip
 ```
 
 **Using npm scripts:**

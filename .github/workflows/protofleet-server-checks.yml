@@ -10,6 +10,7 @@ on:
       - "tests/plugin-contract/**"
       - "go.work"
       - "go.work.sum"
+      - "just/go-plugin.just"
   push:
     branches:
       - main
@@ -21,6 +22,7 @@ on:
       - "tests/plugin-contract/**"
       - "go.work"
       - "go.work.sum"
+      - "just/go-plugin.just"
   workflow_dispatch:
 
 jobs:
@@ -36,7 +38,7 @@ jobs:
         uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
       - name: Lint protobuf definitions
-        run: just lint
+        run: buf lint
 
   # Go quality checks (format, lint) for all modules
   go-quality:

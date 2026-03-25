@@ -156,7 +156,7 @@ package: setup test
   cp "{{package_root}}/requirements.txt" "${STAGING}/"
   chmod +x "${STAGING}/bin/protoc-gen-python-grpc" "${STAGING}/setup.sh"
 
-  tar -czf "${TARBALL}" -C "${STAGING}" .
+  COPYFILE_DISABLE=1 tar -czf "${TARBALL}" -C "${STAGING}" .
 
   echo "Package built: ${TARBALL}"
   echo "Size: $(du -h "${TARBALL}" | cut -f1)"

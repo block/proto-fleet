@@ -4,7 +4,7 @@ Thank you for your interest in contributing to Proto Fleet! This guide covers th
 
 ## Development Setup
 
-See the [README](README.md) for initial setup instructions (`./bin/activate-hermit` and `just init`).
+See the [README](README.md) for initial setup instructions (`./bin/activate-hermit` and `just setup`).
 
 ## Git Workflow
 
@@ -63,7 +63,7 @@ gh pr create --title "Brief description" --body "## Summary
 
 ### Making Database Schema Changes
 
-1. Create a migration: `cd server && just new-migration <name>`
+1. Create a migration: `cd server && just db-migration-new <name>`
 2. Write both up and down migrations in `server/migrations/`
 3. Run `just gen` to regenerate sqlc bindings
 4. Update queries in `server/sqlc/queries/` if needed

@@ -1,39 +1,27 @@
 set dotenv-load
 set export
 
-# list available recipies 
+# list available recipes
 default:
   just --list
-  
+
 # lint project files
 lint:
   golangci-lint run -c .golangci.yaml
 
 # build fleet project
-build-all:
+build:
     go build -v ./...
 
 # install fleet
 install:
     go install -v ./cmd/fleetd
 
-# build plugins (called from root justfile)
-_build-plugins:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  cd .. && just build-plugins
-
-# build plugins for Docker (Linux ARM64)
-_build-plugins-docker:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  cd .. && just build-plugins-docker
-
-# run local server in docker compose with watch enabled on the fleet service
+# run local server in docker compose with watch enabled
 dev: _build-plugins-docker start
   docker compose up --watch fleet-api --remove-orphans
 
-# start services in docker compose 
+# start services in docker compose
 start:
   docker compose up --wait
 
@@ -52,6 +40,9 @@ test-plugin-integration:
 # format project files
 format:
   goimports -w .
+
+# run linting and tests together (non-mutating)
+check: lint test
 
 # run all code gen tasks
 gen: gen-db-queries gen-sdk-protos gen-go
@@ -83,7 +74,7 @@ db-down:
   docker compose down timescaledb
 
 # tear down the db by running down migrations
-db-clean:
+db-reset:
   migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations down
 
 # launch psql shell for interacting with the db started via db-up
@@ -91,7 +82,7 @@ db-shell:
   psql -h 127.0.0.1 -U fleet -d fleet
 
 # create a new migration
-new-migration name:
+db-migration-new name:
   migrate create -ext sql -dir migrations -seq {{name}}
 
 # run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
@@ -106,9 +97,14 @@ _run: db-up install
 seed-telemetry *args:
     go run ./devtools/seedtelemetry {{args}}
 
-# restarts the docker compose services and wipes out all data
-clean-build: _build-plugins-docker
+# wipe and rebuild all docker compose services from scratch
+rebuild-all: _build-plugins-docker
     docker compose down --rmi all --volumes && docker compose up --build -d
+
+_build-plugins-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd .. && just build-plugins-docker
 
 # restart and rebuild fleet-api only
 rebuild-fleet-api:

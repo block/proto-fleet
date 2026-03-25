@@ -1,26 +1,16 @@
-# list available recipes 
+import '../../just/go-plugin.just'
+
+# list available recipes
 default:
   just --list
 
-# lint project files
-lint:
-  golangci-lint run -c .golangci.yaml
-
-# build plugin project
-build:
-  go build -v ./...
-
-# install plugin 
-install:
-  go install -v .
-
-# run all tests 
+# run all tests
 test:
   go test --count=1 ./...
 
-# run all tests with extended timeout (for integration tests)
+# run all tests with extended timeout
 test-long:
-  go test --count=1  -timeout=30m ./...
+  go test --count=1 -timeout=30m ./...
 
 # run unit tests only
 test-unit:
@@ -29,30 +19,3 @@ test-unit:
 # run integration tests only
 test-integration:
   go test --count=1 -timeout=30m ./tests/...
-
-# format project files
-format:
-  goimports -w .
-
-# run go generate, this will run all go:generate directives in the project
-gen:
-  go generate ./...
-
-# clean build artifacts
-clean:
-  go clean ./...
-
-# download dependencies
-deps:
-  go mod download
-  go mod tidy
-
-# run linting and tests together
-check: lint test
-
-# run a comprehensive check including formatting
-check-all: format lint test
-
-# run the plugin (requires proper setup)
-run:
-  go run .

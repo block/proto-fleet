@@ -1,61 +1,39 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
 default:
   just --list
 
-init: _server-init _client-init _python-gen-init
+# install all project dependencies
+setup: _server-init _client-init _python-gen-init
 
-# Set up proto-python-gen venv so protoc-gen-python-grpc is available for code generation
-[working-directory: 'packages/proto-python-gen']
-_python-gen-init:
-  just setup
+# run protoFleet client and server
+dev: build-plugins-docker
+  ./dev.sh
 
-# Build plugin binaries for local development
-build-plugins:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Syncing Go workspace..."
-  go work sync
-  echo "Building Go plugins..."
-  mkdir -p server/plugins
-  (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .)
-  (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .)
-  chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
-  echo "Building pyasic plugin..."
-  just build-pyasic-plugin
-  echo "Plugins built successfully"
+# lint all project code (non-mutating)
+lint: _lint-protos _lint-client _lint-server _lint-plugins
 
-# Build plugin binaries for Docker (Linux ARM64)
-build-plugins-docker:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Syncing Go workspace..."
-  go work sync
-  echo "Building Go plugins for Docker (Linux ARM64)..."
-  mkdir -p server/plugins
-  (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/proto-plugin .)
-  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/antminer-plugin .)
-  chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
-  echo "Building pyasic plugin for Docker (Linux ARM64)..."
-  just build-pyasic-plugin-docker
-  echo "Docker plugins built successfully"
+# format all project code (writes files)
+format: _format-server _format-client _format-plugins
 
-# Build plugin binaries for multiple architectures (deployment)
-build-plugins-multi-arch:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Syncing Go workspace..."
-  go work sync
-  echo "Building Go plugins for multiple architectures..."
-  mkdir -p deployment-files/server
-  (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
-  (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
-  (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
-  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
-  chmod +x deployment-files/server/*-plugin-*
-  echo "Building pyasic plugin for multiple architectures..."
-  just build-pyasic-plugin-multi-arch
-  echo "Multi-arch plugins built successfully"
+# run all non-mutating quality checks
+check: lint
 
-# Build virtual miner plugin for Docker (Linux ARM64)
+# run all code generation
+gen: _server-init _client-init _lint-protos _gen-protos _gen-server _format-client _format-server
+
+# --- Plugin builds ---
+
+# build plugin binaries for local development
+build-plugins: (_build-go-plugins-native "server/plugins") _pyasic-build
+
+# build plugin binaries for Docker (Linux ARM64)
+build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins") _pyasic-build-docker
+
+# build plugin binaries for multiple architectures (deployment)
+build-plugins-release: _build-go-plugins-multi-arch _pyasic-build-release
+
+# build virtual miner plugin for Docker (Linux ARM64)
 build-virtual-plugin:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -66,50 +44,10 @@ build-virtual-plugin:
   chmod +x server/plugins/virtual-plugin
   echo "Virtual plugin built successfully"
 
-# Build pyasic plugin via Docker for ARM64 (used by build-plugins-docker)
-build-pyasic-plugin-docker:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  mkdir -p server/plugins
-  docker buildx build \
-    --platform linux/arm64 \
-    --file plugin/pyasic/Dockerfile.build \
-    --output type=local,dest=server/plugins \
-    .
-  chmod +x server/plugins/pyasic-plugin
-  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
+# --- Tests ---
 
-# Build pyasic plugin via Docker (produces Linux binary for current arch)
-build-pyasic-plugin:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  mkdir -p server/plugins
-  docker buildx build \
-    --file plugin/pyasic/Dockerfile.build \
-    --output type=local,dest=server/plugins \
-    .
-  chmod +x server/plugins/pyasic-plugin
-  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
-
-# Build pyasic plugin for multiple architectures (deployment)
-build-pyasic-plugin-multi-arch:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  mkdir -p deployment-files/server
-  for arch in amd64 arm64; do
-    docker buildx build \
-      --platform "linux/${arch}" \
-      --file plugin/pyasic/Dockerfile.build \
-      --output "type=local,dest=/tmp/pyasic-${arch}" \
-      .
-    cp "/tmp/pyasic-${arch}/pyasic-plugin" "deployment-files/server/pyasic-plugin-${arch}"
-    rm -rf "/tmp/pyasic-${arch}"
-  done
-  cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
-  chmod +x deployment-files/server/pyasic-plugin-*
-
-# Run plugin contract tests
-contract-tests: build-pyasic-plugin
+# run plugin contract tests
+test-contract: _pyasic-build
   #!/usr/bin/env bash
   set -euo pipefail
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
@@ -125,7 +63,33 @@ contract-tests: build-pyasic-plugin
       go test -v -count=1 -timeout=5m ./tests/plugin-contract/... \
     '
 
-# Update all Go dependencies across workspace
+# run ProtoFleet E2E tests
+test-e2e-fleet: (_e2e "protoFleet" "--project=desktop")
+
+# run ProtoFleet E2E tests in UI mode
+test-e2e-fleet-ui: (_e2e "protoFleet" "--ui" "--project=desktop")
+
+# run ProtoFleet E2E tests headed
+test-e2e-fleet-headed: (_e2e "protoFleet" "--headed" "--project=desktop")
+
+# run ProtoFleet WIP E2E tests
+test-e2e-fleet-wip: (_e2e "protoFleet" "--headed" "--grep" "@wip" "--project=desktop")
+
+# run ProtoOS E2E tests
+test-e2e-protoos: (_e2e "protoOS" "--project=desktop")
+
+# run ProtoOS E2E tests in UI mode
+test-e2e-protoos-ui: (_e2e "protoOS" "--ui" "--project=desktop")
+
+# run ProtoOS E2E tests headed
+test-e2e-protoos-headed: (_e2e "protoOS" "--headed" "--project=desktop")
+
+# run ProtoOS WIP E2E tests
+test-e2e-protoos-wip: (_e2e "protoOS" "--headed" "--grep" "@wip" "--project=desktop")
+
+# --- Dependency management ---
+
+# update all Go dependencies across workspace
 update-go-deps:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -143,9 +107,14 @@ update-go-deps:
   go work sync
   echo "All Go dependencies updated successfully"
 
-# Run protoFleet client and server
-dev: build-plugins
-  ./dev.sh
+# --- Packaging ---
+
+# build Windows installer
+[working-directory: 'deployment-files/windows']
+build-windows-installer:
+  powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1
+
+# --- Private helpers ---
 
 [working-directory: 'server']
 _server-init:
@@ -155,85 +124,128 @@ _server-init:
 _client-init:
   npm clean-install
 
-lint: 
+[working-directory: 'packages/proto-python-gen']
+_python-gen-init:
+  just setup
+
+_lint-protos:
   buf lint
 
-gen: _server-init _client-init lint gen-protos gen-server fmt-client fmt-server
+[working-directory: 'client']
+_lint-client:
+  npm run lint
 
-gen-protos: 
+[working-directory: 'server']
+_lint-server:
+  golangci-lint run -c .golangci.yaml
+
+_lint-plugins:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  (cd plugin/proto && golangci-lint run -c .golangci.yaml)
+  (cd plugin/antminer && golangci-lint run -c .golangci.yaml)
+
+[working-directory: 'server']
+_format-server:
+  goimports -w .
+
+[working-directory: 'client']
+_format-client:
+  npm run format
+
+_format-plugins:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  (cd plugin/proto && goimports -w .)
+  (cd plugin/antminer && goimports -w .)
+
+_gen-protos:
   PATH="$(pwd)/client/node_modules/.bin:$PATH" buf generate
 
 [working-directory: 'server']
-gen-server:
+_gen-server:
     just gen
 
-
-[working-directory: 'server']
-fmt-server:
-  goimports -w generated/grpc
-
-[working-directory: 'server']
-seed-telemetry *args:
-  just seed-telemetry {{args}}
-
-[working-directory: 'client']
-fmt-client:
-  npm run format
-
-clean-build: build-plugins-docker
+_e2e suite *args:
   #!/usr/bin/env bash
   set -euo pipefail
-  cd server
-  # Generate a random JWT secret (44 characters to match original length)
-  export AUTH_CLIENT_SECRET_KEY=$(openssl rand -hex 22)
-  echo "AUTH_CLIENT_SECRET_KEY=${AUTH_CLIENT_SECRET_KEY}" > .env
-  echo "Generated new JWT secret for clean build"
-  docker-compose down --rmi all --volumes && docker-compose up --build -d
-
-[working-directory: 'server']
-rebuild-fleet-api:
-  docker compose up fleet-api -d --build --force-recreate
-
-[working-directory: 'client/e2eTests/protoFleet']
-test-fleet-setup:
+  cd "client/e2eTests/{{suite}}"
   npx playwright install
+  npx playwright test {{args}}
 
-[working-directory: 'client/e2eTests/protoFleet']
-test-fleet: test-fleet-setup
-  npx playwright test --project=desktop
+_build-go-plugins-native outdir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building Go plugins..."
+  mkdir -p {{outdir}}
+  (cd plugin/proto && go build -o ../../{{outdir}}/proto-plugin .)
+  (cd plugin/antminer && go build -o ../../{{outdir}}/antminer-plugin .)
+  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
 
-[working-directory: 'client/e2eTests/protoFleet']
-test-fleet-ui: test-fleet-setup
-  npx playwright test --ui --project=desktop
+_build-go-plugins-cross goos goarch outdir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building Go plugins for {{goos}}/{{goarch}}..."
+  mkdir -p {{outdir}}
+  (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
+  (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
+  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
 
-[working-directory: 'client/e2eTests/protoFleet']
-test-fleet-headed: test-fleet-setup
-  npx playwright test --headed --project=desktop
+_build-go-plugins-multi-arch:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building Go plugins for multiple architectures..."
+  mkdir -p deployment-files/server
+  (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
+  (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
+  (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
+  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
+  chmod +x deployment-files/server/*-plugin-*
 
-[working-directory: 'client/e2eTests/protoFleet']
-test-fleet-wip: test-fleet-setup
-  npx playwright test --headed --grep @wip --project=desktop
-  
-[working-directory: 'client/e2eTests/protoOS']
-test-proto-os-setup:
-  npx playwright install
+_pyasic-build:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building pyasic plugin..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --file plugin/pyasic/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/pyasic-plugin
+  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
 
-[working-directory: 'client/e2eTests/protoOS']
-test-proto-os: test-proto-os-setup
-  npx playwright test --project=desktop
+_pyasic-build-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building pyasic plugin for Docker (Linux ARM64)..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --platform linux/arm64 \
+    --file plugin/pyasic/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/pyasic-plugin
+  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
 
-[working-directory: 'client/e2eTests/protoOS']
-test-proto-os-ui: test-proto-os-setup
-  npx playwright test --ui --project=desktop
-
-[working-directory: 'client/e2eTests/protoOS']
-test-proto-os-headed: test-proto-os-setup
-  npx playwright test --headed --project=desktop
-
-[working-directory: 'client/e2eTests/protoOS']
-test-proto-os-wip: test-proto-os-setup
-  npx playwright test --headed --grep @wip --project=desktop
-  
-[working-directory: 'deployment-files/windows']
-build-windows-installer:
-  powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1
+_pyasic-build-release:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building pyasic plugin for multiple architectures..."
+  mkdir -p deployment-files/server
+  for arch in amd64 arm64; do
+    docker buildx build \
+      --platform "linux/${arch}" \
+      --file plugin/pyasic/Dockerfile.build \
+      --output "type=local,dest=/tmp/pyasic-${arch}" \
+      .
+    cp "/tmp/pyasic-${arch}/pyasic-plugin" "deployment-files/server/pyasic-plugin-${arch}"
+    rm -rf "/tmp/pyasic-${arch}"
+  done
+  cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
+  chmod +x deployment-files/server/pyasic-plugin-*

@@ -11,7 +11,7 @@ A simulated miner plugin for testing and demonstration purposes. Virtual miners 
 
 2. Restart the fleet API:
    ```bash
-   just rebuild-fleet-api
+   cd server && just rebuild-fleet-api
    ```
 
 3. Discover virtual miners using **IP List** discovery mode with IPs in the `10.255.x.x` range.
@@ -126,7 +126,7 @@ Virtual miners support all standard device capabilities:
 To test with 1000+ miners:
 
 1. Set `"count": 1000` in config.json
-2. Rebuild and restart: `just build-virtual-plugin && just rebuild-fleet-api`
+2. Rebuild and restart: `just build-virtual-plugin && cd server && just rebuild-fleet-api`
 3. Use IP List discovery with range: `10.255.0.2` - `10.255.3.234` (for 1000 miners)
 
 Discovery of 1000 miners takes approximately 2-5 minutes depending on system load and timeout settings.
