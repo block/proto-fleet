@@ -80,6 +80,7 @@ import {
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { downloadBlob } from "@/shared/utils/utility";
 
 export interface MinerSelection {
   deviceIdentifier: string;
@@ -1126,12 +1127,7 @@ export const useMinerActions = ({
                 onSuccess: ({ chunkData, filename }) => {
                   const mimeType = filename.endsWith(".csv") ? "text/csv" : "application/zip";
                   const blob = new Blob([chunkData as Uint8Array<ArrayBuffer>], { type: mimeType });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = filename;
-                  a.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 0);
+                  downloadBlob(blob, filename);
                   updateToast(id, {
                     message: successMessages[deviceActions.downloadLogs],
                     status: TOAST_STATUSES.success,

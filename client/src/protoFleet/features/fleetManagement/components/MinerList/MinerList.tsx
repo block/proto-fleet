@@ -132,6 +132,14 @@ type MinerListProps = {
    * Available groups for the group filter dropdown.
    */
   availableGroups?: DeviceCollection[];
+  /**
+   * Exports the full paired miner list as CSV.
+   */
+  onExportCsv?: () => void | Promise<void>;
+  /**
+   * Whether a CSV export is currently in progress.
+   */
+  exportCsvLoading?: boolean;
   /** Active server-side filter — forwarded for "all" mode delete */
   currentFilter?: MinerListFilter;
   /** Current server-side sort — forwarded for bulk actions that depend on table order. */
@@ -169,6 +177,8 @@ type ScopedMinerListBodyProps = {
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
   hasActiveFilters: boolean;
   onAddMiners: () => void;
+  onExportCsv?: () => void | Promise<void>;
+  exportCsvLoading?: boolean;
   handleClearFilters: () => void;
   isRowDisabled: (item: DeviceListItem) => boolean;
   currentFilter?: MinerListFilter;
@@ -198,6 +208,8 @@ const ScopedMinerListBody = ({
   itemRef,
   hasActiveFilters,
   onAddMiners,
+  onExportCsv,
+  exportCsvLoading = false,
   handleClearFilters,
   isRowDisabled,
   currentFilter,
@@ -247,7 +259,17 @@ const ScopedMinerListBody = ({
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
         headerControls={
-          <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+          <div className="flex items-center gap-2">
+            <Button
+              text="Export CSV"
+              variant={variants.secondary}
+              size={sizes.compact}
+              onClick={onExportCsv}
+              loading={exportCsvLoading}
+              disabled={totalMiners === 0}
+            />
+            <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+          </div>
         }
         renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
           <div className="flex w-full justify-center">
@@ -356,6 +378,8 @@ const MinerList = ({
   onSort,
   availableModels = [],
   availableGroups = [],
+  onExportCsv,
+  exportCsvLoading = false,
   currentFilter,
   currentSortConfig,
 }: MinerListProps) => {
@@ -666,6 +690,8 @@ const MinerList = ({
           itemRef={itemRef}
           hasActiveFilters={hasActiveFilters}
           onAddMiners={onAddMiners}
+          onExportCsv={onExportCsv}
+          exportCsvLoading={exportCsvLoading}
           handleClearFilters={handleClearFilters}
           isRowDisabled={isRowDisabled}
           currentFilter={currentFilter}

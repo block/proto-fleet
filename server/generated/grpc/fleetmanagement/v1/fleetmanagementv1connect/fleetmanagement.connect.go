@@ -37,6 +37,9 @@ const (
 	// FleetManagementServiceListMinerStateSnapshotsProcedure is the fully-qualified name of the
 	// FleetManagementService's ListMinerStateSnapshots RPC.
 	FleetManagementServiceListMinerStateSnapshotsProcedure = "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots"
+	// FleetManagementServiceExportMinerListCsvProcedure is the fully-qualified name of the
+	// FleetManagementService's ExportMinerListCsv RPC.
+	FleetManagementServiceExportMinerListCsvProcedure = "/fleetmanagement.v1.FleetManagementService/ExportMinerListCsv"
 	// FleetManagementServiceGetMinerStateCountsProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerStateCounts RPC.
 	FleetManagementServiceGetMinerStateCountsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts"
@@ -64,6 +67,10 @@ type FleetManagementServiceClient interface {
 	// Returns a paginated list of devices with their operational status and metrics
 	// Use the pairing_status filter to control whether to return paired, unpaired, or both
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
+	// Export the paired miner list as a CSV snapshot using the provided filter.
+	// Rows are always emitted in default name-ascending order for cross-page consistency.
+	// The server paginates internally and streams CSV data in chunks.
+	ExportMinerListCsv(context.Context, *connect.Request[v1.ExportMinerListCsvRequest]) (*connect.ServerStreamForClient[v1.ExportMinerListCsvResponse], error)
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
@@ -103,6 +110,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceListMinerStateSnapshotsProcedure,
 			opts...,
 		),
+		exportMinerListCsv: connect.NewClient[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse](
+			httpClient,
+			baseURL+FleetManagementServiceExportMinerListCsvProcedure,
+			opts...,
+		),
 		getMinerStateCounts: connect.NewClient[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerStateCountsProcedure,
@@ -139,6 +151,7 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 // fleetManagementServiceClient implements FleetManagementServiceClient.
 type fleetManagementServiceClient struct {
 	listMinerStateSnapshots *connect.Client[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse]
+	exportMinerListCsv      *connect.Client[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse]
 	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
 	getMinerPoolAssignments *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
 	getMinerCoolingMode     *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
@@ -150,6 +163,11 @@ type fleetManagementServiceClient struct {
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
 func (c *fleetManagementServiceClient) ListMinerStateSnapshots(ctx context.Context, req *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error) {
 	return c.listMinerStateSnapshots.CallUnary(ctx, req)
+}
+
+// ExportMinerListCsv calls fleetmanagement.v1.FleetManagementService.ExportMinerListCsv.
+func (c *fleetManagementServiceClient) ExportMinerListCsv(ctx context.Context, req *connect.Request[v1.ExportMinerListCsvRequest]) (*connect.ServerStreamForClient[v1.ExportMinerListCsvResponse], error) {
+	return c.exportMinerListCsv.CallServerStream(ctx, req)
 }
 
 // GetMinerStateCounts calls fleetmanagement.v1.FleetManagementService.GetMinerStateCounts.
@@ -189,6 +207,10 @@ type FleetManagementServiceHandler interface {
 	// Returns a paginated list of devices with their operational status and metrics
 	// Use the pairing_status filter to control whether to return paired, unpaired, or both
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
+	// Export the paired miner list as a CSV snapshot using the provided filter.
+	// Rows are always emitted in default name-ascending order for cross-page consistency.
+	// The server paginates internally and streams CSV data in chunks.
+	ExportMinerListCsv(context.Context, *connect.Request[v1.ExportMinerListCsvRequest], *connect.ServerStream[v1.ExportMinerListCsvResponse]) error
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
@@ -222,6 +244,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 	fleetManagementServiceListMinerStateSnapshotsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceListMinerStateSnapshotsProcedure,
 		svc.ListMinerStateSnapshots,
+		opts...,
+	)
+	fleetManagementServiceExportMinerListCsvHandler := connect.NewServerStreamHandler(
+		FleetManagementServiceExportMinerListCsvProcedure,
+		svc.ExportMinerListCsv,
 		opts...,
 	)
 	fleetManagementServiceGetMinerStateCountsHandler := connect.NewUnaryHandler(
@@ -258,6 +285,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
 			fleetManagementServiceListMinerStateSnapshotsHandler.ServeHTTP(w, r)
+		case FleetManagementServiceExportMinerListCsvProcedure:
+			fleetManagementServiceExportMinerListCsvHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerStateCountsProcedure:
 			fleetManagementServiceGetMinerStateCountsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerPoolAssignmentsProcedure:
@@ -281,6 +310,10 @@ type UnimplementedFleetManagementServiceHandler struct{}
 
 func (UnimplementedFleetManagementServiceHandler) ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ExportMinerListCsv(context.Context, *connect.Request[v1.ExportMinerListCsvRequest], *connect.ServerStream[v1.ExportMinerListCsvResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ExportMinerListCsv is not implemented"))
 }
 
 func (UnimplementedFleetManagementServiceHandler) GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error) {

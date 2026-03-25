@@ -78,6 +78,24 @@ export const getRowLabel = (row: number) => {
   return alphabet.charAt(row);
 };
 
+/**
+ * Triggers a browser file download from a Blob.
+ */
+export const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  }
+};
+
 export const getFileName = (prefix: string, fileExtension: string = "csv") => {
   const date = new Date();
   const year = date.getFullYear();

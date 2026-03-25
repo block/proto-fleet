@@ -2429,6 +2429,8 @@ describe("useMinerActions", () => {
       mockStreamCommandBatchUpdates.mockImplementation((_params: any) => Promise.resolve());
       vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
       vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+      vi.spyOn(document.body, "appendChild").mockImplementation((node) => node);
+      vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
     });
 
     afterEach(() => {
@@ -2528,6 +2530,7 @@ describe("useMinerActions", () => {
       vi.spyOn(document, "createElement").mockReturnValueOnce({
         href: "",
         download: "",
+        style: {},
         click: vi.fn(),
       } as unknown as HTMLElement);
 
@@ -2571,7 +2574,7 @@ describe("useMinerActions", () => {
 
       // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
       const mockAnchorClick = vi.fn();
-      const mockAnchor = { href: "", download: "", click: mockAnchorClick };
+      const mockAnchor = { href: "", download: "", style: {}, click: mockAnchorClick };
       vi.spyOn(document, "createElement").mockReturnValueOnce(mockAnchor as unknown as HTMLElement);
 
       const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
@@ -2609,6 +2612,7 @@ describe("useMinerActions", () => {
       vi.spyOn(document, "createElement").mockReturnValueOnce({
         href: "",
         download: "",
+        style: {},
         click: vi.fn(),
       } as unknown as HTMLElement);
 
@@ -2793,6 +2797,7 @@ describe("useMinerActions", () => {
       vi.spyOn(document, "createElement").mockReturnValueOnce({
         href: "",
         download: "",
+        style: {},
         click: vi.fn(),
       } as unknown as HTMLElement);
 
@@ -2835,6 +2840,7 @@ describe("useMinerActions", () => {
       vi.spyOn(document, "createElement").mockReturnValueOnce({
         href: "",
         download: "",
+        style: {},
         click: vi.fn(),
       } as unknown as HTMLElement);
 

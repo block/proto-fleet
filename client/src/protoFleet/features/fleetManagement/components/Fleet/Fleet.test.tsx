@@ -46,6 +46,7 @@ vi.mock("@/protoFleet/store", () => {
     useCleanupStaleBatches: vi.fn(() => vi.fn()),
     useNotifyPairingCompleted: vi.fn(() => vi.fn()),
     useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
+    useTemperatureUnit: vi.fn(() => "C"),
   };
 });
 

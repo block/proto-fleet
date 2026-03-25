@@ -31,7 +31,7 @@ _build-plugins-docker:
 
 # run local server in docker compose with watch enabled on the fleet service
 dev: _build-plugins-docker start
-  docker compose up --watch fleet-api
+  docker compose up --watch fleet-api --remove-orphans
 
 # start services in docker compose 
 start:

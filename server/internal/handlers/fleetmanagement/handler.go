@@ -31,6 +31,12 @@ func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Reques
 	return connect.NewResponse(result), nil
 }
 
+func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.ExportMinerListCsvRequest], stream *connect.ServerStream[pb.ExportMinerListCsvResponse]) error {
+	return h.fleetMgmtSvc.ExportMinerListCsv(ctx, r.Msg, func(chunk *pb.ExportMinerListCsvResponse) error {
+		return stream.Send(chunk)
+	})
+}
+
 func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb.GetMinerStateCountsRequest]) (*connect.Response[pb.GetMinerStateCountsResponse], error) {
 	result, err := h.fleetMgmtSvc.GetMinerStateCounts(ctx, r.Msg)
 	if err != nil {

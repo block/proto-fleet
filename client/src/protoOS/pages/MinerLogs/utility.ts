@@ -1,5 +1,6 @@
 import { logTypes } from "./constants";
 import { LogInfo, logType } from "./types";
+import { downloadBlob } from "@/shared/utils/utility";
 
 const formatLog = (log: string, logType: logType): LogInfo => {
   const info = log.split(logType);
@@ -59,22 +60,7 @@ export const getErrorWarningCount = (logs: string[]) => {
 export const downloadLogs = (items: string[], filename: string) => {
   const csvContent = items.join("\r\n");
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.style.display = "none";
-  document.body.appendChild(link);
-
-  try {
-    link.click();
-  } finally {
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      link.remove();
-    }, 0);
-  }
+  downloadBlob(blob, filename);
 };
 
 export const formatLogType = (logType: logType | null) => {

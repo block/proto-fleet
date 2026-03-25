@@ -19,6 +19,11 @@ service FleetManagementService {
   // Use the pairing_status filter to control whether to return paired, unpaired, or both
   rpc ListMinerStateSnapshots(ListMinerStateSnapshotsRequest) returns (ListMinerStateSnapshotsResponse);
 
+  // Export the paired miner list as a CSV snapshot using the provided filter.
+  // Rows are always emitted in default name-ascending order for cross-page consistency.
+  // The server paginates internally and streams CSV data in chunks.
+  rpc ExportMinerListCsv(ExportMinerListCsvRequest) returns (stream ExportMinerListCsvResponse);
+
   // Get counts of miners in different states without fetching miner data
   // More efficient than ListMinerStateSnapshots when only counts are needed
   rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
@@ -269,6 +274,25 @@ message ListMinerStateSnapshotsResponse {
   // Useful for dynamically building model filter options in the UI
   // This includes all models across all pages, not just the current page (e.g., "S21 XP", "M60")
   repeated string models = 5;
+}
+
+enum CsvTemperatureUnit {
+  CSV_TEMPERATURE_UNIT_UNSPECIFIED = 0;
+  CSV_TEMPERATURE_UNIT_CELSIUS = 1;
+  CSV_TEMPERATURE_UNIT_FAHRENHEIT = 2;
+}
+
+message ExportMinerListCsvRequest {
+  // Filter criteria for the miners to export.
+  MinerListFilter filter = 1;
+
+  // Preferred temperature unit for the exported temperature column.
+  CsvTemperatureUnit temperature_unit = 2;
+}
+
+message ExportMinerListCsvResponse {
+  // Chunk of CSV data. Concatenate all chunks to form the complete file.
+  bytes csv_data = 1;
 }
 
 // Request for getting miner state counts without fetching miner data

@@ -154,6 +154,54 @@ describe("MinerList", () => {
     });
   });
 
+  describe("export csv", () => {
+    it("renders an export button and calls the export handler", async () => {
+      const user = userEvent.setup();
+      const onExportCsv = vi.fn();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        onExportCsv,
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Export CSV" }));
+
+      expect(onExportCsv).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the export button while export is in progress", () => {
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        exportCsvLoading: true,
+        loading: false,
+      });
+
+      expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+    });
+
+    it("disables the export button when there are no miners", () => {
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: [],
+          totalMiners: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+    });
+  });
+
   describe("pagination footer", () => {
     it("shows correct range for the first page", () => {
       renderMinerList({

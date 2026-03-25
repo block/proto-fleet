@@ -12,6 +12,7 @@ import {
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useCollections } from "@/protoFleet/api/useCollections";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
+import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -66,6 +67,9 @@ const Fleet = () => {
 
   // Get count of miners requiring authentication (disabled rows)
   const { totalMiners: totalAuthNeededMiners } = useAuthNeededMiners({ pageSize: 1, filter: currentFilter });
+  const { exportCsv, isExportingCsv } = useExportMinerListCsv({
+    filter: currentFilter,
+  });
 
   // Fetch unfiltered total count for the "X of Y miners" header display
   const { totalMiners: totalUnfilteredMiners } = useFleet({
@@ -172,6 +176,8 @@ const Fleet = () => {
           availableGroups={availableGroups}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
+          onExportCsv={exportCsv}
+          exportCsvLoading={isExportingCsv}
         />
       </ErrorBoundary>
 
