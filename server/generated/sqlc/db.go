@@ -48,6 +48,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
+	if q.countActivityLogsStmt, err = db.PrepareContext(ctx, countActivityLogs); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActivityLogs: %w", err)
+	}
 	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
 	}
@@ -216,6 +219,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDiscoveredDeviceByIPAndPortStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByIPAndPort); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByIPAndPort: %w", err)
 	}
+	if q.getDistinctActivityUsersStmt, err = db.PrepareContext(ctx, getDistinctActivityUsers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDistinctActivityUsers: %w", err)
+	}
+	if q.getDistinctEventTypesStmt, err = db.PrepareContext(ctx, getDistinctEventTypes); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDistinctEventTypes: %w", err)
+	}
+	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
+	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
 	}
@@ -330,6 +342,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
 	}
+	if q.insertActivityLogStmt, err = db.PrepareContext(ctx, insertActivityLog); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertActivityLog: %w", err)
+	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
 	}
@@ -344,6 +359,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isBatchProcessingStmt, err = db.PrepareContext(ctx, isBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchProcessing: %w", err)
+	}
+	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
 	}
 	if q.listCollectionMembersPaginatedStmt, err = db.PrepareContext(ctx, listCollectionMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCollectionMembersPaginated: %w", err)
@@ -568,6 +586,11 @@ func (q *Queries) Close() error {
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.countActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActivityLogsStmt != nil {
+		if cerr := q.countActivityLogsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActivityLogsStmt: %w", cerr)
 		}
 	}
 	if q.countComponentsWithErrorsStmt != nil {
@@ -850,6 +873,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDiscoveredDeviceByIPAndPortStmt: %w", cerr)
 		}
 	}
+	if q.getDistinctActivityUsersStmt != nil {
+		if cerr := q.getDistinctActivityUsersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDistinctActivityUsersStmt: %w", cerr)
+		}
+	}
+	if q.getDistinctEventTypesStmt != nil {
+		if cerr := q.getDistinctEventTypesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDistinctEventTypesStmt: %w", cerr)
+		}
+	}
+	if q.getDistinctScopeTypesStmt != nil {
+		if cerr := q.getDistinctScopeTypesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
+		}
+	}
 	if q.getErrorByErrorIDStmt != nil {
 		if cerr := q.getErrorByErrorIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getErrorByErrorIDStmt: %w", cerr)
@@ -1040,6 +1078,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
 		}
 	}
+	if q.insertActivityLogStmt != nil {
+		if cerr := q.insertActivityLogStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertActivityLogStmt: %w", cerr)
+		}
+	}
 	if q.insertDeviceStmt != nil {
 		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
@@ -1063,6 +1106,11 @@ func (q *Queries) Close() error {
 	if q.isBatchProcessingStmt != nil {
 		if cerr := q.isBatchProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchProcessingStmt: %w", cerr)
+		}
+	}
+	if q.listActivityLogsStmt != nil {
+		if cerr := q.listActivityLogsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
 		}
 	}
 	if q.listCollectionMembersPaginatedStmt != nil {
@@ -1412,6 +1460,7 @@ type Queries struct {
 	closeStaleErrorsStmt                                *sql.Stmt
 	collectionBelongsToOrgStmt                          *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
+	countActivityLogsStmt                               *sql.Stmt
 	countComponentsWithErrorsStmt                       *sql.Stmt
 	countDevicesWithErrorsStmt                          *sql.Stmt
 	countErrorsStmt                                     *sql.Stmt
@@ -1468,6 +1517,9 @@ type Queries struct {
 	getDiscoveredDeviceByDeviceIdentifierStmt           *sql.Stmt
 	getDiscoveredDeviceByIDStmt                         *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                  *sql.Stmt
+	getDistinctActivityUsersStmt                        *sql.Stmt
+	getDistinctEventTypesStmt                           *sql.Stmt
+	getDistinctScopeTypesStmt                           *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
@@ -1506,11 +1558,13 @@ type Queries struct {
 	getUserRoleNameStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                         *sql.Stmt
 	hasUserStmt                                         *sql.Stmt
+	insertActivityLogStmt                               *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
+	listActivityLogsStmt                                *sql.Stmt
 	listCollectionMembersPaginatedStmt                  *sql.Stmt
 	listCollectionMembersPaginatedAfterStmt             *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
@@ -1585,6 +1639,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
 		collectionBelongsToOrgStmt:                          q.collectionBelongsToOrgStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
+		countActivityLogsStmt:                               q.countActivityLogsStmt,
 		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                     q.countErrorsStmt,
@@ -1641,6 +1696,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDiscoveredDeviceByDeviceIdentifierStmt:           q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                         q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                  q.getDiscoveredDeviceByIPAndPortStmt,
+		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
+		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
+		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
@@ -1679,11 +1737,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameStmt:                                 q.getUserRoleNameStmt,
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
 		hasUserStmt:                                         q.hasUserStmt,
+		insertActivityLogStmt:                               q.insertActivityLogStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
+		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listCollectionMembersPaginatedStmt:                  q.listCollectionMembersPaginatedStmt,
 		listCollectionMembersPaginatedAfterStmt:             q.listCollectionMembersPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,

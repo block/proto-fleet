@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 )
 
@@ -274,6 +275,25 @@ func (ns NullQueueStatusEnum) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.QueueStatusEnum), nil
+}
+
+type ActivityLog struct {
+	ID             int64
+	EventID        uuid.UUID
+	EventCategory  string
+	EventType      string
+	Description    string
+	Result         string
+	ErrorMessage   sql.NullString
+	ScopeType      sql.NullString
+	ScopeLabel     sql.NullString
+	ScopeCount     sql.NullInt32
+	ActorType      string
+	UserID         sql.NullString
+	Username       sql.NullString
+	OrganizationID sql.NullInt64
+	Metadata       pqtype.NullRawMessage
+	CreatedAt      time.Time
 }
 
 type CommandBatchLog struct {
