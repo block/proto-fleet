@@ -45,6 +45,19 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
+	if r.Username != "" {
+		existingPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get current pool: %v", err)
+		}
+
+		if r.Username != existingPool.GetUsername() {
+			if err := validatePoolUsername(r.Username); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		// Update the pool
 		err := s.poolStore.UpdatePool(ctx, r, info.OrganizationID)
@@ -75,6 +88,10 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*pb.Pool, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
 		return nil, err
 	}
 

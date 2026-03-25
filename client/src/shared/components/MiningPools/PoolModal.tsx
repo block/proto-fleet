@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors, usernameValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
+import { getPoolUsernameValidationError } from "./validation";
 
 import { Alert, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -28,6 +29,10 @@ interface PoolModalProps {
   onDelete?: () => void;
   /** Hide the pool name field (for backends that don't support pool names) */
   hidePoolName?: boolean;
+  usernameLabel?: string;
+  usernameHelperText?: ReactNode;
+  usernameRequired?: boolean;
+  disallowUsernameSeparator?: boolean;
 }
 
 const PoolModal = ({
@@ -42,6 +47,10 @@ const PoolModal = ({
   mode = "add",
   onDelete,
   hidePoolName = false,
+  usernameLabel = "Username",
+  usernameHelperText,
+  usernameRequired = true,
+  disallowUsernameSeparator = false,
 }: PoolModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
@@ -67,13 +76,17 @@ const PoolModal = ({
   );
 
   const showSaveErrorCallout = useMemo(() => saveError && !isSaving, [saveError, isSaving]);
+  const editableLegacyUsername = useMemo(
+    () => (mode === "edit" ? pools[poolIndex]?.username : undefined),
+    [mode, pools, poolIndex],
+  );
 
   const isSaveDisabled = useMemo(
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      !draftPoolInfo[poolIndex]?.username?.trim(),
-    [draftPoolInfo, poolIndex, hidePoolName],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
   );
 
   useEffect(() => {
@@ -111,6 +124,16 @@ const PoolModal = ({
       }
 
       if (infoKey === poolInfoAttributes.username && value.trim()) {
+        setUsernameError(
+          getPoolUsernameValidationError(value, {
+            required: false,
+            disallowSeparator: disallowUsernameSeparator,
+            allowSeparatorWhenEqualTo: editableLegacyUsername,
+          }),
+        );
+      }
+
+      if (infoKey === poolInfoAttributes.username && !value.trim()) {
         setUsernameError(undefined);
       }
 
@@ -118,7 +141,7 @@ const PoolModal = ({
         setIsPasswordSet(true);
       }
     },
-    [draftPoolInfo, poolIndex],
+    [draftPoolInfo, poolIndex, disallowUsernameSeparator, editableLegacyUsername],
   );
 
   const onSubmit = useCallback(async () => {
@@ -135,8 +158,13 @@ const PoolModal = ({
       hasError = true;
     }
 
-    if (!pool?.username?.trim()) {
-      setUsernameError(usernameValidationErrors.required);
+    const nextUsernameError = getPoolUsernameValidationError(pool?.username, {
+      required: usernameRequired,
+      disallowSeparator: disallowUsernameSeparator,
+      allowSeparatorWhenEqualTo: editableLegacyUsername,
+    });
+    if (nextUsernameError) {
+      setUsernameError(nextUsernameError);
       hasError = true;
     }
 
@@ -178,11 +206,32 @@ const PoolModal = ({
     } else {
       onDismiss();
     }
-  }, [draftPoolInfo, onChangePools, onDismiss, onSave, poolIndex, isPasswordSet, hidePoolName]);
+  }, [
+    draftPoolInfo,
+    onChangePools,
+    onDismiss,
+    onSave,
+    poolIndex,
+    isPasswordSet,
+    hidePoolName,
+    usernameRequired,
+    disallowUsernameSeparator,
+    editableLegacyUsername,
+  ]);
 
   const onTestConnection = useCallback(() => {
     if (!draftPoolInfo[poolIndex].url.trim()) {
       setUrlError(urlValidationErrors.required);
+      return;
+    }
+
+    const nextUsernameError = getPoolUsernameValidationError(draftPoolInfo[poolIndex].username, {
+      required: usernameRequired,
+      disallowSeparator: disallowUsernameSeparator,
+      allowSeparatorWhenEqualTo: editableLegacyUsername,
+    });
+    if (nextUsernameError) {
+      setUsernameError(nextUsernameError);
       return;
     }
 
@@ -197,7 +246,7 @@ const PoolModal = ({
       },
       onFinally: () => setShowCallout(true),
     });
-  }, [draftPoolInfo, poolIndex, testConnection]);
+  }, [draftPoolInfo, poolIndex, testConnection, usernameRequired, disallowUsernameSeparator, editableLegacyUsername]);
 
   const modalButtons = [
     ...(mode === "edit" && onDelete
@@ -284,14 +333,17 @@ const PoolModal = ({
           error={urlError}
           autoFocus={hidePoolName}
         />
-        <Input
-          id={`${poolInfoAttributes.username} ${poolIndex}`}
-          label="Username"
-          onChange={onPoolChange}
-          initValue={draftPoolInfo[poolIndex].username || ""}
-          testId={`${poolInfoAttributes.username}-${poolIndex}-input`}
-          error={usernameError}
-        />
+        <div className="space-y-2">
+          <Input
+            id={`${poolInfoAttributes.username} ${poolIndex}`}
+            label={usernameLabel}
+            onChange={onPoolChange}
+            initValue={draftPoolInfo[poolIndex].username || ""}
+            testId={`${poolInfoAttributes.username}-${poolIndex}-input`}
+            error={usernameError}
+          />
+          {usernameHelperText && <div className="text-200 text-text-primary-70">{usernameHelperText}</div>}
+        </div>
         <Input
           id={`${poolInfoAttributes.password} ${poolIndex}`}
           label="Password (optional)"

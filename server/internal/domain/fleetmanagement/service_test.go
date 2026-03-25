@@ -1002,6 +1002,79 @@ func TestService_ListMinerStateSnapshots_IncludesFirmwareVersion(t *testing.T) {
 	})
 }
 
+func TestService_ListMinerStateSnapshots_IncludesWorkerNameForPairedDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+
+	deviceIdentifier := "device-with-worker-name"
+	expectedWorkerName := "worker-01"
+	doi := discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            testUser.OrganizationID,
+	}
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pairingpb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			Model:            "M100S",
+			Manufacturer:     "Proto",
+			DriverName:       "proto",
+			IpAddress:        "192.168.1.110",
+			Port:             "2121",
+			UrlScheme:        "https",
+		},
+		IsActive: true,
+		OrgID:    testUser.OrganizationID,
+	}
+	_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+	require.NoError(t, err)
+
+	err = deviceStore.InsertDevice(
+		t.Context(),
+		&pairingpb.Device{
+			DeviceIdentifier: deviceIdentifier,
+			MacAddress:       "AA:BB:CC:DD:EE:01",
+		},
+		testUser.OrganizationID,
+		deviceIdentifier,
+	)
+	require.NoError(t, err)
+
+	_, err = testContext.ServiceProvider.DB.ExecContext(
+		t.Context(),
+		`INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		SELECT id, 'PAIRED', NOW()
+		FROM device
+		WHERE org_id = $1 AND device_identifier = $2`,
+		testUser.OrganizationID,
+		deviceIdentifier,
+	)
+	require.NoError(t, err)
+
+	_, err = testContext.ServiceProvider.DB.ExecContext(
+		t.Context(),
+		`UPDATE device SET worker_name = $1 WHERE org_id = $2 AND device_identifier = $3`,
+		expectedWorkerName,
+		testUser.OrganizationID,
+		deviceIdentifier,
+	)
+	require.NoError(t, err)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	resp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, resp.Miners, 1)
+	assert.Equal(t, expectedWorkerName, resp.Miners[0].WorkerName)
+}
+
 func TestService_GetMinerCoolingMode_ShouldReturnNotFoundForNonexistentMiner(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")

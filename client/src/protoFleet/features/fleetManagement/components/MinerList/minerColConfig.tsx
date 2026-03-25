@@ -11,6 +11,7 @@ import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
 import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
+import MinerWorkerName from "./MinerWorkerName";
 import { type DeviceListItem } from "./types";
 import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { type ColConfig } from "@/shared/components/List/types";
@@ -28,19 +29,23 @@ const createMinerColConfig = ({
     component: (device: DeviceListItem) => (
       <MinerName deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
     ),
-    width: "min-w-56",
+    width: "w-[208px]",
+  },
+  [minerCols.workerName]: {
+    component: (device: DeviceListItem) => <MinerWorkerName deviceIdentifier={device.deviceIdentifier} />,
+    width: "w-[120px]",
   },
   [minerCols.model]: {
     component: (device: DeviceListItem) => <MinerModel deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-28",
+    width: "w-[176px]",
   },
   [minerCols.macAddress]: {
     component: (device: DeviceListItem) => <MinerMacAddress deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-36",
+    width: "w-[160px]",
   },
   [minerCols.ipAddress]: {
     component: (device: DeviceListItem) => <MinerIpAddress deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-24",
+    width: "w-24",
   },
   [minerCols.status]: {
     component: (device: DeviceListItem, selectedItems: string[]) => (
@@ -50,39 +55,39 @@ const createMinerColConfig = ({
         onOpenStatusFlow={onOpenStatusFlow}
       />
     ),
-    width: "min-w-48",
+    width: "w-[200px]",
   },
   [minerCols.issues]: {
     component: (device: DeviceListItem) => (
       <MinerIssuesCell deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
     ),
-    width: "min-w-48",
+    width: "w-[200px]",
   },
   [minerCols.hashrate]: {
     component: (device: DeviceListItem) => <MinerHashrate deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-20",
+    width: "w-[80px]",
   },
   [minerCols.efficiency]: {
     component: (device: DeviceListItem) => <MinerEfficiency deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-20",
+    width: "w-[80px]",
   },
   [minerCols.powerUsage]: {
     component: (device: DeviceListItem) => <MinerPowerUsage deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-20",
+    width: "w-[80px]",
   },
   [minerCols.temperature]: {
     component: (device: DeviceListItem) => <MinerTemperature deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-20",
+    width: "w-[80px]",
   },
   [minerCols.firmware]: {
     component: (device: DeviceListItem) => <MinerFirmware deviceIdentifier={device.deviceIdentifier} />,
-    width: "min-w-28",
+    width: "w-[120px]",
   },
   [minerCols.groups]: {
     component: (device: DeviceListItem) => (
       <MinerGroups deviceIdentifier={device.deviceIdentifier} availableGroups={availableGroups} />
     ),
-    width: "min-w-28",
+    width: "w-[160px]",
   },
 });
 

@@ -26,6 +26,7 @@ const minerSelectColumns = `SELECT
     discovered_device.model,
     discovered_device.manufacturer,
     discovered_device.firmware_version,
+    device.worker_name,
     device_status.status as device_status,
     device_status.status_timestamp,
     device_status.status_details,
@@ -96,6 +97,7 @@ var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldPower:       "latest_metrics.sort_value",
 	stores.SortFieldEfficiency:  "latest_metrics.sort_value",
 	stores.SortFieldFirmware:    "discovered_device.firmware_version",
+	stores.SortFieldWorkerName:  "device.worker_name",
 }
 
 // latestMetricsCTE is the Common Table Expression that fetches the latest telemetry

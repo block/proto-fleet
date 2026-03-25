@@ -105,6 +105,12 @@ WHERE device_identifier = sqlc.arg('device_identifier')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: UpdateDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = $2
+WHERE device_identifier = $1
+  AND deleted_at IS NULL;
+
 -- name: GetDevicePairingStatusByDeviceDatabaseID :one
 SELECT
     dp.pairing_status
@@ -341,6 +347,7 @@ SELECT
     dd.model,
     dd.manufacturer,
     dd.firmware_version,
+    d.worker_name,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,
@@ -385,6 +392,7 @@ SELECT
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
+    d.worker_name,
     latest_metrics.hash_rate_hs,
     latest_metrics.temp_c,
     latest_metrics.power_w,
@@ -407,7 +415,8 @@ SELECT
     dd.model,
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
-    dd.firmware_version
+    dd.firmware_version,
+    d.worker_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])

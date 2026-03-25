@@ -34,6 +34,8 @@ enum SortField {
   SORT_FIELD_DEVICE_COUNT = 12;
   // Sort by location (for rack listing)
   SORT_FIELD_LOCATION = 13;
+  // Sort by the worker name stored on fleet
+  SORT_FIELD_WORKER_NAME = 14;
 }
 
 // Direction to sort results

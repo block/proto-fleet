@@ -179,6 +179,8 @@ const SortablePoolRow = ({
       <PoolRow
         poolIndex={poolIndex}
         pools={pools}
+        title={pools[poolIndex]?.name || pools[poolIndex]?.url || "—"}
+        subtitleExtra={pools[poolIndex]?.username || undefined}
         priorityNumber={priorityNumber}
         prefixElement={gripHandle}
         suffixElement={actionsMenu}

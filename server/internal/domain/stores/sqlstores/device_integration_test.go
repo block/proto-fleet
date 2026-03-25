@@ -1589,6 +1589,48 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	require.Equal(t, int64(405), pairedDevice.DiscoveredDeviceID)
 }
 
+func TestUpdateWorkerName_StoresWorkerNameOnDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (406, 1, 'paired-discovered-id', 'test-model', 'test-manufacturer', 'proto', '192.168.10.16', '50051', 'grpc', TRUE)
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (406, 1, 406, 'paired-id', 'AA:BB:CC:DD:EE:16')
+	`)
+	require.NoError(t, err)
+
+	err = store.UpdateWorkerName(ctx, minermodels.DeviceIdentifier("paired-id"), "worker-16")
+	require.NoError(t, err)
+
+	var workerName sql.NullString
+	err = conn.QueryRowContext(ctx, `
+		SELECT worker_name
+		FROM device
+		WHERE id = 406
+	`).Scan(&workerName)
+	require.NoError(t, err)
+	require.True(t, workerName.Valid)
+	require.Equal(t, "worker-16", workerName.String)
+}
+
 func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

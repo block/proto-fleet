@@ -251,10 +251,8 @@ export const getMinerPreviewName = (
 
 type BulkRenamePreviewSnapshot = Pick<
   MinerStateSnapshot,
-  "deviceIdentifier" | "name" | "manufacturer" | "model" | "macAddress" | "serialNumber"
-> & {
-  workerName?: string;
-};
+  "deviceIdentifier" | "name" | "manufacturer" | "model" | "macAddress" | "serialNumber" | "workerName"
+>;
 
 export const mapSnapshotToBulkRenamePreviewMiner = (
   snapshot: BulkRenamePreviewSnapshot,
@@ -268,7 +266,7 @@ export const mapSnapshotToBulkRenamePreviewMiner = (
   serialNumber: snapshot.serialNumber,
   model: snapshot.model,
   manufacturer: snapshot.manufacturer,
-  workerName: snapshot.workerName ?? "",
+  workerName: snapshot.workerName,
 });
 
 export const mapSnapshotsToBulkRenamePreviewMiners = (

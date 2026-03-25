@@ -161,6 +161,7 @@ const activeCols: MinerColumn[] = [
   minerCols.powerUsage,
   minerCols.temperature,
   minerCols.firmware,
+  minerCols.workerName,
 ];
 
 type ScopedMinerListBodyProps = {
@@ -286,9 +287,11 @@ const ScopedMinerListBody = ({
           </div>
         )}
         containerClassName={listClassName}
-        tableClassName="mb-4"
+        tableClassName="mb-4 w-max !table-auto"
         paddingLeft={paddingLeft}
+        paddingRight={paddingLeft}
         overflowContainer={overflowContainer}
+        applyColumnWidthsToCells
         total={totalMiners}
         totalDisabled={totalDisabledMiners}
         hideTotal

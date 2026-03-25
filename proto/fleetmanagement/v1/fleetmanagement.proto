@@ -135,6 +135,9 @@ message MinerStateSnapshot {
 
   // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
   string driver_name = 22;
+
+  // Worker name stored on fleet for pool username composition and rename preview.
+  string worker_name = 23;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -482,8 +485,7 @@ enum FixedValueType {
   FIXED_VALUE_TYPE_UNSPECIFIED  = 0;
   FIXED_VALUE_TYPE_MAC_ADDRESS  = 1;
   FIXED_VALUE_TYPE_SERIAL_NUMBER = 2;
-  // Resolves to the worker name of the priority-0 pool configured on the miner.
-  // Omitted from the generated name when no priority-0 pool is configured.
+  // Resolves to the worker name stored on fleet for the miner.
   FIXED_VALUE_TYPE_WORKER_NAME  = 3;
   FIXED_VALUE_TYPE_MODEL        = 4;
   FIXED_VALUE_TYPE_MANUFACTURER = 5;

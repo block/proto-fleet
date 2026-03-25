@@ -75,6 +75,7 @@ type PoolsList struct {
 type PoolData struct {
 	ID               int    `json:"id"`
 	Priority         int    `json:"priority"`
+	Name             string `json:"name,omitempty"`
 	URL              string `json:"url"`
 	User             string `json:"user"`
 	Status           string `json:"status"`
@@ -764,9 +765,11 @@ func (h *RESTApiHandler) getPools(w http.ResponseWriter, r *http.Request) {
 			difficulty = fmt.Sprintf("%.0f", p.Statistics.CurrentDifficulty)
 		}
 
+		poolName := h.state.GetPoolName(p.Idx)
 		poolList[i] = PoolData{
 			ID:               int(p.Idx),
 			Priority:         p.Priority,
+			Name:             poolName,
 			URL:              p.Url,
 			User:             p.Username,
 			Status:           status,
@@ -797,9 +800,7 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear existing pools
-	h.state.mu.Lock()
-	h.state.Pools = make([]*Pool, 0)
-	h.state.mu.Unlock()
+	h.state.ClearPools()
 
 	// Add new pools
 	for i, p := range pools {
@@ -821,6 +822,7 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		h.state.AddPool(pool)
+		h.state.SetPoolName(pool.Idx, p.Name)
 	}
 
 	// Mark device as onboarded when pools are configured (mimics ensure_onboarded() in real miner)
@@ -872,6 +874,7 @@ func (h *RESTApiHandler) getPool(w http.ResponseWriter, r *http.Request, id int)
 			h.writeJSON(w, http.StatusOK, PoolResponse{
 				Pool: PoolData{
 					ID:             int(p.Idx),
+					Name:           h.state.GetPoolName(p.Idx),
 					Priority:       p.Priority,
 					URL:            p.Url,
 					User:           p.Username,
@@ -907,6 +910,12 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 
 	for _, p := range h.state.Pools {
 		if int(p.Idx) == id {
+			if config.Name != "" {
+				if h.state.PoolNames == nil {
+					h.state.PoolNames = make(map[uint32]string)
+				}
+				h.state.PoolNames[p.Idx] = config.Name
+			}
 			if config.URL != "" {
 				p.Url = config.URL
 			}

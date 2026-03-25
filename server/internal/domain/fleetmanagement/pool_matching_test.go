@@ -39,6 +39,17 @@ func TestFindMatchingFleetPoolID(t *testing.T) {
 			expectedPoolID: int64Ptr(1),
 		},
 		{
+			name:     "match exact dotted legacy username before normalized fallback",
+			url:      "stratum+tcp://pool4.example.com:3333",
+			username: "user4.worker01",
+			fleetPools: append(fleetPools, &poolspb.Pool{
+				PoolId:   4,
+				Url:      "stratum+tcp://pool4.example.com:3333",
+				Username: "user4.worker01",
+			}),
+			expectedPoolID: int64Ptr(4),
+		},
+		{
 			name:           "match with multiple dots in suffix",
 			url:            "stratum+tcp://pool2.example.com:3333",
 			username:       "user2.miner456.worker1",
@@ -79,6 +90,28 @@ func TestFindMatchingFleetPoolID(t *testing.T) {
 			username:       "user3_long.device1",
 			fleetPools:     fleetPools,
 			expectedPoolID: int64Ptr(3),
+		},
+		{
+			name:     "match blank username exactly",
+			url:      "stratum+tcp://pool4.example.com:3333",
+			username: "   ",
+			fleetPools: append(fleetPools, &poolspb.Pool{
+				PoolId:   4,
+				Url:      "stratum+tcp://pool4.example.com:3333",
+				Username: "",
+			}),
+			expectedPoolID: int64Ptr(4),
+		},
+		{
+			name:     "match blank username from leading-dot worker suffix",
+			url:      "stratum+tcp://pool4.example.com:3333",
+			username: ".worker-01",
+			fleetPools: append(fleetPools, &poolspb.Pool{
+				PoolId:   4,
+				Url:      "stratum+tcp://pool4.example.com:3333",
+				Username: "",
+			}),
+			expectedPoolID: int64Ptr(4),
 		},
 	}
 

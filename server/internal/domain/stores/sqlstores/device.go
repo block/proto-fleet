@@ -790,6 +790,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.Model,
 			&row.Manufacturer,
 			&row.FirmwareVersion,
+			&row.WorkerName,
 			&row.DeviceStatus,
 			&row.StatusTimestamp,
 			&row.StatusDetails,
@@ -1088,6 +1089,20 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 	return nil
 }
 
+func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {
+	affected, err := s.getQueries(ctx).UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
+		DeviceIdentifier: string(deviceIdentifier),
+		WorkerName:       sql.NullString{String: workerName, Valid: workerName != ""},
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update worker name for device %s: %v", deviceIdentifier, err)
+	}
+	if affected == 0 {
+		return fleeterror.NewNotFoundErrorf("device not found for worker name update with identifier=%s", deviceIdentifier)
+	}
+	return nil
+}
+
 // GetDevicePropertiesForRename fetches device attributes needed for name generation.
 func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 	ctx context.Context,
@@ -1130,6 +1145,9 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 			if row.FirmwareVersion.Valid {
 				props.FirmwareVersion = row.FirmwareVersion.String
 				props.FirmwareSortValue = &props.FirmwareVersion
+			}
+			if row.WorkerName.Valid {
+				props.WorkerName = row.WorkerName.String
 			}
 			if row.HashRateHs.Valid {
 				hashrate := row.HashRateHs.Float64
@@ -1186,6 +1204,9 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 		if row.FirmwareVersion.Valid {
 			props.FirmwareVersion = row.FirmwareVersion.String
 			props.FirmwareSortValue = &props.FirmwareVersion
+		}
+		if row.WorkerName.Valid {
+			props.WorkerName = row.WorkerName.String
 		}
 		result = append(result, props)
 	}

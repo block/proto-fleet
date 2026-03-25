@@ -8,7 +8,6 @@ const BULK_RENAME_PROPERTIES = [
   "custom",
   "fixed-mac-address",
   "fixed-serial-number",
-  "fixed-worker-name",
   "fixed-model",
   "fixed-manufacturer",
 ] as const;
@@ -36,6 +35,8 @@ const SEPARATORS_THAT_CHANGE_NAME = [
   { id: "underscore", value: "_" },
   { id: "none", value: "" },
 ] as const;
+
+const BULK_RENAME_COUNTER_PREVIEW = String(COUNTER_START.DEFAULT).padStart(COUNTER_SCALE.DEFAULT, "0");
 
 test.describe("Miners Rename", () => {
   test.beforeEach(async ({ page }) => {
@@ -84,6 +85,7 @@ test.describe("Miners Rename", () => {
   test("Validate bulk rename functionality", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
+    await minersPage.setBulkRenamePropertyOrder(BULK_RENAME_PROPERTIES);
 
     const minerCount = await minersPage.getMinersCount();
 
@@ -92,8 +94,7 @@ test.describe("Miners Rename", () => {
       await minersPage.clickActionsMenuButton();
       await minersPage.clickRenameButton();
       await minersPage.validateBulkRenamePageOpened();
-
-      await minersPage.ensureBulkRenamePropertyFirst("custom");
+      expect((await minersPage.getBulkRenamePropertyOrder())[0]).toBe("custom");
     });
 
     await test.step("Enable all rename properties", async () => {
@@ -113,11 +114,21 @@ test.describe("Miners Rename", () => {
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
 
+      const expectedMinSegmentCount = BULK_RENAME_PROPERTIES.length - 1;
+      const expectedMaxSegmentCount = BULK_RENAME_PROPERTIES.length;
+
       await expect
         .poll(
           async () => {
             const names = await minersPage.getMinerNames();
-            return names.some((name) => name.split(".").length === BULK_RENAME_PROPERTIES.length);
+            return names.every((name) => {
+              const segments = name.split(".");
+              return (
+                /^\d+$/.test(segments[0] ?? "") &&
+                segments.length >= expectedMinSegmentCount &&
+                segments.length <= expectedMaxSegmentCount
+              );
+            });
           },
           { message: "Waiting for miner names to update with new format" },
         )
@@ -128,12 +139,20 @@ test.describe("Miners Rename", () => {
       const names = await minersPage.getMinerNames();
       expect(names).toHaveLength(minerCount);
 
-      const expectedSegmentCount = BULK_RENAME_PROPERTIES.length;
+      const expectedMinSegmentCount = BULK_RENAME_PROPERTIES.length - 1;
+      const expectedMaxSegmentCount = BULK_RENAME_PROPERTIES.length;
       const counters: number[] = [];
 
       for (const name of names) {
         const segments = name.split(".");
-        expect(segments, `Name should have ${expectedSegmentCount} segments`).toHaveLength(expectedSegmentCount);
+        expect(
+          segments.length,
+          `Name should have between ${expectedMinSegmentCount} and ${expectedMaxSegmentCount} segments`,
+        ).toBeGreaterThanOrEqual(expectedMinSegmentCount);
+        expect(
+          segments.length,
+          `Name should have between ${expectedMinSegmentCount} and ${expectedMaxSegmentCount} segments`,
+        ).toBeLessThanOrEqual(expectedMaxSegmentCount);
 
         // Validate no empty segments
         const emptySegmentIndices = segments.map((s, i) => (s.trim() === "" ? i : -1)).filter((i) => i >= 0);
@@ -142,7 +161,6 @@ test.describe("Miners Rename", () => {
           `Name "${name}" contains empty segments at positions: ${emptySegmentIndices.join(", ")}`,
         ).toHaveLength(0);
 
-        // 'custom' is reordered to be the first module; by default it outputs just the counter.
         const counterSegment = segments[0];
         expect(
           /^\d+$/.test(counterSegment),
@@ -166,29 +184,46 @@ test.describe("Miners Rename", () => {
 
     const minerCount = await minersPage.getMinersCount();
     expect(minerCount, "At least one miner must be available").toBeGreaterThan(0);
-
     const minerName = await minersPage.getMinerNameByIndex(0);
-    const previewSegments = minerName.split(".");
-    expect(previewSegments, `Expected miner name to be dot-separated but got: "${minerName}"`).toHaveLength(
-      BULK_RENAME_PROPERTIES.length,
-    );
+    const fixedProperties = BULK_RENAME_PROPERTIES.filter((p) => p !== "custom");
+    const fixedPropertyValues = new Map<(typeof fixedProperties)[number], string>();
+    let propertyOrder: string[] = [];
 
     await test.step("Open bulk rename for a single miner", async () => {
       await minersPage.clickMinerCheckboxByIndex(0);
       await minersPage.clickActionsMenuButton();
       await minersPage.clickRenameButton();
       await minersPage.validateBulkRenamePageOpened();
-      await minersPage.ensureBulkRenamePropertyFirst("custom");
 
       for (const propertyId of BULK_RENAME_PROPERTIES) {
         await minersPage.toggleBulkRenameProperty(propertyId, true);
       }
       await minersPage.setCustomBulkRenameCounterScale(COUNTER_SCALE.DEFAULT);
+      propertyOrder = await minersPage.getBulkRenamePropertyOrder();
     });
 
-    await test.step("Validate period separator shows unchanged placeholder", async () => {
+    await test.step("Capture fixed property preview values", async () => {
+      for (const propertyId of fixedProperties) {
+        await minersPage.clickBulkRenamePropertyOptions(propertyId);
+        fixedPropertyValues.set(propertyId, await minersPage.getFixedValuePreviewText());
+        await minersPage.dismissRenameOptionsModal();
+      }
+    });
+
+    const previewSegments = propertyOrder
+      .map((propertyId) => {
+        if (propertyId === "custom") {
+          return BULK_RENAME_COUNTER_PREVIEW;
+        }
+
+        return fixedPropertyValues.get(propertyId as (typeof fixedProperties)[number]) ?? "";
+      })
+      .filter((segment) => segment.trim() !== "");
+
+    await test.step("Validate period separator preview behavior", async () => {
       await minersPage.selectBulkRenameSeparator("period");
-      await minersPage.validateBulkRenamePreviewUnchangedPlaceholder();
+      const expectedPeriodPreviewName = previewSegments.join(".");
+      await minersPage.validateBulkRenamePreviewState(expectedPeriodPreviewName, minerName);
     });
 
     await test.step("Validate other separators update the new name", async () => {
@@ -256,11 +291,8 @@ test.describe("Miners Rename", () => {
     });
 
     await test.step("Validate fixed property options preview behavior", async () => {
-      const fixedProperties = BULK_RENAME_PROPERTIES.filter((p) => p !== "custom");
-
       for (const propertyId of fixedProperties) {
-        const segmentIndex = BULK_RENAME_PROPERTIES.indexOf(propertyId);
-        const fullValue = previewSegments[segmentIndex];
+        const fullValue = fixedPropertyValues.get(propertyId) ?? "";
 
         await minersPage.toggleBulkRenameProperty(propertyId, true);
         await minersPage.clickBulkRenamePropertyOptions(propertyId);

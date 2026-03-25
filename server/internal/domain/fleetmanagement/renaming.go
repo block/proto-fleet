@@ -7,14 +7,10 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 	"unicode/utf8"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	minerInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -26,17 +22,7 @@ var defaultRenameSortConfig = &interfaces.SortConfig{
 
 var invalidSortIPAddress = netip.MustParseAddr("0.0.0.0")
 
-const (
-	maxCustomNameLength = 100
-	defaultPoolPriority = 0
-
-	// concurrentWorkerNameLimit bounds the number of parallel GetMiningPools RPCs
-	// during worker name collection.
-	concurrentWorkerNameLimit = 20
-
-	// workerNameTimeout is the per-device timeout for GetMiningPools calls.
-	workerNameTimeout = 5 * time.Second
-)
+const maxCustomNameLength = 100
 
 // RenameMiners assigns custom names to the selected miners based on the provided name config.
 // Devices are sorted using the current fleet table sort (defaulting to name ascending), then
@@ -77,12 +63,6 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		return nil, fleeterror.NewNotFoundErrorf("one or more device identifiers not found")
 	}
 
-	// Fetch worker names if any property requires WORKER_NAME.
-	var workerNames map[string]string
-	if requiresWorkerName(req.NameConfig) {
-		workerNames = s.collectWorkerNames(ctx, deviceIdentifiers)
-	}
-
 	sortDevicePropsForRename(deviceProps, sortConfig)
 
 	if err := validateRequestWideGeneratedNames(req.NameConfig, len(deviceProps)); err != nil {
@@ -93,12 +73,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 	unchangedCount := 0
 	failedCount := 0
 	for idx, props := range deviceProps {
-		workerName := ""
-		if workerNames != nil {
-			workerName = workerNames[props.DeviceIdentifier]
-		}
-
-		name, err := generateName(req.NameConfig, props, workerName, idx)
+		name, err := generateName(req.NameConfig, props, idx)
 		if err != nil {
 			// Request-level config errors are validated before the batch loop;
 			// any remaining generation error is specific to this device's data.
@@ -106,8 +81,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 			continue
 		}
 		if name == "" || isUnchangedRename(name, props) {
-			// Blank results are intentional no-ops for omitted/reserved properties
-			// and devices without a usable worker-name segment.
+			// Blank results are intentional no-ops for omitted/reserved properties.
 			unchangedCount++
 			continue
 		}
@@ -176,6 +150,14 @@ func lessDevicePropsForRename(
 			left.DiscoveredDeviceID,
 			right.DiscoveredDeviceID,
 		)
+	case interfaces.SortFieldWorkerName:
+		return lessNullableString(
+			nullableTrimmedString(left.WorkerName),
+			nullableTrimmedString(right.WorkerName),
+			sortConfig.Direction,
+			left.DiscoveredDeviceID,
+			right.DiscoveredDeviceID,
+		)
 	}
 
 	comparison := compareDevicePropsForRename(left, right, sortConfig.Field)
@@ -210,6 +192,8 @@ func compareDevicePropsForRename(
 		return strings.Compare(left.MacAddress, right.MacAddress)
 	case interfaces.SortFieldModel:
 		return compareNullableString(left.ModelSortValue, right.ModelSortValue)
+	case interfaces.SortFieldWorkerName:
+		return compareNullableString(nullableTrimmedString(left.WorkerName), nullableTrimmedString(right.WorkerName))
 	case interfaces.SortFieldDeviceCount:
 		return strings.Compare(getRenameSortName(left), getRenameSortName(right))
 	}
@@ -252,6 +236,14 @@ func compareNullableFloat64(left *float64, right *float64) int {
 	default:
 		return 0
 	}
+}
+
+func nullableTrimmedString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func lessNullableFloat64(
@@ -372,6 +364,10 @@ func validateRenameNameConfig(cfg *pb.MinerNameConfig) error {
 		return fleeterror.NewInvalidArgumentError("name_config.properties must contain at least one item")
 	}
 
+	if err := validateSupportedFixedValueTypes(cfg); err != nil {
+		return err
+	}
+
 	switch cfg.Separator {
 	case "-", "_", ".", "":
 		return nil
@@ -380,28 +376,44 @@ func validateRenameNameConfig(cfg *pb.MinerNameConfig) error {
 	}
 }
 
+func validateSupportedFixedValueTypes(cfg *pb.MinerNameConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	for _, prop := range cfg.Properties {
+		fixedValue, ok := prop.Kind.(*pb.NameProperty_FixedValue)
+		if !ok {
+			continue
+		}
+		if fixedValue.FixedValue == nil {
+			return fleeterror.NewInvalidArgumentError("name_config.properties.fixed_value is required")
+		}
+
+		switch fixedValue.FixedValue.Type {
+		case pb.FixedValueType_FIXED_VALUE_TYPE_UNSPECIFIED,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
+			pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER,
+			pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MODEL,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER,
+			pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION:
+			continue
+		default:
+			return fleeterror.NewInvalidArgumentErrorf("unsupported fixed value type: %d", fixedValue.FixedValue.Type)
+		}
+	}
+
+	return nil
+}
+
 func validateRequestWideGeneratedNames(cfg *pb.MinerNameConfig, deviceCount int) error {
 	if cfg == nil || deviceCount == 0 || renameConfigDependsOnDeviceData(cfg) {
 		return nil
 	}
 
-	_, err := generateName(cfg, interfaces.DeviceRenameProperties{}, "", deviceCount-1)
+	_, err := generateName(cfg, interfaces.DeviceRenameProperties{}, deviceCount-1)
 	return err
-}
-
-// requiresWorkerName returns true if any property in the config is a WORKER_NAME fixed value.
-func requiresWorkerName(cfg *pb.MinerNameConfig) bool {
-	if cfg == nil {
-		return false
-	}
-	for _, prop := range cfg.Properties {
-		if fv, ok := prop.Kind.(*pb.NameProperty_FixedValue); ok {
-			if fv.FixedValue.GetType() == pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func renameConfigDependsOnDeviceData(cfg *pb.MinerNameConfig) bool {
@@ -431,74 +443,9 @@ func renameConfigDependsOnDeviceData(cfg *pb.MinerNameConfig) bool {
 	return false
 }
 
-// collectWorkerNames fetches the priority-0 pool worker name from each miner device
-// using a bounded worker pool. Failures are silently ignored — devices with no
-// reachable pool return an empty string, causing the WORKER_NAME segment to be
-// omitted from the generated name.
-func (s *Service) collectWorkerNames(ctx context.Context, deviceIdentifiers []string) map[string]string {
-	results := make(map[string]string, len(deviceIdentifiers))
-	if len(deviceIdentifiers) == 0 {
-		return results
-	}
-
-	idCh := make(chan string, len(deviceIdentifiers))
-	for _, id := range deviceIdentifiers {
-		idCh <- id
-	}
-	close(idCh)
-
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	numWorkers := min(len(deviceIdentifiers), concurrentWorkerNameLimit)
-	for range numWorkers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for id := range idCh {
-				miner, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
-				if err != nil {
-					continue
-				}
-				name := fetchWorkerName(ctx, miner)
-				if name == "" {
-					continue
-				}
-				mu.Lock()
-				results[id] = name
-				mu.Unlock()
-			}
-		}()
-	}
-
-	wg.Wait()
-	return results
-}
-
-// fetchWorkerName retrieves the priority-0 pool username from a miner.
-// Returns an empty string if the pool cannot be reached or no priority-0 pool is configured.
-func fetchWorkerName(ctx context.Context, miner minerInterfaces.Miner) string {
-	callCtx, cancel := context.WithTimeout(ctx, workerNameTimeout)
-	defer cancel()
-
-	pools, err := miner.GetMiningPools(callCtx)
-	if err != nil || len(pools) == 0 {
-		return ""
-	}
-
-	sort.Slice(pools, func(i, j int) bool {
-		return pools[i].Priority < pools[j].Priority
-	})
-
-	if pools[0].Priority != defaultPoolPriority {
-		return ""
-	}
-	return pools[0].Username
-}
-
 // generateName produces a single name string for a device according to the name config.
 // counterIndex is the 0-based position of the device in the sorted device set.
-func generateName(cfg *pb.MinerNameConfig, props interfaces.DeviceRenameProperties, workerName string, counterIndex int) (string, error) {
+func generateName(cfg *pb.MinerNameConfig, props interfaces.DeviceRenameProperties, counterIndex int) (string, error) {
 	if cfg == nil {
 		return "", fleeterror.NewInvalidArgumentError("name_config is required")
 	}
@@ -506,7 +453,7 @@ func generateName(cfg *pb.MinerNameConfig, props interfaces.DeviceRenameProperti
 
 	var segments []string
 	for _, prop := range cfg.Properties {
-		segment, err := generateSegment(prop, props, workerName, counterIndex)
+		segment, err := generateSegment(prop, props, counterIndex)
 		if err != nil {
 			return "", err
 		}
@@ -523,7 +470,7 @@ func generateName(cfg *pb.MinerNameConfig, props interfaces.DeviceRenameProperti
 }
 
 // generateSegment generates a single name segment from a NameProperty.
-func generateSegment(prop *pb.NameProperty, props interfaces.DeviceRenameProperties, workerName string, counterIndex int) (string, error) {
+func generateSegment(prop *pb.NameProperty, props interfaces.DeviceRenameProperties, counterIndex int) (string, error) {
 	switch kind := prop.Kind.(type) {
 	case *pb.NameProperty_StringAndCounter:
 		sc := kind.StringAndCounter
@@ -538,7 +485,7 @@ func generateSegment(prop *pb.NameProperty, props interfaces.DeviceRenamePropert
 		return kind.StringValue.Value, nil
 
 	case *pb.NameProperty_FixedValue:
-		return generateFixedValueSegment(kind.FixedValue, props, workerName)
+		return generateFixedValueSegment(kind.FixedValue, props)
 
 	case *pb.NameProperty_Qualifier:
 		// BUILDING, RACK, RACK_POSITION are reserved and not yet implemented.
@@ -550,7 +497,7 @@ func generateSegment(prop *pb.NameProperty, props interfaces.DeviceRenamePropert
 }
 
 // generateFixedValueSegment generates a segment from a device fixed attribute.
-func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.DeviceRenameProperties, workerName string) (string, error) {
+func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.DeviceRenameProperties) (string, error) {
 	var raw string
 	switch fv.Type {
 	case pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS:
@@ -558,8 +505,7 @@ func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.Devic
 	case pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER:
 		raw = props.SerialNumber
 	case pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME:
-		// Empty workerName means no priority-0 pool is configured; omit the segment.
-		raw = workerName
+		raw = props.WorkerName
 	case pb.FixedValueType_FIXED_VALUE_TYPE_MODEL:
 		raw = props.Model
 	case pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER:
@@ -570,7 +516,7 @@ func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.Devic
 	case pb.FixedValueType_FIXED_VALUE_TYPE_UNSPECIFIED:
 		return "", nil
 	default:
-		return "", nil
+		return "", fleeterror.NewInvalidArgumentErrorf("unsupported fixed value type: %d", fv.Type)
 	}
 
 	if raw == "" {

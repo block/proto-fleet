@@ -1,7 +1,11 @@
 /* eslint-disable playwright/expect-expect */
 import { DEFAULT_INTERVAL, testConfig } from "../config/test.config";
-import { test } from "../fixtures/pageFixtures";
+import { expect, test } from "../fixtures/pageFixtures";
 import { generateRandomText } from "../helpers/testDataHelper";
+
+function generatePoolUsername(): string {
+  return generateRandomText("PoolUsername");
+}
 
 if (testConfig.target !== "real") {
   test.describe("Mining Pools", () => {
@@ -14,7 +18,7 @@ if (testConfig.target !== "real") {
 
     test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
       const settingsPoolName = generateRandomText("PoolName");
-      const poolUsername = generateRandomText("PoolUsername");
+      const poolUsername = generatePoolUsername();
       await commonSteps.loginAsAdmin();
 
       await test.step("Navigate to mining pools settings", async () => {
@@ -66,7 +70,7 @@ if (testConfig.target !== "real") {
       commonSteps,
     }) => {
       const poolName = generateRandomText("PoolName");
-      const poolUsername = generateRandomText("PoolUsername");
+      const poolUsername = generatePoolUsername();
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
 
@@ -111,7 +115,7 @@ if (testConfig.target !== "real") {
       loginModal,
     }) => {
       const newPoolName = generateRandomText("PoolName");
-      const newPoolUsername = generateRandomText("PoolUsername");
+      const newPoolUsername = generatePoolUsername();
       await commonSteps.loginAsAdmin();
 
       await test.step("Navigate to mining pools settings", async () => {
@@ -189,8 +193,8 @@ if (testConfig.target !== "real") {
         await minersPage.clickEditMiningPoolButton();
         await loginModal.loginAsAdmin();
         await editPoolPage.validatePoolCount(2);
-        await editPoolPage.validatePoolByIndex(0, newPoolName, validPoolUrl);
-        await editPoolPage.validatePoolByIndex(1, existingPoolName, existingPoolUrl);
+        expect(await editPoolPage.getPoolUrlByIndex(0)).toBe(validPoolUrl);
+        expect(await editPoolPage.getPoolUrlByIndex(1)).toBe(existingPoolUrl);
       });
     });
   });

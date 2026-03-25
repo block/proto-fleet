@@ -591,6 +591,91 @@ func TestUpdatePool_PersistsPriorityAndSerializesIt(t *testing.T) {
 	}
 }
 
+func TestCreatePools_PreservesPoolNamesInStateAndListResponse(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	createRecorder := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/pools",
+		strings.NewReader(`[{"name":"Primary Pool","url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}]`),
+	)
+	h.createPools(createRecorder, createRequest)
+
+	if createRecorder.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, createRecorder.Code, createRecorder.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if got := state.GetPoolName(0); got != "Primary Pool" {
+		t.Fatalf("expected pool name %q, got %q", "Primary Pool", got)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	h.handlePools(listRecorder, listRequest)
+
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, listRecorder.Code, listRecorder.Body.String())
+	}
+
+	var response PoolsList
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, listRecorder.Body.String())
+	}
+
+	if len(response.Pools) != 1 {
+		t.Fatalf("expected 1 pool in response, got %d", len(response.Pools))
+	}
+	if response.Pools[0].Name != "Primary Pool" {
+		t.Fatalf("expected response pool name %q, got %q", "Primary Pool", response.Pools[0].Name)
+	}
+}
+
+func TestUpdatePool_PreservesUpdatedPoolNameInGetResponse(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{
+		Idx:      0,
+		Url:      "stratum+tcp://mine.ocean.xyz:3334",
+		Username: "worker",
+	})
+	state.SetPoolName(0, "Old Pool")
+	h := NewRESTApiHandler(state)
+
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/pools/0",
+		strings.NewReader(`{"name":"Renamed Pool","url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`),
+	)
+	h.handlePoolByID(updateRecorder, updateRequest)
+
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	getRecorder := httptest.NewRecorder()
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/v1/pools/0", nil)
+	h.handlePoolByID(getRecorder, getRequest)
+
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, getRecorder.Code, getRecorder.Body.String())
+	}
+
+	var response PoolResponse
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRecorder.Body.String())
+	}
+
+	if response.Pool.Name != "Renamed Pool" {
+		t.Fatalf("expected response pool name %q, got %q", "Renamed Pool", response.Pool.Name)
+	}
+}
+
 func TestHandleMiningTarget_HashOnDisconnectOnly(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)

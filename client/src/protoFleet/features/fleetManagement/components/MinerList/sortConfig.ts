@@ -11,6 +11,7 @@ type SortColumnConfig = {
 /** Single source of truth for sortable column configuration. */
 const SORT_CONFIG: Partial<Record<MinerColumn, SortColumnConfig>> = {
   [minerCols.name]: { field: SortField.NAME, defaultDirection: SORT_ASC },
+  [minerCols.workerName]: { field: SortField.WORKER_NAME, defaultDirection: SORT_ASC },
   [minerCols.model]: { field: SortField.MODEL, defaultDirection: SORT_ASC },
   [minerCols.macAddress]: { field: SortField.MAC_ADDRESS, defaultDirection: SORT_ASC },
   [minerCols.ipAddress]: { field: SortField.IP_ADDRESS, defaultDirection: SORT_ASC },

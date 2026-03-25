@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/workername"
 
 	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
@@ -27,7 +29,10 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
 )
 
-const dbWriteTimeout = 10 * time.Second
+const (
+	dbWriteTimeout          = 10 * time.Second
+	workerNameLookupTimeout = 5 * time.Second
+)
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
 type MinerGetter interface {
@@ -347,6 +352,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if updateExtractErr != nil {
 			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
 		}
+		p, err = es.applyMinerNameToPoolUsernames(ctx, minerInfo, p)
+		if err != nil {
+			break
+		}
 		err = minerInfo.UpdateMiningPools(ctx, p)
 	case commandtype.DownloadLogs:
 		err = minerInfo.DownloadLogs(ctx, message.BatchLogUUID)
@@ -411,6 +420,170 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return err
+}
+
+func (es *ExecutionService) applyMinerNameToPoolUsernames(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	payload dto.UpdateMiningPoolsPayload,
+) (dto.UpdateMiningPoolsPayload, error) {
+	if !payloadRequiresMinerName(payload) {
+		return payload, nil
+	}
+
+	minerName, err := es.getMinerWorkerName(ctx, minerInfo)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, err
+	}
+	if minerName == "" {
+		return payload, nil
+	}
+
+	payload.DefaultPool.Username = appendMinerNameToPoolUsername(payload.DefaultPool, minerName)
+	if payload.Backup1Pool != nil {
+		payload.Backup1Pool.Username = appendMinerNameToPoolUsername(*payload.Backup1Pool, minerName)
+	}
+	if payload.Backup2Pool != nil {
+		payload.Backup2Pool.Username = appendMinerNameToPoolUsername(*payload.Backup2Pool, minerName)
+	}
+
+	return payload, nil
+}
+
+func payloadRequiresMinerName(payload dto.UpdateMiningPoolsPayload) bool {
+	if shouldAppendMinerName(payload.DefaultPool) {
+		return true
+	}
+	if payload.Backup1Pool != nil && shouldAppendMinerName(*payload.Backup1Pool) {
+		return true
+	}
+	return payload.Backup2Pool != nil && shouldAppendMinerName(*payload.Backup2Pool)
+}
+
+func (es *ExecutionService) getMinerWorkerName(ctx context.Context, minerInfo interfaces.Miner) (string, error) {
+	lookupCtx, cancel := workerNameLookupContext(ctx)
+	defer cancel()
+
+	if workerName, err := currentMinerWorkerName(lookupCtx, minerInfo); err != nil {
+		slog.Debug("failed to read current mining pools for worker-name lookup",
+			"device_id", minerInfo.GetID(),
+			"error", err)
+	} else if workerName != "" {
+		return workerName, nil
+	}
+
+	props, err := es.deviceStore.GetDevicePropertiesForRename(
+		ctx,
+		minerInfo.GetOrgID(),
+		[]string{string(minerInfo.GetID())},
+		false,
+	)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to get miner name for pool assignment: %v", err)
+	}
+	if len(props) == 0 {
+		return "", fleeterror.NewNotFoundErrorf("device properties not found for device %s", minerInfo.GetID())
+	}
+
+	return storedMinerWorkerName(props[0]), nil
+}
+
+func currentMinerWorkerName(ctx context.Context, minerInfo interfaces.Miner) (string, error) {
+	pools, err := minerInfo.GetMiningPools(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return configuredMinerWorkerName(pools), nil
+}
+
+func workerNameLookupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := workerNameLookupTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.WithCancel(ctx)
+		}
+
+		// Keep at least half of the remaining worker deadline for the actual pool update.
+		lookupBudget := remaining / 2
+		if lookupBudget <= 0 {
+			lookupBudget = remaining
+		}
+		if lookupBudget < timeout {
+			timeout = lookupBudget
+		}
+	}
+
+	return context.WithTimeout(ctx, timeout)
+}
+
+func configuredMinerWorkerName(pools []interfaces.MinerConfiguredPool) string {
+	primaryPool, ok := primaryConfiguredMinerPool(pools)
+	if !ok {
+		return ""
+	}
+
+	return workername.FromPoolUsername(primaryPool.Username)
+}
+
+func primaryConfiguredMinerPool(pools []interfaces.MinerConfiguredPool) (interfaces.MinerConfiguredPool, bool) {
+	if len(pools) == 0 {
+		return interfaces.MinerConfiguredPool{}, false
+	}
+
+	primaryPool := pools[0]
+	for _, pool := range pools[1:] {
+		if pool.Priority < primaryPool.Priority {
+			primaryPool = pool
+		}
+	}
+
+	return primaryPool, true
+}
+
+func storedMinerWorkerName(props stores.DeviceRenameProperties) string {
+	if workerName := strings.TrimSpace(props.WorkerName); workerName != "" {
+		return workerName
+	}
+
+	return strings.TrimSpace(props.MacAddress)
+}
+
+func appendMinerNameToPoolUsername(pool dto.MiningPool, minerName string) string {
+	if !shouldAppendMinerName(pool) {
+		return pool.Username
+	}
+
+	baseUsername := normalizePoolUsernameBase(pool.Username)
+	if baseUsername == "" {
+		return pool.Username
+	}
+
+	return baseUsername + "." + minerName
+}
+
+func shouldAppendMinerName(pool dto.MiningPool) bool {
+	return pool.AppendMinerName && shouldAppendMinerNameToUsername(pool.Username)
+}
+
+func shouldAppendMinerNameToUsername(username string) bool {
+	trimmed := strings.TrimSpace(username)
+	return trimmed != "" && !strings.Contains(trimmed, ".")
+}
+
+func normalizePoolUsernameBase(username string) string {
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return ""
+	}
+
+	lastSeparator := strings.LastIndex(trimmed, ".")
+	if lastSeparator <= 0 || lastSeparator == len(trimmed)-1 {
+		return trimmed
+	}
+
+	return strings.TrimSpace(trimmed[:lastSeparator])
 }
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair

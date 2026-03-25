@@ -14,10 +14,11 @@ type PowerTargetPayload struct {
 }
 
 type MiningPool struct {
-	Priority uint32 `json:"priority"`
-	URL      string `json:"url"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
+	Priority        uint32 `json:"priority"`
+	URL             string `json:"url"`
+	Username        string `json:"username"`
+	Password        string `json:"password,omitempty"`
+	AppendMinerName bool   `json:"append_miner_name,omitempty"`
 }
 
 type UpdateMiningPoolsPayload struct {

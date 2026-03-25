@@ -328,6 +328,7 @@ type Device struct {
 	UpdatedAt          sql.NullTime
 	DeletedAt          sql.NullTime
 	CustomName         sql.NullString
+	WorkerName         sql.NullString
 }
 
 type DeviceCollection struct {

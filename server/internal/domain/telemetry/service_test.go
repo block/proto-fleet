@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -164,11 +165,17 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 				ConcurrencyLimit:   5,
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
+			service.devicesForStatusPolling.Store(models.DeviceIdentifier("1"), struct{}{})
 			err := service.RemoveDevices(t.Context(), tt.deviceIDs...)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+
+			if slices.Contains(tt.deviceIDs, models.DeviceIdentifier("1")) {
+				_, ok := service.devicesForStatusPolling.Load(models.DeviceIdentifier("1"))
+				assert.False(t, ok)
 			}
 		})
 	}

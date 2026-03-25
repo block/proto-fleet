@@ -440,10 +440,11 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 	}
 
 	return &dto.MiningPool{
-		Priority: defaultPoolPriority + priorityIncrement,
-		URL:      pool.Url,
-		Username: pool.Username,
-		Password: password,
+		Priority:        defaultPoolPriority + priorityIncrement,
+		URL:             pool.Url,
+		Username:        pool.Username,
+		Password:        password,
+		AppendMinerName: shouldAppendMinerNameToUsername(pool.Username),
 	}, nil
 }
 
@@ -463,10 +464,11 @@ func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config 
 			password = *source.RawPool.Password
 		}
 		return &dto.MiningPool{
-			Priority: defaultPoolPriority + priorityIncrement,
-			URL:      source.RawPool.Url,
-			Username: source.RawPool.Username,
-			Password: password,
+			Priority:        defaultPoolPriority + priorityIncrement,
+			URL:             source.RawPool.Url,
+			Username:        source.RawPool.Username,
+			Password:        password,
+			AppendMinerName: shouldAppendMinerNameToUsername(source.RawPool.Username),
 		}, nil
 	default:
 		return nil, fleeterror.NewInternalErrorf("invalid pool source type")

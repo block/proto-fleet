@@ -241,6 +241,15 @@ export class MinersPage extends BasePage {
       .toBe(expectedName);
   }
 
+  async validateBulkRenamePreviewState(expectedName: string, currentName: string) {
+    if (expectedName === currentName) {
+      await this.validateBulkRenamePreviewUnchangedPlaceholder();
+      return;
+    }
+
+    await this.waitForBulkRenamePreviewName(expectedName);
+  }
+
   async clickBulkRenamePropertyToggle(propertyId: string) {
     await this.page.getByTestId(`bulk-rename-row-${propertyId}`).locator('label:has(input[type="checkbox"])').click();
   }
@@ -260,47 +269,43 @@ export class MinersPage extends BasePage {
     return propertyIds;
   }
 
-  async ensureBulkRenamePropertyFirst(propertyId: string) {
-    await expect(this.page.getByTestId(`bulk-rename-row-${propertyId}`)).toBeVisible();
-
-    let order = await this.getBulkRenamePropertyOrder();
-    if (order[0] === propertyId) {
-      return;
-    }
-
-    if (this.isMobile) {
-      while (order[0] !== propertyId) {
-        const currentIndex = order.indexOf(propertyId);
-        if (currentIndex <= 0) {
-          break;
-        }
-
-        const previousPropertyId = order[currentIndex - 1];
-        const source = this.page.getByTestId(`bulk-rename-reorder-${propertyId}`);
-        const target = this.page.getByTestId(`bulk-rename-reorder-${previousPropertyId}`);
-
-        await source.scrollIntoViewIfNeeded();
-        await target.scrollIntoViewIfNeeded();
-        await source.dragTo(target, { steps: 20 });
-
-        await expect
-          .poll(async () => (await this.getBulkRenamePropertyOrder()).indexOf(propertyId), {
-            message: `Waiting for ${propertyId} to move above ${previousPropertyId}`,
-          })
-          .toBe(currentIndex - 1);
-
-        order = await this.getBulkRenamePropertyOrder();
+  async setBulkRenamePropertyOrder(propertyIds: readonly string[]) {
+    const didPersist = await this.page.evaluate((orderedPropertyIds) => {
+      const storageKey = "proto-ui-preferences";
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) {
+        return false;
       }
-    } else {
-      const currentFirst = order[0];
-      const source = this.page.getByTestId(`bulk-rename-reorder-${propertyId}`);
-      const target = this.page.getByTestId(`bulk-rename-row-${currentFirst}`);
-      await source.dragTo(target);
-    }
 
-    await expect.poll(async () => (await this.getBulkRenamePropertyOrder())[0]).toBe(propertyId);
-    // Wait for UI to stabilize after drag-and-drop to prevent race condition with subsequent property toggles
-    await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
+      const persisted = JSON.parse(raw);
+      const preferences = persisted?.state?.ui?.bulkRenamePreferences;
+      const properties = preferences?.properties;
+      if (!Array.isArray(properties)) {
+        return false;
+      }
+
+      const propertyById = new Map(properties.map((property: { id: string }) => [property.id, property]));
+      const reorderedProperties = orderedPropertyIds
+        .map((propertyId) => propertyById.get(propertyId))
+        .filter((property): property is { id: string } => Boolean(property));
+      const remainingProperties = properties.filter(
+        (property: { id: string }) => !orderedPropertyIds.includes(property.id),
+      );
+
+      persisted.state.ui.bulkRenamePreferences = {
+        ...preferences,
+        properties: [...reorderedProperties, ...remainingProperties],
+      };
+
+      window.localStorage.setItem(storageKey, JSON.stringify(persisted));
+      return true;
+    }, propertyIds);
+
+    expect(didPersist, "Expected bulk rename preferences to be persisted in localStorage").toBe(true);
+
+    await this.page.reload();
+    await this.waitForMinersTitle();
+    await this.waitForMinersListToLoad();
   }
 
   async toggleBulkRenameProperty(propertyId: string, enabled: boolean) {
@@ -421,10 +426,26 @@ export class MinersPage extends BasePage {
   }
 
   async validateFixedValuePreviewText(expectedText: string) {
+    if (expectedText === "") {
+      await expect(this.page.getByTestId("modal")).toContainText("—");
+      return;
+    }
+
     await expect(
-      this.page.getByTestId("fixed-value-preview"),
+      this.page.getByTestId("fixed-value-preview-highlighted"),
       `Fixed value preview should show "${expectedText}"`,
     ).toHaveText(expectedText);
+  }
+
+  async getFixedValuePreviewText(): Promise<string> {
+    const preview = this.page.getByTestId("fixed-value-preview-highlighted");
+    const hasPreview = await preview.isVisible().catch(() => false);
+    if (hasPreview) {
+      return (await preview.innerText()).trim();
+    }
+
+    await expect(this.page.getByTestId("modal")).toContainText("—");
+    return "";
   }
 
   async setCustomBulkRenameCounterScale(counterScale: number) {

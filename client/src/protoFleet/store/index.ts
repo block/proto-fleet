@@ -61,6 +61,7 @@ export {
   useMinerIpAddress,
   useMinerModel,
   useMinerFirmwareVersion,
+  useMinerWorkerName,
   useMinerDeviceStatus,
   useMinerRackLabel,
   useMinerGroupLabels,

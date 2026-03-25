@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import PoolSelectionModal from "./PoolSelectionModal";
@@ -160,6 +160,24 @@ describe("PoolSelectionModal", () => {
     fireEvent.click(addNewPoolButton);
 
     expect(getByText("Save")).toBeInTheDocument();
+    expect(getByText("Worker name will be appended to this username when applied to miners.")).toBeInTheDocument();
+  });
+
+  test("rejects usernames with workername separators when adding a new pool", () => {
+    render(<PoolSelectionModal onDismiss={onDismiss} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Add new pool"));
+
+    fireEvent.change(screen.getByTestId("pool-name-0-input"), { target: { value: "Test Pool" } });
+    fireEvent.change(screen.getByTestId("url-0-input"), { target: { value: "stratum+tcp://test.com:3333" } });
+    fireEvent.change(screen.getByTestId("username-0-input"), { target: { value: "wallet.worker01" } });
+
+    fireEvent.click(screen.getByTestId("pool-save-button"));
+
+    expect(mockCreatePool).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Fleet-level pool usernames can’t include periods (.). Set worker names on each miner instead."),
+    ).toBeInTheDocument();
   });
 
   test("renders pool data in correct columns", () => {

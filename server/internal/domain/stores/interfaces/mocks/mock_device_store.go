@@ -405,6 +405,20 @@ func (mr *MockDeviceStoreMockRecorder) UpdateFirmwareVersion(ctx, deviceIdentifi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFirmwareVersion", reflect.TypeOf((*MockDeviceStore)(nil).UpdateFirmwareVersion), ctx, deviceIdentifier, firmwareVersion)
 }
 
+// UpdateWorkerName mocks base method.
+func (m *MockDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, workerName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWorkerName", ctx, deviceIdentifier, workerName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWorkerName indicates an expected call of UpdateWorkerName.
+func (mr *MockDeviceStoreMockRecorder) UpdateWorkerName(ctx, deviceIdentifier, workerName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkerName", reflect.TypeOf((*MockDeviceStore)(nil).UpdateWorkerName), ctx, deviceIdentifier, workerName)
+}
+
 // UpsertDevicePairing mocks base method.
 func (m *MockDeviceStore) UpsertDevicePairing(ctx context.Context, device *pairingv1.Device, orgID int64, pairingStatus string) error {
 	m.ctrl.T.Helper()

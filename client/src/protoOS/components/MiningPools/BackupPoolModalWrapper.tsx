@@ -34,6 +34,15 @@ const BackupPoolModalWrapper = ({
       testConnection={testConnection}
       mode={mode}
       onDelete={onDelete}
+      usernameLabel="Username (optional)"
+      usernameRequired={false}
+      usernameHelperText={
+        <>
+          To add a worker name, add a period after the username followed by the worker name.
+          <br />
+          Example: mann23.workerbee
+        </>
+      }
     />
   );
 };

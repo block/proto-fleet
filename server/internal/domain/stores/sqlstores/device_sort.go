@@ -80,7 +80,7 @@ func buildKeysetSQL(cursor *sortedCursor, sortConfig *stores.SortConfig, argNum 
 
 // canSortFieldBeNull returns true for non-telemetry fields that can have NULL values.
 func canSortFieldBeNull(field stores.SortField) bool {
-	return field == stores.SortFieldFirmware
+	return field == stores.SortFieldFirmware || field == stores.SortFieldWorkerName
 }
 
 // extractSortValueForCursorFromRow extracts the sort field value from an extended row for cursor encoding.
@@ -125,6 +125,11 @@ func extractSortValueForCursorFromRow(row minerStateRow, sortConfig *stores.Sort
 	case stores.SortFieldFirmware:
 		if row.FirmwareVersion.Valid {
 			return row.FirmwareVersion.String
+		}
+		return ""
+	case stores.SortFieldWorkerName:
+		if row.WorkerName.Valid {
+			return row.WorkerName.String
 		}
 		return ""
 	default:

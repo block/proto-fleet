@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { UISlice } from "./uiSlice";
 import { createUISlice } from "./uiSlice";
+import { createDefaultBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
 
 type TestStore = { ui: UISlice };
 
@@ -21,8 +22,10 @@ describe("UISlice", () => {
       expect(state.deviceTheme).toBeUndefined();
       expect(state.temperatureUnit).toBe("C");
       expect(state.duration).toBe("24h");
-      expect(state.bulkRenamePreferences.separator).toBe("dash");
-      expect(state.bulkRenamePreferences.properties).toHaveLength(6);
+      expect(state.bulkRenamePreferences.separator).toBe(createDefaultBulkRenamePreferences().separator);
+      expect(state.bulkRenamePreferences.properties).toHaveLength(
+        createDefaultBulkRenamePreferences().properties.length,
+      );
       expect(state.bulkRenamePreferences.properties.every((property) => property.enabled === false)).toBe(true);
     });
   });

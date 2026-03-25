@@ -38,7 +38,7 @@ test.describe("Mining pools", () => {
       await poolsPage.validateSaveButtonEnabled();
 
       await poolsPage.inputPoolUsername("", 1);
-      await poolsPage.validateSaveButtonDisabled();
+      await poolsPage.validateSaveButtonEnabled();
 
       await poolsPage.inputPoolUsername("aaa", 1);
       await poolsPage.validateSaveButtonEnabled();

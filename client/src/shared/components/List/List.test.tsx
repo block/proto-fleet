@@ -54,6 +54,29 @@ describe("List", () => {
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
   });
 
+  it("applies trailing padding classes to the last column when paddingRight is provided", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        paddingRight={{
+          phone: "24px",
+          tablet: "24px",
+          laptop: "40px",
+          desktop: "40px",
+        }}
+      />,
+    );
+
+    expect(screen.getByText(testColTitles.timestamp).closest("th")).toHaveClass(
+      "desktop:pr-(--list-padding-right-desktop)",
+    );
+    expect(screen.getAllByTestId(testCols.timestamp)[0]).toHaveClass("desktop:pr-(--list-padding-right-desktop)");
+  });
+
   it("shows item count by default", () => {
     render(
       <List<TestItem, TestItemKey>

@@ -82,6 +82,7 @@ type DeviceRenameProperties struct {
 	IPAddress          string
 	FirmwareVersion    string
 	FirmwareSortValue  *string
+	WorkerName         string
 	Hashrate           *float64
 	Temperature        *float64
 	Power              *float64
@@ -114,6 +115,7 @@ type DeviceStore interface {
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
+	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error
 	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*PairedDeviceInfo, error)

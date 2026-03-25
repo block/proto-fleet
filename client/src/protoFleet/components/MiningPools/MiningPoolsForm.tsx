@@ -222,6 +222,7 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
           isTestingConnection={validatePoolPending}
           testConnection={validatePool}
           onSave={savePool}
+          disallowUsernameSeparator
         />
       </div>
 

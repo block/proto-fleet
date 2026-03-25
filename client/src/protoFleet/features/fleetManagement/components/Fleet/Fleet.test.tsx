@@ -4,15 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
 
+const { mockMinerList } = vi.hoisted(() => ({
+  mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
+}));
+
 // Mock all dependencies
 vi.mock("@/protoFleet/api/useFleet", () => ({
   default: vi.fn(() => ({
+    minerIds: [],
+    totalMiners: 0,
+    availableModels: [],
+    currentPage: 0,
+    hasPreviousPage: false,
     isInitialLoad: false,
     hasMore: false,
     hasInitialLoadCompleted: false,
-    isLoadingMiners: false,
-    isFetching: false,
+    isLoading: false,
     loadMore: vi.fn(),
+    goToNextPage: vi.fn(),
+    goToPrevPage: vi.fn(),
     refetch: vi.fn(),
     refreshCurrentPage: vi.fn(),
   })),
@@ -65,7 +75,7 @@ vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
-  default: () => <div data-testid="miner-list">MinerList</div>,
+  default: mockMinerList,
 }));
 
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
@@ -307,6 +317,10 @@ describe("Fleet - Polling", () => {
 });
 
 describe("Fleet - Component Integration", () => {
+  beforeEach(() => {
+    mockMinerList.mockClear();
+  });
+
   it("should render MinerList component", () => {
     const { getByTestId } = renderFleet();
     expect(getByTestId("miner-list")).toBeInTheDocument();
@@ -329,5 +343,29 @@ describe("Fleet - Component Integration", () => {
         pageSize: 50,
       }),
     );
+  });
+
+  it("shows the loading state during sort refetches even when miners are already present", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+
+    vi.mocked(useFleetModule.default).mockReturnValue({
+      minerIds: ["miner-1"],
+      totalMiners: 1,
+      hasMore: false,
+      hasInitialLoadCompleted: false,
+      isLoading: true,
+      refetch: vi.fn() as () => void,
+      refreshCurrentPage: vi.fn() as () => void,
+      loadMore: vi.fn() as () => void,
+      availableModels: [],
+      currentPage: 0,
+      hasPreviousPage: false,
+      goToNextPage: vi.fn() as () => void,
+      goToPrevPage: vi.fn() as () => void,
+    });
+
+    renderFleet();
+
+    expect(mockMinerList).toHaveBeenCalledWith(expect.objectContaining({ loading: true }), undefined);
   });
 });

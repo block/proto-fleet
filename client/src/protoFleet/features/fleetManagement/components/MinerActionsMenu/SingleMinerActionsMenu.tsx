@@ -311,6 +311,7 @@ const SingleMinerActionsMenuInner = ({
   return (
     <div className="relative" ref={triggerRef}>
       <Button
+        className="!p-[14px]"
         size={sizes.compact}
         variant={variants.textOnly}
         prefixIcon={

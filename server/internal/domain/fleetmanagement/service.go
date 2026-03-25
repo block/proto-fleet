@@ -313,6 +313,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		if row.FirmwareVersion.Valid {
 			snapshot.FirmwareVersion = row.FirmwareVersion.String
 		}
+		if row.WorkerName.Valid {
+			snapshot.WorkerName = row.WorkerName.String
+		}
 
 		switch row.PairingStatus {
 		case "PAIRED":
@@ -716,16 +719,37 @@ func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCooli
 }
 
 // findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.
-// Username matching extracts the base username (before the first ".") since miners
-// append device identifiers to worker names (e.g., "pool_user" becomes "pool_user.device123").
+// Username matching tries the exact stored username first, then falls back to the
+// base username before the first dot so normalized Fleet pools still match miner
+// usernames that include an appended worker suffix.
 func findMatchingFleetPoolID(url, username string, fleetPools []*poolspb.Pool) *int64 {
-	baseUsername, _, _ := strings.Cut(username, ".")
-	for _, pool := range fleetPools {
-		if pool.Url == url && baseUsername == pool.Username {
-			return &pool.PoolId
+	for _, candidate := range poolUsernameMatchCandidates(username) {
+		for _, pool := range fleetPools {
+			if pool.Url == url && candidate == pool.Username {
+				return &pool.PoolId
+			}
 		}
 	}
 	return nil
+}
+
+func poolUsernameMatchCandidates(username string) []string {
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return []string{""}
+	}
+
+	firstSeparator := strings.Index(trimmed, ".")
+	if firstSeparator < 0 {
+		return []string{trimmed}
+	}
+
+	baseUsername := strings.TrimSpace(trimmed[:firstSeparator])
+	if baseUsername == trimmed {
+		return []string{trimmed}
+	}
+
+	return []string{trimmed, baseUsername}
 }
 
 // DeleteMiners soft-deletes devices from the fleet and attempts best-effort ClearAuthKey on Proto devices.

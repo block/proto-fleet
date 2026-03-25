@@ -9,6 +9,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
+import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import { PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
@@ -225,6 +226,8 @@ const PoolSelectionModal = ({
         isTestingConnection={isTestingConnection}
         testConnection={handleTestConnection}
         onSave={handleNewPoolSave}
+        usernameHelperText={fleetUsernameHelperText}
+        disallowUsernameSeparator
       />
     );
   }

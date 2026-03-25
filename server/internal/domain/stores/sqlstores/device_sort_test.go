@@ -25,6 +25,7 @@ func TestGetSortExpression(t *testing.T) {
 		{"power field", stores.SortFieldPower, "latest_metrics.sort_value"},
 		{"efficiency field", stores.SortFieldEfficiency, "latest_metrics.sort_value"},
 		{"firmware field", stores.SortFieldFirmware, "discovered_device.firmware_version"},
+		{"worker name field", stores.SortFieldWorkerName, "device.worker_name"},
 		{"unspecified field", stores.SortFieldUnspecified, ""},
 		{"unknown field", stores.SortField(999), ""},
 	}

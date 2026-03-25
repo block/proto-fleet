@@ -272,7 +272,7 @@ func (q *Queries) GetAvailableModels(ctx context.Context, orgID int64) ([]sql.Nu
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name
 FROM device
 WHERE device_identifier = $1
   AND org_id = $2
@@ -299,12 +299,13 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.CustomName,
+		&i.WorkerName,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name
 FROM device
 WHERE id = $1
   AND org_id = $2
@@ -331,6 +332,7 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.CustomName,
+		&i.WorkerName,
 	)
 	return i, err
 }
@@ -535,6 +537,7 @@ SELECT
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
+    d.worker_name,
     latest_metrics.hash_rate_hs,
     latest_metrics.temp_c,
     latest_metrics.power_w,
@@ -562,6 +565,7 @@ type GetDevicePropertiesForRenameRow struct {
 	Manufacturer       sql.NullString
 	IpAddress          string
 	FirmwareVersion    sql.NullString
+	WorkerName         sql.NullString
 	HashRateHs         sql.NullFloat64
 	TempC              sql.NullFloat64
 	PowerW             sql.NullFloat64
@@ -588,6 +592,7 @@ func (q *Queries) GetDevicePropertiesForRename(ctx context.Context, arg GetDevic
 			&i.Manufacturer,
 			&i.IpAddress,
 			&i.FirmwareVersion,
+			&i.WorkerName,
 			&i.HashRateHs,
 			&i.TempC,
 			&i.PowerW,
@@ -616,7 +621,8 @@ SELECT
     dd.model,
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
-    dd.firmware_version
+    dd.firmware_version,
+    d.worker_name
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.device_identifier = ANY($1::text[])
@@ -639,6 +645,7 @@ type GetDevicePropertiesForRenameWithoutTelemetryRow struct {
 	Manufacturer       sql.NullString
 	IpAddress          string
 	FirmwareVersion    sql.NullString
+	WorkerName         sql.NullString
 }
 
 // Returns rename properties when the requested sort does not require telemetry data.
@@ -661,6 +668,7 @@ func (q *Queries) GetDevicePropertiesForRenameWithoutTelemetry(ctx context.Conte
 			&i.Manufacturer,
 			&i.IpAddress,
 			&i.FirmwareVersion,
+			&i.WorkerName,
 		); err != nil {
 			return nil, err
 		}
@@ -1251,6 +1259,7 @@ SELECT
     dd.model,
     dd.manufacturer,
     dd.firmware_version,
+    d.worker_name,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,
@@ -1276,6 +1285,7 @@ type ListMinerStateSnapshotsRow struct {
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	FirmwareVersion  sql.NullString
+	WorkerName       sql.NullString
 	DeviceStatus     NullDeviceStatusEnum
 	StatusTimestamp  sql.NullTime
 	StatusDetails    sql.NullString
@@ -1309,6 +1319,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.Model,
 			&i.Manufacturer,
 			&i.FirmwareVersion,
+			&i.WorkerName,
 			&i.DeviceStatus,
 			&i.StatusTimestamp,
 			&i.StatusDetails,
@@ -1450,6 +1461,26 @@ type UpdateDevicePairingStatusByIdentifierParams struct {
 func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
 	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
 	return err
+}
+
+const updateDeviceWorkerName = `-- name: UpdateDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = $2
+WHERE device_identifier = $1
+  AND deleted_at IS NULL
+`
+
+type UpdateDeviceWorkerNameParams struct {
+	DeviceIdentifier string
+	WorkerName       sql.NullString
+}
+
+func (q *Queries) UpdateDeviceWorkerName(ctx context.Context, arg UpdateDeviceWorkerNameParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateDeviceWorkerNameStmt, updateDeviceWorkerName, arg.DeviceIdentifier, arg.WorkerName)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult

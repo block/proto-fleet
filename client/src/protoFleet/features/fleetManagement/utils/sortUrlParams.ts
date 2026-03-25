@@ -21,6 +21,7 @@ const URL_PARAMS = {
  */
 const URL_TO_SORT_FIELD: Record<string, SortField> = {
   name: SortField.NAME,
+  "worker-name": SortField.WORKER_NAME,
   ip: SortField.IP_ADDRESS,
   mac: SortField.MAC_ADDRESS,
   model: SortField.MODEL,
@@ -37,6 +38,7 @@ const URL_TO_SORT_FIELD: Record<string, SortField> = {
  */
 const SORT_FIELD_TO_URL: Partial<Record<SortField, string>> = {
   [SortField.NAME]: "name",
+  [SortField.WORKER_NAME]: "worker-name",
   [SortField.IP_ADDRESS]: "ip",
   [SortField.MAC_ADDRESS]: "mac",
   [SortField.MODEL]: "model",

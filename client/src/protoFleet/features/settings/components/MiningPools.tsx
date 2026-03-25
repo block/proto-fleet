@@ -12,6 +12,7 @@ import usePools from "@/protoFleet/api/usePools";
 import Ellipsis from "@/shared/assets/icons/Ellipsis";
 import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import type { PoolInfo } from "@/shared/components/MiningPools/types";
 import { getEmptyPoolsInfo } from "@/shared/components/MiningPools/utility";
@@ -434,6 +435,8 @@ const MiningPools = () => {
           isTestingConnection={validatePoolPending}
           testConnection={validatePool}
           onSave={handleSavePool}
+          usernameHelperText={fleetUsernameHelperText}
+          disallowUsernameSeparator
         />
       </>
     );
@@ -503,6 +506,8 @@ const MiningPools = () => {
         isTestingConnection={validatePoolPending}
         testConnection={validatePool}
         onSave={handleSavePool}
+        usernameHelperText={fleetUsernameHelperText}
+        disallowUsernameSeparator
       />
 
       <PoolModal
@@ -530,6 +535,8 @@ const MiningPools = () => {
         onSave={handleUpdatePool}
         mode="edit"
         onDelete={editingPool ? () => handleDeletePool(editingPool) : undefined}
+        usernameHelperText={fleetUsernameHelperText}
+        disallowUsernameSeparator
       />
     </>
   );

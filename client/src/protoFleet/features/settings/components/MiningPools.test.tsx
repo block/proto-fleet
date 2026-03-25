@@ -279,6 +279,9 @@ describe("MiningPools", () => {
       const usernameInput = screen.getByTestId("username-0-input") as HTMLInputElement;
       expect(urlInput.value).toBe("");
       expect(usernameInput.value).toBe("");
+      expect(screen.getByTestId("modal").textContent).toContain(
+        "Worker name will be appended to this username when applied to miners.",
+      );
     });
 
     it("calls createPool with correct data when submitting new pool", async () => {
@@ -360,6 +363,26 @@ describe("MiningPools", () => {
           status: "success",
         });
       });
+    });
+
+    it("rejects usernames with workername separators before creating a pool", async () => {
+      render(<MiningPools />);
+
+      const addButton = screen.getByRole("button", { name: /add pool/i });
+      fireEvent.click(addButton);
+
+      fireEvent.change(screen.getByTestId("pool-name-0-input"), { target: { value: "Test Pool" } });
+      fireEvent.change(screen.getByTestId("url-0-input"), { target: { value: "stratum+tcp://test.com:3333" } });
+      fireEvent.change(screen.getByTestId("username-0-input"), { target: { value: "wallet.worker01" } });
+
+      fireEvent.click(screen.getByTestId("pool-save-button"));
+
+      expect(mockCreatePool).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(
+          "Fleet-level pool usernames can’t include periods (.). Set worker names on each miner instead.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 

@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
 import { type DragEndEvent } from "@dnd-kit/core";
 import {
   type BulkRenamePreferences,
   type BulkRenamePreviewMiner,
   type BulkRenamePropertyId,
-  bulkRenamePropertyIds,
   type BulkRenamePropertyOptions,
   reorderBulkRenameProperties,
   shouldWarnAboutBulkRenameDuplicates,
@@ -155,14 +153,6 @@ const BulkRenameModal = ({
   const previewSampleSize = useMemo(() => (isPhone || isTablet ? 1 : 6), [isPhone, isTablet]);
   const selectedMinerIdSet = useMemo(() => new Set(selectedMinerIds), [selectedMinerIds]);
 
-  const requiresWorkerNames = useMemo(
-    () =>
-      bulkRenamePreferences.properties.some(
-        (property) => property.enabled && property.id === bulkRenamePropertyIds.fixedWorkerName,
-      ),
-    [bulkRenamePreferences.properties],
-  );
-
   const localPreviewMiners = useMemo(() => {
     if (selectionMode === "subset") {
       return mapSnapshotsToBulkRenamePreviewMiners(
@@ -282,37 +272,6 @@ const BulkRenameModal = ({
     selectionMode,
   ]);
 
-  const hydrateWorkerNames = useCallback(
-    async (miners: BulkRenamePreviewMiner[]): Promise<BulkRenamePreviewMiner[]> => {
-      if (!requiresWorkerNames || miners.length === 0) {
-        return miners;
-      }
-
-      const workerNames = await Promise.all(
-        miners.map(async (miner) => {
-          try {
-            const response = await fleetManagementClient.getMinerPoolAssignments({
-              deviceIdentifier: miner.deviceIdentifier,
-            });
-            return response.pools[0]?.username ?? "";
-          } catch (error) {
-            if (error instanceof ConnectError && error.code === Code.Unauthenticated) {
-              throw error;
-            }
-
-            return "";
-          }
-        }),
-      );
-
-      return miners.map((miner, index) => ({
-        ...miner,
-        workerName: workerNames[index] ?? "",
-      }));
-    },
-    [requiresWorkerNames],
-  );
-
   useEffect(() => {
     if (!open) {
       setActiveOptionsPropertyId(null);
@@ -333,13 +292,12 @@ const BulkRenameModal = ({
 
       try {
         const previewResult = await loadPreviewMiners();
-        const hydratedPreviewMiners = await hydrateWorkerNames(previewResult.miners);
 
         if (cancelled) {
           return;
         }
 
-        setPreviewMiners(hydratedPreviewMiners);
+        setPreviewMiners(previewResult.miners);
         setShowPreviewEllipsis(previewResult.showEllipsis);
       } catch (error) {
         handleAuthErrors({
@@ -364,7 +322,7 @@ const BulkRenameModal = ({
     return () => {
       cancelled = true;
     };
-  }, [handleAuthErrors, hydrateWorkerNames, loadPreviewMiners, open]);
+  }, [handleAuthErrors, loadPreviewMiners, open]);
 
   useEffect(() => {
     bulkRenamePreferencesRef.current = bulkRenamePreferences;
@@ -523,12 +481,12 @@ const BulkRenameModal = ({
       return previewMiners;
     }
 
-    if (!requiresWorkerNames && localValidationMiners !== null) {
+    if (localValidationMiners !== null) {
       return localValidationMiners;
     }
 
     return null;
-  }, [localValidationMiners, previewMiners, requiresWorkerNames, selectionCount]);
+  }, [localValidationMiners, previewMiners, selectionCount]);
 
   const shouldShowNoChangesWarning = useMemo(
     () => shouldShowBulkRenameNoChangesWarning(bulkRenamePreferences, noChangeValidationMiners),

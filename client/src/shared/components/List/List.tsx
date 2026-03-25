@@ -72,6 +72,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   containerClassName?: string;
   tableClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  paddingRight?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
   stickyBgColor?: string;
   total?: number;
@@ -159,6 +160,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   footerContent?: ReactNode;
   /**
+   * When true, apply the configured column widths to the <th>/<td> cells
+   * instead of the inner content wrapper. Use this when the configured width
+   * should represent the total cell width including inner padding.
+   */
+  applyColumnWidthsToCells?: boolean;
+  /**
    * When true, renders filters outside/above the scroll container so they remain
    * visible while scrolling. Default is false (filters scroll with content).
    */
@@ -217,6 +224,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   containerClassName = "",
   tableClassName,
   paddingLeft,
+  paddingRight,
   overflowContainer = true,
   stickyBgColor = "bg-surface-base",
   total,
@@ -237,6 +245,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onSort,
   getDefaultSortDirection,
   footerContent,
+  applyColumnWidthsToCells = false,
   scrollRef,
   preserveOffPageSelection = false,
   pageScopedSelection = false,
@@ -533,10 +542,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
     Object.entries(breakpoints).forEach(([, breakpoint]) => {
-      style[`--list-padding-${breakpoint}`] = paddingLeft?.[breakpoint] || "0px"; // Fallback to 0 if not defined
+      style[`--list-padding-${breakpoint}`] = paddingLeft?.[breakpoint] || "0px";
+      style[`--list-padding-right-${breakpoint}`] = paddingRight?.[breakpoint] || "0px";
     });
     return style;
-  }, [paddingLeft]);
+  }, [paddingLeft, paddingRight]);
 
   const paddingClasses = clsx(
     paddingLeft
@@ -545,6 +555,17 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           "tablet:pl-(--list-padding-tablet)",
           "laptop:pl-(--list-padding-laptop)",
           "desktop:pl-(--list-padding-desktop)",
+        ]
+      : "",
+  );
+
+  const rightPaddingClasses = clsx(
+    paddingRight
+      ? [
+          "phone:pr-(--list-padding-right-phone)",
+          "tablet:pr-(--list-padding-right-tablet)",
+          "laptop:pr-(--list-padding-right-laptop)",
+          "desktop:pr-(--list-padding-right-desktop)",
         ]
       : "",
   );
@@ -628,6 +649,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       const isCurrentSort = currentSort?.field === row;
                       const sortDirection = isCurrentSort ? currentSort.direction : undefined;
                       const isHovering = hoveredHeader === row;
+                      const columnWidthClass = colConfig[row]?.width;
 
                       const handleHeaderClick = () => {
                         if (!isSortable || !onSort) return;
@@ -651,6 +673,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                             idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
                             idx === 0 && columnShadowBaseClassList,
                             idx === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                            idx === activeCols.length - 1 && rightPaddingClasses,
+                            applyColumnWidthsToCells && columnWidthClass,
                           )}
                           key={idx}
                           style={paddingCssVariables}
@@ -663,7 +687,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                               type="button"
                               className={clsx(
                                 "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
-                                colConfig[row]?.width,
+                                applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                               )}
                               onClick={handleHeaderClick}
                               onMouseEnter={() => setHoveredHeader(row)}
@@ -679,8 +703,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                           ) : (
                             <div
                               className={clsx(
-                                "inline-flex items-center truncate overflow-hidden",
-                                colConfig[row]?.width,
+                                "inline-flex w-full items-center truncate overflow-hidden",
+                                applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                               )}
                             >
                               {colTitles[row]}
@@ -735,6 +759,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
                             {activeCols.map((row, j) => {
                               const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
+                              const columnWidthClass = colConfig[row]?.width;
                               return (
                                 <td
                                   className={clsx(
@@ -742,6 +767,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                                     j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
                                     j === 0 && columnShadowBaseClassList,
                                     j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                                    applyColumnWidthsToCells && columnWidthClass,
+                                    j === activeCols.length - 1 && rightPaddingClasses,
                                   )}
                                   key={j}
                                   style={paddingCssVariables}
@@ -751,7 +778,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                                     className={clsx(
                                       "truncate overflow-hidden",
                                       tdPaddingClassList,
-                                      colConfig[row]?.width,
+                                      applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
                                       {
                                         "opacity-50": rowDisabled && !isExempt,
                                       },

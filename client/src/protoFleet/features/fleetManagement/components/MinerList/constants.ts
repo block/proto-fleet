@@ -5,6 +5,7 @@ export const MINERS_PAGE_SIZE = 50;
 
 export const minerCols = {
   name: "name",
+  workerName: "workerName",
   model: "model",
   macAddress: "macAddress",
   ipAddress: "ipAddress",
@@ -22,9 +23,10 @@ export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
 
 export const minerColTitles: ColTitles<MinerColumn> = {
   name: "Name",
+  workerName: "Worker name",
   model: "Model",
-  macAddress: "MAC Address",
-  ipAddress: "IP Address",
+  macAddress: "MAC address",
+  ipAddress: "IP address",
   status: "Status",
   issues: "Issues",
   hashrate: "Hashrate",

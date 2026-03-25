@@ -46,6 +46,9 @@ export const useMinerModel = (deviceId: string) => useFleetStore((state) => stat
 export const useMinerFirmwareVersion = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.firmwareVersion);
 
+export const useMinerWorkerName = (deviceId: string) =>
+  useFleetStore((state) => state.fleet.miners[deviceId]?.workerName);
+
 export const useMinerDeviceStatus = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.deviceStatus);
 

@@ -63,14 +63,10 @@ describe("bulkRenamePreview", () => {
     expect(config.properties[1].kind.case).toBe("counter");
   });
 
-  it("evaluates preview names with fixed values, counters, and omitted blank worker names", () => {
+  it("evaluates preview names with fixed values and counters", () => {
     const preferences = createDefaultBulkRenamePreferences();
     preferences.properties = preferences.properties.map((property) => {
       if (property.id === bulkRenamePropertyIds.fixedManufacturer) {
-        return { ...property, enabled: true };
-      }
-
-      if (property.id === bulkRenamePropertyIds.fixedWorkerName) {
         return { ...property, enabled: true };
       }
 
@@ -94,17 +90,8 @@ describe("bulkRenamePreview", () => {
     });
 
     const config = buildBulkRenameConfig(preferences);
-    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("worker-01-Bitmain-M01");
-    expect(
-      evaluateBulkRenamePreviewName(
-        config,
-        {
-          ...basePreviewMiner,
-          workerName: "",
-        },
-        1,
-      ),
-    ).toBe("Bitmain-M02");
+    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("Bitmain-M01");
+    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 1)).toBe("Bitmain-M02");
   });
 
   it("treats empty or unchanged bulk rename results as no-op changes", () => {
@@ -208,6 +195,7 @@ describe("bulkRenamePreview", () => {
         model: "S21",
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
+        workerName: "worker-02",
       },
       {
         deviceIdentifier: "device-3",
@@ -216,6 +204,7 @@ describe("bulkRenamePreview", () => {
         model: "A1",
         macAddress: "AA:AA:AA:AA:AA:03",
         serialNumber: "SER-3",
+        workerName: "worker-03",
       },
       {
         deviceIdentifier: "device-1",
@@ -224,6 +213,7 @@ describe("bulkRenamePreview", () => {
         model: "S19",
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
+        workerName: "worker-01",
       },
     ]);
 
@@ -243,6 +233,7 @@ describe("bulkRenamePreview", () => {
         model: "",
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
+        workerName: "worker-01",
       },
       {
         deviceIdentifier: "device-2",
@@ -251,34 +242,11 @@ describe("bulkRenamePreview", () => {
         model: "A",
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
+        workerName: "worker-02",
       },
     ]);
 
     expect(previewMiners.map((miner) => miner.deviceIdentifier)).toEqual(["device-1", "device-2"]);
-  });
-
-  it("preserves worker names when building preview miners from snapshots", () => {
-    const previewMiners = mapSnapshotsToBulkRenamePreviewMiners([
-      {
-        deviceIdentifier: "device-1",
-        name: "One",
-        manufacturer: "Bitmain",
-        model: "S21",
-        macAddress: "AA:AA:AA:AA:AA:01",
-        serialNumber: "SER-1",
-        workerName: "worker-a",
-      },
-      {
-        deviceIdentifier: "device-2",
-        name: "Two",
-        manufacturer: "Bitmain",
-        model: "S21",
-        macAddress: "AA:AA:AA:AA:AA:02",
-        serialNumber: "SER-2",
-      },
-    ]);
-
-    expect(previewMiners.map((miner) => miner.workerName)).toEqual(["worker-a", ""]);
   });
 
   it("does not duplicate rows when preview miners are already a partial sample", () => {
@@ -383,39 +351,6 @@ describe("bulkRenamePreview", () => {
         },
       ]),
     ).toBe(1);
-  });
-
-  it("returns no preview miner when a non-custom property is blank for every previewed miner", () => {
-    const preferences = createDefaultBulkRenamePreferences();
-    preferences.properties = preferences.properties.map((property) => {
-      if (property.id === bulkRenamePropertyIds.fixedWorkerName) {
-        return {
-          ...property,
-          enabled: true,
-          options: {
-            characterCount: "all",
-            stringSection: fixedStringSections.last,
-          },
-        };
-      }
-
-      return property;
-    });
-
-    expect(
-      findBulkRenamePropertyPreviewMinerIndex(preferences, bulkRenamePropertyIds.fixedWorkerName, [
-        {
-          ...basePreviewMiner,
-          deviceIdentifier: "device-1",
-          workerName: "",
-        },
-        {
-          ...basePreviewMiner,
-          deviceIdentifier: "device-2",
-          workerName: "",
-        },
-      ]),
-    ).toBeNull();
   });
 
   it("keeps custom property previews on the first preview miner", () => {

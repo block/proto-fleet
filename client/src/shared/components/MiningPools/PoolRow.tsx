@@ -11,6 +11,8 @@ interface PoolRowProps {
   testId?: string;
   /** Override the auto-generated title. Without this prop, displays pool.name > username > URL > "—" */
   title?: string;
+  /** Optional second subtitle line shown below the URL. */
+  subtitleExtra?: string;
   /** Show priority number badge (1-indexed) */
   priorityNumber?: number;
   /** Prefix element to show before pool info (e.g., grip handle for drag) */
@@ -25,6 +27,7 @@ const PoolRow = ({
   pools,
   testId,
   title,
+  subtitleExtra,
   priorityNumber,
   prefixElement,
   suffixElement,
@@ -45,6 +48,13 @@ const PoolRow = ({
     return null;
   }, [title, poolName, username, url]);
 
+  const displaySubtitleExtra = useMemo(() => {
+    if (!subtitleExtra || subtitleExtra === displayTitle) {
+      return null;
+    }
+    return subtitleExtra;
+  }, [displayTitle, subtitleExtra]);
+
   return (
     <Row className="flex items-center justify-between gap-3" testId="pool-row">
       <div className="flex min-w-0 items-center gap-3">
@@ -56,9 +66,18 @@ const PoolRow = ({
         {prefixElement}
         <div className="flex min-w-0 flex-col">
           <div className="truncate text-text-primary">{displayTitle}</div>
-          {displaySubtitle && (
-            <div className="truncate text-200 text-text-primary-70" data-testid={`pool-${poolIndex}-saved-url`}>
-              {displaySubtitle}
+          {(displaySubtitle || displaySubtitleExtra) && (
+            <div className="text-200 text-text-primary-70">
+              {displaySubtitle && (
+                <div className="truncate" data-testid={`pool-${poolIndex}-saved-url`}>
+                  {displaySubtitle}
+                </div>
+              )}
+              {displaySubtitleExtra && (
+                <div className="truncate" data-testid={`pool-${poolIndex}-saved-username`}>
+                  {displaySubtitleExtra}
+                </div>
+              )}
             </div>
           )}
         </div>

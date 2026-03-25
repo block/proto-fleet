@@ -18,6 +18,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
+    workerName: "worker-01",
     driverName: "antminer",
     hashrate: [
       {
@@ -72,6 +73,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
+    workerName: "worker-02",
     driverName: "antminer",
     hashrate: [
       {
@@ -126,6 +128,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
+    workerName: "worker-03",
     driverName: "antminer",
     hashrate: [
       {
@@ -180,6 +183,7 @@ export const miners: MinerStateSnapshot[] = [
     pairingStatus: PairingStatus.PAIRED,
     model: "S19 Pro",
     manufacturer: "Bitmain",
+    workerName: "worker-04",
     driverName: "antminer",
     hashrate: [
       {

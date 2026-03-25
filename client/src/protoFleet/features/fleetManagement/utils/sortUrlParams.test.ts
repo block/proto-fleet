@@ -81,6 +81,7 @@ describe("sortUrlParams", () => {
     it("parses all supported sort fields", () => {
       const fieldMappings: Array<{ url: string; expected: SortField }> = [
         { url: "name", expected: SortField.NAME },
+        { url: "worker-name", expected: SortField.WORKER_NAME },
         { url: "ip", expected: SortField.IP_ADDRESS },
         { url: "mac", expected: SortField.MAC_ADDRESS },
         { url: "model", expected: SortField.MODEL },
@@ -166,6 +167,7 @@ describe("sortUrlParams", () => {
     it("encodes all supported sort fields", () => {
       const fieldMappings: Array<{ field: SortField; expected: string }> = [
         { field: SortField.NAME, expected: "name" },
+        { field: SortField.WORKER_NAME, expected: "worker-name" },
         { field: SortField.IP_ADDRESS, expected: "ip" },
         { field: SortField.MAC_ADDRESS, expected: "mac" },
         { field: SortField.MODEL, expected: "model" },

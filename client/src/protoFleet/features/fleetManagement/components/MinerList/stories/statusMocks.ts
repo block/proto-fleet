@@ -74,6 +74,7 @@ const baseMeasurements = {
       value: 65.5,
     } as Measurement,
   ],
+  workerName: "worker-base",
   groupLabels: [] as string[],
   rackLabel: "",
 };
@@ -112,6 +113,7 @@ export const offlineMiner: MinerStateSnapshot = {
   pairingStatus: PairingStatus.PAIRED,
   model: "S19 Pro",
   manufacturer: "Bitmain",
+  workerName: "worker-offline",
   driverName: "antminer",
   hashrate: [],
   efficiency: [],
@@ -136,6 +138,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   pairingStatus: PairingStatus.PAIRED,
   model: "S19 Pro",
   manufacturer: "Bitmain",
+  workerName: "worker-sleeping",
   driverName: "antminer",
   hashrate: [
     {
@@ -169,6 +172,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
   pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
   model: "S19 Pro",
   manufacturer: "Bitmain",
+  workerName: "worker-auth",
   driverName: "antminer",
   hashrate: [],
   efficiency: [],

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,6 +20,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/workername"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
@@ -24,6 +28,8 @@ import (
 )
 
 var _ pairing.Pairer = &Pairer{}
+
+const pairerDeviceCloseTimeout = 5 * time.Second
 
 // Pairer implements the pairing.Pairer interface using plugins
 type Pairer struct {
@@ -130,7 +136,8 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
 		}
 
-		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
+		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
+		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName); err != nil {
 			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 		}
 
@@ -187,7 +194,8 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 		return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
 	}
 
-	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
+	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
+	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 	}
 
@@ -195,7 +203,13 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 }
 
 // handlePairViaStore saves the device to the database
-func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) handlePairViaStore(
+	ctx context.Context,
+	discoveredDevice *discoverymodels.DiscoveredDevice,
+	credentials *pb.Credentials,
+	workerName string,
+	fallbackWorkerName bool,
+) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
@@ -228,6 +242,20 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 			}
 		}
 
+		shouldUpdateWorkerName := strings.TrimSpace(workerName) != ""
+		if shouldUpdateWorkerName && fallbackWorkerName && existingDevice != nil {
+			keepExistingWorkerName, err := workername.HasStored(ctx, p.deviceStore, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
+			if err != nil {
+				return err
+			}
+			shouldUpdateWorkerName = !keepExistingWorkerName
+		}
+		if shouldUpdateWorkerName {
+			if err := p.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
+				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
+			}
+		}
+
 		if err := p.saveCredentials(ctx, discoveredDevice, credentials); err != nil {
 			return err
 		}
@@ -244,6 +272,95 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 
 		return nil
 	})
+}
+
+func (p *Pairer) resolveFleetWorkerName(
+	ctx context.Context,
+	plugin *LoadedPlugin,
+	discoveredDevice *discoverymodels.DiscoveredDevice,
+	credentials *pb.Credentials,
+) (string, bool) {
+	fallback := defaultFleetWorkerName(discoveredDevice.MacAddress)
+	if !plugin.Caps[sdk.CapabilityPoolConfig] {
+		return fallback, true
+	}
+
+	workerName, err := p.fetchWorkerNameFromPairedDevice(ctx, plugin, discoveredDevice, credentials)
+	if err != nil {
+		slog.Debug("failed to fetch worker name during pairing",
+			"device_identifier", discoveredDevice.DeviceIdentifier,
+			"error", err)
+		return fallback, true
+	}
+	if workerName == "" {
+		return fallback, true
+	}
+
+	return workerName, false
+}
+
+func defaultFleetWorkerName(macAddress string) string {
+	return networking.NormalizeMAC(macAddress)
+}
+
+func (p *Pairer) fetchWorkerNameFromPairedDevice(
+	ctx context.Context,
+	plugin *LoadedPlugin,
+	discoveredDevice *discoverymodels.DiscoveredDevice,
+	credentials *pb.Credentials,
+) (string, error) {
+	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
+	if err != nil {
+		return "", err
+	}
+
+	result, err := plugin.Driver.NewDevice(
+		ctx,
+		discoveredDevice.DeviceIdentifier,
+		convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device),
+		secretBundle,
+	)
+	if err != nil {
+		return "", err
+	}
+	if result.Device == nil {
+		return "", fleeterror.NewInternalError("paired device client was not returned by plugin")
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), pairerDeviceCloseTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Debug("failed to close paired device client after worker-name lookup",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"error", closeErr)
+		}
+	}()
+
+	pools, err := result.Device.GetMiningPools(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return extractWorkerNameFromConfiguredPools(pools), nil
+}
+
+func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
+	if len(pools) == 0 {
+		return ""
+	}
+
+	sortedPools := append([]sdk.ConfiguredPool(nil), pools...)
+	sort.SliceStable(sortedPools, func(i, j int) bool {
+		return sortedPools[i].Priority < sortedPools[j].Priority
+	})
+
+	for _, pool := range sortedPools {
+		if workerName := workername.FromPoolUsername(pool.Username); workerName != "" {
+			return workerName
+		}
+	}
+
+	return ""
 }
 
 // reconcileExistingDevice tries to find an existing paired device that matches the newly

@@ -151,7 +151,8 @@ type MinerState struct {
 	TuningAlgorithmVal TuningAlgorithm
 
 	// Configured pools
-	Pools []*Pool
+	Pools     []*Pool
+	PoolNames map[uint32]string
 
 	// Network configuration
 	IPAddress string
@@ -216,6 +217,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		BasePowerW:         defaultPowerW,
 		BaseEfficiencyJTH:  defaultEfficiencyJTH,
 		Pools:              make([]*Pool, 0),
+		PoolNames:          make(map[uint32]string),
 		StartTime:          time.Now(),
 	}
 }
@@ -429,6 +431,38 @@ func (s *MinerState) AddPool(pool *Pool) {
 	s.Pools = append(s.Pools, pool)
 }
 
+// SetPoolName stores the display name for a pool index used by the REST API.
+func (s *MinerState) SetPoolName(idx uint32, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.PoolNames == nil {
+		s.PoolNames = make(map[uint32]string)
+	}
+
+	if name == "" {
+		delete(s.PoolNames, idx)
+		return
+	}
+
+	s.PoolNames[idx] = name
+}
+
+// GetPoolName returns the configured display name for a pool index.
+func (s *MinerState) GetPoolName(idx uint32) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.PoolNames[idx]
+}
+
+// ClearPools removes all configured pools and their REST display names.
+func (s *MinerState) ClearPools() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Pools = make([]*Pool, 0)
+	s.PoolNames = make(map[uint32]string)
+}
+
 // RemovePools removes pools by index.
 func (s *MinerState) RemovePools(indices []uint32) {
 	s.mu.Lock()
@@ -445,7 +479,10 @@ func (s *MinerState) RemovePools(indices []uint32) {
 	for _, pool := range s.Pools {
 		if !toRemove[pool.Idx] {
 			newPools = append(newPools, pool)
+			continue
 		}
+
+		delete(s.PoolNames, pool.Idx)
 	}
 	s.Pools = newPools
 }
