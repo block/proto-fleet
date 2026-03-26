@@ -200,9 +200,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		}
 	}
 
-	// TODO(DASH-1361): rack_info updates (location, rows, columns, order_index, cooling_type) are not yet supported.
-	// The store has UpdateRackInfo() — wire it through when the edit-rack UI is built.
-
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var label, description *string
 		if req.Label != nil {
@@ -736,4 +733,188 @@ func (s *Service) ListRackLocations(ctx context.Context, _ *pb.ListRackLocations
 	}
 
 	return &pb.ListRackLocationsResponse{Locations: locations}, nil
+}
+
+// saveRackResult holds the result of the SaveRack transaction.
+type saveRackResult struct {
+	collection    *pb.DeviceCollection
+	assignedCount int32
+}
+
+// SaveRack atomically creates or updates a rack with its membership and slot assignments.
+func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.SaveRackResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rackInfo := req.GetRackInfo()
+	if rackInfo == nil {
+		return nil, fleeterror.NewInvalidArgumentError("rack_info is required")
+	}
+	if rackInfo.GetLocation() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("location is required for rack collections")
+	}
+	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
+		return nil, fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
+	}
+	if rackInfo.Columns < 1 || rackInfo.Columns > maxRackDimension {
+		return nil, fleeterror.NewInvalidArgumentErrorf("columns must be between 1 and %d", maxRackDimension)
+	}
+	if rackInfo.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
+		return nil, fleeterror.NewInvalidArgumentError("order_index is required for rack collections")
+	}
+	if _, ok := pb.RackOrderIndex_name[int32(rackInfo.OrderIndex)]; !ok {
+		return nil, fleeterror.NewInvalidArgumentError("invalid order_index value")
+	}
+	if rackInfo.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
+		return nil, fleeterror.NewInvalidArgumentError("cooling_type is required for rack collections")
+	}
+	if _, ok := pb.RackCoolingType_name[int32(rackInfo.CoolingType)]; !ok {
+		return nil, fleeterror.NewInvalidArgumentError("invalid cooling_type value")
+	}
+
+	// Validate slot assignments are within rack bounds.
+	for _, slot := range req.SlotAssignments {
+		if slot.Position == nil {
+			return nil, fleeterror.NewInvalidArgumentError("slot assignment must have a position")
+		}
+		if slot.Position.Row < 0 || slot.Position.Row >= rackInfo.Rows {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, rackInfo.Rows)
+		}
+		if slot.Position.Column < 0 || slot.Position.Column >= rackInfo.Columns {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, rackInfo.Columns)
+		}
+	}
+
+	// Resolve device identifiers outside the transaction.
+	// An empty device list is valid for SaveRack (removes all members).
+	var deviceIdentifiers []string
+	if req.DeviceSelector != nil {
+		if dl, ok := req.DeviceSelector.SelectionType.(*commonpb.DeviceSelector_DeviceList); ok && (dl.DeviceList == nil || len(dl.DeviceList.DeviceIdentifiers) == 0) {
+			// Empty device list — no members to add, skip resolver.
+			deviceIdentifiers = nil
+		} else {
+			deviceIdentifiers, err = s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Build a set of resolved device IDs for slot assignment validation.
+	deviceSet := make(map[string]struct{}, len(deviceIdentifiers))
+	for _, id := range deviceIdentifiers {
+		deviceSet[id] = struct{}{}
+	}
+	for _, slot := range req.SlotAssignments {
+		if _, ok := deviceSet[slot.DeviceIdentifier]; !ok {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot assignment references device %q which is not in the device selector", slot.DeviceIdentifier)
+		}
+	}
+
+	isUpdate := req.CollectionId != nil
+
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		var collectionID int64
+
+		if isUpdate {
+			collectionID = *req.CollectionId
+
+			// Verify the collection exists and belongs to the org.
+			belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+			if !belongs {
+				return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", collectionID)
+			}
+
+			// Verify the collection is a rack (not a group).
+			collectionType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, collectionID)
+			if err != nil {
+				return nil, err
+			}
+			if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
+				return nil, fleeterror.NewInvalidArgumentErrorf("collection %d is not a rack", collectionID)
+			}
+
+			// Update collection metadata.
+			err = s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			// Update rack-specific info.
+			err = s.collectionStore.UpdateRackInfo(ctx, collectionID, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Create new rack.
+			collection, err := s.collectionStore.CreateCollection(ctx, info.OrganizationID, pb.CollectionType_COLLECTION_TYPE_RACK, req.Label, "")
+			if err != nil {
+				return nil, err
+			}
+			collectionID = collection.Id
+
+			err = s.collectionStore.CreateRackExtension(ctx, collectionID, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Replace membership: remove all existing, then add the new set.
+		_, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, collectionID)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(deviceIdentifiers) > 0 {
+			_, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collectionID, deviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Clear all existing slot positions.
+		existingSlots, err := s.collectionStore.GetRackSlots(ctx, collectionID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		for _, slot := range existingSlots {
+			err = s.collectionStore.ClearRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Set new slot positions.
+		for _, slot := range req.SlotAssignments {
+			err = s.collectionStore.SetRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Fetch the final collection state.
+		collection, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, collectionID)
+		if err != nil {
+			return nil, err
+		}
+		collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
+
+		// #nosec G115 -- slot count bounded by rack dimensions (max 12x12 = 144)
+		return &saveRackResult{collection: collection, assignedCount: int32(len(req.SlotAssignments))}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	txResult, ok := result.(*saveRackResult)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	return &pb.SaveRackResponse{Collection: txResult.collection, AssignedCount: txResult.assignedCount}, nil
 }

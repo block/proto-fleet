@@ -157,3 +157,12 @@ func (h *Handler) ListRackLocations(ctx context.Context, r *connect.Request[pb.L
 	}
 	return connect.NewResponse(result), nil
 }
+
+// SaveRack atomically creates or updates a rack with membership and slot assignments.
+func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[pb.SaveRackRequest]) (*connect.Response[pb.SaveRackResponse], error) {
+	result, err := h.collectionSvc.SaveRack(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}

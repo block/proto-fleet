@@ -55,6 +55,10 @@ service DeviceCollectionService {
 
     // Returns all distinct rack types (row/column combinations) for the organization
     rpc ListRackTypes(ListRackTypesRequest) returns (ListRackTypesResponse);
+
+    // Atomically creates or updates a rack with its membership and slot assignments.
+    // All operations (metadata, membership, slot positions) are applied in a single transaction.
+    rpc SaveRack(SaveRackRequest) returns (SaveRackResponse);
 }
 
 // Type of collection
@@ -486,4 +490,40 @@ message RackType {
 message ListRackTypesResponse {
     // Distinct rack types ordered by most recently created rack using that layout
     repeated RackType rack_types = 1;
+}
+
+// Request to atomically create or update a rack with membership and slot assignments.
+message SaveRackRequest {
+    // ID of an existing rack to update. Omit to create a new rack.
+    optional int64 collection_id = 1 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        int64: { gt: 0 }
+    }];
+
+    // Label for the rack (required, 1-100 characters)
+    string label = 2 [(buf.validate.field) = {
+        string: { min_len: 1, max_len: 100 }
+        required: true
+    }];
+
+    // Rack-specific metadata (required)
+    RackInfo rack_info = 3 [(buf.validate.field).required = true];
+
+    // Devices that should be members of this rack.
+    // Replaces all existing members atomically.
+    common.v1.DeviceSelector device_selector = 4 [(buf.validate.field).required = true];
+
+    // Slot assignments for devices within the rack.
+    // Only devices included in device_selector may be assigned slots.
+    // Devices not listed here will be members without a slot position.
+    repeated RackSlot slot_assignments = 5;
+}
+
+// Response after saving a rack.
+message SaveRackResponse {
+    // The created or updated rack collection
+    DeviceCollection collection = 1;
+
+    // Number of slot positions assigned
+    int32 assigned_count = 2;
 }

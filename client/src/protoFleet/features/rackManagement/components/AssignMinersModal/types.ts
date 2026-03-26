@@ -1,0 +1,34 @@
+import { type RackCoolingType, RackOrderIndex } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import type { NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+
+export type AssignmentMode = "manual" | "byName" | "byNetwork";
+
+export interface RackFormData {
+  label: string;
+  location: string;
+  rows: number;
+  columns: number;
+  orderIndex: RackOrderIndex;
+  coolingType: RackCoolingType;
+}
+
+export function orderIndexToOrigin(orderIndex: RackOrderIndex): NumberingOrigin {
+  const { BOTTOM_LEFT, TOP_LEFT, BOTTOM_RIGHT } = RackOrderIndex;
+  if (orderIndex === BOTTOM_LEFT) return "bottom-left";
+  if (orderIndex === TOP_LEFT) return "top-left";
+  if (orderIndex === BOTTOM_RIGHT) return "bottom-right";
+  return "top-right";
+}
+
+export function originLabel(origin: NumberingOrigin): string {
+  switch (origin) {
+    case "bottom-left":
+      return "Bottom left";
+    case "top-left":
+      return "Top left";
+    case "bottom-right":
+      return "Bottom right";
+    case "top-right":
+      return "Top right";
+  }
+}

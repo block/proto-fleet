@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
+import {
+  type DeviceCollection,
+  RackCoolingType,
+  RackOrderIndex,
+} from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useCollections } from "@/protoFleet/api/useCollections";
 import type { CollectionListItem } from "@/protoFleet/components/CollectionList";
 import type { CollectionColumn } from "@/protoFleet/components/CollectionList";
@@ -10,7 +14,11 @@ import {
   issueOptions,
   useIssueFilter,
 } from "@/protoFleet/components/CollectionList";
-import AddRackModal from "@/protoFleet/features/rackManagement/components/AddRackModal";
+import {
+  AssignMinersModal,
+  type RackFormData,
+} from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
+import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
 import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -35,10 +43,14 @@ const RACK_COLUMNS: CollectionColumn[] = [
 
 const RacksPage = () => {
   const { listRacks, listRackLocations } = useCollections();
-  const [showAddRackModal, setShowAddRackModal] = useState(false);
+  const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allLocations, setAllLocations] = useState<{ id: string; label: string }[]>([]);
+
+  // AssignMinersModal state
+  const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
+  const [assignMinersRackId, setAssignMinersRackId] = useState<bigint | undefined>(undefined);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
@@ -135,13 +147,48 @@ const RacksPage = () => {
     return pills;
   }, [selectedLocations, selectedIssues, allLocations]);
 
+  const handleOpenRackForEdit = useCallback((rack: DeviceCollection) => {
+    const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+    setAssignMinersFormData({
+      label: rack.label,
+      location: rackInfo?.location ?? "",
+      rows: rackInfo?.rows ?? 1,
+      columns: rackInfo?.columns ?? 1,
+      orderIndex: rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
+      coolingType: rackInfo?.coolingType ?? RackCoolingType.AIR,
+    });
+    setAssignMinersRackId(rack.id);
+  }, []);
+
+  const handleRackSettingsContinue = useCallback((formData: RackFormData) => {
+    setShowRackSettingsModal(false);
+    setAssignMinersFormData(formData);
+    setAssignMinersRackId(undefined);
+  }, []);
+
+  const handleAssignMinersDismiss = useCallback(() => {
+    setAssignMinersFormData(null);
+    setAssignMinersRackId(undefined);
+  }, []);
+
+  const handleAssignMinersSave = useCallback(() => {
+    setAssignMinersFormData(null);
+    setAssignMinersRackId(undefined);
+    resetAndFetch();
+    fetchLocations();
+  }, [resetAndFetch, fetchLocations]);
+
   const renderName = useCallback(
     (item: CollectionListItem) => (
-      <Link to={`/racks/${item.collection.id}`} className="hover:underline">
+      <button
+        type="button"
+        className="text-left hover:underline"
+        onClick={() => handleOpenRackForEdit(item.collection)}
+      >
         {item.collection.label}
-      </Link>
+      </button>
     ),
-    [],
+    [handleOpenRackForEdit],
   );
 
   const renderMiners = useCallback((item: CollectionListItem) => <span>{item.collection.deviceCount}</span>, []);
@@ -157,7 +204,7 @@ const RacksPage = () => {
   if (error && !hasEverLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-body-200 text-text-secondary">{error}</p>
+        <p className="text-300 text-text-primary-50">{error}</p>
       </div>
     );
   }
@@ -180,21 +227,28 @@ const RacksPage = () => {
               />
             </div>
             <div>
-              <Button variant="primary" onClick={() => setShowAddRackModal(true)}>
+              <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
                 Add rack
               </Button>
             </div>
           </div>
         </div>
-        {showAddRackModal && (
-          <AddRackModal
-            show={showAddRackModal}
+        {showRackSettingsModal && (
+          <RackSettingsModal
+            show={showRackSettingsModal}
             existingRacks={racks}
-            onDismiss={() => setShowAddRackModal(false)}
-            onSuccess={() => {
-              resetAndFetch();
-              fetchLocations();
-            }}
+            onDismiss={() => setShowRackSettingsModal(false)}
+            onContinue={handleRackSettingsContinue}
+          />
+        )}
+        {assignMinersFormData && (
+          <AssignMinersModal
+            show={!!assignMinersFormData}
+            rackSettings={assignMinersFormData}
+            existingRackId={assignMinersRackId}
+            existingRacks={racks}
+            onDismiss={handleAssignMinersDismiss}
+            onSave={handleAssignMinersSave}
           />
         )}
       </div>
@@ -232,7 +286,7 @@ const RacksPage = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowAddRackModal(true)}>
+              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
                 Add rack
               </Button>
               <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
@@ -260,7 +314,7 @@ const RacksPage = () => {
         </div>
       </div>
       {error && (
-        <div className="text-body-200 text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 phone:mx-6 tablet:mx-6">
+        <div className="text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 text-300 phone:mx-6 tablet:mx-6">
           {error}
         </div>
       )}
@@ -288,22 +342,34 @@ const RacksPage = () => {
       ) : (
         <div className="grid grid-cols-1 gap-4 px-10 sm:grid-cols-2 lg:grid-cols-3 phone:px-6 tablet:px-6">
           {racks.map((rack) => (
-            <div key={rack.id.toString()} className="border-border-secondary bg-surface-primary rounded-xl border p-4">
+            <button
+              key={rack.id.toString()}
+              type="button"
+              className="cursor-pointer rounded-xl border border-border-10 bg-surface-base p-4 text-left hover:bg-surface-5"
+              onClick={() => handleOpenRackForEdit(rack)}
+            >
               <p className="text-heading-100 text-text-primary">{rack.label}</p>
-              <p className="text-body-100 text-text-secondary">{rack.description}</p>
-            </div>
+              <p className="text-200 text-text-primary-50">{rack.description}</p>
+            </button>
           ))}
         </div>
       )}
-      {showAddRackModal && (
-        <AddRackModal
-          show={showAddRackModal}
+      {showRackSettingsModal && (
+        <RackSettingsModal
+          show={showRackSettingsModal}
           existingRacks={racks}
-          onDismiss={() => setShowAddRackModal(false)}
-          onSuccess={() => {
-            resetAndFetch();
-            fetchLocations();
-          }}
+          onDismiss={() => setShowRackSettingsModal(false)}
+          onContinue={handleRackSettingsContinue}
+        />
+      )}
+      {assignMinersFormData && (
+        <AssignMinersModal
+          show={!!assignMinersFormData}
+          rackSettings={assignMinersFormData}
+          existingRackId={assignMinersRackId}
+          existingRacks={racks}
+          onDismiss={handleAssignMinersDismiss}
+          onSave={handleAssignMinersSave}
         />
       )}
     </div>

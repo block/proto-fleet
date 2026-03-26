@@ -9,6 +9,10 @@ import {
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
+  type RackSlot,
+  type RackSlotPosition,
+  RackSlotPositionSchema,
+  RackSlotSchema,
   type RackType,
 } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
@@ -98,6 +102,68 @@ interface ListRackTypesProps {
 interface ListGroupMembersProps {
   collectionId: bigint;
   onSuccess?: (deviceIdentifiers: string[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface RemoveDevicesFromCollectionProps {
+  collectionId: bigint;
+  deviceIdentifiers?: string[];
+  allDevices?: boolean;
+  onSuccess?: (removedCount: number) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface UpdateRackProps {
+  collectionId: bigint;
+  label?: string;
+  location?: string;
+  rows?: number;
+  columns?: number;
+  orderIndex?: RackOrderIndex;
+  coolingType?: RackCoolingType;
+  onSuccess?: (collection: DeviceCollection) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface GetRackSlotsProps {
+  collectionId: bigint;
+  onSuccess?: (slots: RackSlot[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface SetRackSlotPositionProps {
+  collectionId: bigint;
+  deviceIdentifier: string;
+  position: RackSlotPosition;
+  onSuccess?: (slot: RackSlot) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface ClearRackSlotPositionProps {
+  collectionId: bigint;
+  deviceIdentifier: string;
+  onSuccess?: () => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface SaveRackProps {
+  collectionId?: bigint;
+  label: string;
+  location: string;
+  rows: number;
+  columns: number;
+  orderIndex: RackOrderIndex;
+  coolingType: RackCoolingType;
+  deviceIdentifiers: string[];
+  allDevices?: boolean;
+  slotAssignments: { deviceIdentifier: string; row: number; column: number }[];
+  onSuccess?: (collection: DeviceCollection, assignedCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -468,10 +534,244 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
+  const removeDevicesFromCollection = useCallback(
+    async ({
+      collectionId,
+      deviceIdentifiers,
+      allDevices,
+      onSuccess,
+      onError,
+      onFinally,
+    }: RemoveDevicesFromCollectionProps) => {
+      try {
+        const deviceSelector =
+          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
+            ? buildDeviceSelector(deviceIdentifiers, allDevices)
+            : undefined;
+
+        const response = await collectionClient.removeDevicesFromCollection({
+          collectionId,
+          deviceSelector,
+        });
+
+        onSuccess?.(response.removedCount);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const updateRack = useCallback(
+    async ({
+      collectionId,
+      label,
+      location,
+      rows,
+      columns,
+      orderIndex,
+      coolingType,
+      onSuccess,
+      onError,
+      onFinally,
+    }: UpdateRackProps) => {
+      try {
+        const rackInfo =
+          location !== undefined ||
+          rows !== undefined ||
+          columns !== undefined ||
+          orderIndex !== undefined ||
+          coolingType !== undefined
+            ? create(RackInfoSchema, {
+                ...(location !== undefined && { location }),
+                ...(rows !== undefined && { rows }),
+                ...(columns !== undefined && { columns }),
+                ...(orderIndex !== undefined && { orderIndex }),
+                ...(coolingType !== undefined && { coolingType }),
+              })
+            : undefined;
+
+        const response = await collectionClient.updateCollection({
+          collectionId,
+          label,
+          ...(rackInfo && {
+            typeDetails: {
+              case: "rackInfo" as const,
+              value: rackInfo,
+            },
+          }),
+        });
+
+        const collection = response.collection;
+        if (!collection) {
+          onError?.("Failed to update rack");
+          return;
+        }
+
+        onSuccess?.(collection);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const getRackSlots = useCallback(
+    async ({ collectionId, onSuccess, onError, onFinally }: GetRackSlotsProps) => {
+      try {
+        const response = await collectionClient.getRackSlots({ collectionId });
+        onSuccess?.(response.slots);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const setRackSlotPosition = useCallback(
+    async ({ collectionId, deviceIdentifier, position, onSuccess, onError, onFinally }: SetRackSlotPositionProps) => {
+      try {
+        const response = await collectionClient.setRackSlotPosition({
+          collectionId,
+          deviceIdentifier,
+          position,
+        });
+
+        const slot = response.slot;
+        if (!slot) {
+          onError?.("Failed to set slot position");
+          return;
+        }
+
+        onSuccess?.(slot);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const clearRackSlotPosition = useCallback(
+    async ({ collectionId, deviceIdentifier, onSuccess, onError, onFinally }: ClearRackSlotPositionProps) => {
+      try {
+        await collectionClient.clearRackSlotPosition({
+          collectionId,
+          deviceIdentifier,
+        });
+        onSuccess?.();
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const saveRack = useCallback(
+    async ({
+      collectionId,
+      label,
+      location,
+      rows,
+      columns,
+      orderIndex,
+      coolingType,
+      deviceIdentifiers,
+      allDevices,
+      slotAssignments,
+      onSuccess,
+      onError,
+      onFinally,
+    }: SaveRackProps) => {
+      try {
+        const rackInfo = create(RackInfoSchema, {
+          rows,
+          columns,
+          location,
+          orderIndex,
+          coolingType,
+        });
+
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
+
+        const rackSlots = slotAssignments.map((sa) =>
+          create(RackSlotSchema, {
+            deviceIdentifier: sa.deviceIdentifier,
+            position: create(RackSlotPositionSchema, {
+              row: sa.row,
+              column: sa.column,
+            }),
+          }),
+        );
+
+        const response = await collectionClient.saveRack({
+          collectionId,
+          label,
+          rackInfo,
+          deviceSelector,
+          slotAssignments: rackSlots,
+        });
+
+        const collection = response.collection;
+        if (!collection) {
+          onError?.("Failed to save rack");
+          return;
+        }
+
+        onSuccess?.(collection, response.assignedCount);
+      } catch (err) {
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.((err as Error)?.message ?? String(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
     createRack,
     updateGroup,
+    updateRack,
     deleteGroup,
     listGroups,
     listRacks,
@@ -480,6 +780,11 @@ const useCollections = () => {
     listGroupMembers,
     getCollectionStats,
     addDevicesToCollection,
+    removeDevicesFromCollection,
+    getRackSlots,
+    setRackSlotPosition,
+    clearRackSlotPosition,
+    saveRack,
   };
 };
 

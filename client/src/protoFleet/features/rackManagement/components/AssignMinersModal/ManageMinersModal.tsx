@@ -1,0 +1,89 @@
+import { useCallback, useRef, useState } from "react";
+
+import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import MinerSelectionList, {
+  type DeviceListItem,
+  type MinerSelectionListHandle,
+} from "@/protoFleet/components/MinerSelectionList";
+
+import Modal from "@/shared/components/Modal";
+
+interface ManageMinersModalProps {
+  show: boolean;
+  currentRackMiners: string[];
+  currentRackLabel: string;
+  maxSlots: number;
+  onDismiss: () => void;
+  onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
+}
+
+export default function ManageMinersModal({
+  show,
+  currentRackMiners,
+  currentRackLabel,
+  maxSlots,
+  onDismiss,
+  onConfirm,
+}: ManageMinersModalProps) {
+  const selectionRef = useRef<MinerSelectionListHandle>(null);
+  const [overflowError, setOverflowError] = useState("");
+
+  const isRowDisabled = useCallback(
+    (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
+    [currentRackLabel],
+  );
+
+  const handleContinue = useCallback(() => {
+    const selection = selectionRef.current?.getSelection();
+    if (!selection) return;
+
+    const { selectedItems, allSelected, filter } = selection;
+
+    // Only validate overflow for explicit selections. When allSelected is true,
+    // the parent resolves the full selectable list via server pagination and
+    // validates overflow after resolution.
+    if (!allSelected && selectedItems.length > maxSlots) {
+      setOverflowError(
+        `Cannot add ${selectedItems.length} miners with only ${maxSlots} available slots. Deselect some miners or update your rack settings.`,
+      );
+      return;
+    }
+
+    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined);
+  }, [maxSlots, onConfirm]);
+
+  if (!show) return null;
+
+  return (
+    <Modal
+      open={show}
+      title="Select miners"
+      size="extraLarge"
+      onDismiss={onDismiss}
+      divider={false}
+      buttons={[
+        {
+          text: "Continue",
+          variant: "primary",
+          onClick: handleContinue,
+          dismissModalOnClick: false,
+        },
+      ]}
+    >
+      <div>
+        {overflowError && (
+          <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+            {overflowError}
+          </div>
+        )}
+
+        <MinerSelectionList
+          ref={selectionRef}
+          filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
+          initialSelectedItems={currentRackMiners}
+          isRowDisabled={isRowDisabled}
+        />
+      </div>
+    </Modal>
+  );
+}

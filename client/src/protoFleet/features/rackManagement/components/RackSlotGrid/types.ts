@@ -1,6 +1,8 @@
+import type { NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+
 export type SlotVisualState = "empty" | "occupied" | "selected" | "selectedOccupied" | "dragOver" | "peerHover";
 
-export type NumberingOrigin = "bottom-left" | "top-left" | "bottom-right" | "top-right";
+export type { NumberingOrigin };
 
 export interface SlotData {
   slotNumber: number;

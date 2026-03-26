@@ -79,6 +79,9 @@ const (
 	// DeviceCollectionServiceListRackTypesProcedure is the fully-qualified name of the
 	// DeviceCollectionService's ListRackTypes RPC.
 	DeviceCollectionServiceListRackTypesProcedure = "/collection.v1.DeviceCollectionService/ListRackTypes"
+	// DeviceCollectionServiceSaveRackProcedure is the fully-qualified name of the
+	// DeviceCollectionService's SaveRack RPC.
+	DeviceCollectionServiceSaveRackProcedure = "/collection.v1.DeviceCollectionService/SaveRack"
 )
 
 // DeviceCollectionServiceClient is a client for the collection.v1.DeviceCollectionService service.
@@ -113,6 +116,9 @@ type DeviceCollectionServiceClient interface {
 	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
+	// Atomically creates or updates a rack with its membership and slot assignments.
+	// All operations (metadata, membership, slot positions) are applied in a single transaction.
+	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
 }
 
 // NewDeviceCollectionServiceClient constructs a client for the
@@ -200,6 +206,11 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceListRackTypesProcedure,
 			opts...,
 		),
+		saveRack: connect.NewClient[v1.SaveRackRequest, v1.SaveRackResponse](
+			httpClient,
+			baseURL+DeviceCollectionServiceSaveRackProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -220,6 +231,7 @@ type deviceCollectionServiceClient struct {
 	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
 	listRackLocations           *connect.Client[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse]
 	listRackTypes               *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
+	saveRack                    *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
 }
 
 // CreateCollection calls collection.v1.DeviceCollectionService.CreateCollection.
@@ -298,6 +310,11 @@ func (c *deviceCollectionServiceClient) ListRackTypes(ctx context.Context, req *
 	return c.listRackTypes.CallUnary(ctx, req)
 }
 
+// SaveRack calls collection.v1.DeviceCollectionService.SaveRack.
+func (c *deviceCollectionServiceClient) SaveRack(ctx context.Context, req *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error) {
+	return c.saveRack.CallUnary(ctx, req)
+}
+
 // DeviceCollectionServiceHandler is an implementation of the collection.v1.DeviceCollectionService
 // service.
 type DeviceCollectionServiceHandler interface {
@@ -331,6 +348,9 @@ type DeviceCollectionServiceHandler interface {
 	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
+	// Atomically creates or updates a rack with its membership and slot assignments.
+	// All operations (metadata, membership, slot positions) are applied in a single transaction.
+	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
 }
 
 // NewDeviceCollectionServiceHandler builds an HTTP handler from the service implementation. It
@@ -414,6 +434,11 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 		svc.ListRackTypes,
 		opts...,
 	)
+	deviceCollectionServiceSaveRackHandler := connect.NewUnaryHandler(
+		DeviceCollectionServiceSaveRackProcedure,
+		svc.SaveRack,
+		opts...,
+	)
 	return "/collection.v1.DeviceCollectionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceCollectionServiceCreateCollectionProcedure:
@@ -446,6 +471,8 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceListRackLocationsHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceListRackTypesProcedure:
 			deviceCollectionServiceListRackTypesHandler.ServeHTTP(w, r)
+		case DeviceCollectionServiceSaveRackProcedure:
+			deviceCollectionServiceSaveRackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -513,4 +540,8 @@ func (UnimplementedDeviceCollectionServiceHandler) ListRackLocations(context.Con
 
 func (UnimplementedDeviceCollectionServiceHandler) ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackTypes is not implemented"))
+}
+
+func (UnimplementedDeviceCollectionServiceHandler) SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.SaveRack is not implemented"))
 }

@@ -761,3 +761,402 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 	assert.Equal(t, int32(5), resp.AddedCount)
 	assert.Equal(t, int32(5), resp.Collection.DeviceCount)
 }
+
+// --- SaveRack tests ---
+
+var testRackInfo = &pb.RackInfo{
+	Rows:        4,
+	Columns:     8,
+	Location:    "Building A",
+	OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+	CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+}
+
+func newTestServiceWithResolver(t *testing.T, resolver DeviceIdentifierResolver) (*Service, *mocks.MockCollectionStore, *mocks.MockTransactor) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	).AnyTimes()
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	return svc, mockStore, mockTransactor
+}
+
+func TestService_SaveRack_CreateNewRack(t *testing.T) {
+	deviceIDs := []string{"device-1", "device-2"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	// Arrange
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
+		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+		Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-1", int32(0), int32(0), testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-2", int32(0), int32(1), testOrgID).Return(nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, int64(10)).
+		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 2}, nil)
+
+	// Act
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label:    "Rack A",
+		RackInfo: testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+		SlotAssignments: []*pb.RackSlot{
+			{DeviceIdentifier: "device-1", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
+			{DeviceIdentifier: "device-2", Position: &pb.RackSlotPosition{Row: 0, Column: 1}},
+		},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "Rack A", resp.Collection.Label)
+	assert.Equal(t, int32(2), resp.AssignedCount)
+	assert.Equal(t, int32(2), resp.Collection.DeviceCount)
+	assert.NotNil(t, resp.Collection.GetRackInfo())
+}
+
+func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
+	deviceIDs := []string{"device-3"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+
+	// Arrange
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return([]*pb.RackSlot{
+		{DeviceIdentifier: "old-device", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
+	}, nil)
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), collectionID, "old-device", testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), collectionID, "device-3", int32(1), int32(2), testOrgID).Return(nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Updated Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)
+
+	// Act
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Updated Rack",
+		RackInfo:     testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+		SlotAssignments: []*pb.RackSlot{
+			{DeviceIdentifier: "device-3", Position: &pb.RackSlotPosition{Row: 1, Column: 2}},
+		},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Rack", resp.Collection.Label)
+	assert.Equal(t, int32(1), resp.AssignedCount)
+}
+
+func TestService_SaveRack_ValidationErrors(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	tests := []struct {
+		name string
+		req  *pb.SaveRackRequest
+		want string
+	}{
+		{
+			name: "missing rack_info",
+			req:  &pb.SaveRackRequest{Label: "Rack"},
+			want: "rack_info is required",
+		},
+		{
+			name: "missing location",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+			},
+			want: "location is required",
+		},
+		{
+			name: "rows too large",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: &pb.RackInfo{Rows: 13, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+			},
+			want: "rows must be between 1 and 12",
+		},
+		{
+			name: "columns too large",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 13, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+			},
+			want: "columns must be between 1 and 12",
+		},
+		{
+			name: "unspecified order_index",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+			},
+			want: "order_index is required",
+		},
+		{
+			name: "unspecified cooling_type",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
+			},
+			want: "cooling_type is required",
+		},
+		{
+			name: "slot row out of bounds",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: testRackInfo,
+				DeviceSelector: &commonpb.DeviceSelector{
+					SelectionType: &commonpb.DeviceSelector_DeviceList{
+						DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
+					},
+				},
+				SlotAssignments: []*pb.RackSlot{
+					{DeviceIdentifier: "device-1", Position: &pb.RackSlotPosition{Row: 4, Column: 0}},
+				},
+			},
+			want: "slot row 4 is out of bounds",
+		},
+		{
+			name: "slot column out of bounds",
+			req: &pb.SaveRackRequest{
+				Label:    "Rack",
+				RackInfo: testRackInfo,
+				DeviceSelector: &commonpb.DeviceSelector{
+					SelectionType: &commonpb.DeviceSelector_DeviceList{
+						DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
+					},
+				},
+				SlotAssignments: []*pb.RackSlot{
+					{DeviceIdentifier: "device-1", Position: &pb.RackSlotPosition{Row: 0, Column: 8}},
+				},
+			},
+			want: "slot column 8 is out of bounds",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.SaveRack(ctx, tt.req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+func TestService_SaveRack_SlotAssignmentReferencesUnknownDevice(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{"device-1"}, nil
+	}
+	svc, _, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label:    "Rack",
+		RackInfo: testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
+			},
+		},
+		SlotAssignments: []*pb.RackSlot{
+			{DeviceIdentifier: "device-999", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "device-999")
+}
+
+func TestService_SaveRack_UpdateNotFound(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{}, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(999)
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(false, nil)
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack",
+		RackInfo:     testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestService_SaveRack_RejectsGroupCollection(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{}, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Not a rack",
+		RackInfo:     testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "not a rack")
+}
+
+func TestService_SaveRack_StoreErrorRollsBack(t *testing.T) {
+	deviceIDs := []string{"device-1"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	// Arrange - create succeeds but AddDevices fails
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "").
+		Return(&pb.DeviceCollection{Id: 10, Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), testOrgID).
+		Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).
+		Return(int64(0), fleeterror.NewInternalError("database error"))
+
+	// Act
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label:    "Rack",
+		RackInfo: testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+		SlotAssignments: []*pb.RackSlot{
+			{DeviceIdentifier: "device-1", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
+		},
+	})
+
+	// Assert - error is returned, transaction would roll back
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database error")
+}
+
+func TestService_SaveRack_CreateWithNoDevices(t *testing.T) {
+	// Resolver should NOT be called for empty device lists — use a failing resolver to verify.
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		t.Fatal("resolver should not be called for empty device list")
+		return nil, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Empty Rack", "").
+		Return(&pb.DeviceCollection{Id: 20, Label: "Empty Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(20), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+		Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(20)).Return(int64(0), nil)
+	// AddDevicesToCollection should NOT be called since deviceIdentifiers is empty
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), int64(20), testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, int64(20)).
+		Return(&pb.DeviceCollection{Id: 20, Label: "Empty Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 0}, nil)
+
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label:    "Empty Rack",
+		RackInfo: testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "Empty Rack", resp.Collection.Label)
+	assert.Equal(t, int32(0), resp.AssignedCount)
+	assert.Equal(t, int32(0), resp.Collection.DeviceCount)
+}
+
+func TestService_SaveRack_UpdateRemoveAllMiners(t *testing.T) {
+	// Removing all miners from an existing rack should work without resolver error.
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		t.Fatal("resolver should not be called for empty device list")
+		return nil, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(5), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Cleared Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 0}, nil)
+
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Cleared Rack",
+		RackInfo:     testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "Cleared Rack", resp.Collection.Label)
+	assert.Equal(t, int32(0), resp.AssignedCount)
+	assert.Equal(t, int32(0), resp.Collection.DeviceCount)
+}

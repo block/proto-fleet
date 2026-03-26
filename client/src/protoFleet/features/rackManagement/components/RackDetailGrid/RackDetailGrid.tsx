@@ -1,19 +1,7 @@
 import { useMemo } from "react";
 import RackDetailSlot from "./RackDetailSlot";
-import type { NumberingOrigin, RackDetailGridProps, SlotHealthState } from "./types";
-
-function computeSlotNumber(row: number, col: number, rows: number, cols: number, origin: NumberingOrigin): number {
-  switch (origin) {
-    case "bottom-left":
-      return (rows - 1 - row) * cols + col + 1;
-    case "top-left":
-      return row * cols + col + 1;
-    case "bottom-right":
-      return (rows - 1 - row) * cols + (cols - 1 - col) + 1;
-    case "top-right":
-      return row * cols + (cols - 1 - col) + 1;
-  }
-}
+import type { RackDetailGridProps, SlotHealthState } from "./types";
+import { computeSlotNumber } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
 
 export default function RackDetailGrid({
   rows,

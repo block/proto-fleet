@@ -8,6 +8,7 @@ import {
   type RackType,
 } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useCollections } from "@/protoFleet/api/useCollections";
+import { type RackFormData } from "@/protoFleet/features/rackManagement/components/AssignMinersModal/types";
 
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -15,11 +16,16 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption } from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-interface AddRackModalProps {
+export type { RackFormData };
+
+interface RackSettingsModalProps {
   show: boolean;
   existingRacks: DeviceCollection[];
+  rack?: DeviceCollection;
+  initialFormData?: RackFormData;
   onDismiss: () => void;
-  onSuccess: () => void;
+  onContinue?: (formData: RackFormData) => void;
+  onSuccess?: () => void;
 }
 
 const orderIndexOptions: SelectOption[] = [
@@ -47,12 +53,25 @@ function abbreviateLocation(location: string): string {
     .join("");
 }
 
-const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModalProps) => {
-  const { createRack, listRackLocations, listRackTypes } = useCollections();
+const RackSettingsModal = ({
+  show,
+  existingRacks,
+  rack,
+  initialFormData,
+  onDismiss,
+  onContinue,
+  onSuccess,
+}: RackSettingsModalProps) => {
+  const isEditMode = !!rack;
+  const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
 
-  const [label, setLabel] = useState("");
-  const [labelManuallyEdited, setLabelManuallyEdited] = useState(false);
+  const { updateRack, listRackLocations, listRackTypes } = useCollections();
+
+  const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
+  const [labelManuallyEdited, setLabelManuallyEdited] = useState(isEditMode || !!initialFormData?.label);
   const [location, setLocation] = useState(() => {
+    if (initialFormData?.location) return initialFormData.location;
+    if (rackInfo?.location) return rackInfo.location;
     if (existingRacks.length > 0) {
       const sorted = [...existingRacks].sort((a, b) => {
         const aTime = a.createdAt?.seconds ?? BigInt(0);
@@ -64,11 +83,17 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
     }
     return "";
   });
-  const [rackTypeSelection, setRackTypeSelection] = useState("new");
-  const [rows, setRows] = useState("");
-  const [columns, setColumns] = useState("");
-  const [orderIndex, setOrderIndex] = useState<RackOrderIndex>(RackOrderIndex.BOTTOM_LEFT);
-  const [coolingType, setCoolingType] = useState<RackCoolingType>(RackCoolingType.AIR);
+  const initRows = initialFormData?.rows ?? rackInfo?.rows;
+  const initCols = initialFormData?.columns ?? rackInfo?.columns;
+  const [rackTypeSelection, setRackTypeSelection] = useState(initCols && initRows ? `${initCols}x${initRows}` : "new");
+  const [rows, setRows] = useState(initRows ? String(initRows) : "");
+  const [columns, setColumns] = useState(initCols ? String(initCols) : "");
+  const [orderIndex, setOrderIndex] = useState<RackOrderIndex>(
+    initialFormData?.orderIndex ?? rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
+  );
+  const [coolingType, setCoolingType] = useState<RackCoolingType>(
+    initialFormData?.coolingType ?? rackInfo?.coolingType ?? RackCoolingType.AIR,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [labelError, setLabelError] = useState<string | undefined>();
@@ -97,7 +122,7 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
     listRackTypes({
       onSuccess: (types) => {
         setRackTypes(types);
-        if (types.length > 0) {
+        if (!initialFormData && !rackInfo && types.length > 0) {
           const first = types[0];
           setRackTypeSelection(`${first.columns}x${first.rows}`);
           setRows(String(first.rows));
@@ -106,6 +131,7 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
       },
       onFinally: () => setRackTypesLoaded(true),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
   }, [listRackLocations, listRackTypes]);
 
   // Auto-generate label when location changes
@@ -230,31 +256,59 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
 
     if (hasError) return;
 
-    setIsSubmitting(true);
-
-    createRack({
+    const formData: RackFormData = {
       label: effectiveLabel.trim(),
       location: location.trim(),
       rows: rowsNum,
       columns: colsNum,
       orderIndex,
       coolingType,
+    };
+
+    if (!isEditMode) {
+      onContinue?.(formData);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    updateRack({
+      collectionId: rack!.id,
+      label: formData.label,
+      location: formData.location,
+      rows: formData.rows,
+      columns: formData.columns,
+      orderIndex: formData.orderIndex,
+      coolingType: formData.coolingType,
       onSuccess: () => {
         pushToast({
-          message: `Rack "${effectiveLabel.trim()}" created`,
+          message: `Rack "${formData.label}" updated`,
           status: STATUSES.success,
         });
-        onSuccess();
+        onSuccess?.();
         onDismiss();
       },
       onError: (error) => {
-        setErrorMsg(error || "Failed to create rack. Please try again.");
+        setErrorMsg(error || "Failed to update rack. Please try again.");
       },
       onFinally: () => {
         setIsSubmitting(false);
       },
     });
-  }, [effectiveLabel, location, rows, columns, orderIndex, coolingType, createRack, onSuccess, onDismiss]);
+  }, [
+    effectiveLabel,
+    location,
+    rows,
+    columns,
+    orderIndex,
+    coolingType,
+    isEditMode,
+    rack,
+    updateRack,
+    onContinue,
+    onSuccess,
+    onDismiss,
+  ]);
 
   if (!show) return null;
 
@@ -267,7 +321,7 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
       onDismiss={onDismiss}
       buttons={[
         {
-          text: isSubmitting ? "Creating..." : "Continue",
+          text: isEditMode ? (isSubmitting ? "Saving..." : "Save") : "Continue",
           variant: "primary",
           disabled: isSubmitting || isInitialLoading,
           loading: isSubmitting,
@@ -283,22 +337,8 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
       ) : (
         <div className="flex flex-col gap-4 pt-1">
           {errorMsg && (
-            <div className="text-body-200 text-intent-critical rounded-lg bg-intent-critical-10 px-4 py-3">
-              {errorMsg}
-            </div>
+            <div className="text-intent-critical rounded-lg bg-intent-critical-10 px-4 py-3 text-300">{errorMsg}</div>
           )}
-
-          <Input
-            id="rack-label"
-            label="Label"
-            initValue={effectiveLabel}
-            onChange={(value) => {
-              setLabel(value);
-              setLabelManuallyEdited(true);
-            }}
-            error={labelError}
-            autoFocus
-          />
 
           <div className="relative">
             <Input
@@ -318,6 +358,7 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
               }}
               error={locationError}
               autoComplete="off"
+              autoFocus
             />
             {showLocationSuggestions && filteredSuggestions.length > 0 && (
               <div
@@ -335,7 +376,7 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
                     key={suggestion}
                     type="button"
                     className={clsx(
-                      "text-body-200 w-full rounded-xl px-3 py-2.5 text-left text-text-primary",
+                      "w-full rounded-xl px-3 py-2.5 text-left text-300 text-text-primary",
                       { "bg-core-primary-5": index === highlightedIndex },
                       "hover:bg-core-primary-5",
                     )}
@@ -349,14 +390,27 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
             )}
           </div>
 
-          <Select
-            id="rack-type-select"
-            label="Rack type"
-            options={rackTypeOptions}
-            value={rackTypeSelection}
-            onChange={handleRackTypeChange}
-            testId="rack-type-select"
+          <Input
+            id="rack-label"
+            label="Label"
+            initValue={effectiveLabel}
+            onChange={(value) => {
+              setLabel(value);
+              setLabelManuallyEdited(true);
+            }}
+            error={labelError}
           />
+
+          {rackTypes.length > 0 && (
+            <Select
+              id="rack-type-select"
+              label="Rack type"
+              options={rackTypeOptions}
+              value={rackTypeSelection}
+              onChange={handleRackTypeChange}
+              testId="rack-type-select"
+            />
+          )}
 
           <div className="flex gap-3">
             <div className="flex-1">
@@ -406,4 +460,4 @@ const AddRackModal = ({ show, existingRacks, onDismiss, onSuccess }: AddRackModa
   );
 };
 
-export default AddRackModal;
+export default RackSettingsModal;
