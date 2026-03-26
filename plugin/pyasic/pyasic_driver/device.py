@@ -2,6 +2,8 @@
 
 Single device class for ALL manufacturers supported by pyasic. Delegates all operations
 to pyasic's unified API. No manufacturer-specific subclasses needed.
+
+Returns proto types directly — no SDK type conversion layer.
 """
 
 from __future__ import annotations
@@ -12,18 +14,9 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-import grpc
-from proto_fleet_sdk.enums import (
-    ComponentStatus,
-    CoolingMode,
-    HealthStatus,
-    MetricKind,
-    PerformanceMode,
-)
+from google.protobuf.timestamp_pb2 import Timestamp
 from proto_fleet_sdk.error_codes import (
     ComponentType,
-    DeviceError,
-    DeviceErrors,
     MinerError,
     Severity,
 )
@@ -32,30 +25,29 @@ from proto_fleet_sdk.errors import (
     SDKError,
     UnsupportedCapabilityError,
 )
-from proto_fleet_sdk.telemetry import DeviceMetrics, jth_to_jh, ths_to_hs
-from proto_fleet_sdk.telemetry.components import (
-    ComponentInfo,
-    FanMetrics,
-    HashBoardMetrics,
-    PSUMetrics,
-)
-from proto_fleet_sdk.telemetry.metrics import MetricValue
-from proto_fleet_sdk.types import Capabilities, ConfiguredPool, DeviceInfo, MiningPoolConfig
+from proto_fleet_sdk.generated.pb import driver_pb2
 from pyasic.errors import APIError
 
 logger = logging.getLogger(__name__)
+
+# Capabilities are just dict[str, bool]
+Capabilities = dict[str, bool]
 
 _BLINK_LED_DURATION_SECS = 30
 _DEFAULT_STRATUM_PASSWORD = "x"
 _DISRUPTIVE_CONTROL_COMMANDS = frozenset({"resume_mining", "stop_mining", "reboot"})
 
+# Unit conversion constants — inlined from the removed telemetry/converters.py
+_THS_TO_HS = 1e12
+_JTH_TO_JH = 1e-12
 
-def _metric_gauge(value: float) -> MetricValue:
-    return MetricValue(value=value, kind=MetricKind.METRIC_KIND_GAUGE)
+
+def _metric_gauge(value: float) -> driver_pb2.MetricValue:
+    return driver_pb2.MetricValue(value=value, kind=driver_pb2.METRIC_KIND_GAUGE)
 
 
-def _metric_rate(value: float) -> MetricValue:
-    return MetricValue(value=value, kind=MetricKind.METRIC_KIND_RATE)
+def _metric_rate(value: float) -> driver_pb2.MetricValue:
+    return driver_pb2.MetricValue(value=value, kind=driver_pb2.METRIC_KIND_RATE)
 
 
 def _has_value(val: object) -> bool:
@@ -174,7 +166,8 @@ def _infer_component(error_message: str) -> ComponentType:
     return ComponentType.COMPONENT_TYPE_UNSPECIFIED
 
 
-def _determine_board_status(board: Any) -> ComponentStatus:
+def _determine_board_status(board: Any) -> int:
+    """Returns proto ComponentStatus enum value."""
     hashrate = getattr(board, "hashrate", None)
     temp = getattr(board, "temp", None)
     chips = getattr(board, "chips", None)
@@ -182,11 +175,17 @@ def _determine_board_status(board: Any) -> ComponentStatus:
 
     if _has_value(hashrate):
         if expected and chips and chips < expected:
-            return ComponentStatus.COMPONENT_STATUS_WARNING
-        return ComponentStatus.COMPONENT_STATUS_HEALTHY
+            return driver_pb2.COMPONENT_STATUS_WARNING
+        return driver_pb2.COMPONENT_STATUS_HEALTHY
     if _has_value(temp):
-        return ComponentStatus.COMPONENT_STATUS_WARNING
-    return ComponentStatus.COMPONENT_STATUS_OFFLINE
+        return driver_pb2.COMPONENT_STATUS_WARNING
+    return driver_pb2.COMPONENT_STATUS_OFFLINE
+
+
+def _timestamp_from_datetime(dt: datetime) -> Timestamp:
+    ts = Timestamp()
+    ts.FromDatetime(dt)
+    return ts
 
 
 class PyAsicDevice:
@@ -194,13 +193,15 @@ class PyAsicDevice:
 
     Handles telemetry, control, pool configuration, and error reporting for any
     manufacturer that pyasic supports, using pyasic's unified async API.
+
+    Returns proto types directly.
     """
 
     def __init__(
         self,
         device_id: str,
         miner: Any | None,
-        device_info: DeviceInfo,
+        device_info: driver_pb2.DeviceInfo,
         caps: Capabilities,
         cache_ttl_seconds: int = 5,
         probe_fn: Any | None = None,
@@ -215,7 +216,7 @@ class PyAsicDevice:
         self._probe_fn = probe_fn
         self._secret = secret
         self._on_caps_update = on_caps_update
-        self._last_status: DeviceMetrics | None = None
+        self._last_status: driver_pb2.DeviceMetrics | None = None
         self._last_status_at: datetime | None = None
 
     def id(self) -> str:
@@ -282,12 +283,12 @@ class PyAsicDevice:
         if not await self._ensure_connected():
             raise DeviceUnavailableError(device_id=self._id)
 
-    async def describe_device(self, ctx: grpc.ServicerContext) -> tuple[DeviceInfo, Capabilities]:
+    def describe_device(self) -> tuple[driver_pb2.DeviceInfo, Capabilities]:
         return self._info, self._caps
 
     # --- Core: telemetry ---
 
-    async def status(self, ctx: grpc.ServicerContext) -> DeviceMetrics:
+    async def status(self) -> driver_pb2.DeviceMetrics:
         now = datetime.now(timezone.utc)
         if (
             self._last_status is not None
@@ -307,25 +308,27 @@ class PyAsicDevice:
         except Exception:
             self._miner = None
             logger.warning("Failed to get data from %s", self._id, exc_info=True)
-            return DeviceMetrics(
+            metrics = driver_pb2.DeviceMetrics(
                 device_id=self._id,
-                timestamp=now,
-                health=HealthStatus.HEALTH_CRITICAL,
+                health=driver_pb2.HEALTH_CRITICAL,
                 health_reason="Failed to communicate with device",
             )
+            metrics.timestamp.CopyFrom(_timestamp_from_datetime(now))
+            return metrics
 
         metrics = self._convert_miner_data(data, now)
         self._last_status = metrics
         self._last_status_at = now
         return metrics
 
-    def _convert_miner_data(self, data: Any, timestamp: datetime) -> DeviceMetrics:
+    def _convert_miner_data(self, data: Any, timestamp: datetime) -> driver_pb2.DeviceMetrics:
         if data is None:
-            return DeviceMetrics(
+            metrics = driver_pb2.DeviceMetrics(
                 device_id=self._id,
-                timestamp=timestamp,
-                health=HealthStatus.HEALTH_UNKNOWN,
+                health=driver_pb2.HEALTH_UNKNOWN,
             )
+            metrics.timestamp.CopyFrom(_timestamp_from_datetime(timestamp))
+            return metrics
 
         health, health_reason = self._determine_health(data)
 
@@ -334,54 +337,54 @@ class PyAsicDevice:
         temp_avg = getattr(data, "temperature_avg", None)
         efficiency = getattr(data, "efficiency", None)
 
-        hashrate_hs = _metric_rate(ths_to_hs(_to_float(hashrate_ths))) if _has_value(hashrate_ths) else None
-        power_w = _metric_gauge(_to_float(wattage)) if _has_value(wattage) else None
-        temp_c = _metric_gauge(_to_float(temp_avg)) if _has_value(temp_avg) else None
-        efficiency_jh = (
-            _metric_gauge(jth_to_jh(_to_float(efficiency)))
-            if _has_value(efficiency) and _has_value(hashrate_ths)
-            else None
-        )
-
-        hash_boards = self._convert_hashboards(data)
-        fan_metrics = self._convert_fans(data)
-        psu_metrics = self._convert_psu(data)
-
-        return DeviceMetrics(
+        metrics = driver_pb2.DeviceMetrics(
             device_id=self._id,
-            timestamp=timestamp,
             health=health,
-            health_reason=health_reason,
-            hashrate_hs=hashrate_hs,
-            power_w=power_w,
-            temp_c=temp_c,
-            efficiency_jh=efficiency_jh,
-            hash_boards=hash_boards,
-            fan_metrics=fan_metrics,
-            psu_metrics=psu_metrics,
         )
+        metrics.timestamp.CopyFrom(_timestamp_from_datetime(timestamp))
 
-    def _determine_health(self, data: Any) -> tuple[HealthStatus, str | None]:
+        if health_reason:
+            metrics.health_reason = health_reason
+
+        if _has_value(hashrate_ths):
+            metrics.hashrate_hs.CopyFrom(_metric_rate(_to_float(hashrate_ths) * _THS_TO_HS))
+        if _has_value(wattage):
+            metrics.power_w.CopyFrom(_metric_gauge(_to_float(wattage)))
+        if _has_value(temp_avg):
+            metrics.temp_c.CopyFrom(_metric_gauge(_to_float(temp_avg)))
+        if _has_value(efficiency) and _has_value(hashrate_ths):
+            metrics.efficiency_jh.CopyFrom(_metric_gauge(_to_float(efficiency) * _JTH_TO_JH))
+
+        for hb in self._convert_hashboards(data):
+            metrics.hash_boards.append(hb)
+        for fan in self._convert_fans(data):
+            metrics.fan_metrics.append(fan)
+        for psu in self._convert_psu(data):
+            metrics.psu_metrics.append(psu)
+
+        return metrics
+
+    def _determine_health(self, data: Any) -> tuple[int, str | None]:
         is_mining = getattr(data, "is_mining", None)
         hashrate = getattr(data, "hashrate", None)
         errors = getattr(data, "errors", None)
 
         if is_mining is False:
-            return HealthStatus.HEALTH_HEALTHY_INACTIVE, None
+            return driver_pb2.HEALTH_HEALTHY_INACTIVE, None
         if errors:
-            return HealthStatus.HEALTH_WARNING, f"{len(errors)} error(s) reported"
+            return driver_pb2.HEALTH_WARNING, f"{len(errors)} error(s) reported"
         if is_mining and _has_value(hashrate):
-            return HealthStatus.HEALTH_HEALTHY_ACTIVE, None
+            return driver_pb2.HEALTH_HEALTHY_ACTIVE, None
         if is_mining and not _has_value(hashrate):
-            return HealthStatus.HEALTH_WARNING, "Mining but no hashrate detected"
-        return HealthStatus.HEALTH_UNKNOWN, None
+            return driver_pb2.HEALTH_WARNING, "Mining but no hashrate detected"
+        return driver_pb2.HEALTH_UNKNOWN, None
 
-    def _convert_hashboards(self, data: Any) -> list[HashBoardMetrics]:
+    def _convert_hashboards(self, data: Any) -> list[driver_pb2.HashBoardMetrics]:
         boards_raw = getattr(data, "hashboards", None)
         if not boards_raw:
             return []
 
-        boards: list[HashBoardMetrics] = []
+        boards: list[driver_pb2.HashBoardMetrics] = []
         for i, board in enumerate(boards_raw):
             hashrate = getattr(board, "hashrate", None)
             temp = getattr(board, "temp", None)
@@ -390,28 +393,29 @@ class PyAsicDevice:
             serial = getattr(board, "serial_number", None) or ""
 
             status = _determine_board_status(board)
-            info = ComponentInfo(index=i, name=f"hashboard_{i}", status=status)
+            info = driver_pb2.ComponentInfo(index=i, name=f"hashboard_{i}", status=status)
 
-            boards.append(
-                HashBoardMetrics(
-                    component_info=info,
-                    serial_number=serial,
-                    hash_rate_hs=(
-                        _metric_rate(ths_to_hs(_to_float(hashrate))) if _has_value(hashrate) else None
-                    ),
-                    temp_c=_metric_gauge(_to_float(temp)) if _has_value(temp) else None,
-                    chip_count=chips if _has_value(chips) else None,
-                    chip_frequency_mhz=_metric_gauge(_to_float(chip_freq)) if _has_value(chip_freq) else None,
-                )
-            )
+            hb = driver_pb2.HashBoardMetrics(component_info=info)
+            if serial:
+                hb.serial_number = serial
+            if _has_value(hashrate):
+                hb.hash_rate_hs.CopyFrom(_metric_rate(_to_float(hashrate) * _THS_TO_HS))
+            if _has_value(temp):
+                hb.temp_c.CopyFrom(_metric_gauge(_to_float(temp)))
+            if _has_value(chips) and chips is not None:
+                hb.chip_count = int(chips)
+            if _has_value(chip_freq):
+                hb.chip_frequency_mhz.CopyFrom(_metric_gauge(_to_float(chip_freq)))
+
+            boards.append(hb)
         return boards
 
-    def _convert_fans(self, data: Any) -> list[FanMetrics]:
+    def _convert_fans(self, data: Any) -> list[driver_pb2.FanMetrics]:
         fans_raw = getattr(data, "fans", None)
         if not fans_raw:
             return []
 
-        fans: list[FanMetrics] = []
+        fans: list[driver_pb2.FanMetrics] = []
         for i, fan in enumerate(fans_raw):
             speed_raw = getattr(fan, "speed", None) if not isinstance(fan, (int, float)) else fan
             if not _has_value(speed_raw):
@@ -419,16 +423,18 @@ class PyAsicDevice:
             speed = _to_float(speed_raw)
 
             status = (
-                ComponentStatus.COMPONENT_STATUS_HEALTHY
+                driver_pb2.COMPONENT_STATUS_HEALTHY
                 if speed > 0
-                else ComponentStatus.COMPONENT_STATUS_OFFLINE
+                else driver_pb2.COMPONENT_STATUS_OFFLINE
             )
-            info = ComponentInfo(index=i, name=f"fan_{i}", status=status)
-            fans.append(FanMetrics(component_info=info, rpm=_metric_gauge(speed)))
+            info = driver_pb2.ComponentInfo(index=i, name=f"fan_{i}", status=status)
+            pb_fan = driver_pb2.FanMetrics(component_info=info)
+            pb_fan.rpm.CopyFrom(_metric_gauge(speed))
+            fans.append(pb_fan)
 
         return fans
 
-    def _convert_psu(self, data: Any) -> list[PSUMetrics]:
+    def _convert_psu(self, data: Any) -> list[driver_pb2.PSUMetrics]:
         wattage = getattr(data, "wattage", None)
         voltage = getattr(data, "voltage", None)
         current = getattr(data, "current", None)
@@ -437,20 +443,21 @@ class PyAsicDevice:
             return []
 
         status = (
-            ComponentStatus.COMPONENT_STATUS_HEALTHY
+            driver_pb2.COMPONENT_STATUS_HEALTHY
             if _has_value(wattage)
-            else ComponentStatus.COMPONENT_STATUS_UNKNOWN
+            else driver_pb2.COMPONENT_STATUS_UNKNOWN
         )
-        info = ComponentInfo(index=0, name="psu_0", status=status)
+        info = driver_pb2.ComponentInfo(index=0, name="psu_0", status=status)
 
-        return [
-            PSUMetrics(
-                component_info=info,
-                output_power_w=_metric_gauge(_to_float(wattage)) if _has_value(wattage) else None,
-                output_voltage_v=_metric_gauge(_to_float(voltage)) if _has_value(voltage) else None,
-                output_current_a=_metric_gauge(_to_float(current)) if _has_value(current) else None,
-            )
-        ]
+        psu = driver_pb2.PSUMetrics(component_info=info)
+        if _has_value(wattage):
+            psu.output_power_w.CopyFrom(_metric_gauge(_to_float(wattage)))
+        if _has_value(voltage):
+            psu.output_voltage_v.CopyFrom(_metric_gauge(_to_float(voltage)))
+        if _has_value(current):
+            psu.output_current_a.CopyFrom(_metric_gauge(_to_float(current)))
+
+        return [psu]
 
     # --- Control ---
 
@@ -507,25 +514,25 @@ class PyAsicDevice:
                 miner_ip=getattr(self._miner, "ip", "?"),
             )
 
-    async def start_mining(self, ctx: grpc.ServicerContext) -> None:
+    async def start_mining(self) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "mining_start", self._id)
         await self._exec_pyasic_command("resume_mining", self._miner.resume_mining())
 
-    async def stop_mining(self, ctx: grpc.ServicerContext) -> None:
+    async def stop_mining(self) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "mining_stop", self._id)
         await self._exec_pyasic_command("stop_mining", self._miner.stop_mining())
 
-    async def reboot(self, ctx: grpc.ServicerContext) -> None:
+    async def reboot(self) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "reboot", self._id)
         await self._exec_pyasic_command("reboot", self._miner.reboot())
 
-    async def blink_led(self, ctx: grpc.ServicerContext) -> None:
+    async def blink_led(self) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "led_blink", self._id)
@@ -545,7 +552,7 @@ class PyAsicDevice:
 
     # --- Configuration ---
 
-    async def get_mining_pools(self, ctx: grpc.ServicerContext) -> list[ConfiguredPool]:
+    async def get_mining_pools(self) -> list[driver_pb2.ConfiguredPool]:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "get_mining_pools", self._id)
@@ -553,7 +560,7 @@ class PyAsicDevice:
         if config is None:
             return []
 
-        pools: list[ConfiguredPool] = []
+        pools: list[driver_pb2.ConfiguredPool] = []
         pool_groups = getattr(config, "pools", None)
         if pool_groups:
             groups = getattr(pool_groups, "groups", None) or []
@@ -563,10 +570,10 @@ class PyAsicDevice:
                     url = getattr(pool, "url", "") or ""
                     user = getattr(pool, "user", "") or ""
                     if url:
-                        pools.append(ConfiguredPool(priority=i, url=url, username=user))
+                        pools.append(driver_pb2.ConfiguredPool(priority=i, url=url, username=user))
         return pools
 
-    async def update_mining_pools(self, ctx: grpc.ServicerContext, pools: list[MiningPoolConfig]) -> None:
+    async def update_mining_pools(self, pools: list[driver_pb2.MiningPool]) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "update_mining_pools", self._id)
@@ -588,13 +595,7 @@ class PyAsicDevice:
         logger.info("Updating pools for %s: %d pool(s)", self._id, len(pools))
         await self._miner.send_config(config)
 
-    async def set_cooling_mode(self, ctx: grpc.ServicerContext, mode: CoolingMode) -> None:
-        raise UnsupportedCapabilityError("set_cooling_mode", device_id=self._id)
-
-    async def get_cooling_mode(self, ctx: grpc.ServicerContext) -> CoolingMode:
-        raise UnsupportedCapabilityError("get_cooling_mode", device_id=self._id)
-
-    async def set_power_target(self, ctx: grpc.ServicerContext, performance_mode: PerformanceMode) -> None:
+    async def set_power_target(self, performance_mode: int) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "power_mode_efficiency", self._id)
@@ -604,13 +605,8 @@ class PyAsicDevice:
         else:
             await self._set_power_target_mode(performance_mode)
 
-    async def _set_power_target_preset(self, performance_mode: PerformanceMode) -> None:
-        """Set power target on preset-based miners by selecting the appropriate preset.
-
-        Works regardless of current mining mode — the patched set_power_limit
-        fetches presets directly from the API and switches the miner to preset
-        mode if needed.
-        """
+    async def _set_power_target_preset(self, performance_mode: int) -> None:
+        """Set power target on preset-based miners by selecting the appropriate preset."""
         assert self._miner is not None
 
         from pyasic.errors import APIError
@@ -642,9 +638,9 @@ class PyAsicDevice:
                 device_id=self._id,
             )
 
-        if performance_mode == PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE:
+        if performance_mode == driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE:
             target_wattage = max(tuned_powers)
-        elif performance_mode == PerformanceMode.PERFORMANCE_MODE_EFFICIENCY:
+        elif performance_mode == driver_pb2.PERFORMANCE_MODE_EFFICIENCY:
             target_wattage = min(tuned_powers)
         else:
             sorted_powers = sorted(tuned_powers)
@@ -658,7 +654,7 @@ class PyAsicDevice:
             "set_power_target", self._miner.set_power_limit(target_wattage),
         )
 
-    async def _set_power_target_mode(self, performance_mode: PerformanceMode) -> None:
+    async def _set_power_target_mode(self, performance_mode: int) -> None:
         """Set power target on mode-based miners using HPM/LPM/Normal."""
         assert self._miner is not None
 
@@ -666,8 +662,8 @@ class PyAsicDevice:
         from pyasic.config.mining import MiningModeHPM, MiningModeLPM, MiningModeNormal
 
         mode_map = {
-            PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE: MiningModeHPM(),
-            PerformanceMode.PERFORMANCE_MODE_EFFICIENCY: MiningModeLPM(),
+            driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE: MiningModeHPM(),
+            driver_pb2.PERFORMANCE_MODE_EFFICIENCY: MiningModeLPM(),
         }
         mining_mode = mode_map.get(performance_mode)
         if mining_mode is None:
@@ -686,45 +682,34 @@ class PyAsicDevice:
 
         await self._miner.send_config(new_config)
 
-    async def update_miner_password(
-        self, ctx: grpc.ServicerContext, current_password: str, new_password: str
-    ) -> None:
-        raise UnsupportedCapabilityError("update_miner_password", device_id=self._id)
-
     # --- Maintenance ---
 
-    async def download_logs(
-        self, ctx: grpc.ServicerContext, since: datetime | None = None, batch_log_uuid: str | None = None
-    ) -> tuple[str, bool]:
-        raise UnsupportedCapabilityError("download_logs", device_id=self._id)
-
-    async def firmware_update(self, ctx: grpc.ServicerContext, firmware: Any) -> None:
+    async def firmware_update(self) -> None:
         await self._ensure_connected_or_raise()
         assert self._miner is not None
         _require_cap(self._caps, "firmware", self._id)
         await self._exec_pyasic_command("upgrade_firmware", self._miner.upgrade_firmware())
 
-    async def unpair(self, ctx: grpc.ServicerContext) -> None:
-        pass
-
     # --- Error reporting ---
 
-    async def get_errors(self, ctx: grpc.ServicerContext) -> DeviceErrors:
+    async def get_errors(self) -> driver_pb2.DeviceErrors:
         now = datetime.now(timezone.utc)
         if not await self._ensure_connected():
-            return DeviceErrors(device_id=self._id, errors=())
+            return driver_pb2.DeviceErrors(device_id=self._id)
         assert self._miner is not None
         try:
             raw_errors = await self._miner.get_errors()
         except Exception:
             self._miner = None
             logger.warning("Failed to get errors from %s", self._id, exc_info=True)
-            return DeviceErrors(device_id=self._id, errors=())
+            return driver_pb2.DeviceErrors(device_id=self._id)
 
         if not raw_errors:
-            return DeviceErrors(device_id=self._id, errors=())
+            return driver_pb2.DeviceErrors(device_id=self._id)
 
-        errors: list[DeviceError] = []
+        pb_errors = driver_pb2.DeviceErrors(device_id=self._id)
+        now_ts = _timestamp_from_datetime(now)
+
         for raw_err in raw_errors:
             error_msg = getattr(raw_err, "error_message", None) or str(raw_err)
             error_code = getattr(raw_err, "error_code", None)
@@ -732,28 +717,26 @@ class PyAsicDevice:
             component = _infer_component(error_msg)
             miner_error = _infer_miner_error(error_msg, error_code)
 
-            vendor_attrs: dict[str, str] = {}
-            if error_code is not None:
-                vendor_attrs["vendor_error_code"] = str(error_code)
-
-            errors.append(
-                DeviceError(
-                    miner_error=miner_error,
-                    cause_summary=error_msg,
-                    recommended_action="Check device status",
-                    severity=severity,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                    device_id=self._id,
-                    summary=error_msg,
-                    component_type=component,
-                    vendor_attributes=vendor_attrs,
-                )
+            pb_error = driver_pb2.DeviceError(
+                miner_error=miner_error,
+                cause_summary=error_msg,
+                recommended_action="Check device status",
+                severity=severity,
+                device_id=self._id,
+                summary=error_msg,
+                component_type=component,
             )
+            pb_error.first_seen_at.CopyFrom(now_ts)
+            pb_error.last_seen_at.CopyFrom(now_ts)
 
-        return DeviceErrors(device_id=self._id, errors=tuple(errors))
+            if error_code is not None:
+                pb_error.vendor_attributes["vendor_error_code"] = str(error_code)
 
-    async def close(self, ctx: grpc.ServicerContext) -> None:
+            pb_errors.errors.append(pb_error)
+
+        return pb_errors
+
+    def close(self) -> None:
         self._miner = None
         self._last_status = None
         self._last_status_at = None

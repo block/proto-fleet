@@ -21,8 +21,6 @@ from typing import Any
 import grpc
 
 from proto_fleet_sdk.generated.pb import driver_pb2_grpc
-from proto_fleet_sdk.protocols.driver import Driver
-from proto_fleet_sdk.servicer import DriverServicer
 
 __all__ = ["PluginServer"]
 
@@ -43,10 +41,17 @@ class PluginServer:
     Implements the HashiCorp go-plugin protocol so the Go server can launch
     this plugin as a subprocess, negotiate a gRPC connection, and communicate
     over the SDK's Driver service.
+
+    The servicer must be an instance of driver_pb2_grpc.DriverServicer (the
+    protoc-generated base class). Plugin authors implement the gRPC servicer
+    directly with proto types and use the @grpc_error_handler decorator from
+    proto_fleet_sdk.errors for automatic SDK error → gRPC status mapping.
     """
 
-    def __init__(self, driver: Driver, port: int = DEFAULT_PLUGIN_PORT, host: str = "127.0.0.1") -> None:
-        self.driver = driver
+    def __init__(
+        self, servicer: driver_pb2_grpc.DriverServicer, port: int = DEFAULT_PLUGIN_PORT, host: str = "127.0.0.1"
+    ) -> None:
+        self.servicer = servicer
         self.port = port
         self.host = host
         self.server: grpc.aio.Server | None = None
@@ -80,9 +85,8 @@ class PluginServer:
     async def start(self) -> None:
         self.server = grpc.aio.server()
 
-        # Add servicer
-        servicer = DriverServicer(self.driver)
-        driver_pb2_grpc.add_DriverServicer_to_server(servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
+        # Register the servicer directly
+        driver_pb2_grpc.add_DriverServicer_to_server(self.servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
 
         # Bind to address (port=0 lets the OS pick a free port)
         address = f"{self.host}:{self.port}"
@@ -128,8 +132,8 @@ class PluginServer:
 
         Example:
             >>> async def main():
-            ...     driver = MyDriver()
-            ...     server = PluginServer(driver)
+            ...     servicer = MyDriverServicer()
+            ...     server = PluginServer(servicer)
             ...     await server.serve()
             >>>
             >>> if __name__ == "__main__":
@@ -161,8 +165,8 @@ class PluginServer:
 
         Example:
             >>> if __name__ == "__main__":
-            ...     driver = MyDriver()
-            ...     server = PluginServer(driver)
+            ...     servicer = MyDriverServicer()
+            ...     server = PluginServer(servicer)
             ...     server.run()
         """
         asyncio.run(self.serve())

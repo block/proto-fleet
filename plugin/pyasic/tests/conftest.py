@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from proto_fleet_sdk.auth import SecretBundle, UsernamePassword
+from proto_fleet_sdk.generated.pb import driver_pb2
 
 from pyasic_driver.capabilities import FW_STOCK
 from pyasic_driver.config import FirmwareConfig, MinerFamilyConfig, PluginConfig, PluginSettings
@@ -181,13 +181,15 @@ def multi_family_config() -> PluginConfig:
 
 
 @pytest.fixture
-def mock_secret() -> SecretBundle:
-    return SecretBundle(
+def mock_secret() -> driver_pb2.SecretBundle:
+    return driver_pb2.SecretBundle(
         version="1",
-        kind=UsernamePassword(username="admin", password="admin"),
+        user_pass=driver_pb2.UsernamePassword(username="admin", password="admin"),
     )
 
 
 @pytest.fixture
 def mock_ctx() -> MagicMock:
-    return MagicMock(spec=[])
+    ctx = MagicMock()
+    ctx.abort = AsyncMock()
+    return ctx

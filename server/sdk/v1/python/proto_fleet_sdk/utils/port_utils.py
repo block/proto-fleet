@@ -1,16 +1,13 @@
-"""Port parsing and validation utilities.
-
-This module provides functions for parsing and validating network port numbers.
-"""
+"""Port parsing and validation utilities."""
 
 from __future__ import annotations
 
 from proto_fleet_sdk.errors import InvalidConfigError
-from proto_fleet_sdk.types import MAX_PORT
 
 __all__ = ["parse_port"]
 
 MIN_PORT = 1
+MAX_PORT = 65535
 
 
 def parse_port(port: str) -> int:

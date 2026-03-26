@@ -6,7 +6,12 @@ inherit from SDKError and include an error code, message, and optional cause.
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import logging
+from collections.abc import Callable
 from enum import StrEnum
+from typing import Any, TypeVar
 
 __all__ = [
     "ErrorCode",
@@ -18,7 +23,12 @@ __all__ = [
     "AuthenticationFailedError",
     "DriverShutdownError",
     "NetworkError",
+    "grpc_error_handler",
 ]
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorCode(StrEnum):
@@ -186,3 +196,69 @@ class NetworkError(SDKError):
             message=message,
             cause=cause,
         )
+
+
+async def _handle_sdk_error(e: Exception, grpc_context: Any) -> None:
+    """Map SDK errors to gRPC status codes."""
+    import grpc
+
+    if isinstance(e, UnsupportedCapabilityError):
+        await grpc_context.abort(grpc.StatusCode.UNIMPLEMENTED, str(e))
+    elif isinstance(e, DeviceNotFoundError):
+        await grpc_context.abort(grpc.StatusCode.NOT_FOUND, str(e))
+    elif isinstance(e, InvalidConfigError):
+        await grpc_context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+    elif isinstance(e, DeviceUnavailableError):
+        await grpc_context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+    elif isinstance(e, AuthenticationFailedError):
+        await grpc_context.abort(grpc.StatusCode.UNAUTHENTICATED, str(e))
+    elif isinstance(e, DriverShutdownError):
+        await grpc_context.abort(grpc.StatusCode.ABORTED, str(e))
+    elif isinstance(e, SDKError):
+        await grpc_context.abort(grpc.StatusCode.INTERNAL, str(e))
+    else:
+        logger.error("Unexpected error: %s", e, exc_info=True)
+        await grpc_context.abort(grpc.StatusCode.INTERNAL, "internal error")
+
+
+def grpc_error_handler(method: F) -> F:
+    """Decorator that maps SDK exceptions to gRPC status codes.
+
+    Use this on **unary** gRPC servicer methods so plugin authors can raise SDK
+    exceptions (e.g. DeviceNotFoundError) and have them automatically mapped to
+    the correct gRPC status codes (e.g. NOT_FOUND).
+
+    This decorator only supports unary RPCs. Decorating an async generator
+    (server-streaming method) will raise TypeError at decoration time. For
+    streaming error mapping, handle errors inside the generator body directly.
+
+    Example::
+
+        class MyServicer(driver_pb2_grpc.DriverServicer):
+            @grpc_error_handler
+            async def DiscoverDevice(self, request, context):
+                ...
+                raise DeviceNotFoundError("192.168.1.100")
+                # → automatically mapped to gRPC NOT_FOUND
+    """
+    import inspect
+
+    if inspect.isasyncgenfunction(method):
+        raise TypeError(
+            f"@grpc_error_handler does not support async generator (streaming) methods. "
+            f"Handle errors inside the generator body for '{method.__name__}'."
+        )
+
+    @functools.wraps(method)
+    async def wrapper(self: Any, request: Any, context: Any) -> Any:
+        try:
+            return await method(self, request, context)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            import grpc as _grpc
+            if isinstance(e, _grpc.RpcError):
+                raise
+            await _handle_sdk_error(e, context)
+            raise
+    return wrapper  # type: ignore[return-value]

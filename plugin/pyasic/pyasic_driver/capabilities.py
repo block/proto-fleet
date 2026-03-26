@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from proto_fleet_sdk.auth import UsernamePassword
 from proto_fleet_sdk.capabilities import (
     CAP_ASYMMETRIC_AUTH,
     CAP_BASIC_AUTH,
@@ -52,7 +51,10 @@ from proto_fleet_sdk.capabilities import (
     CAP_UPDATE_MINING_POOLS,
     CAP_UPTIME,
 )
-from proto_fleet_sdk.types import Capabilities
+from proto_fleet_sdk.generated.pb import driver_pb2
+
+# Capabilities are just dict[str, bool]
+Capabilities = dict[str, bool]
 
 # Firmware variant identifiers (used as config keys and cache keys)
 FW_STOCK = "stock"
@@ -128,27 +130,27 @@ def detect_firmware_variant(miner: Any, family: str) -> str:
 
 
 # Default credentials keyed by family → firmware variant.
-DEFAULT_CREDENTIALS: dict[str, dict[str, list[UsernamePassword]]] = {
+DEFAULT_CREDENTIALS: dict[str, dict[str, list[driver_pb2.UsernamePassword]]] = {
     "whatsminer": {
         FW_STOCK: [
-            UsernamePassword(username="admin", password="admin"),
-            UsernamePassword(username="admin", password="super"),
+            driver_pb2.UsernamePassword(username="admin", password="admin"),
+            driver_pb2.UsernamePassword(username="admin", password="super"),
         ],
     },
     "antminer": {
-        FW_STOCK: [UsernamePassword(username="root", password="root")],
-        FW_BRAIINS: [UsernamePassword(username="root", password="root")],
-        FW_VNISH: [UsernamePassword(username="root", password="root")],
+        FW_STOCK: [driver_pb2.UsernamePassword(username="root", password="root")],
+        FW_BRAIINS: [driver_pb2.UsernamePassword(username="root", password="root")],
+        FW_VNISH: [driver_pb2.UsernamePassword(username="root", password="root")],
     },
-    "avalonminer": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
-    "goldshell": {FW_STOCK: [UsernamePassword(username="admin", password="123456789")]},
-    "auradine": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
+    "avalonminer": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="admin")]},
+    "goldshell": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="123456789")]},
+    "auradine": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="admin")]},
     "bitaxe": {FW_STOCK: []},
-    "iceriver": {FW_STOCK: [UsernamePassword(username="admin", password="12345678")]},
-    "innosilicon": {FW_STOCK: [UsernamePassword(username="admin", password="admin")]},
-    "epic": {FW_STOCK: [UsernamePassword(username="admin", password="letmein")]},
-    "hammer": {FW_STOCK: [UsernamePassword(username="root", password="root")]},
-    "volcminer": {FW_STOCK: [UsernamePassword(username="admin", password="ltc@dog")]},
+    "iceriver": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="12345678")]},
+    "innosilicon": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="admin")]},
+    "epic": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="letmein")]},
+    "hammer": {FW_STOCK: [driver_pb2.UsernamePassword(username="root", password="root")]},
+    "volcminer": {FW_STOCK: [driver_pb2.UsernamePassword(username="admin", password="ltc@dog")]},
     "elphapex": {FW_STOCK: []},
     "luckyminer": {FW_STOCK: []},
 }

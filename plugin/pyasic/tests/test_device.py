@@ -5,11 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from proto_fleet_sdk.enums import ComponentStatus, HealthStatus, MetricKind, PerformanceMode
 from proto_fleet_sdk.error_codes import ComponentType, MinerError, Severity
 from proto_fleet_sdk.errors import DeviceUnavailableError, UnsupportedCapabilityError
-from proto_fleet_sdk.telemetry import ths_to_hs
-from proto_fleet_sdk.types import DeviceInfo
+from proto_fleet_sdk.generated.pb import driver_pb2
 
 from pyasic_driver.device import DeviceCommandFailedError, PyAsicDevice, _infer_component, _infer_severity
 from tests.conftest import (
@@ -20,7 +18,10 @@ from tests.conftest import (
     make_mock_miner,
 )
 
-DEVICE_INFO = DeviceInfo(
+# Unit conversion constant (inlined from removed converters)
+_THS_TO_HS = 1e12
+
+DEVICE_INFO = driver_pb2.DeviceInfo(
     host="192.168.1.100",
     port=80,
     url_scheme="http",
@@ -61,24 +62,24 @@ class TestDeviceCore:
         # Act & Assert
         assert device.id() == "test-device-1"
 
-    async def test_describe_device(self, mock_ctx: MagicMock) -> None:
+    def test_describe_device(self) -> None:
         # Arrange
         device = _make_device(make_mock_miner())
 
         # Act
-        info, caps = await device.describe_device(mock_ctx)
+        info, caps = device.describe_device()
 
         # Assert
         assert info == DEVICE_INFO
         assert caps == ALL_CAPS
 
-    async def test_close_clears_cache_and_miner(self, mock_ctx: MagicMock) -> None:
+    async def test_close_clears_cache_and_miner(self) -> None:
         # Arrange
         device = _make_device(make_mock_miner())
-        await device.status(mock_ctx)  # populate cache
+        await device.status()  # populate cache
 
         # Act
-        await device.close(mock_ctx)
+        device.close()
 
         # Assert
         assert device._last_status is None
@@ -86,52 +87,49 @@ class TestDeviceCore:
 
 
 class TestTelemetry:
-    async def test_status_returns_metrics(self, mock_ctx: MagicMock) -> None:
+    async def test_status_returns_metrics(self) -> None:
         # Arrange
         data = MockMinerData(hashrate=110.5, wattage=3200.0, temperature_avg=65.0, efficiency=29.0)
         miner = make_mock_miner(data=data)
         device = _make_device(miner)
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_HEALTHY_ACTIVE
-        assert metrics.hashrate_hs is not None
-        assert metrics.hashrate_hs.value == pytest.approx(ths_to_hs(110.5))
-        assert metrics.hashrate_hs.kind == MetricKind.METRIC_KIND_RATE
-        assert metrics.power_w is not None
+        assert metrics.health == driver_pb2.HEALTH_HEALTHY_ACTIVE
+        assert metrics.hashrate_hs.value == pytest.approx(110.5 * _THS_TO_HS)
+        assert metrics.hashrate_hs.kind == driver_pb2.METRIC_KIND_RATE
         assert metrics.power_w.value == pytest.approx(3200.0)
-        assert metrics.temp_c is not None
         assert metrics.temp_c.value == pytest.approx(65.0)
 
-    async def test_status_caching(self, mock_ctx: MagicMock) -> None:
+    async def test_status_caching(self) -> None:
         # Arrange
         miner = make_mock_miner()
         device = _make_device(miner)
 
         # Act
-        await device.status(mock_ctx)
-        await device.status(mock_ctx)
+        await device.status()
+        await device.status()
 
         # Assert — get_data called only once due to caching
         assert miner.get_data.call_count == 1
 
-    async def test_status_communication_failure(self, mock_ctx: MagicMock) -> None:
+    async def test_status_communication_failure(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_data = AsyncMock(side_effect=Exception("connection refused"))
         device = _make_device(miner)
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_CRITICAL
+        assert metrics.health == driver_pb2.HEALTH_CRITICAL
         assert metrics.health_reason == "Failed to communicate with device"
         assert device._miner is None  # cleared for reconnect on next call
 
-    async def test_status_communication_failure_triggers_reconnect(self, mock_ctx: MagicMock) -> None:
+    async def test_status_communication_failure_triggers_reconnect(self) -> None:
         # Arrange — device starts connected, then get_data fails
         miner = make_mock_miner()
         miner.get_data = AsyncMock(side_effect=Exception("connection refused"))
@@ -147,19 +145,19 @@ class TestTelemetry:
         )
 
         # Act — first call fails and clears _miner
-        metrics = await device.status(mock_ctx)
-        assert metrics.health == HealthStatus.HEALTH_CRITICAL
+        metrics = await device.status()
+        assert metrics.health == driver_pb2.HEALTH_CRITICAL
         assert device._miner is None
 
         # Act — second call triggers reconnect via probe_fn
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
         probe_fn.assert_called_once_with(DEVICE_INFO.host)
         assert device._miner is reconnected_miner
-        assert metrics.health == HealthStatus.HEALTH_HEALTHY_ACTIVE
+        assert metrics.health == driver_pb2.HEALTH_HEALTHY_ACTIVE
 
-    async def test_reconnect_rejects_mismatched_device(self, mock_ctx: MagicMock) -> None:
+    async def test_reconnect_rejects_mismatched_device(self) -> None:
         # Arrange — probe returns a different device at the same IP
         wrong_miner = make_mock_miner(make="Antminer", model="S19")
         probe_fn = AsyncMock(return_value=wrong_miner)
@@ -174,10 +172,10 @@ class TestTelemetry:
 
         # Act & Assert — should raise because reconnect fails identity check
         with pytest.raises(DeviceUnavailableError):
-            await device.status(mock_ctx)
+            await device.status()
         assert device._miner is None
 
-    async def test_hashboard_conversion(self, mock_ctx: MagicMock) -> None:
+    async def test_hashboard_conversion(self) -> None:
         # Arrange
         data = MockMinerData(
             hashboards=[
@@ -189,86 +187,82 @@ class TestTelemetry:
         device = _make_device(miner)
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
         assert len(metrics.hash_boards) == 2
         board0 = metrics.hash_boards[0]
-        assert board0.component_info.status == ComponentStatus.COMPONENT_STATUS_HEALTHY
-        assert board0.hash_rate_hs is not None
-        assert board0.hash_rate_hs.value == pytest.approx(ths_to_hs(37.0))
+        assert board0.component_info.status == driver_pb2.COMPONENT_STATUS_HEALTHY
+        assert board0.hash_rate_hs.value == pytest.approx(37.0 * _THS_TO_HS)
         assert board0.chip_count == 114
 
         board1 = metrics.hash_boards[1]
-        assert board1.component_info.status == ComponentStatus.COMPONENT_STATUS_OFFLINE
+        assert board1.component_info.status == driver_pb2.COMPONENT_STATUS_OFFLINE
 
-    async def test_fan_conversion(self, mock_ctx: MagicMock) -> None:
+    async def test_fan_conversion(self) -> None:
         # Arrange
         data = MockMinerData(fans=[MockFan(speed=4200), MockFan(speed=0)])
         miner = make_mock_miner(data=data)
         device = _make_device(miner)
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert — fan with speed=0 is filtered out
         assert len(metrics.fan_metrics) == 1
-        assert metrics.fan_metrics[0].rpm is not None
         assert metrics.fan_metrics[0].rpm.value == 4200.0
 
-    async def test_psu_conversion(self, mock_ctx: MagicMock) -> None:
+    async def test_psu_conversion(self) -> None:
         # Arrange
         data = MockMinerData(wattage=3200.0, voltage=12.5, current=256.0)
         miner = make_mock_miner(data=data)
         device = _make_device(miner)
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
         assert len(metrics.psu_metrics) == 1
         psu = metrics.psu_metrics[0]
-        assert psu.output_power_w is not None
         assert psu.output_power_w.value == pytest.approx(3200.0)
-        assert psu.output_voltage_v is not None
         assert psu.output_voltage_v.value == pytest.approx(12.5)
 
 
 class TestHealth:
-    async def test_mining_active_healthy(self, mock_ctx: MagicMock) -> None:
+    async def test_mining_active_healthy(self) -> None:
         # Arrange
         data = MockMinerData(is_mining=True, hashrate=110.0)
         device = _make_device(make_mock_miner(data=data))
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_HEALTHY_ACTIVE
+        assert metrics.health == driver_pb2.HEALTH_HEALTHY_ACTIVE
 
-    async def test_mining_no_hashrate_warning(self, mock_ctx: MagicMock) -> None:
+    async def test_mining_no_hashrate_warning(self) -> None:
         # Arrange
         data = MockMinerData(is_mining=True, hashrate=0)
         device = _make_device(make_mock_miner(data=data))
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_WARNING
+        assert metrics.health == driver_pb2.HEALTH_WARNING
 
-    async def test_not_mining_inactive(self, mock_ctx: MagicMock) -> None:
+    async def test_not_mining_inactive(self) -> None:
         # Arrange
         data = MockMinerData(is_mining=False, hashrate=0)
         device = _make_device(make_mock_miner(data=data))
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_HEALTHY_INACTIVE
+        assert metrics.health == driver_pb2.HEALTH_HEALTHY_INACTIVE
 
-    async def test_errors_cause_warning(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_cause_warning(self) -> None:
         # Arrange
         data = MockMinerData(
             is_mining=True,
@@ -278,12 +272,12 @@ class TestHealth:
         device = _make_device(make_mock_miner(data=data))
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert
-        assert metrics.health == HealthStatus.HEALTH_WARNING
+        assert metrics.health == driver_pb2.HEALTH_WARNING
 
-    async def test_stopped_with_errors_is_inactive(self, mock_ctx: MagicMock) -> None:
+    async def test_stopped_with_errors_is_inactive(self) -> None:
         # Arrange — miner is stopped but has stale error codes
         data = MockMinerData(
             is_mining=False,
@@ -293,53 +287,53 @@ class TestHealth:
         device = _make_device(make_mock_miner(data=data))
 
         # Act
-        metrics = await device.status(mock_ctx)
+        metrics = await device.status()
 
         # Assert — inactive takes priority over stale errors
-        assert metrics.health == HealthStatus.HEALTH_HEALTHY_INACTIVE
+        assert metrics.health == driver_pb2.HEALTH_HEALTHY_INACTIVE
 
 
 class TestControl:
-    async def test_start_mining(self, mock_ctx: MagicMock) -> None:
+    async def test_start_mining(self) -> None:
         # Arrange
         miner = make_mock_miner()
         device = _make_device(miner)
 
         # Act
-        await device.start_mining(mock_ctx)
+        await device.start_mining()
 
         # Assert
         miner.resume_mining.assert_called_once()
 
-    async def test_stop_mining(self, mock_ctx: MagicMock) -> None:
+    async def test_stop_mining(self) -> None:
         # Arrange
         miner = make_mock_miner()
         device = _make_device(miner)
 
         # Act
-        await device.stop_mining(mock_ctx)
+        await device.stop_mining()
 
         # Assert
         miner.stop_mining.assert_called_once()
 
-    async def test_reboot(self, mock_ctx: MagicMock) -> None:
+    async def test_reboot(self) -> None:
         # Arrange
         miner = make_mock_miner()
         device = _make_device(miner)
 
         # Act
-        await device.reboot(mock_ctx)
+        await device.reboot()
 
         # Assert
         miner.reboot.assert_called_once()
 
-    async def test_blink_led_turns_on_and_schedules_off(self, mock_ctx: MagicMock) -> None:
+    async def test_blink_led_turns_on_and_schedules_off(self) -> None:
         # Arrange
         miner = make_mock_miner()
         device = _make_device(miner)
 
         # Act
-        await device.blink_led(mock_ctx)
+        await device.blink_led()
 
         # Assert
         miner.fault_light_on.assert_called_once()
@@ -350,7 +344,7 @@ class TestControl:
 class TestControlFailure:
     """Verify that commands raise DeviceCommandFailedError when pyasic returns False."""
 
-    async def test_start_mining_failure_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_start_mining_failure_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.resume_mining = AsyncMock(return_value=False)
@@ -358,9 +352,9 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="resume_mining"):
-            await device.start_mining(mock_ctx)
+            await device.start_mining()
 
-    async def test_stop_mining_failure_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_stop_mining_failure_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.stop_mining = AsyncMock(return_value=False)
@@ -368,9 +362,9 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="stop_mining"):
-            await device.stop_mining(mock_ctx)
+            await device.stop_mining()
 
-    async def test_reboot_failure_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_reboot_failure_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.reboot = AsyncMock(return_value=False)
@@ -378,9 +372,9 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="reboot"):
-            await device.reboot(mock_ctx)
+            await device.reboot()
 
-    async def test_blink_led_failure_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_blink_led_failure_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.fault_light_on = AsyncMock(return_value=False)
@@ -388,9 +382,9 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="fault_light_on"):
-            await device.blink_led(mock_ctx)
+            await device.blink_led()
 
-    async def test_firmware_update_failure_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_firmware_update_failure_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.upgrade_firmware = AsyncMock(return_value=False)
@@ -398,7 +392,7 @@ class TestControlFailure:
 
         # Act & Assert
         with pytest.raises(DeviceCommandFailedError, match="upgrade_firmware"):
-            await device.firmware_update(mock_ctx, None)
+            await device.firmware_update()
 
 
 class TestBenignAPIErrorHandling:
@@ -411,7 +405,7 @@ class TestBenignAPIErrorHandling:
         "Failed to send command to miner: 172.16.2.103",
         "No data was returned from the API.",
     ])
-    async def test_benign_api_error_treated_as_success(self, mock_ctx: MagicMock, error_msg: str) -> None:
+    async def test_benign_api_error_treated_as_success(self, error_msg: str) -> None:
         # Arrange
         from pyasic.errors import APIError
 
@@ -420,9 +414,9 @@ class TestBenignAPIErrorHandling:
         device = _make_device(miner)
 
         # Act — should not raise
-        await device.stop_mining(mock_ctx)
+        await device.stop_mining()
 
-    async def test_unknown_api_error_raises_device_unavailable(self, mock_ctx: MagicMock) -> None:
+    async def test_unknown_api_error_raises_device_unavailable(self) -> None:
         # Arrange
         from pyasic.errors import APIError
 
@@ -434,11 +428,9 @@ class TestBenignAPIErrorHandling:
 
         # Act & Assert
         with pytest.raises(DeviceUnavailableError):
-            await device.reboot(mock_ctx)
+            await device.reboot()
 
-    async def test_non_disruptive_benign_api_error_still_raises_device_unavailable(
-        self, mock_ctx: MagicMock,
-    ) -> None:
+    async def test_non_disruptive_benign_api_error_still_raises_device_unavailable(self) -> None:
         # Arrange
         from pyasic.errors import APIError
 
@@ -450,12 +442,12 @@ class TestBenignAPIErrorHandling:
 
         # Act & Assert
         with pytest.raises(DeviceUnavailableError):
-            await device.firmware_update(mock_ctx, None)
+            await device.firmware_update()
 
     @pytest.mark.parametrize("method_name, device_call", [
-        ("resume_mining", lambda device, ctx: device.start_mining(ctx)),
-        ("stop_mining", lambda device, ctx: device.stop_mining(ctx)),
-        ("reboot", lambda device, ctx: device.reboot(ctx)),
+        ("resume_mining", lambda device: device.start_mining()),
+        ("stop_mining", lambda device: device.stop_mining()),
+        ("reboot", lambda device: device.reboot()),
     ])
     @pytest.mark.parametrize("error_factory", [
         lambda: TimeoutError("timeout"),
@@ -463,7 +455,6 @@ class TestBenignAPIErrorHandling:
     ])
     async def test_disruptive_timeout_exception_treated_as_success(
         self,
-        mock_ctx: MagicMock,
         method_name: str,
         device_call: object,
         error_factory: object,
@@ -474,9 +465,9 @@ class TestBenignAPIErrorHandling:
         device = _make_device(miner)
 
         # Act - should not raise
-        await device_call(device, mock_ctx)
+        await device_call(device)
 
-    async def test_non_disruptive_timeout_exception_still_raises(self, mock_ctx: MagicMock) -> None:
+    async def test_non_disruptive_timeout_exception_still_raises(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.fault_light_on = AsyncMock(side_effect=TimeoutError("timeout"))
@@ -484,67 +475,63 @@ class TestBenignAPIErrorHandling:
 
         # Act & Assert
         with pytest.raises(TimeoutError):
-            await device.blink_led(mock_ctx)
+            await device.blink_led()
 
 
 class TestSetPowerTarget:
-    async def test_maximum_hashrate_sends_hpm(self, mock_ctx: MagicMock) -> None:
+    async def test_maximum_hashrate_sends_hpm(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
         # Assert
         miner.send_config.assert_called_once()
         sent_config = miner.send_config.call_args[0][0]
         assert sent_config.mining_mode.mode == "high"
 
-    async def test_efficiency_sends_lpm(self, mock_ctx: MagicMock) -> None:
+    async def test_efficiency_sends_lpm(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_EFFICIENCY)
 
         # Assert
         miner.send_config.assert_called_once()
         sent_config = miner.send_config.call_args[0][0]
         assert sent_config.mining_mode.mode == "low"
 
-    async def test_unspecified_sends_normal(self, mock_ctx: MagicMock) -> None:
+    async def test_unspecified_sends_normal(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_config = AsyncMock(return_value=MagicMock(as_dict=MagicMock(return_value={})))
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_UNSPECIFIED)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_UNSPECIFIED)
 
         # Assert
         miner.send_config.assert_called_once()
         sent_config = miner.send_config.call_args[0][0]
         assert sent_config.mining_mode.mode == "normal"
 
-    async def test_blocked_without_capability(self, mock_ctx: MagicMock) -> None:
+    async def test_blocked_without_capability(self) -> None:
         # Arrange
         device = _make_device(make_mock_miner(), caps=NO_CONTROL_CAPS)
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+            await device.set_power_target(driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
 
 class TestSetPowerTargetPreset:
-    """Verify set_power_target for preset-based miners (VNish).
-
-    Presets are fetched directly from the web API (autotune_presets),
-    so these tests mock miner.web.autotune_presets() with raw API dicts.
-    """
+    """Verify set_power_target for preset-based miners (VNish)."""
 
     def _make_api_preset(self, power: int, tuned: bool = True) -> dict:
         return {
@@ -560,43 +547,43 @@ class TestSetPowerTargetPreset:
         miner.set_power_limit = AsyncMock(return_value=True)
         return miner
 
-    async def test_max_hashrate_selects_highest_preset(self, mock_ctx: MagicMock) -> None:
+    async def test_max_hashrate_selects_highest_preset(self) -> None:
         # Arrange
         presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
         miner = self._make_preset_miner(presets)
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(2000)
 
-    async def test_efficiency_selects_lowest_preset(self, mock_ctx: MagicMock) -> None:
+    async def test_efficiency_selects_lowest_preset(self) -> None:
         # Arrange
         presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
         miner = self._make_preset_miner(presets)
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_EFFICIENCY)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(1000)
 
-    async def test_unspecified_selects_median_preset(self, mock_ctx: MagicMock) -> None:
+    async def test_unspecified_selects_median_preset(self) -> None:
         # Arrange
         presets = [self._make_api_preset(1000), self._make_api_preset(1500), self._make_api_preset(2000)]
         miner = self._make_preset_miner(presets)
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_UNSPECIFIED)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_UNSPECIFIED)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(1500)
 
-    async def test_ignores_untuned_presets(self, mock_ctx: MagicMock) -> None:
+    async def test_ignores_untuned_presets(self) -> None:
         # Arrange
         presets = [
             self._make_api_preset(500, tuned=False),
@@ -607,12 +594,12 @@ class TestSetPowerTargetPreset:
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_EFFICIENCY)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(1000)
 
-    async def test_fails_when_no_tuned_presets(self, mock_ctx: MagicMock) -> None:
+    async def test_fails_when_no_tuned_presets(self) -> None:
         # Arrange
         presets = [self._make_api_preset(1000, tuned=False)]
         miner = self._make_preset_miner(presets)
@@ -620,9 +607,9 @@ class TestSetPowerTargetPreset:
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+            await device.set_power_target(driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
-    async def test_works_when_miner_in_manual_mode(self, mock_ctx: MagicMock) -> None:
+    async def test_works_when_miner_in_manual_mode(self) -> None:
         """Presets are fetched from API directly, so manual mode doesn't matter."""
         # Arrange
         presets = [self._make_api_preset(1000), self._make_api_preset(2000)]
@@ -630,12 +617,12 @@ class TestSetPowerTargetPreset:
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_MAXIMUM_HASHRATE)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(2000)
 
-    async def test_handles_presets_wrapped_in_dict(self, mock_ctx: MagicMock) -> None:
+    async def test_handles_presets_wrapped_in_dict(self) -> None:
         """Some firmware versions wrap presets in {"presets": [...]}."""
         # Arrange
         raw_presets = [self._make_api_preset(1000), self._make_api_preset(1500)]
@@ -645,60 +632,109 @@ class TestSetPowerTargetPreset:
         device = _make_device(miner)
 
         # Act
-        await device.set_power_target(mock_ctx, PerformanceMode.PERFORMANCE_MODE_EFFICIENCY)
+        await device.set_power_target(driver_pb2.PERFORMANCE_MODE_EFFICIENCY)
 
         # Assert
         miner.set_power_limit.assert_called_once_with(1000)
 
 
 class TestCapabilityGating:
-    async def test_start_mining_blocked(self, mock_ctx: MagicMock) -> None:
+    async def test_start_mining_blocked(self) -> None:
         # Arrange
         device = _make_device(make_mock_miner(), caps=NO_CONTROL_CAPS)
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.start_mining(mock_ctx)
+            await device.start_mining()
 
-    async def test_reboot_blocked(self, mock_ctx: MagicMock) -> None:
+    async def test_reboot_blocked(self) -> None:
         # Arrange
         device = _make_device(make_mock_miner(), caps=NO_CONTROL_CAPS)
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.reboot(mock_ctx)
+            await device.reboot()
 
-    async def test_set_cooling_mode_always_unsupported(self, mock_ctx: MagicMock) -> None:
-        # Arrange
-        device = _make_device(make_mock_miner())
+    async def test_set_cooling_mode_always_unsupported(self) -> None:
+        # Arrange — cooling mode is raised at the driver level, not device
+        from pyasic_driver.config import FirmwareConfig, MinerFamilyConfig, PluginConfig, PluginSettings
+        from pyasic_driver.driver import PyAsicDriver
+        driver = PyAsicDriver(
+            config=PluginConfig(
+                plugin=PluginSettings(),
+                miners={"whatsminer": MinerFamilyConfig(firmware={"stock": FirmwareConfig(enabled=True)})},
+            ),
+            get_miner=AsyncMock(return_value=make_mock_miner()),
+        )
+        mock_ctx = MagicMock()  # needs abort() method for grpc_error_handler
+        mock_ctx.abort = AsyncMock()
+        mock_secret = driver_pb2.SecretBundle(
+            version="1",
+            user_pass=driver_pb2.UsernamePassword(username="admin", password="admin"),
+        )
+        await driver.NewDevice(
+            driver_pb2.NewDeviceRequest(device_id="dev-1", info=DEVICE_INFO, secret=mock_secret),
+            mock_ctx,
+        )
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.set_cooling_mode(mock_ctx, 1)
+            await driver.SetCoolingMode(
+                driver_pb2.SetCoolingModeRequest(
+                    ref=driver_pb2.DeviceRef(device_id="dev-1"),
+                    mode=1,
+                ),
+                mock_ctx,
+            )
 
-    async def test_update_miner_password_always_unsupported(self, mock_ctx: MagicMock) -> None:
-        # Arrange
-        device = _make_device(make_mock_miner())
+    async def test_update_miner_password_always_unsupported(self) -> None:
+        # Arrange — password update is raised at the driver level
+        from pyasic_driver.config import FirmwareConfig, MinerFamilyConfig, PluginConfig, PluginSettings
+        from pyasic_driver.driver import PyAsicDriver
+        driver = PyAsicDriver(
+            config=PluginConfig(
+                plugin=PluginSettings(),
+                miners={"whatsminer": MinerFamilyConfig(firmware={"stock": FirmwareConfig(enabled=True)})},
+            ),
+            get_miner=AsyncMock(return_value=make_mock_miner()),
+        )
+        mock_ctx = MagicMock()  # needs abort() method for grpc_error_handler
+        mock_ctx.abort = AsyncMock()
+        mock_secret = driver_pb2.SecretBundle(
+            version="1",
+            user_pass=driver_pb2.UsernamePassword(username="admin", password="admin"),
+        )
+        await driver.NewDevice(
+            driver_pb2.NewDeviceRequest(device_id="dev-1", info=DEVICE_INFO, secret=mock_secret),
+            mock_ctx,
+        )
 
         # Act & Assert
         with pytest.raises(UnsupportedCapabilityError):
-            await device.update_miner_password(mock_ctx, "old", "new")
+            await driver.UpdateMinerPassword(
+                driver_pb2.UpdateMinerPasswordRequest(
+                    ref=driver_pb2.DeviceRef(device_id="dev-1"),
+                    current_password="old",
+                    new_password="new",
+                ),
+                mock_ctx,
+            )
 
 
 class TestErrorReporting:
-    async def test_no_errors(self, mock_ctx: MagicMock) -> None:
+    async def test_no_errors(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(return_value=[])
         device = _make_device(miner)
 
         # Act
-        result = await device.get_errors(mock_ctx)
+        result = await device.get_errors()
 
         # Assert
         assert len(result.errors) == 0
 
-    async def test_errors_mapped_by_code_range(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_mapped_by_code_range(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(return_value=[
@@ -707,7 +743,7 @@ class TestErrorReporting:
         device = _make_device(miner)
 
         # Act
-        result = await device.get_errors(mock_ctx)
+        result = await device.get_errors()
 
         # Assert
         assert len(result.errors) == 1
@@ -716,7 +752,7 @@ class TestErrorReporting:
         assert err.summary == "Fan unknown."
         assert err.vendor_attributes["vendor_error_code"] == "100"
 
-    async def test_errors_mapped_by_keyword_fallback(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_mapped_by_keyword_fallback(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(return_value=[
@@ -725,14 +761,14 @@ class TestErrorReporting:
         device = _make_device(miner)
 
         # Act
-        result = await device.get_errors(mock_ctx)
+        result = await device.get_errors()
 
         # Assert
         assert len(result.errors) == 1
         err = result.errors[0]
         assert err.miner_error == MinerError.DEVICE_OVER_TEMPERATURE
 
-    async def test_errors_unrecognized_falls_back_to_unmapped(self, mock_ctx: MagicMock) -> None:
+    async def test_errors_unrecognized_falls_back_to_unmapped(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(return_value=[
@@ -741,20 +777,20 @@ class TestErrorReporting:
         device = _make_device(miner)
 
         # Act
-        result = await device.get_errors(mock_ctx)
+        result = await device.get_errors()
 
         # Assert
         assert len(result.errors) == 1
         assert result.errors[0].miner_error == MinerError.VENDOR_ERROR_UNMAPPED
 
-    async def test_error_get_failure_returns_empty_and_clears_miner(self, mock_ctx: MagicMock) -> None:
+    async def test_error_get_failure_returns_empty_and_clears_miner(self) -> None:
         # Arrange
         miner = make_mock_miner()
         miner.get_errors = AsyncMock(side_effect=Exception("timeout"))
         device = _make_device(miner)
 
         # Act
-        result = await device.get_errors(mock_ctx)
+        result = await device.get_errors()
 
         # Assert
         assert len(result.errors) == 0

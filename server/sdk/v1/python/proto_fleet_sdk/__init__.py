@@ -3,27 +3,32 @@
 This SDK enables developers to create mining device plugins in Python that integrate
 seamlessly with the Proto Fleet management system.
 
+Plugins implement driver_pb2_grpc.DriverServicer directly using protoc-generated types,
+and use the @grpc_error_handler decorator for automatic SDK error → gRPC status mapping.
+
 Quick Start:
-    >>> from proto_fleet_sdk import Driver, Device, DeviceMetrics
+    >>> from proto_fleet_sdk.generated.pb import driver_pb2, driver_pb2_grpc
+    >>> from proto_fleet_sdk.errors import grpc_error_handler, DeviceNotFoundError
     >>> from proto_fleet_sdk.server import PluginServer
     >>>
-    >>> class MyDriver:
-    >>>     async def handshake(self, ctx):
-    >>>         return DriverIdentifier(driver_name="my-plugin", api_version="v1")
+    >>> class MyServicer(driver_pb2_grpc.DriverServicer):
+    >>>     @grpc_error_handler
+    >>>     async def Handshake(self, request, context):
+    >>>         return driver_pb2.HandshakeResponse(
+    >>>             driver_name="my-plugin", api_version="v1",
+    >>>         )
     >>>
     >>> if __name__ == "__main__":
-    >>>     driver = MyDriver()
-    >>>     server = PluginServer(driver, port=50051)
+    >>>     server = PluginServer(MyServicer())
     >>>     server.run()
 
 For more information, see the README.md.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "Proto Fleet Team"
 
 # Re-export commonly used types and functions for convenience
-from proto_fleet_sdk.auth import APIKey, BearerToken, SecretBundle, TLSClientCert, UsernamePassword
 from proto_fleet_sdk.capabilities import (
     CAP_ASYMMETRIC_AUTH,
     CAP_BASIC_AUTH,
@@ -85,13 +90,6 @@ from proto_fleet_sdk.capabilities import (
     CAP_UPTIME,
     CAP_VOLTAGE_CONTROL,
 )
-from proto_fleet_sdk.enums import (
-    ComponentStatus,
-    CoolingMode,
-    HealthStatus,
-    MetricKind,
-    PerformanceMode,
-)
 from proto_fleet_sdk.error_codes import (
     ComponentType,
     DeviceError,
@@ -108,57 +106,12 @@ from proto_fleet_sdk.errors import (
     NetworkError,
     SDKError,
     UnsupportedCapabilityError,
-)
-from proto_fleet_sdk.protocols.device import Device
-from proto_fleet_sdk.protocols.driver import DiscoveryPortsProvider, Driver
-from proto_fleet_sdk.telemetry.components import (
-    ASICMetrics,
-    ComponentInfo,
-    ControlBoardMetrics,
-    FanMetrics,
-    HashBoardMetrics,
-    PSUMetrics,
-    SensorMetrics,
-)
-from proto_fleet_sdk.telemetry.metrics import DeviceMetrics, MetricValue, MetricValueMetaData
-from proto_fleet_sdk.types import (
-    Capabilities,
-    ConfiguredPool,
-    DeviceInfo,
-    DriverIdentifier,
-    FirmwareFile,
-    MiningPoolConfig,
-    NewDeviceResult,
+    grpc_error_handler,
 )
 
 __all__ = [
     "__version__",
     "__author__",
-    # Core protocols
-    "Driver",
-    "DiscoveryPortsProvider",
-    "Device",
-    # Types
-    "DriverIdentifier",
-    "Capabilities",
-    "DeviceInfo",
-    "DeviceMetrics",
-    "FirmwareFile",
-    "NewDeviceResult",
-    "MiningPoolConfig",
-    "ConfiguredPool",
-    # Authentication
-    "SecretBundle",
-    "UsernamePassword",
-    "APIKey",
-    "BearerToken",
-    "TLSClientCert",
-    # Enums
-    "HealthStatus",
-    "ComponentStatus",
-    "MetricKind",
-    "CoolingMode",
-    "PerformanceMode",
     # Errors
     "SDKError",
     "UnsupportedCapabilityError",
@@ -168,22 +121,13 @@ __all__ = [
     "AuthenticationFailedError",
     "DriverShutdownError",
     "NetworkError",
+    "grpc_error_handler",
     # Error codes
     "MinerError",
     "Severity",
     "ComponentType",
     "DeviceError",
     "DeviceErrors",
-    # Telemetry
-    "MetricValue",
-    "MetricValueMetaData",
-    "ComponentInfo",
-    "HashBoardMetrics",
-    "ASICMetrics",
-    "PSUMetrics",
-    "FanMetrics",
-    "ControlBoardMetrics",
-    "SensorMetrics",
     # Capability Constants
     "CAP_POLLING_HOST",
     "CAP_POLLING_PLUGIN",

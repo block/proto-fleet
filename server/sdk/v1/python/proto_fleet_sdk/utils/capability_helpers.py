@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from proto_fleet_sdk.types import Capabilities
-
 __all__ = [
     "has_capability",
     "merge_capabilities",
 ]
+
+# Capabilities are just dict[str, bool] — no need for a type alias import.
+Capabilities = dict[str, bool]
 
 
 def has_capability(caps: Capabilities, capability: str) -> bool:
