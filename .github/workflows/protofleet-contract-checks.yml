@@ -1,42 +1,51 @@
-name: Server Checks
+name: Plugin Contract Checks
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/workflows/protofleet-contract-checks.yml"
       - ".github/actions/go-cache-setup/action.yml"
       - ".github/actions/hermit-setup/action.yml"
       - "bin/hermit.hcl"
       - "hermit-packages/**"
       - "go.work"
       - "go.work.sum"
-      - "proto/**"
-      - "server/**"
+      - "justfile"
+      - "tests/plugin-contract/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+      - "plugin/pyasic/**"
+      - "plugin/proto/**"
+      - "plugin/antminer/**"
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/workflows/protofleet-contract-checks.yml"
       - ".github/actions/go-cache-setup/action.yml"
       - ".github/actions/hermit-setup/action.yml"
       - "bin/hermit.hcl"
       - "hermit-packages/**"
       - "go.work"
       - "go.work.sum"
-      - "proto/**"
-      - "server/**"
+      - "justfile"
+      - "tests/plugin-contract/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+      - "plugin/pyasic/**"
+      - "plugin/proto/**"
+      - "plugin/antminer/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  server:
-    name: Server
+  contract-tests:
+    name: Contract Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,17 +56,5 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      - name: Check formatting
-        run: golangci-lint fmt --diff -c .golangci.yaml
-
-      - name: Lint
-        run: just lint
-
-      - name: Build
-        run: just build
-
-      - name: Start database
-        run: just db-up
-
-      - name: Test
-        run: just test
+      - name: Build plugins and run contract tests
+        run: just test-contract

@@ -20,9 +20,6 @@
   <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-client-checks.yml">
     <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
   </a>
-  <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-backend-tests.yml">
-    <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-backend-tests.yml/badge.svg" alt="Backend tests status." />
-  </a>
   <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-server-checks.yml">
     <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
   </a>

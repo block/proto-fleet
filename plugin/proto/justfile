@@ -19,3 +19,6 @@ test-unit:
 # run integration tests only
 test-integration:
   go test --count=1 -timeout=30m ./tests/...
+
+# run linting and tests together with the extended timeout required by CI integration tests
+check: lint test-long

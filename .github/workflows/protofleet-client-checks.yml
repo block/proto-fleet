@@ -4,12 +4,18 @@ on:
   pull_request:
     paths:
       - ".github/workflows/protofleet-client-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
       - "client/**"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/protofleet-client-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
       - "client/**"
   workflow_dispatch:
 
@@ -25,8 +31,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
@@ -58,8 +64,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
@@ -86,8 +92,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4

@@ -1,42 +1,50 @@
-name: Server Checks
+name: Antminer Plugin Checks
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/workflows/protofleet-antminer-plugin-checks.yml"
       - ".github/actions/go-cache-setup/action.yml"
       - ".github/actions/hermit-setup/action.yml"
       - "bin/hermit.hcl"
       - "hermit-packages/**"
       - "go.work"
       - "go.work.sum"
+      - "just/go-plugin.just"
       - "proto/**"
-      - "server/**"
+      - "plugin/antminer/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/workflows/protofleet-antminer-plugin-checks.yml"
       - ".github/actions/go-cache-setup/action.yml"
       - ".github/actions/hermit-setup/action.yml"
       - "bin/hermit.hcl"
       - "hermit-packages/**"
       - "go.work"
       - "go.work.sum"
+      - "just/go-plugin.just"
       - "proto/**"
-      - "server/**"
+      - "plugin/antminer/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  server:
-    name: Server
+  antminer-plugin:
+    name: Antminer Plugin
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: server
+        working-directory: plugin/antminer
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -50,14 +58,8 @@ jobs:
       - name: Check formatting
         run: golangci-lint fmt --diff -c .golangci.yaml
 
-      - name: Lint
-        run: just lint
-
       - name: Build
         run: just build
 
-      - name: Start database
-        run: just db-up
-
-      - name: Test
-        run: just test
+      - name: Check
+        run: just check

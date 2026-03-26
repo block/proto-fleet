@@ -29,9 +29,6 @@ deps:
   go mod download
   go mod tidy
 
-# run linting and tests together
-check: lint test
-
 # run the plugin
 run:
   go run .
