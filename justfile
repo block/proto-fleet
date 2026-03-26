@@ -114,6 +114,18 @@ update-go-deps:
 build-windows-installer:
   powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1
 
+# install git hooks via lefthook
+install-hooks:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if ! command -v lefthook >/dev/null 2>&1; then
+    echo "lefthook is required to install git hooks." >&2
+    echo "If you use Hermit, run ./bin/activate-hermit first." >&2
+    echo "Otherwise install lefthook manually, then rerun 'just install-hooks'." >&2
+    exit 1
+  fi
+  lefthook install
+
 # --- Private helpers ---
 
 [working-directory: 'server']

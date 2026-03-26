@@ -40,7 +40,7 @@ jobs:
 
       - name: Setup venv and install dependencies
         run: |
-          python3 -m venv .venv
+          python3.13 -m venv .venv
           .venv/bin/pip install --upgrade pip setuptools
           .venv/bin/pip install -e "../../server/sdk/v1/python"
           .venv/bin/pip install -e ".[dev]"

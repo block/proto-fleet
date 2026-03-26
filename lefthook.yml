@@ -1,0 +1,54 @@
+# Lefthook git hooks — https://github.com/evilmartians/lefthook
+# Install: just install-hooks
+# Personal overrides: lefthook-local.yml
+
+# Use doublestar so ** matches zero-or-more directories (gobwas requires one-or-more).
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: true
+  commands:
+    client-format:
+      glob: "client/**/*.{ts,tsx,js,jsx,css,md}"
+      stage_fixed: true
+      run: scripts/lefthook-client-format.sh {staged_files}
+
+    server-goimports:
+      glob: "server/**/*.go"
+      stage_fixed: true
+      run: scripts/lefthook-goimports.sh {staged_files}
+
+    plugin-goimports:
+      glob: "plugin/**/*.go"
+      stage_fixed: true
+      run: scripts/lefthook-goimports.sh {staged_files}
+
+    proto-buf-lint:
+      glob: "{buf.yaml,buf.lock,proto/**/*.proto}"
+      # Buf can lint specific paths, but this wrapper runs against the index snapshot
+      # so unstaged proto edits do not make staged partial commits fail.
+      run: scripts/lefthook-proto-buf-lint.sh {staged_files}
+
+    python-ruff:
+      glob: "**/*.py"
+      stage_fixed: true
+      run: scripts/lefthook-python-ruff.sh {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    client-typecheck:
+      root: client
+      run: npm exec --no -- tsc --noEmit
+
+    server-lint:
+      root: server
+      run: golangci-lint run -c .golangci.yaml
+
+    plugin-proto-lint:
+      root: plugin/proto
+      run: golangci-lint run -c .golangci.yaml
+
+    plugin-antminer-lint:
+      root: plugin/antminer
+      run: golangci-lint run -c .golangci.yaml

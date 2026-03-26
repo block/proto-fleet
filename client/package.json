@@ -13,7 +13,6 @@
     "build:protoFleet": "tsc && vite build --mode protoFleet",
     "generate-api-types": "node ./scripts/generate_api_ts.mjs",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
-    "precommit": "lint-staged",
     "preview:protoOS": "vite preview --mode protoOS",
     "preview:protoFleet": "vite preview --mode protoFleet",
     "storybook": "storybook dev -p 6006",
@@ -26,11 +25,6 @@
     "format": "prettier --list-different --write \"./**/*.{js,jsx,ts,tsx,css,md}\"",
     "format:check": "prettier --check \"./**/*.{js,jsx,ts,tsx,css,md}\"",
     "bootstrap": "npx tsx ./scripts/auth_discover_pair.ts"
-  },
-  "lint-staged": {
-    "src/**/*.{js,jsx,ts,tsx}": [
-      "eslint --fix"
-    ]
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.11.0",

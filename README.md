@@ -102,6 +102,21 @@ Go service handling device pairing, telemetry collection, command execution, fle
 just setup
 ```
 
+To install Git hooks, enable them separately after your toolchain is ready:
+
+```bash
+# Optional: install Git hooks
+just install-hooks
+```
+
+`just install-hooks` requires a `lefthook` binary. Hermit users can run it after `./bin/activate-hermit`. Non-Hermit users need to install `lefthook` themselves before enabling hooks.
+
+The Python pre-commit hook also requires Ruff for the Python area you are changing:
+
+- `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
+- `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
+- `plugin/pyasic` and other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+
 ### Start Development
 
 ```bash

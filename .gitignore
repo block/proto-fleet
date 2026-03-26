@@ -6,6 +6,7 @@ server/influx_config/.env
 **/.goose/
 .claude/
 .mcp.json
+lefthook-local.yml
 
 **private.env**
 .env*

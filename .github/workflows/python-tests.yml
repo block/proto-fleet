@@ -95,7 +95,6 @@ jobs:
             exit 1
           fi
           echo "Generated stubs are up to date."
-
   proto-python-gen-tarball:
     runs-on: ubuntu-latest
     defaults:
