@@ -90,6 +90,10 @@ type CollectionStore interface {
 	// GetRackSlots returns all occupied slot positions in a rack.
 	GetRackSlots(ctx context.Context, collectionID int64, orgID int64) ([]*pb.RackSlot, error)
 
+	// GetRackSlotStatuses returns per-slot device status for rack-type collections.
+	// Returns all rows×cols positions including empty slots, keyed by collection ID.
+	GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*pb.RackSlotStatus, error)
+
 	// ListRackLocations returns all distinct non-empty rack locations for an organization.
 	ListRackLocations(ctx context.Context, orgID int64) ([]string, error)
 

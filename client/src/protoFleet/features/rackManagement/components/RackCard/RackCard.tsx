@@ -1,6 +1,11 @@
 import clsx from "clsx";
 import MiniRackGrid from "./MiniRackGrid";
-import type { RackStatus, SlotStatus } from "./types";
+import type { SlotStatus } from "./types";
+
+export interface StatusSegment {
+  color: string;
+  text: string;
+}
 
 interface RackCardProps {
   label: string;
@@ -8,8 +13,8 @@ interface RackCardProps {
   cols: number;
   rows: number;
   slots: SlotStatus[];
-  status: RackStatus;
-  statusText: string;
+  loading?: boolean;
+  statusSegments: StatusSegment[];
   hashrate?: string;
   efficiency?: string;
   power?: string;
@@ -17,37 +22,40 @@ interface RackCardProps {
   onClick?: () => void;
 }
 
-const statusDotColor: Record<RackStatus, string> = {
-  healthy: "bg-intent-success-fill",
-  needsAttention: "bg-intent-critical-fill",
-  offline: "bg-core-accent-fill",
-  sleeping: "bg-core-primary-20",
-  mixed: "bg-intent-warning-fill",
-  empty: "bg-transparent",
-};
-
 const RackCard = ({
   label,
   building,
   cols,
   rows,
   slots,
-  status,
-  statusText,
+  loading,
+  statusSegments,
   hashrate,
   efficiency,
   power,
   temperature,
   onClick,
 }: RackCardProps) => {
-  const isEmpty = status === "empty";
+  const isEmpty = !loading && (slots.length === 0 || slots.every((s) => s === "empty"));
 
   return (
     <div
       className={clsx("flex cursor-pointer flex-col rounded-2xl bg-surface-5 transition-opacity hover:opacity-80", {
         "cursor-default": !onClick,
       })}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
     >
       {/* Body */}
       <div className="flex flex-1 flex-col px-5 pt-5 pb-4">
@@ -58,19 +66,30 @@ const RackCard = ({
         </div>
 
         {/* Mini Rack Grid */}
-        <div className="mb-4">
-          <MiniRackGrid cols={cols} rows={rows} slots={slots} />
+        <div className="flex flex-1 items-center justify-center">
+          {loading ? (
+            <div className="h-20 w-full animate-pulse rounded-lg bg-surface-10" />
+          ) : (
+            <MiniRackGrid cols={cols} rows={rows} slots={slots} />
+          )}
         </div>
 
         {/* Status / Assign CTA */}
-        <div className="flex flex-1 items-center justify-center gap-1.5 pb-0.5">
-          {isEmpty ? (
+        <div className="flex items-center justify-center gap-1.5 pt-4 pb-0.5">
+          {loading ? (
+            <div className="h-4 w-24 animate-pulse rounded bg-surface-10" />
+          ) : isEmpty ? (
             <span className="text-300 text-text-primary-70 underline underline-offset-2">Assign miners</span>
           ) : (
-            <>
-              <span className={clsx("h-2 w-2 shrink-0 rounded-full", statusDotColor[status])} />
-              <span className="text-300 text-text-primary-70">{statusText}</span>
-            </>
+            <span className="flex items-center gap-1.5 text-300 text-text-primary-70">
+              {statusSegments.map((seg, i) => (
+                <span key={i} className="inline-flex items-center gap-1">
+                  <span className={clsx("h-2 w-2 shrink-0 rounded-full", seg.color)} />
+                  {seg.text}
+                  {i < statusSegments.length - 1 && ","}
+                </span>
+              ))}
+            </span>
           )}
         </div>
       </div>

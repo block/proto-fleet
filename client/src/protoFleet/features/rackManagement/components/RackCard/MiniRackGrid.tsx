@@ -41,7 +41,9 @@ const MiniRackGrid = ({ cols, rows, slots }: MiniRackGridProps) => {
           return (
             <div
               key={i}
-              className={clsx("relative rounded-[3px]", slotColorMap[status])}
+              className={clsx("relative rounded-[3px]", slotColorMap[status], {
+                "border border-core-primary-10": status === "empty",
+              })}
               style={{ width: slotSize, height: slotSize }}
             >
               {hasDot && (

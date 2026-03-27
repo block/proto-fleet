@@ -729,6 +729,131 @@ func TestService_GetCollectionStats_MultipleCollections(t *testing.T) {
 	assert.InDelta(t, 60.0, resp.Stats[1].TotalHashrateThs, 0.01)
 }
 
+func TestService_GetCollectionStats_RackSlotStatuses(t *testing.T) {
+	rackID := int64(10)
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter:         map[int64][]string{rackID: {"dev-1"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{rackID: {HashingCount: 1}},
+	}
+	telemetry := &mockTelemetryCollector{
+		metrics: map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics{
+			"dev-1": {HashrateHS: &modelsV2.MetricValue{Value: 50e12}},
+		},
+	}
+	svc, mockStore := newTestServiceWithTelemetry(t, telemetry, deviceQ)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{rackID}).
+		Return(map[int64]pb.CollectionType{rackID: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	expectedSlots := []*pb.RackSlotStatus{
+		{Row: 0, Column: 0, Status: pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_HEALTHY},
+		{Row: 0, Column: 1, Status: pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_EMPTY},
+		{Row: 1, Column: 0, Status: pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE},
+		{Row: 1, Column: 1, Status: pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_EMPTY},
+	}
+	mockStore.EXPECT().GetRackSlotStatuses(gomock.Any(), testOrgID, []int64{rackID}).
+		Return(map[int64][]*pb.RackSlotStatus{rackID: expectedSlots}, nil)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{rackID}})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 1)
+
+	cs := resp.Stats[0]
+	assert.Equal(t, rackID, cs.CollectionId)
+	assert.Equal(t, int32(1), cs.HashingCount)
+	require.Len(t, cs.SlotStatuses, 4)
+	assert.Equal(t, pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_HEALTHY, cs.SlotStatuses[0].Status)
+	assert.Equal(t, pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_EMPTY, cs.SlotStatuses[1].Status)
+	assert.Equal(t, pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE, cs.SlotStatuses[2].Status)
+	assert.Equal(t, pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_EMPTY, cs.SlotStatuses[3].Status)
+}
+
+func TestService_GetCollectionStats_GroupHasNoSlotStatuses(t *testing.T) {
+	groupID := int64(20)
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter:         map[int64][]string{groupID: {"dev-1"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{groupID: {HashingCount: 1}},
+	}
+	svc, mockStore := newTestServiceWithTelemetry(t, nil, deviceQ)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{groupID}).
+		Return(map[int64]pb.CollectionType{groupID: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{groupID}})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 1)
+
+	cs := resp.Stats[0]
+	assert.Empty(t, cs.SlotStatuses)
+}
+
+func TestService_GetCollectionStats_RackSlotStatusesError(t *testing.T) {
+	rackID := int64(10)
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter:         map[int64][]string{rackID: {"dev-1"}},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{rackID: {HashingCount: 1}},
+	}
+	svc, mockStore := newTestServiceWithTelemetry(t, nil, deviceQ)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{rackID}).
+		Return(map[int64]pb.CollectionType{rackID: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	mockStore.EXPECT().GetRackSlotStatuses(gomock.Any(), testOrgID, []int64{rackID}).
+		Return(nil, fleeterror.NewInternalError("database connection lost"))
+
+	_, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{rackID}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database connection lost")
+}
+
+func TestService_GetCollectionStats_MixedRackAndGroup(t *testing.T) {
+	rackID := int64(10)
+	groupID := int64(20)
+	deviceQ := &mockDeviceQueryer{
+		devicesByFilter: map[int64][]string{
+			rackID:  {"dev-1"},
+			groupID: {"dev-2"},
+		},
+		stateCountsByCollection: map[int64]interfaces.MinerStateCounts{
+			rackID:  {HashingCount: 1},
+			groupID: {HashingCount: 1},
+		},
+	}
+	svc, mockStore := newTestServiceWithTelemetry(t, nil, deviceQ)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollectionTypes(gomock.Any(), testOrgID, []int64{rackID, groupID}).
+		Return(map[int64]pb.CollectionType{
+			rackID:  pb.CollectionType_COLLECTION_TYPE_RACK,
+			groupID: pb.CollectionType_COLLECTION_TYPE_GROUP,
+		}, nil)
+
+	rackSlots := []*pb.RackSlotStatus{
+		{Row: 0, Column: 0, Status: pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_HEALTHY},
+	}
+	// Only rack IDs should be passed to GetRackSlotStatuses
+	mockStore.EXPECT().GetRackSlotStatuses(gomock.Any(), testOrgID, []int64{rackID}).
+		Return(map[int64][]*pb.RackSlotStatus{rackID: rackSlots}, nil)
+
+	resp, err := svc.GetCollectionStats(ctx, &pb.GetCollectionStatsRequest{CollectionIds: []int64{rackID, groupID}})
+	require.NoError(t, err)
+	require.Len(t, resp.Stats, 2)
+
+	// Rack should have slot statuses
+	rackStats := resp.Stats[0]
+	assert.Equal(t, rackID, rackStats.CollectionId)
+	require.Len(t, rackStats.SlotStatuses, 1)
+	assert.Equal(t, pb.SlotDeviceStatus_SLOT_DEVICE_STATUS_HEALTHY, rackStats.SlotStatuses[0].Status)
+
+	// Group should have no slot statuses
+	groupStats := resp.Stats[1]
+	assert.Equal(t, groupID, groupStats.CollectionId)
+	assert.Empty(t, groupStats.SlotStatuses)
+}
+
 func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)

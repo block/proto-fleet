@@ -749,6 +749,21 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 		componentErrorMap[componentKey{ce.CollectionID, ce.ComponentType}] = ce.DeviceCount
 	}
 
+	// Fetch per-slot device statuses for rack-type collections
+	rackCollectionIDs := make([]int64, 0)
+	for _, id := range req.CollectionIds {
+		if ct, ok := collectionTypes[id]; ok && ct == pb.CollectionType_COLLECTION_TYPE_RACK {
+			rackCollectionIDs = append(rackCollectionIDs, id)
+		}
+	}
+	var slotStatusesByCollection map[int64][]*pb.RackSlotStatus
+	if len(rackCollectionIDs) > 0 {
+		slotStatusesByCollection, err = s.collectionStore.GetRackSlotStatuses(ctx, info.OrganizationID, rackCollectionIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Aggregate per collection
 	stats := make([]*pb.CollectionStats, 0, len(req.CollectionIds))
 	for _, collectionID := range req.CollectionIds {
@@ -831,6 +846,11 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 		cs.FanIssueCount = componentErrorMap[componentKey{collectionID, 3}]
 		cs.HashBoardIssueCount = componentErrorMap[componentKey{collectionID, 2}]
 		cs.PsuIssueCount = componentErrorMap[componentKey{collectionID, 1}]
+
+		// Attach per-slot statuses for rack collections
+		if slots, ok := slotStatusesByCollection[collectionID]; ok {
+			cs.SlotStatuses = slots
+		}
 
 		stats = append(stats, cs)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
@@ -561,6 +562,94 @@ func (s *SQLCollectionStore) GetRackSlots(ctx context.Context, collectionID int6
 			},
 		}
 	}
+	return result, nil
+}
+
+func (s *SQLCollectionStore) GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*pb.RackSlotStatus, error) {
+	if len(collectionIDs) == 0 {
+		return make(map[int64][]*pb.RackSlotStatus), nil
+	}
+
+	// Generate all (row, col) positions for each rack and LEFT JOIN with
+	// slot assignments + device status to produce SlotDeviceStatus per position.
+	// Uses the same bucket logic as GetMinerStateCountsByCollections.
+	query := `WITH rack_dims AS (
+    SELECT dcr.collection_id, dcr.rows, dcr.columns
+    FROM device_collection_rack dcr
+    JOIN device_collection dc ON dcr.collection_id = dc.id
+    WHERE dcr.collection_id = ANY($2::bigint[])
+      AND dc.org_id = $1
+      AND dc.deleted_at IS NULL
+),
+all_positions AS (
+    SELECT rd.collection_id, r.row_num, c.col_num
+    FROM rack_dims rd
+    CROSS JOIN LATERAL generate_series(0, rd.rows - 1) AS r(row_num)
+    CROSS JOIN LATERAL generate_series(0, rd.columns - 1) AS c(col_num)
+),
+slot_devices AS (
+    SELECT rs.collection_id, rs.row, rs.col,
+           dcm.device_identifier,
+           ds.status AS device_status,
+           dp.pairing_status,
+           CASE WHEN open_errors.device_id IS NOT NULL THEN true ELSE false END AS has_errors
+    FROM rack_slot rs
+    JOIN device_collection dc ON rs.collection_id = dc.id AND dc.org_id = $1 AND dc.deleted_at IS NULL
+    JOIN device_collection_membership dcm ON rs.collection_id = dcm.collection_id AND rs.device_id = dcm.device_id
+    JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
+    JOIN device_pairing dp ON d.id = dp.device_id
+        AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    LEFT JOIN (
+        SELECT DISTINCT device_id
+        FROM errors
+        WHERE errors.org_id = $1
+          AND errors.closed_at IS NULL
+          AND errors.severity IN (1, 2, 3)
+          AND errors.device_id IN (SELECT device_id FROM rack_slot WHERE collection_id = ANY($2::bigint[]))
+    ) open_errors ON d.id = open_errors.device_id
+    WHERE rs.collection_id = ANY($2::bigint[])
+)
+SELECT ap.collection_id, ap.row_num AS row, ap.col_num AS col,
+    CASE
+        -- SlotDeviceStatus enum values (collection.v1.SlotDeviceStatus):
+        -- 1 = EMPTY, 2 = HEALTHY, 3 = NEEDS_ATTENTION, 4 = OFFLINE, 5 = SLEEPING
+        WHEN sd.device_identifier IS NULL THEN 1
+        WHEN sd.device_status = 'OFFLINE' OR sd.device_status IS NULL THEN 4
+        WHEN sd.device_status IN ('MAINTENANCE', 'INACTIVE') THEN 5
+        WHEN sd.device_status IN ('ERROR', 'NEEDS_MINING_POOL')
+             OR sd.pairing_status = 'AUTHENTICATION_NEEDED'
+             OR sd.has_errors THEN 3
+        ELSE 2
+    END AS status
+FROM all_positions ap
+LEFT JOIN slot_devices sd ON sd.collection_id = ap.collection_id
+    AND sd.row = ap.row_num AND sd.col = ap.col_num
+ORDER BY ap.collection_id, ap.row_num, ap.col_num`
+
+	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get rack slot statuses: %v", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]*pb.RackSlotStatus)
+	for rows.Next() {
+		var collectionID int64
+		var row, col, status int32
+		if err := rows.Scan(&collectionID, &row, &col, &status); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to scan rack slot status: %v", err)
+		}
+		result[collectionID] = append(result[collectionID], &pb.RackSlotStatus{
+			Row:    row,
+			Column: col,
+			Status: pb.SlotDeviceStatus(status),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to iterate rack slot statuses: %v", err)
+	}
+
 	return result, nil
 }
 

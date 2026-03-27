@@ -18,16 +18,27 @@ import {
   AssignMinersModal,
   type RackFormData,
 } from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
+import { RackCard } from "@/protoFleet/features/rackManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
+import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
 import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-import { DismissTiny, Racks } from "@/shared/assets/icons";
+import { ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
+import useMeasure from "@/shared/hooks/useMeasure";
+
+const RACK_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_LIST_POLL_INTERVAL_MS) || 60000;
+
+const SORT_OPTIONS: { id: string; label: string }[] = [
+  { id: "name", label: "Name" },
+  { id: "location", label: "Location" },
+  { id: "miners", label: "Miners" },
+];
 
 const RACK_COLUMNS: CollectionColumn[] = [
   "name",
@@ -62,6 +73,7 @@ const RacksPage = () => {
     statsMap,
     isLoading,
     hasEverLoaded,
+    hasCompletedInitialFetch,
     error,
     currentSort,
     currentPage,
@@ -71,6 +83,7 @@ const RacksPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
+    refreshCurrentPage,
   } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getLocations);
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
@@ -193,6 +206,44 @@ const RacksPage = () => {
 
   const renderMiners = useCallback((item: CollectionListItem) => <span>{item.collection.deviceCount}</span>, []);
 
+  // Responsive grid measurement
+  const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
+  const RACK_CARD_MIN_WIDTH_PX = 300;
+  const numColumns = Math.max(1, Math.floor((contentRect.width || RACK_CARD_MIN_WIDTH_PX) / RACK_CARD_MIN_WIDTH_PX));
+
+  // Polling — refresh current page every 60s, paused while modals are open
+  const isModalOpen = !!assignMinersFormData || showRackSettingsModal;
+  useEffect(() => {
+    if (!hasCompletedInitialFetch || isModalOpen) return;
+    const intervalId = setInterval(() => {
+      refreshCurrentPage();
+    }, RACK_POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
+
+  // Sort dropdown handler for grid view
+  const handleSortSelect = useCallback(
+    (selected: string[]) => {
+      if (selected.length === 0) {
+        // User deselected the current field — toggle direction
+        const direction = currentSort.direction === "asc" ? "desc" : "asc";
+        handleSort(currentSort.field, direction);
+        return;
+      }
+      // DropdownFilter is multi-select — find the newly toggled field
+      const newField = selected.find((s) => s !== currentSort.field) ?? selected[0];
+      const field = newField as CollectionColumn;
+      const direction = field === currentSort.field && currentSort.direction === "asc" ? "desc" : "asc";
+      handleSort(field, direction);
+    },
+    [currentSort, handleSort],
+  );
+
+  // Grid pagination
+  const firstItemIndex = currentPage * DEFAULT_PAGE_SIZE + 1;
+  const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + racks.length;
+  const shouldRenderGridPagination = !isLoading && totalCount > 0;
+
   if (isLoading && !hasEverLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -260,9 +311,35 @@ const RacksPage = () => {
       <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
         <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>
         <div className="flex flex-col gap-2 pb-6">
-          <div className="flex items-center justify-between gap-2">
+          {/* Action buttons — bottom-right on desktop, top full-width on tablet/phone */}
+          <div className="hidden grid-cols-2 gap-2 phone:grid tablet:grid">
+            <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
+              Add rack
+            </Button>
+            <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
+              Add multiple racks
+            </Button>
+          </div>
+          {/* View toggle — full width on tablet/phone */}
+          <div className="hidden phone:block tablet:block">
+            <SegmentedControl
+              key={`mobile-${racksViewMode}`}
+              className="!w-full whitespace-nowrap [&>button]:flex-1"
+              segmentClassName="text-center"
+              segments={[
+                { key: "grid", title: "View grid" },
+                { key: "list", title: "View list" },
+              ]}
+              initialSegmentKey={racksViewMode}
+              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+            />
+          </div>
+          {/* Desktop layout — single row with toggle + filters left, buttons right */}
+          <div className="flex items-center justify-between gap-2 phone:hidden tablet:hidden">
             <div className="flex items-center gap-2">
               <SegmentedControl
+                key={`desktop-${racksViewMode}`}
+                className="shrink-0 whitespace-nowrap"
                 segments={[
                   { key: "grid", title: "View grid" },
                   { key: "list", title: "View list" },
@@ -284,6 +361,14 @@ const RacksPage = () => {
                 onSelect={handleIssuesChange}
                 withButtons
               />
+              {racksViewMode === "grid" && (
+                <DropdownFilter
+                  title="Sort"
+                  options={SORT_OPTIONS}
+                  selectedOptions={[currentSort.field]}
+                  onSelect={handleSortSelect}
+                />
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
@@ -293,6 +378,31 @@ const RacksPage = () => {
                 Add multiple racks
               </Button>
             </div>
+          </div>
+          {/* Filters — shown separately on tablet/phone */}
+          <div className="hidden items-center gap-2 phone:flex tablet:flex">
+            <DropdownFilter
+              title="Location"
+              options={allLocations}
+              selectedOptions={selectedLocations}
+              onSelect={handleLocationsChange}
+              withButtons
+            />
+            <DropdownFilter
+              title="Issues"
+              options={issueOptions}
+              selectedOptions={selectedIssues}
+              onSelect={handleIssuesChange}
+              withButtons
+            />
+            {racksViewMode === "grid" && (
+              <DropdownFilter
+                title="Sort"
+                options={SORT_OPTIONS}
+                selectedOptions={[currentSort.field]}
+                onSelect={handleSortSelect}
+              />
+            )}
           </div>
           {activeFilterPills.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -319,7 +429,7 @@ const RacksPage = () => {
         </div>
       )}
       {racksViewMode === "list" ? (
-        <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
+        <div className="overflow-x-auto p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
           <CollectionList
             collections={racks}
             statsMap={statsMap}
@@ -340,18 +450,78 @@ const RacksPage = () => {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 px-10 sm:grid-cols-2 lg:grid-cols-3 phone:px-6 tablet:px-6">
-          {racks.map((rack) => (
-            <button
-              key={rack.id.toString()}
-              type="button"
-              className="cursor-pointer rounded-xl border border-border-10 bg-surface-base p-4 text-left hover:bg-surface-5"
-              onClick={() => handleOpenRackForEdit(rack)}
-            >
-              <p className="text-heading-100 text-text-primary">{rack.label}</p>
-              <p className="text-200 text-text-primary-50">{rack.description}</p>
-            </button>
-          ))}
+        <div className="px-10 phone:px-6 tablet:px-6">
+          {isLoading && racks.length === 0 ? (
+            <div className="flex items-center justify-center py-20">
+              <ProgressCircular indeterminate />
+            </div>
+          ) : racks.length === 0 ? (
+            <div className="flex items-center justify-center py-20">
+              <p className="text-300 text-text-primary-50">No racks match the current filters</p>
+            </div>
+          ) : (
+            <div ref={measureRef}>
+              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
+                {racks.map((rack) => {
+                  const stats = statsMap.get(rack.id);
+                  const {
+                    building,
+                    rows,
+                    cols,
+                    loading,
+                    statusSegments,
+                    slots,
+                    hashrate,
+                    efficiency,
+                    power,
+                    temperature,
+                  } = mapRackToCardProps(rack, stats);
+                  return (
+                    <RackCard
+                      key={rack.id.toString()}
+                      label={rack.label}
+                      building={building}
+                      cols={cols}
+                      rows={rows}
+                      slots={slots}
+                      loading={loading}
+                      statusSegments={statusSegments}
+                      hashrate={hashrate}
+                      efficiency={efficiency}
+                      power={power}
+                      temperature={temperature}
+                      onClick={() => handleOpenRackForEdit(rack)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {(shouldRenderGridPagination || (currentPage > 0 && racks.length === 0)) && (
+            <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+              <span className="text-300 text-text-primary">
+                Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
+              </span>
+              <div className="flex gap-3">
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  ariaLabel="Previous page"
+                  prefixIcon={<ChevronDown className="rotate-90" />}
+                  onClick={handlePrevPage}
+                  disabled={currentPage === 0}
+                />
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  ariaLabel="Next page"
+                  prefixIcon={<ChevronDown className="rotate-270" />}
+                  onClick={handleNextPage}
+                  disabled={!hasNextPage}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
       {showRackSettingsModal && (

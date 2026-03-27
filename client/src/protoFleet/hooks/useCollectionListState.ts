@@ -41,6 +41,7 @@ export function useCollectionListState(
   const [statsMap, setStatsMap] = useState<Map<bigint, CollectionStats>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [hasEverLoaded, setHasEverLoaded] = useState(false);
+  const [hasCompletedInitialFetch, setHasCompletedInitialFetch] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Pagination state
@@ -93,6 +94,7 @@ export function useCollectionListState(
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
+          setHasCompletedInitialFetch(true);
           setCollections(items);
           fetchStats(items);
           setCurrentPage(page);
@@ -158,6 +160,20 @@ export function useCollectionListState(
     }
   }, [currentPage, cursorHistory, fetchPage]);
 
+  // Keep refs for polling to avoid stale closures
+  const currentPageRef = useRef(currentPage);
+  const cursorHistoryRef = useRef(cursorHistory);
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+  useEffect(() => {
+    cursorHistoryRef.current = cursorHistory;
+  }, [cursorHistory]);
+
+  const refreshCurrentPage = useCallback(() => {
+    fetchPage(currentPageRef.current, cursorHistoryRef.current[currentPageRef.current]);
+  }, [fetchPage]);
+
   const currentSort = useMemo(() => {
     const fieldEntry = Object.entries(SORT_FIELD_MAP).find(([, v]) => v === sortConfig.field);
     const field = (fieldEntry?.[0] ?? "name") as CollectionColumn;
@@ -170,6 +186,7 @@ export function useCollectionListState(
     statsMap,
     isLoading,
     hasEverLoaded,
+    hasCompletedInitialFetch,
     error,
     currentSort,
     currentPage,
@@ -179,5 +196,6 @@ export function useCollectionListState(
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
+    refreshCurrentPage,
   };
 }

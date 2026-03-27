@@ -450,6 +450,10 @@ message CollectionStats {
     int32 fan_issue_count = 18;
     int32 hash_board_issue_count = 19;
     int32 psu_issue_count = 20;
+
+    // Per-slot device status for rack-type collections (empty for groups).
+    // Contains one entry per row×column position, including empty slots.
+    repeated RackSlotStatus slot_statuses = 21;
 }
 
 // Request to get aggregated stats for collections
@@ -462,6 +466,26 @@ message GetCollectionStatsRequest {
 message GetCollectionStatsResponse {
     // Stats per collection (one entry per requested collection ID)
     repeated CollectionStats stats = 1;
+}
+
+// Status of a device in a specific rack slot position
+enum SlotDeviceStatus {
+    SLOT_DEVICE_STATUS_UNSPECIFIED = 0;
+    SLOT_DEVICE_STATUS_EMPTY = 1;
+    SLOT_DEVICE_STATUS_HEALTHY = 2;
+    SLOT_DEVICE_STATUS_NEEDS_ATTENTION = 3;
+    SLOT_DEVICE_STATUS_OFFLINE = 4;
+    SLOT_DEVICE_STATUS_SLEEPING = 5;
+}
+
+// Status of a single slot in a rack grid
+message RackSlotStatus {
+    // Row position (0-indexed)
+    int32 row = 1;
+    // Column position (0-indexed)
+    int32 column = 2;
+    // Device status for this slot
+    SlotDeviceStatus status = 3;
 }
 
 // Request to list all distinct rack locations for the organization

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import RackCard from "./RackCard";
 import RackCardGrid from "./RackCardGrid";
-import type { RackStatus, SlotStatus } from "./types";
+import type { SlotStatus } from "./types";
 
 /** Deterministic shuffle using a seeded PRNG */
 function seededShuffle<T>(arr: T[], seed: number): T[] {
@@ -57,8 +57,7 @@ function InteractiveRackCard({
   needsAttentionCount: number;
   offlineCount: number;
   sleepingCount: number;
-  status: RackStatus;
-  statusText: string;
+  statusSegments: { color: string; text: string }[];
   hashrate?: string;
   efficiency?: string;
   power?: string;
@@ -108,12 +107,7 @@ const meta: Meta<typeof InteractiveRackCard> = {
       control: { type: "number", min: 0, max: 144, step: 1 },
       description: "Number of sleeping miners",
     },
-    status: {
-      control: "select",
-      options: ["healthy", "needsAttention", "offline", "sleeping", "mixed", "empty"],
-      description: "Rack-level health status",
-    },
-    statusText: { control: "text", description: "Status description text" },
+    statusSegments: { control: "object", description: "Status segments with color and text" },
     hashrate: { control: "text", description: "Hashrate display value" },
     efficiency: { control: "text", description: "Efficiency display value" },
     power: { control: "text", description: "Total power display value" },
@@ -142,8 +136,7 @@ export const Default: Story = {
     needsAttentionCount: 0,
     offlineCount: 0,
     sleepingCount: 0,
-    status: "healthy",
-    statusText: "Healthy",
+    statusSegments: [{ color: "bg-intent-success-fill", text: "Healthy" }],
     hashrate: "1.2 PH/s",
     efficiency: "21.50 J/TH",
     power: "25.6 kW",
@@ -161,8 +154,7 @@ export const WithIssues: Story = {
     needsAttentionCount: 5,
     offlineCount: 0,
     sleepingCount: 0,
-    status: "needsAttention",
-    statusText: "5 need attention",
+    statusSegments: [{ color: "bg-intent-critical-fill", text: "5 issues" }],
     hashrate: "0.9 PH/s",
     efficiency: "23.10 J/TH",
     power: "20.8 kW",
@@ -180,8 +172,7 @@ export const WithOffline: Story = {
     needsAttentionCount: 0,
     offlineCount: 7,
     sleepingCount: 0,
-    status: "offline",
-    statusText: "7 offline",
+    statusSegments: [{ color: "bg-intent-warning-fill", text: "7 offline" }],
     hashrate: "0.7 PH/s",
     efficiency: "22.00 J/TH",
     power: "16.1 kW",
@@ -199,8 +190,7 @@ export const Sleeping: Story = {
     needsAttentionCount: 0,
     offlineCount: 0,
     sleepingCount: 10,
-    status: "sleeping",
-    statusText: "10 sleeping",
+    statusSegments: [{ color: "bg-core-primary-20", text: "10 sleeping" }],
     hashrate: "0.6 PH/s",
     efficiency: "20.80 J/TH",
     power: "12.0 kW",
@@ -218,8 +208,11 @@ export const Mixed: Story = {
     needsAttentionCount: 4,
     offlineCount: 3,
     sleepingCount: 3,
-    status: "mixed",
-    statusText: "4 need attention · 3 offline",
+    statusSegments: [
+      { color: "bg-intent-critical-fill", text: "4 issues" },
+      { color: "bg-intent-warning-fill", text: "3 offline" },
+      { color: "bg-core-primary-20", text: "3 sleeping" },
+    ],
     hashrate: "0.8 PH/s",
     efficiency: "22.70 J/TH",
     power: "18.3 kW",
@@ -237,8 +230,7 @@ export const Empty: Story = {
     needsAttentionCount: 0,
     offlineCount: 0,
     sleepingCount: 0,
-    status: "empty",
-    statusText: "",
+    statusSegments: [],
     hashrate: undefined,
     efficiency: undefined,
     power: undefined,
@@ -256,8 +248,11 @@ export const SparseRack: Story = {
     needsAttentionCount: 3,
     offlineCount: 2,
     sleepingCount: 1,
-    status: "mixed",
-    statusText: "3 need attention · 2 offline · 18 empty",
+    statusSegments: [
+      { color: "bg-intent-critical-fill", text: "3 issues" },
+      { color: "bg-intent-warning-fill", text: "2 offline" },
+      { color: "bg-core-primary-20", text: "1 sleeping" },
+    ],
     hashrate: "0.5 PH/s",
     efficiency: "22.40 J/TH",
     power: "11.2 kW",
@@ -275,8 +270,10 @@ export const CompactRack: Story = {
     needsAttentionCount: 2,
     offlineCount: 2,
     sleepingCount: 0,
-    status: "mixed",
-    statusText: "2 need attention · 2 offline",
+    statusSegments: [
+      { color: "bg-intent-critical-fill", text: "2 issues" },
+      { color: "bg-intent-warning-fill", text: "2 offline" },
+    ],
     hashrate: "1.5 PH/s",
     efficiency: "21.00 J/TH",
     power: "31.5 kW",
@@ -293,8 +290,11 @@ export const WideRack: Story = {
     needsAttentionCount: 4,
     offlineCount: 2,
     sleepingCount: 2,
-    status: "mixed",
-    statusText: "4 need attention · 2 offline",
+    statusSegments: [
+      { color: "bg-intent-critical-fill", text: "4 issues" },
+      { color: "bg-intent-warning-fill", text: "2 offline" },
+      { color: "bg-core-primary-20", text: "2 sleeping" },
+    ],
     hashrate: "2.3 PH/s",
     efficiency: "21.80 J/TH",
     power: "50.1 kW",
@@ -312,8 +312,11 @@ export const MaxSize: Story = {
     needsAttentionCount: 10,
     offlineCount: 8,
     sleepingCount: 6,
-    status: "mixed",
-    statusText: "10 need attention · 8 offline",
+    statusSegments: [
+      { color: "bg-intent-critical-fill", text: "10 issues" },
+      { color: "bg-intent-warning-fill", text: "8 offline" },
+      { color: "bg-core-primary-20", text: "6 sleeping" },
+    ],
     hashrate: "6.9 PH/s",
     efficiency: "21.20 J/TH",
     power: "146.3 kW",
@@ -337,8 +340,7 @@ export const GridView: Story = {
         cols={5}
         rows={5}
         slots={makeSlots(25, 25)}
-        status="healthy"
-        statusText="Healthy"
+        statusSegments={[{ color: "bg-intent-success-fill", text: "Healthy" }]}
         hashrate="1.2 PH/s"
         efficiency="21.50 J/TH"
         power="25.6 kW"
@@ -350,8 +352,7 @@ export const GridView: Story = {
         cols={5}
         rows={5}
         slots={makeSlots(25, 17, 5, 0, 0, 99)}
-        status="needsAttention"
-        statusText="5 need attention"
+        statusSegments={[{ color: "bg-intent-critical-fill", text: "5 issues" }]}
         hashrate="0.9 PH/s"
         efficiency="23.10 J/TH"
         power="20.8 kW"
@@ -363,8 +364,11 @@ export const GridView: Story = {
         cols={6}
         rows={6}
         slots={makeSlots(36, 12, 3, 2, 1, 77)}
-        status="mixed"
-        statusText="3 need attention · 18 empty"
+        statusSegments={[
+          { color: "bg-intent-critical-fill", text: "3 issues" },
+          { color: "bg-intent-warning-fill", text: "2 offline" },
+          { color: "bg-core-primary-20", text: "1 sleeping" },
+        ]}
         hashrate="0.5 PH/s"
         efficiency="22.40 J/TH"
         power="11.2 kW"
@@ -376,30 +380,24 @@ export const GridView: Story = {
         cols={12}
         rows={12}
         slots={makeSlots(144, 110, 10, 8, 6, 55)}
-        status="mixed"
-        statusText="10 need attention · 8 offline"
+        statusSegments={[
+          { color: "bg-intent-critical-fill", text: "10 issues" },
+          { color: "bg-intent-warning-fill", text: "8 offline" },
+          { color: "bg-core-primary-20", text: "6 sleeping" },
+        ]}
         hashrate="6.9 PH/s"
         efficiency="21.20 J/TH"
         power="146.3 kW"
         temperature="58°–74°"
       />
-      <RackCard
-        label="R-05"
-        building="Building 3"
-        cols={5}
-        rows={5}
-        slots={makeSlots(25, 0)}
-        status="empty"
-        statusText=""
-      />
+      <RackCard label="R-05" building="Building 3" cols={5} rows={5} slots={makeSlots(25, 0)} statusSegments={[]} />
       <RackCard
         label="R-06"
         building="Building 3"
         cols={6}
         rows={6}
         slots={makeSlots(36, 28, 0, 0, 6, 33)}
-        status="sleeping"
-        statusText="6 sleeping"
+        statusSegments={[{ color: "bg-core-primary-20", text: "6 sleeping" }]}
         hashrate="1.4 PH/s"
         efficiency="20.90 J/TH"
         power="29.3 kW"

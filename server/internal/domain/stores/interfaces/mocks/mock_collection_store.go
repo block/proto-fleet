@@ -220,6 +220,21 @@ func (mr *MockCollectionStoreMockRecorder) GetRackLabelsForDevices(ctx, orgID, d
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackLabelsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetRackLabelsForDevices), ctx, orgID, deviceIdentifiers)
 }
 
+// GetRackSlotStatuses mocks base method.
+func (m *MockCollectionStore) GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*collectionv1.RackSlotStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRackSlotStatuses", ctx, orgID, collectionIDs)
+	ret0, _ := ret[0].(map[int64][]*collectionv1.RackSlotStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRackSlotStatuses indicates an expected call of GetRackSlotStatuses.
+func (mr *MockCollectionStoreMockRecorder) GetRackSlotStatuses(ctx, orgID, collectionIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackSlotStatuses", reflect.TypeOf((*MockCollectionStore)(nil).GetRackSlotStatuses), ctx, orgID, collectionIDs)
+}
+
 // GetRackSlots mocks base method.
 func (m *MockCollectionStore) GetRackSlots(ctx context.Context, collectionID, orgID int64) ([]*collectionv1.RackSlot, error) {
 	m.ctrl.T.Helper()
