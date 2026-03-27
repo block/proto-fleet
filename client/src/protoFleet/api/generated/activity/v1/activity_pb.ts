@@ -75,7 +75,7 @@ export type ActivityEntry = Message<"activity.v1.ActivityEntry"> & {
   scopeCount: number;
 
   /**
-   * Type of actor that performed the activity ("user" or "system")
+   * Type of actor that performed the activity ("user", "system", or "scheduler")
    *
    * @generated from field: string actor_type = 8;
    */

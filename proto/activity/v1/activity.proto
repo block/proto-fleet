@@ -42,7 +42,7 @@ message ActivityEntry {
     // Number of devices affected by the activity
     int32 scope_count = 7;
 
-    // Type of actor that performed the activity ("user" or "system")
+    // Type of actor that performed the activity ("user", "system", or "scheduler")
     string actor_type = 8;
 
     // External user ID of the actor, if performed by a user

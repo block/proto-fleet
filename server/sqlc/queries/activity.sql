@@ -26,7 +26,7 @@ WHERE organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('event_types')::text[] IS NULL OR event_type = ANY(sqlc.narg('event_types')::text[]))
     AND (sqlc.narg('user_ids')::text[] IS NULL OR user_id = ANY(sqlc.narg('user_ids')::text[]))
     AND (sqlc.narg('scope_types')::text[] IS NULL OR scope_type = ANY(sqlc.narg('scope_types')::text[]))
-    AND (sqlc.narg('search_pattern')::text IS NULL OR description ILIKE sqlc.narg('search_pattern'))
+    AND (sqlc.narg('search_pattern')::text IS NULL OR description ILIKE sqlc.narg('search_pattern') ESCAPE '\')
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR created_at >= sqlc.narg('start_time'))
     AND (sqlc.narg('end_time')::timestamptz IS NULL OR created_at <= sqlc.narg('end_time'))
     AND (sqlc.narg('cursor_time')::timestamptz IS NULL OR (created_at, id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.narg('cursor_id')::bigint))
@@ -41,7 +41,7 @@ WHERE organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('event_types')::text[] IS NULL OR event_type = ANY(sqlc.narg('event_types')::text[]))
     AND (sqlc.narg('user_ids')::text[] IS NULL OR user_id = ANY(sqlc.narg('user_ids')::text[]))
     AND (sqlc.narg('scope_types')::text[] IS NULL OR scope_type = ANY(sqlc.narg('scope_types')::text[]))
-    AND (sqlc.narg('search_pattern')::text IS NULL OR description ILIKE sqlc.narg('search_pattern'))
+    AND (sqlc.narg('search_pattern')::text IS NULL OR description ILIKE sqlc.narg('search_pattern') ESCAPE '\')
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR created_at >= sqlc.narg('start_time'))
     AND (sqlc.narg('end_time')::timestamptz IS NULL OR created_at <= sqlc.narg('end_time'));
 
@@ -50,7 +50,7 @@ SELECT * FROM (
     SELECT DISTINCT ON (user_id) user_id, username
     FROM activity_log
     WHERE organization_id = sqlc.arg('org_id') AND user_id IS NOT NULL
-    ORDER BY user_id, created_at DESC
+    ORDER BY user_id, (username IS NULL) ASC, created_at DESC
 ) AS latest_users
 ORDER BY username;
 

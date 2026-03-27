@@ -42,7 +42,7 @@ type ActivityEntry struct {
 	ScopeLabel *string `protobuf:"bytes,6,opt,name=scope_label,json=scopeLabel,proto3,oneof" json:"scope_label,omitempty"`
 	// Number of devices affected by the activity
 	ScopeCount int32 `protobuf:"varint,7,opt,name=scope_count,json=scopeCount,proto3" json:"scope_count,omitempty"`
-	// Type of actor that performed the activity ("user" or "system")
+	// Type of actor that performed the activity ("user", "system", or "scheduler")
 	ActorType string `protobuf:"bytes,8,opt,name=actor_type,json=actorType,proto3" json:"actor_type,omitempty"`
 	// External user ID of the actor, if performed by a user
 	UserId *string `protobuf:"bytes,9,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`

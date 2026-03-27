@@ -23,7 +23,7 @@ WHERE organization_id = $1
     AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6)
+    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
     AND ($7::timestamptz IS NULL OR created_at >= $7)
     AND ($8::timestamptz IS NULL OR created_at <= $8)
 `
@@ -60,7 +60,7 @@ SELECT user_id, username FROM (
     SELECT DISTINCT ON (user_id) user_id, username
     FROM activity_log
     WHERE organization_id = $1 AND user_id IS NOT NULL
-    ORDER BY user_id, created_at DESC
+    ORDER BY user_id, (username IS NULL) ASC, created_at DESC
 ) AS latest_users
 ORDER BY username
 `
@@ -221,7 +221,7 @@ WHERE organization_id = $1
     AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6)
+    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
     AND ($7::timestamptz IS NULL OR created_at >= $7)
     AND ($8::timestamptz IS NULL OR created_at <= $8)
     AND ($9::timestamptz IS NULL OR (created_at, id) < ($9::timestamptz, $10::bigint))
