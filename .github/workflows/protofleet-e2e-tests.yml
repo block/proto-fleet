@@ -125,7 +125,14 @@ jobs:
 
       - name: Run Playwright tests (${{ matrix.project }})
         working-directory: client/e2eTests/protoFleet
-        run: npx playwright test --project=${{ matrix.project }}
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Running smoke tests only for PR"
+            npx playwright test --project=smoke-${{ matrix.project }}
+          else
+            echo "Running all tests for scheduled/manual run"
+            npx playwright test --project=${{ matrix.project }}
+          fi
         env:
           CI: true
 
@@ -170,7 +177,7 @@ jobs:
           testmo automation:run:submit \
             --instance https://proto.testmo.net \
             --project-id 2 \
-            --name "ProtoFleet E2E Tests - ${{ matrix.project }} - $(date +'%Y-%m-%d %H:%M')" \
+            --name "ProtoFleet E2E Tests - $(date +'%Y-%m-%d %H:%M')" \
             --source "protofleet-e2e-tests-${{ matrix.project }}" \
             --results test-results/*.xml
 

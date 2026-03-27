@@ -6,7 +6,7 @@ test.describe("General Settings", () => {
     await page.goto("/");
   });
 
-  test("Set temperature format @real", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
+  test("Set temperature format @smoke", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to general settings", async () => {

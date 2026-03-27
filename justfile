@@ -66,6 +66,9 @@ test-contract: _pyasic-build
 # run ProtoFleet E2E tests
 test-e2e-fleet: (_e2e "protoFleet" "--project=desktop")
 
+# run ProtoFleet E2E tests
+test-e2e-fleet-smoke: (_e2e "protoFleet" "--project=smoke-desktop")
+
 # run ProtoFleet E2E tests in UI mode
 test-e2e-fleet-ui: (_e2e "protoFleet" "--ui" "--project=desktop")
 

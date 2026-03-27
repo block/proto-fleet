@@ -50,8 +50,29 @@ export default defineConfig({
 
   // E.g.:  npx playwright test --project=desktop
   projects: [
+    // Smoke tests project - runs setup + essential tests in order
+    {
+      name: "smoke-desktop",
+      testMatch: /.*\.spec\.ts/,
+      grep: /@smoke/,
+      use: {
+        viewport: { width: 1600, height: 900 },
+        isMobile: false,
+      },
+    },
+    {
+      name: "smoke-mobile",
+      testMatch: /.*\.spec\.ts/,
+      grep: /@smoke/,
+      use: {
+        viewport: { width: 393, height: 852 },
+        isMobile: true,
+      },
+    },
+    // Full regression suite - runs all tests in order
     {
       name: "desktop",
+      testMatch: /.*\.spec\.ts/,
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
@@ -60,6 +81,7 @@ export default defineConfig({
     // Resolution of the iPhone 14 Pro / 15 Pro / 16
     {
       name: "mobile",
+      testMatch: /.*\.spec\.ts/,
       use: {
         viewport: { width: 393, height: 852 },
         isMobile: true,

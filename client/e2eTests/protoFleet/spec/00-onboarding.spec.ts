@@ -7,7 +7,7 @@ test.describe("Proto Fleet - Onboarding", () => {
     await page.goto("/");
   });
 
-  test("Onboard the admin user @setup @real", async ({ authPage }) => {
+  test("Onboard the admin user @setup @smoke", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);
@@ -50,7 +50,7 @@ test.describe("Proto Fleet - Onboarding", () => {
   });
 
   if (testConfig.target === "real") {
-    test("Add specific miners @setup @real", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
+    test("Add specific miners @setup @smoke", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
       await commonSteps.loginAsAdmin();
 
       await test.step("Get started with onboarding", async () => {
@@ -84,7 +84,7 @@ test.describe("Proto Fleet - Onboarding", () => {
       });
     });
   } else {
-    test("Add all scanned miners @setup", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
+    test("Add all scanned miners @setup @smoke", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
       await commonSteps.loginAsAdmin();
 
       await test.step("Get started with onboarding", async () => {
@@ -105,7 +105,7 @@ test.describe("Proto Fleet - Onboarding", () => {
   }
 
   if (testConfig.target !== "real") {
-    test("Authenticate miners @setup", async ({ homePage, commonSteps }) => {
+    test("Authenticate miners @setup @smoke", async ({ homePage, commonSteps }) => {
       await commonSteps.loginAsAdmin();
 
       await test.step("Start authentication process", async () => {

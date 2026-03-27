@@ -58,11 +58,7 @@ test.describe("Miners Rename", () => {
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
 
-      const minerCount = await minersPage.getMinersCount();
-
       await minersPage.clickSelectAllCheckbox();
-      await minersPage.validateActionBarMinerCount(minerCount);
-
       await minersPage.clickActionsMenuButton();
       await minersPage.clickRenameButton();
       await minersPage.validateBulkRenamePageOpened();
@@ -76,13 +72,13 @@ test.describe("Miners Rename", () => {
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
     } catch (error) {
-      console.warn("Cleanup failed:", error instanceof Error ? error.message : String(error));
+      console.warn("minersRename cleanup failed:", error instanceof Error ? error.message : String(error));
     } finally {
       await context.close();
     }
   });
 
-  test("Validate bulk rename functionality", async ({ minersPage, commonSteps }) => {
+  test("Validate bulk rename functionality @smoke", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
     await minersPage.setBulkRenamePropertyOrder(BULK_RENAME_PROPERTIES);

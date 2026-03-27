@@ -55,7 +55,7 @@ test.describe("Navigation", () => {
     });
   });
 
-  test("Navigate between main pages and settings sub-pages", async ({ authPage, settingsPage }) => {
+  test("Navigate between main pages and settings sub-pages @smoke", async ({ authPage, settingsPage }) => {
     await test.step("Log in as admin user", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);

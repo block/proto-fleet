@@ -591,13 +591,57 @@ export class MinersPage extends BasePage {
   }
 
   async validateMinerStatus(ipAddress: string, expectedStatus: string) {
-    const minerRow = await this.getMinerRowByIp(ipAddress);
-    const statusCell = minerRow.locator(`//td[@data-testid='status']`);
-    const spinner = statusCell.locator('[class*="animate-spin"]');
-    await expect(spinner).toBeHidden({
-      timeout: PROLONGED_TIMEOUT,
-    });
-    await expect(statusCell).toHaveText(expectedStatus);
+    await expect(async () => {
+      try {
+        const minerRow = await this.getMinerRowByIp(ipAddress);
+        const statusCell = minerRow.locator(`//td[@data-testid='status']`);
+        const spinner = statusCell.locator('[class*="animate-spin"]');
+
+        await expect(spinner).toBeHidden({ timeout: DEFAULT_INTERVAL });
+        await expect(statusCell).toHaveText(expectedStatus, { timeout: DEFAULT_INTERVAL });
+      } catch (error) {
+        await this.page.reload();
+        const minerRow = await this.getMinerRowByIp(ipAddress);
+        const statusCell = minerRow.locator(`//td[@data-testid='status']`);
+
+        await expect(statusCell).toBeVisible();
+        throw error;
+      }
+    }).toPass({ timeout: PROLONGED_TIMEOUT });
+  }
+
+  async validateAllMinersIssues(issue: string, expected: boolean = true) {
+    await expect(async () => {
+      try {
+        // To make sure all miners are loaded and we are not missing any issues due to lazy loading
+        await this.waitForColumnValuesToLoad("status");
+        // To avoid miner actions hiding some valuable data in screenshots
+        await this.uncheckSelectAllCheckbox();
+        const rows = this.page.getByTestId("list-body").locator("tr");
+        const rowCount = await rows.count();
+        for (let i = rowCount - 1; i >= 0; i--) {
+          await rows.nth(i).scrollIntoViewIfNeeded();
+          const issuesLocator = rows.nth(i).locator(`//td[@data-testid='issues']`);
+
+          if (expected) {
+            await expect(issuesLocator).toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          } else {
+            await expect(issuesLocator).not.toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          }
+        }
+      } catch (error) {
+        await this.page.reload();
+        throw error;
+      }
+    }).toPass({ timeout: PROLONGED_TIMEOUT });
+  }
+
+  async validateNoMinerWithIssue(issue: string) {
+    await this.validateAllMinersIssues(issue, false);
   }
 
   private async waitForColumnValuesToLoad(columnTestId: string) {

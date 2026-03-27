@@ -37,7 +37,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("New member log in", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
+  test("New member log in @smoke", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
     let username = generateRandomUsername();
     let tempPassword: string;
 

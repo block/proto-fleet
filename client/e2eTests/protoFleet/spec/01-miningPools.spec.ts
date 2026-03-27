@@ -16,7 +16,7 @@ if (testConfig.target !== "real") {
     const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
     const validPoolUrl = "stratum+tcp://mine.ocean.xyz:3334";
 
-    test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
+    test("Configure mining pool @smoke", async ({ settingsPage, settingsPoolsPage, newPoolModal, commonSteps }) => {
       const settingsPoolName = generateRandomText("PoolName");
       const poolUsername = generatePoolUsername();
       await commonSteps.loginAsAdmin();
@@ -62,7 +62,7 @@ if (testConfig.target !== "real") {
       });
     });
 
-    test("Add default mining pool to all miners @setup", async ({
+    test("Add default mining pool to all miners @setup @smoke", async ({
       minersPage,
       editPoolPage,
       newPoolModal,
@@ -101,7 +101,7 @@ if (testConfig.target !== "real") {
       });
 
       await test.step("Validate the pool has been assigned", async () => {
-        await minersPage.validateNoMinerWithStatus("Needs mining pool");
+        await minersPage.validateNoMinerWithIssue("Pool required");
       });
     });
 

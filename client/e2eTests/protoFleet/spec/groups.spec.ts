@@ -31,7 +31,7 @@ test.describe("Groups", () => {
     }
   }
 
-  test("Create, edit, and delete groups", async ({ groupsPage, commonSteps }) => {
+  test("Create, edit, and delete groups @smoke", async ({ groupsPage, commonSteps }) => {
     const groupName = generateRandomText("group");
     const editedGroupName = generateRandomText("edited-group");
 
