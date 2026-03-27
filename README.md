@@ -28,99 +28,33 @@
   </a>
 </p>
 
-<br/>
-
-## Tech Stack
-
-- **Frontend**: React 19, TypeScript, Vite 7, Zustand, Tailwind CSS 4
-- **Backend**: Go with Connect RPC (gRPC-compatible), PostgreSQL/TimescaleDB
-- **API**: Protocol Buffers for type-safe cross-language communication
-- **Build Tools**: Just (task runner), Buf (Protobuf), Hermit (tool management), Docker Compose
-
-## Repository Structure
-
-```
-proto-fleet/
-├── client/                    # TypeScript/React applications
-│   ├── src/
-│   │   ├── protoOS/          # Single miner dashboard (REST API)
-│   │   ├── protoFleet/       # Fleet management UI (gRPC streaming)
-│   │   └── shared/           # Shared components and utilities (50+ components)
-├── server/                    # Go backend service
-│   ├── cmd/fleetd/           # Main entry point
-│   ├── internal/domain/      # Business logic (pairing, telemetry, command, etc.)
-│   ├── internal/handlers/    # gRPC request handlers
-│   ├── internal/infrastructure/  # Database, queue, encryption, logging
-│   ├── migrations/           # Database schema migrations (sequential)
-│   ├── sqlc/queries/         # SQL query definitions for code generation
-│   └── generated/            # Generated code (protobuf, sqlc)
-├── proto/                     # Protocol Buffer API definitions (shared)
-├── proto-rig-api/            # Vendored API specs for Proto miner communication
-│   ├── grpc/                 # Protocol Buffer definitions
-│   └── openapi/              # OpenAPI/Swagger specification
-├── plugin/                   # Miner plugins (proto, antminer, virtual)
-├── deployment-files/         # Production deployment configurations
-└── bin/                      # Hermit-managed binaries
-```
-
-## Architecture Overview
-
-### Two Client Applications
-
-**ProtoOS** — Single miner dashboard served by the miner's embedded API server. Uses REST API with polling for updates, with types generated from OpenAPI/Swagger definitions.
-
-**ProtoFleet** — Fleet management UI for managing multiple miners. Uses gRPC-Web with Connect-RPC and server-to-client streaming for real-time telemetry.
-
-Both apps share a common component library in `src/shared/components/`.
-
-### Server
-
-Go service handling device pairing, telemetry collection, command execution, fleet management, and authentication. Uses TimescaleDB for time-series metrics and a plugin system for supporting different miner types.
-
-### Data Flow
-
-1. **Device Discovery**: Network scanning or plugin-based discovery identifies devices
-2. **Pairing**: Device authentication and registration with fleet database
-3. **Telemetry Collection**: Scheduled polling collects metrics and stores in TimescaleDB
-4. **Command Execution**: Queue-based system for asynchronous command dispatch
-5. **Real-time Updates**: gRPC streaming pushes telemetry to connected ProtoFleet clients
+**Proto Fleet** is open-source fleet management software for bitcoin miners. It helps operators pair devices, monitor telemetry, and manage mining infrastructure without giving up control. Built with React and TypeScript clients, Go services, Connect RPC, Protocol Buffers, and TimescaleDB. For architecture details, see [docs/architecture.md](docs/architecture.md).
 
 ## Getting Started
 
 ### Prerequisites
 
 - Docker and Docker Compose
-- [Hermit](https://cashapp.github.io/hermit/) (or manually install Go, Node.js, Just, Buf)
+- [Hermit](https://cashapp.github.io/hermit/), or a local installation of the required development tools
 
 ### Initial Setup
 
 ```bash
-# Activate Hermit environment (manages tool versions)
-./bin/activate-hermit
-
-# Install all dependencies
+source ./bin/activate-hermit
 just setup
 ```
 
-To install Git hooks, enable them separately after your toolchain is ready:
+To install Git hooks after your toolchain is ready:
 
 ```bash
-# Optional: install Git hooks
 just install-hooks
 ```
 
-`just install-hooks` requires a `lefthook` binary. Hermit users can run it after `./bin/activate-hermit`. Non-Hermit users need to install `lefthook` themselves before enabling hooks.
-
-The Python pre-commit hook also requires Ruff for the Python area you are changing:
-
-- `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
-- `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
-- `plugin/pyasic` and other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+For non-Hermit setup details, `lefthook` and Ruff hook prerequisites, and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Start Development
 
 ```bash
-# Start both client and server
 just dev
 ```
 
@@ -128,39 +62,30 @@ This starts the Go backend with Docker Compose and the Vite dev server for Proto
 
 ### Protocol Buffer Code Generation
 
-After modifying proto definitions in `proto/`:
+After modifying definitions in `proto/`, regenerate generated clients and server code:
 
 ```bash
 just gen
 ```
 
-This validates proto files, generates TypeScript clients and Go server code, and regenerates sqlc database bindings. Always commit generated code changes alongside proto definition changes.
-
-## Go Workspace
-
-This repository uses a Go workspace (`go.work`) for integrated development across modules:
-
-- `server/` — Main fleet backend service
-- `plugin/proto/` — Proto miner plugin
-- `plugin/antminer/` — Antminer plugin
-- `plugin/virtual/` — Virtual miner simulator
-
-Changes across modules are immediately available without publishing versions. Run `go work sync` after updating dependencies.
-
 ## Production Install
 
-### Latest version
+### Latest Version
 
-```shell
+```bash
 bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh)
 ```
 
-### Specific version
+### Specific Version
 
-```shell
+```bash
 bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh) v0.1.0
 ```
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflows, coding conventions, and how to submit changes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflows and contribution guidelines. Project standards and community expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [GOVERNANCE.md](GOVERNANCE.md), and [SECURITY.md](SECURITY.md).
+
+## License
+
+This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.

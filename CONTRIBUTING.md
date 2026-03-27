@@ -4,7 +4,70 @@ Thank you for your interest in contributing to Proto Fleet! This guide covers th
 
 ## Development Setup
 
-See the [README](README.md) for initial setup instructions (`./bin/activate-hermit` and `just setup`).
+Start with the [README](README.md) for the basic development flow, then use the details here for contributor-specific setup requirements.
+
+### Hermit Setup
+
+If you use Hermit, activate the managed toolchain and install project dependencies:
+
+```bash
+source ./bin/activate-hermit
+just setup
+```
+
+After your toolchain is ready, install Git hooks:
+
+```bash
+just install-hooks
+```
+
+### Non-Hermit Setup
+
+If you are not using Hermit, install the required toolchain yourself before running project tasks. The repository recipes and hooks expect these binaries to be available in `PATH` as needed:
+
+- `just` for top-level and per-project task runners
+- `go` for server and Go plugin workflows
+- `node` and `npm` for client setup, linting, testing, and Storybook
+- `buf` for protobuf linting and generation
+- `lefthook` for Git hook installation
+- `golangci-lint` for Go linting and pre-push checks
+- `goimports` for Go formatting and code generation follow-up
+- `sqlc` for generating server query bindings
+- `migrate` for creating and running database migrations
+
+Python-specific tooling depends on the files you change:
+
+- `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
+- `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
+- `plugin/pyasic` and other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+
+## Git Hooks
+
+Install Git hooks with:
+
+```bash
+just install-hooks
+```
+
+If `lefthook` is not installed, `just install-hooks` will fail. Hermit users can run `source ./bin/activate-hermit` first to make `lefthook` available. Non-Hermit users need to install `lefthook` manually, then rerun `just install-hooks`.
+
+### Python Hook Prerequisites
+
+The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ruff environment is available before committing Python changes:
+
+- `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
+- `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
+- `plugin/pyasic`: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+- Other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+
+### Pre-Push Checks
+
+The pre-push hooks also run repository checks before a branch can be pushed:
+
+- `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
+- `server`: `golangci-lint run -c .golangci.yaml`
+- `plugin/proto`: `golangci-lint run -c .golangci.yaml`
+- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
 
 ## Git Workflow
 
@@ -72,8 +135,8 @@ gh pr create --title "Brief description" --body "## Summary
 ### Adding Features to the Client
 
 1. Determine the target app: ProtoOS, ProtoFleet, or shared
-2. Check `src/shared/components/` for existing reusable components
-3. Place the feature in the appropriate `src/{app}/features/` directory
+2. Check `client/src/shared/components/` for existing reusable components
+3. Place the feature in the appropriate `client/src/{app}/features/` directory
 4. Create Storybook stories for new components
 5. Write tests with Vitest and Testing Library
 
