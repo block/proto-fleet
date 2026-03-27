@@ -2,7 +2,8 @@
 SELECT *
 FROM pool
 WHERE org_id = $1
-  AND id = $2;
+  AND id = $2
+  AND deleted_at IS NULL;
 
 -- name: ListPools :many
 SELECT *

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -72,6 +74,46 @@ func (stubTransactor) RunInTxWithResult(ctx context.Context, fn func(context.Con
 	return fn(ctx)
 }
 
+type noopActivityStore struct{}
+
+func (noopActivityStore) Insert(_ context.Context, _ *activitymodels.Event) error {
+	return nil
+}
+
+type spyActivityStore struct {
+	noopActivityStore
+	events []*activitymodels.Event
+}
+
+func (s *spyActivityStore) Insert(_ context.Context, event *activitymodels.Event) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (noopActivityStore) List(ctx context.Context, filter activitymodels.Filter) ([]activitymodels.Entry, error) {
+	return nil, nil
+}
+
+func (noopActivityStore) Count(ctx context.Context, filter activitymodels.Filter) (int64, error) {
+	return 0, nil
+}
+
+func (noopActivityStore) GetDistinctUsers(ctx context.Context, orgID int64) ([]activitymodels.UserInfo, error) {
+	return nil, nil
+}
+
+func (noopActivityStore) GetDistinctEventTypes(ctx context.Context, orgID int64) ([]activitymodels.EventTypeInfo, error) {
+	return nil, nil
+}
+
+func (noopActivityStore) GetDistinctScopeTypes(ctx context.Context, orgID int64) ([]string, error) {
+	return nil, nil
+}
+
+func testActivitySvc() *activity.Service {
+	return activity.NewService(noopActivityStore{})
+}
+
 func testCtx(t *testing.T) context.Context {
 	t.Helper()
 	return testutil.MockAuthContextForTesting(t.Context(), 1, 1)
@@ -83,7 +125,7 @@ func TestService_CreatePool_RejectsUsernameWithSeparator(t *testing.T) {
 			t.Fatal("CreatePool should not be called for invalid usernames")
 			return 0, nil
 		},
-	}, stubTransactor{}, Config{})
+	}, stubTransactor{}, Config{}, testActivitySvc())
 
 	_, err := svc.CreatePool(testCtx(t), &pb.PoolConfig{
 		PoolName: "Test Pool",
@@ -108,7 +150,7 @@ func TestService_UpdatePool_RejectsUsernameWithSeparator(t *testing.T) {
 			t.Fatal("UpdatePool should not be called for invalid usernames")
 			return nil
 		},
-	}, stubTransactor{}, Config{})
+	}, stubTransactor{}, Config{}, testActivitySvc())
 
 	_, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
@@ -133,7 +175,7 @@ func TestService_UpdatePool_AllowsUnchangedLegacyUsernameWithSeparator(t *testin
 		updatePoolFn: func(context.Context, *pb.UpdatePoolRequest, int64) error {
 			return nil
 		},
-	}, stubTransactor{}, Config{})
+	}, stubTransactor{}, Config{}, testActivitySvc())
 
 	updated, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
@@ -144,4 +186,43 @@ func TestService_UpdatePool_AllowsUnchangedLegacyUsernameWithSeparator(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, "wallet.worker01", updated.GetUsername())
+}
+
+func TestActivityLogging_CreatePoolLogsEvent(t *testing.T) {
+	spy := &spyActivityStore{}
+	svc := NewService(&stubPoolStore{
+		createPoolFn: func(_ context.Context, _ *pb.PoolConfig, _ int64) (int64, error) {
+			return 1, nil
+		},
+		getPoolFn: func(_ context.Context, _ int64, _ int64) (*pb.Pool, error) {
+			return &pb.Pool{PoolId: 1, PoolName: "Test Pool"}, nil
+		},
+	}, stubTransactor{}, Config{}, activity.NewService(spy))
+
+	pool, err := svc.CreatePool(testCtx(t), &pb.PoolConfig{
+		PoolName: "Test Pool",
+		Url:      "stratum+tcp://pool.example.com:3333",
+		Username: "wallet",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "Test Pool", pool.GetPoolName())
+	require.Len(t, spy.events, 1)
+	assert.Equal(t, activitymodels.CategoryPool, spy.events[0].Category)
+	assert.Equal(t, "create_pool", spy.events[0].Type)
+	assert.Equal(t, "Test Pool", spy.events[0].Metadata["pool_name"])
+}
+
+func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
+	spy := &spyActivityStore{}
+	svc := NewService(&stubPoolStore{
+		getPoolFn: func(_ context.Context, _ int64, _ int64) (*pb.Pool, error) {
+			return nil, fleeterror.NewNotFoundErrorf("pool not found")
+		},
+	}, stubTransactor{}, Config{}, activity.NewService(spy))
+
+	err := svc.DeletePool(testCtx(t), 999)
+
+	require.NoError(t, err)
+	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
 }

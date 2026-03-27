@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/deviceresolver"
 	diagnosticsmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
@@ -80,6 +82,7 @@ type Service struct {
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
 	deviceResolver        *deviceresolver.Resolver
+	activitySvc           *activity.Service
 
 	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
 	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
@@ -100,6 +103,7 @@ func NewService(
 	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
+	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		deviceStore:           deviceStore,
@@ -110,8 +114,15 @@ func NewService(
 		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
+		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+	}
+}
+
+func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
+	if s.activitySvc != nil {
+		s.activitySvc.Log(ctx, event)
 	}
 }
 
@@ -783,6 +794,17 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	if err := s.telemetry.RemoveDevices(ctx, telemetryModels.ToDeviceIdentifiers(deviceIdentifiers)...); err != nil {
 		slog.Warn("failed to remove devices from telemetry scheduler", "error", err)
 	}
+
+	count := int(deletedCount)
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           "delete_miners",
+		Description:    "Delete miners",
+		ScopeCount:     &count,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	// Best-effort background ClearAuthKey for Proto rigs using a bounded worker pool.
 	// Workers are tracked by s.backgroundWg so the server can await completion

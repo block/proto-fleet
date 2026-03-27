@@ -2,11 +2,14 @@ package collection
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
@@ -48,6 +51,7 @@ type Service struct {
 	transactor               interfaces.Transactor
 	resolveDeviceIdentifiers DeviceIdentifierResolver
 	telemetry                TelemetryCollector
+	activitySvc              *activity.Service
 }
 
 // NewService creates a new collection service.
@@ -57,6 +61,7 @@ func NewService(
 	transactor interfaces.Transactor,
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
 	telemetry TelemetryCollector,
+	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		collectionStore:          collectionStore,
@@ -64,7 +69,21 @@ func NewService(
 		transactor:               transactor,
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
 		telemetry:                telemetry,
+		activitySvc:              activitySvc,
 	}
+}
+
+func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
+	if s.activitySvc != nil {
+		s.activitySvc.Log(ctx, event)
+	}
+}
+
+func collectionScopeType(collType pb.CollectionType) string {
+	if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
+		return "rack"
+	}
+	return "group"
 }
 
 // createCollectionResult holds the result of the CreateCollection transaction.
@@ -153,6 +172,18 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
+
+	scopeType := collectionScopeType(req.Type)
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "create_collection",
+		Description:    fmt.Sprintf("Create %s: %s", scopeType, req.Label),
+		ScopeType:      &scopeType,
+		ScopeLabel:     &req.Label,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
@@ -255,6 +286,19 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
+	scopeType := collectionScopeType(collection.Type)
+	label := collection.Label
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "update_collection",
+		Description:    fmt.Sprintf("Update %s: %s", scopeType, label),
+		ScopeType:      &scopeType,
+		ScopeLabel:     &label,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
+
 	return &pb.UpdateCollectionResponse{Collection: collection}, nil
 }
 
@@ -264,6 +308,8 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	if err != nil {
 		return nil, err
 	}
+
+	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		rowsAffected, err := s.collectionStore.SoftDeleteCollection(ctx, info.OrganizationID, req.CollectionId)
@@ -277,6 +323,21 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if prefetchErr == nil {
+		scopeType := collectionScopeType(collection.Type)
+		label := collection.Label
+		s.logActivity(ctx, activitymodels.Event{
+			Category:       activitymodels.CategoryCollection,
+			Type:           "delete_collection",
+			Description:    fmt.Sprintf("Delete %s: %s", scopeType, label),
+			ScopeType:      &scopeType,
+			ScopeLabel:     &label,
+			UserID:         &info.ExternalUserID,
+			Username:       &info.Username,
+			OrganizationID: &info.OrganizationID,
+		})
 	}
 
 	return &pb.DeleteCollectionResponse{}, nil
@@ -328,6 +389,11 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
 }
 
+type membershipChangeResult struct {
+	collection *pb.DeviceCollection
+	count      int64
+}
+
 // AddDevicesToCollection adds devices to a collection.
 func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevicesToCollectionRequest) (*pb.AddDevicesToCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -341,12 +407,9 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, req.CollectionId, info.OrganizationID)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return nil, err
-		}
-		if !belongs {
-			return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", req.CollectionId)
 		}
 
 		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
@@ -354,19 +417,34 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 			return nil, err
 		}
 
-		return addedCount, nil
+		return &membershipChangeResult{collection: coll, count: addedCount}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	addedCount, ok := result.(int64)
+	txResult, ok := result.(*membershipChangeResult)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
+	addedCountInt := int(txResult.count)
+	scopeType := collectionScopeType(txResult.collection.Type)
+	label := txResult.collection.Label
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "add_devices",
+		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, label),
+		ScopeType:      &scopeType,
+		ScopeLabel:     &label,
+		ScopeCount:     &addedCountInt,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
+
 	// #nosec G115 -- addedCount is bounded by request size which is limited by gRPC message size
-	return &pb.AddDevicesToCollectionResponse{CollectionId: req.CollectionId, AddedCount: int32(addedCount)}, nil
+	return &pb.AddDevicesToCollectionResponse{CollectionId: req.CollectionId, AddedCount: int32(txResult.count)}, nil
 }
 
 // RemoveDevicesFromCollection removes devices from a collection.
@@ -382,12 +460,9 @@ func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.Remov
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, req.CollectionId, info.OrganizationID)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return nil, err
-		}
-		if !belongs {
-			return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", req.CollectionId)
 		}
 
 		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
@@ -395,19 +470,34 @@ func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.Remov
 			return nil, err
 		}
 
-		return removedCount, nil
+		return &membershipChangeResult{collection: coll, count: removedCount}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	removedCount, ok := result.(int64)
+	txResult, ok := result.(*membershipChangeResult)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
+	removedCountInt := int(txResult.count)
+	scopeType := collectionScopeType(txResult.collection.Type)
+	label := txResult.collection.Label
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "remove_devices",
+		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, label),
+		ScopeType:      &scopeType,
+		ScopeLabel:     &label,
+		ScopeCount:     &removedCountInt,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
+
 	// #nosec G115 -- removedCount is bounded by request size which is limited by gRPC message size
-	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(removedCount)}, nil
+	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(txResult.count)}, nil
 }
 
 // ListCollectionMembers returns all members of a collection.
@@ -462,21 +552,43 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 		return nil, fleeterror.NewInvalidArgumentError("position is required")
 	}
 
-	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		collectionType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
-			return fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
 		}
 
 		// Device membership is enforced by the store query joining on device_collection_membership.
-		return s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID)
+		if err := s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		return coll, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	coll, ok := result.(*pb.DeviceCollection)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	scopeType := "rack"
+	label := coll.Label
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "set_rack_slot",
+		Description:    "Set rack slot position",
+		ScopeType:      &scopeType,
+		ScopeLabel:     &label,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	return &pb.SetRackSlotPositionResponse{
 		CollectionId: req.CollectionId,
@@ -494,19 +606,40 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 		return nil, err
 	}
 
-	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		collectionType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
-			return fleeterror.NewInvalidArgumentError("slot positions can only be cleared on rack collections")
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be cleared on rack collections")
 		}
-		return s.collectionStore.ClearRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, info.OrganizationID)
+		if err := s.collectionStore.ClearRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, info.OrganizationID); err != nil {
+			return nil, err
+		}
+		return coll, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	coll, ok := result.(*pb.DeviceCollection)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	scopeType := "rack"
+	label := coll.Label
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "clear_rack_slot",
+		Description:    "Clear rack slot position",
+		ScopeType:      &scopeType,
+		ScopeLabel:     &label,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	return &pb.ClearRackSlotPositionResponse{}, nil
 }
@@ -915,6 +1048,20 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
+
+	scopeType := "rack"
+	deviceCount := len(deviceIdentifiers)
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "save_rack",
+		Description:    fmt.Sprintf("Save rack: %s", req.Label),
+		ScopeType:      &scopeType,
+		ScopeLabel:     &req.Label,
+		ScopeCount:     &deviceCount,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	return &pb.SaveRackResponse{Collection: txResult.collection, AssignedCount: txResult.assignedCount}, nil
 }

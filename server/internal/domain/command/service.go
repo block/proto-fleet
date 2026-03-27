@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/sqlc-dev/pqtype"
 
 	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
@@ -55,6 +58,7 @@ type Service struct {
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
 	capabilityChecker   *CapabilityChecker
+	activitySvc         *activity.Service
 }
 
 const defaultPoolPriority uint32 = 0
@@ -70,7 +74,7 @@ type Command struct {
 }
 
 // NewService creates a new command service instance
-func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, userStore stores.UserStore, credentialsVerifier UserCredentialsVerifier, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider) *Service {
+func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, userStore stores.UserStore, credentialsVerifier UserCredentialsVerifier, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider, activitySvc *activity.Service) *Service {
 	return &Service{
 		config:              config,
 		conn:                conn,
@@ -84,7 +88,29 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 		credentialsVerifier: credentialsVerifier,
 		telemetryListener:   telemetryListener,
 		capabilityChecker:   NewCapabilityChecker(conn, capabilitiesProvider),
+		activitySvc:         activitySvc,
 	}
+}
+
+func (s *Service) logCommandActivity(ctx context.Context, eventType, description string, deviceCount int, batchID string) {
+	if s.activitySvc == nil {
+		return
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		slog.Warn("failed to log command activity: session info unavailable", "error", err)
+		return
+	}
+	s.activitySvc.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryDeviceCommand,
+		Type:           eventType,
+		Description:    description,
+		ScopeCount:     &deviceCount,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+		Metadata:       map[string]any{"batch_id": batchID},
+	})
 }
 
 func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
@@ -298,49 +324,50 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 	}
 }
 
-func (s *Service) processCommand(ctx context.Context, command *Command) (string, error) {
+func (s *Service) processCommand(ctx context.Context, command *Command) (string, int, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
 		err := s.executionService.Start(ctx)
 		if err != nil {
-			return "", fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
+			return "", 0, fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
 		}
 	}
 
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+		return "", 0, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
 	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
+		return "", 0, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 	deviceIDs, err := s.getDeviceIDs(ctx, command.deviceSelector)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
+		return "", 0, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
 	}
 
 	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		return "", 0, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
 
-	return batchLogIdentifier, nil
+	return batchLogIdentifier, len(deviceIDs), nil
 }
 
 func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.RebootResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.Reboot, deviceSelector: deviceSelector, payload: nil})
+	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.Reboot, deviceSelector: deviceSelector, payload: nil})
 	if err != nil {
 		return nil, err
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "reboot", "Reboot", deviceCount, commandBatchLogUUID)
 
 	return &pb.RebootResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -349,7 +376,7 @@ func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector)
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StopMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.StopMining, deviceSelector: deviceSelector, payload: nil},
 	)
@@ -358,6 +385,7 @@ func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelec
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "stop_mining", "Sleep", deviceCount, commandBatchLogUUID)
 
 	return &pb.StopMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -366,7 +394,7 @@ func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelec
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StartMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.StartMining, deviceSelector: deviceSelector, payload: nil},
 	)
@@ -375,6 +403,7 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "start_mining", "Wake up", deviceCount, commandBatchLogUUID)
 
 	return &pb.StartMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -383,7 +412,7 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 
 func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType commonpb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
 	cm := dto.CoolingModePayload{Mode: modeType}
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.SetCoolingMode, deviceSelector: deviceSelector, payload: cm},
 	)
@@ -392,6 +421,7 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "set_cooling_mode", "Cooling mode changed", deviceCount, commandBatchLogUUID)
 
 	return &pb.SetCoolingModeResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -402,7 +432,7 @@ func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceS
 	pt := dto.PowerTargetPayload{
 		PerformanceMode: performanceMode,
 	}
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.SetPowerTarget, deviceSelector: deviceSelector, payload: pt},
 	)
@@ -411,6 +441,7 @@ func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "set_power_target", fmt.Sprintf("Power target changed to %s", performanceMode.String()), deviceCount, commandBatchLogUUID)
 
 	return &pb.SetPowerTargetResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -424,10 +455,17 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 	}
 
 	pool, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.Pool, error) {
-		return q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
+		p, err := q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return p, fleeterror.NewNotFoundErrorf("pool not found: %d", poolID)
+			}
+			return p, err
+		}
+		return p, nil
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting default pool: %v", err)
+		return nil, err
 	}
 
 	var password string
@@ -523,7 +561,7 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
 	)
@@ -532,12 +570,13 @@ func (s *Service) UpdateMiningPools(
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
 
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.DownloadLogsResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.DownloadLogs, deviceSelector: deviceSelector, payload: nil},
 	)
@@ -547,17 +586,19 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 
 	callback := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
+	s.logCommandActivity(ctx, "download_logs", "Download logs", deviceCount, commandBatchLogUUID)
 
 	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.BlinkLEDResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.BlinkLED, deviceSelector: deviceSelector, payload: nil})
+	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.BlinkLED, deviceSelector: deviceSelector, payload: nil})
 	if err != nil {
 		return nil, err
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "blink_led", "Blink LEDs", deviceCount, commandBatchLogUUID)
 
 	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -568,7 +609,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 
 	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
-	commandBatchLogUUID, err := s.processCommand(ctx, &Command{
+	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{
 		commandType:    commandtype.FirmwareUpdate,
 		deviceSelector: deviceSelector,
 		payload:        payload,
@@ -578,17 +619,19 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "firmware_update", "Update firmware", deviceCount, commandBatchLogUUID)
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.UnpairResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.Unpair, deviceSelector: deviceSelector, payload: nil})
+	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.Unpair, deviceSelector: deviceSelector, payload: nil})
 	if err != nil {
 		return nil, err
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "unpair", "Unpair", deviceCount, commandBatchLogUUID)
 
 	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -654,7 +697,7 @@ func (s *Service) UpdateMinerPassword(
 		CurrentPassword: currentPassword,
 	}
 
-	commandBatchLogUUID, err := s.processCommand(
+	commandBatchLogUUID, deviceCount, err := s.processCommand(
 		ctx,
 		&Command{
 			commandType:    commandtype.UpdateMinerPassword,
@@ -667,6 +710,7 @@ func (s *Service) UpdateMinerPassword(
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	s.logCommandActivity(ctx, "update_miner_password", "Manage security", deviceCount, commandBatchLogUUID)
 
 	return &pb.UpdateMinerPasswordResponse{
 		BatchIdentifier: commandBatchLogUUID,

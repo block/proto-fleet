@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -91,6 +92,17 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 	if err := s.deviceStore.UpdateDeviceCustomNames(ctx, info.OrganizationID, names); err != nil {
 		return nil, err
 	}
+
+	count := len(deviceIdentifiers)
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           "rename_miners",
+		Description:    "Rename miners",
+		ScopeCount:     &count,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	return &pb.RenameMinersResponse{
 		RenamedCount:   renameResponseCount(len(names)),

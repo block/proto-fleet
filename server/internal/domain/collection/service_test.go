@@ -6,6 +6,8 @@ import (
 
 	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -22,6 +24,12 @@ const (
 	testUserID       = int64(100)
 	testCollectionID = int64(42)
 )
+
+func newStubActivityService(ctrl *gomock.Controller) *activity.Service {
+	mockActivityStore := mocks.NewMockActivityStore(ctrl)
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	return activity.NewService(mockActivityStore)
+}
 
 // mockDeviceQueryer implements DeviceQueryer for tests.
 type mockDeviceQueryer struct {
@@ -80,7 +88,7 @@ func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.
 		return nil, nil
 	}
 
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -225,6 +233,8 @@ func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "gone", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(0), nil)
 
@@ -253,10 +263,10 @@ func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
-	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), testCollectionID, testOrgID).
-		Return(false, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
 
 	// Act
 	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
@@ -294,8 +304,8 @@ func TestService_SetRackSlotPosition_RejectsGroupCollection(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange
-	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
-		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_GROUP, Label: "test"}, nil)
 
 	// Act
 	_, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
@@ -314,8 +324,8 @@ func TestService_ClearRackSlotPosition_RejectsGroupCollection(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange
-	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
-		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_GROUP, Label: "test"}, nil)
 
 	// Act
 	_, err := svc.ClearRackSlotPosition(ctx, &pb.ClearRackSlotPositionRequest{
@@ -356,7 +366,7 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("access denied")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
@@ -384,7 +394,7 @@ func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *tes
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -426,7 +436,7 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("device not owned by org")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
@@ -454,7 +464,7 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -493,7 +503,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -563,7 +573,7 @@ func newTestServiceWithTelemetry(t *testing.T, telemetry TelemetryCollector, dev
 	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, nil
 	}
-	svc := NewService(mockStore, deviceQ, mockTransactor, noopResolver, telemetry)
+	svc := NewService(mockStore, deviceQ, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
 	return svc, mockStore
 }
 
@@ -733,7 +743,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 		}
 		return nil, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -783,7 +793,7 @@ func newTestServiceWithResolver(t *testing.T, resolver DeviceIdentifierResolver)
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -1159,4 +1169,105 @@ func TestService_SaveRack_UpdateRemoveAllMiners(t *testing.T) {
 	assert.Equal(t, "Cleared Rack", resp.Collection.Label)
 	assert.Equal(t, int32(0), resp.AssignedCount)
 	assert.Equal(t, int32(0), resp.Collection.DeviceCount)
+}
+
+func newTestServiceWithActivityAssertions(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.MockActivityStore) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockActivityStore := mocks.NewMockActivityStore(ctrl)
+
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	).AnyTimes()
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+
+	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+
+	activitySvc := activity.NewService(mockActivityStore)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil, activitySvc)
+	return svc, mockStore, mockActivityStore
+}
+
+func TestActivityLogging_CreateGroupLogsGroupScopeType(t *testing.T) {
+	svc, mockStore, mockActivityStore := newTestServiceWithActivityAssertions(t)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "My Group", "").
+		Return(&pb.DeviceCollection{Id: 1, Label: "My Group", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, activitymodels.CategoryCollection, event.Category)
+			assert.Equal(t, "create_collection", event.Type)
+			require.NotNil(t, event.ScopeType)
+			assert.Equal(t, "group", *event.ScopeType)
+			assert.Contains(t, event.Description, "Create group:")
+			return nil
+		})
+
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_GROUP,
+		Label: "My Group",
+	})
+	require.NoError(t, err)
+}
+
+func TestActivityLogging_CreateRackLogsRackScopeType(t *testing.T) {
+	svc, mockStore, mockActivityStore := newTestServiceWithActivityAssertions(t)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
+		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8),
+		int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+		Return(nil)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, "create_collection", event.Type)
+			require.NotNil(t, event.ScopeType)
+			assert.Equal(t, "rack", *event.ScopeType)
+			assert.Contains(t, event.Description, "Create rack:")
+			return nil
+		})
+
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
+		Label: "Rack A",
+		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
+			RackInfo: testRackInfo,
+		},
+	})
+	require.NoError(t, err)
+}
+
+func TestActivityLogging_DeleteCollectionLogsEvent(t *testing.T) {
+	svc, mockStore, mockActivityStore := newTestServiceWithActivityAssertions(t)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "Doomed Group", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(int64(1), nil)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, activitymodels.CategoryCollection, event.Category)
+			assert.Equal(t, "delete_collection", event.Type)
+			require.NotNil(t, event.ScopeType)
+			assert.Equal(t, "group", *event.ScopeType)
+			require.NotNil(t, event.ScopeLabel)
+			assert.Equal(t, "Doomed Group", *event.ScopeLabel)
+			return nil
+		})
+
+	_, err := svc.DeleteCollection(ctx, &pb.DeleteCollectionRequest{CollectionId: testCollectionID})
+	require.NoError(t, err)
 }

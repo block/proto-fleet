@@ -55,6 +55,7 @@ SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_a
 FROM pool
 WHERE org_id = $1
   AND id = $2
+  AND deleted_at IS NULL
 `
 
 type GetPoolParams struct {

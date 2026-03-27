@@ -3,6 +3,7 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -30,7 +31,10 @@ func NewSQLPoolStore(conn *sql.DB, encryptor *encrypt.Service) *SQLPoolStore {
 func (s *SQLPoolStore) GetPool(ctx context.Context, orgID int64, poolID int64) (*pb.Pool, error) {
 	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: orgID})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("pool not found: %d", poolID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
 	}
 
 	return convertToProtoPool(pool), nil
@@ -83,6 +87,9 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 	// First get the current pool to preserve values that aren't being updated
 	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{ID: request.PoolId, OrgID: orgID})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("pool not found: %d", request.PoolId)
+		}
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}
 

@@ -271,7 +271,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
@@ -296,11 +296,11 @@ func start(config *Config) error {
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
-	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
+	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),

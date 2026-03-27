@@ -147,13 +147,13 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	assert.NoError(t, err)
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
-	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService)
+	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService, activitySvc)
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore, userStore)
 
 	errorStore := sqlstores.NewSQLErrorStore(db, transactor)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
-	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore, collectionStore)
+	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore, collectionStore, activitySvc)
 
 	return &ServiceProvider{
 		DB:                     db,
