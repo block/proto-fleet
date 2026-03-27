@@ -31,6 +31,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
@@ -41,6 +42,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	activityDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
 	authDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
 	collectionDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/command"
@@ -54,6 +56,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	activityHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/activity"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/auth"
 	collectionHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/collection"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/command"
@@ -111,6 +114,9 @@ func start(config *Config) error {
 	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 	collectionStore := sqlstores.NewSQLCollectionStore(conn)
+	activityStore := sqlstores.NewSQLActivityStore(conn)
+
+	activitySvc := activityDomain.NewService(activityStore)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -346,6 +352,7 @@ func start(config *Config) error {
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
+	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {
