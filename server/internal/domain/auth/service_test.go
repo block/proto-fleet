@@ -2,22 +2,36 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/crypto/bcrypt"
+
+	authv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1"
 )
 
-// mockUserStore for testing VerifyCredentials
 type mockUserStoreForVerify struct {
-	users map[string]interfaces.User
+	users         map[string]interfaces.User
+	orgs          []interfaces.Organization
+	lookupErr     error
+	updateUserErr error
 }
 
 func (m *mockUserStoreForVerify) GetUserByUsername(ctx context.Context, username string) (interfaces.User, error) {
+	if m.lookupErr != nil {
+		return interfaces.User{}, m.lookupErr
+	}
 	user, exists := m.users[username]
 	if !exists {
 		return interfaces.User{}, fleeterror.NewNotFoundErrorf("user not found")
@@ -25,7 +39,6 @@ func (m *mockUserStoreForVerify) GetUserByUsername(ctx context.Context, username
 	return user, nil
 }
 
-// Implement other UserStore methods (not used in these tests)
 func (m *mockUserStoreForVerify) GetUserByID(ctx context.Context, userID int64) (interfaces.User, error) {
 	return interfaces.User{}, nil
 }
@@ -36,10 +49,10 @@ func (m *mockUserStoreForVerify) UpdateUserPassword(ctx context.Context, userID 
 	return nil
 }
 func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
-	return nil
+	return m.updateUserErr
 }
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
-	return nil, nil
+	return m.orgs, nil
 }
 func (m *mockUserStoreForVerify) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
 	return nil
@@ -52,6 +65,21 @@ func (m *mockUserStoreForVerify) PasswordUpdatedAt(ctx context.Context, userID i
 }
 func (m *mockUserStoreForVerify) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
 	return "", nil
+}
+
+func newActivitySvc(ctrl *gomock.Controller) (*activity.Service, *mocks.MockActivityStore) {
+	mockStore := mocks.NewMockActivityStore(ctrl)
+	return activity.NewService(mockStore), mockStore
+}
+
+func ctxWithSession(externalUserID, username string, orgID int64) context.Context {
+	return authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session",
+		UserID:         1,
+		OrganizationID: orgID,
+		ExternalUserID: externalUserID,
+		Username:       username,
+	})
 }
 
 func TestService_VerifyCredentials(t *testing.T) {
@@ -218,4 +246,156 @@ func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
 			assert.Contains(t, err.Error(), "username and password are required")
 		}
 	})
+}
+
+func TestActivityLogging_NilActivitySvc(t *testing.T) {
+	t.Run("login failure with nil activitySvc does not panic", func(t *testing.T) {
+		service := &Service{
+			userStore: &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+		}
+
+		assert.NotPanics(t, func() {
+			_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+				Username: "nonexistent",
+				Password: "password",
+			}, "test-agent", "127.0.0.1")
+			require.Error(t, err)
+		})
+	})
+
+	t.Run("UpdateUsername with nil activitySvc does not panic", func(t *testing.T) {
+		ctx := ctxWithSession("ext-123", "admin", 1)
+		service := &Service{
+			userStore: &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+		}
+
+		assert.NotPanics(t, func() {
+			_ = service.UpdateUsername(ctx, "newname")
+		})
+	})
+}
+
+func TestActivityLogging_LoginFailureUserNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, activitymodels.CategoryAuth, event.Category)
+			assert.Equal(t, "login_failed", event.Type)
+			assert.Equal(t, activitymodels.ResultFailure, event.Result)
+			assert.Nil(t, event.UserID, "UserID should be nil for unknown user")
+			assert.Nil(t, event.OrganizationID, "OrganizationID should be nil for unknown user")
+			require.NotNil(t, event.Username)
+			assert.Equal(t, "nonexistent", *event.Username)
+			return nil
+		})
+
+	service := &Service{
+		userStore:   &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+		activitySvc: activitySvc,
+	}
+
+	_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "nonexistent",
+		Password: "password",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication failed")
+}
+
+func TestActivityLogging_LoginFailureWrongPassword(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	testPassword := "correctpass"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, "login_failed", event.Type)
+			require.NotNil(t, event.UserID)
+			assert.Equal(t, "ext-user-1", *event.UserID)
+			require.NotNil(t, event.OrganizationID)
+			assert.Equal(t, int64(100), *event.OrganizationID)
+			return nil
+		})
+
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"testuser": {
+					ID:           1,
+					UserID:       "ext-user-1",
+					Username:     "testuser",
+					PasswordHash: string(hashedPassword),
+				},
+			},
+			orgs: []interfaces.Organization{{ID: 100}},
+		},
+		activitySvc: activitySvc,
+	}
+
+	_, _, err = service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "testuser",
+		Password: "wrongpassword",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication failed")
+}
+
+func TestActivityLogging_DBErrorReturnsInternalNotLoginFailed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	activitySvc, mockActivityStore := newActivitySvc(ctrl)
+	// Insert should NOT be called for DB errors
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Times(0)
+
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users:     map[string]interfaces.User{},
+			lookupErr: fmt.Errorf("connection refused"),
+		},
+		activitySvc: activitySvc,
+	}
+
+	_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "anyuser",
+		Password: "password",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication service unavailable")
+	assert.NotContains(t, err.Error(), "connection refused")
+}
+
+func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, "update_username", event.Type)
+			require.NotNil(t, event.Username)
+			assert.Equal(t, "oldname", *event.Username)
+			require.NotNil(t, event.Metadata)
+			assert.Equal(t, "oldname", event.Metadata["old_username"])
+			assert.Equal(t, "newname", event.Metadata["new_username"])
+			return nil
+		})
+
+	ctx := ctxWithSession("ext-123", "oldname", 1)
+	service := &Service{
+		userStore:   &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+		activitySvc: activitySvc,
+	}
+
+	err := service.UpdateUsername(ctx, "newname")
+	require.NoError(t, err)
 }

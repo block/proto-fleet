@@ -2,18 +2,22 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
 
 	"connectrpc.com/connect"
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
 	id "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
@@ -41,6 +45,7 @@ type Service struct {
 	tokenSvc            *token.Service
 	sessionSvc          *session.Service
 	encryptSvc          *encrypt.Service
+	activitySvc         *activity.Service
 }
 
 func NewService(
@@ -50,6 +55,7 @@ func NewService(
 	tokenSvc *token.Service,
 	sessionSvc *session.Service,
 	encryptSvc *encrypt.Service,
+	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		userStore:           userStore,
@@ -58,13 +64,38 @@ func NewService(
 		tokenSvc:            tokenSvc,
 		sessionSvc:          sessionSvc,
 		encryptSvc:          encryptSvc,
+		activitySvc:         activitySvc,
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
+	if s.activitySvc != nil {
+		s.activitySvc.Log(ctx, event)
 	}
 }
 
 // AuthenticateUser validates credentials, creates a session, and returns user info with a session cookie.
 func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest, userAgent, ipAddress string) (*authv1.AuthenticateResponse, *http.Cookie, error) {
+	if req.Username == "" || utf8.RuneCountInString(req.Username) > 255 {
+		return nil, nil, newAuthenticationFailedError()
+	}
+
 	user, err := s.userStore.GetUserByUsername(ctx, req.Username)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) && !fleeterror.IsNotFoundError(err) {
+			slog.Error("error looking up user", "username", req.Username, "error", err)
+			return nil, nil, fleeterror.NewInternalErrorf("authentication service unavailable")
+		}
+		s.logActivity(ctx, activitymodels.Event{
+			Category:     activitymodels.CategoryAuth,
+			Type:         "login_failed",
+			Description:  "Login failed",
+			Result:       activitymodels.ResultFailure,
+			ErrorMessage: strPtr("invalid credentials"),
+			Username:     &req.Username,
+		})
 		return nil, nil, newAuthenticationFailedError()
 	}
 
@@ -79,6 +110,17 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 
 	// Compare hashed passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		// User exists but password wrong — include user_id and org_id
+		s.logActivity(ctx, activitymodels.Event{
+			Category:       activitymodels.CategoryAuth,
+			Type:           "login_failed",
+			Description:    "Login failed",
+			Result:         activitymodels.ResultFailure,
+			ErrorMessage:   strPtr("invalid credentials"),
+			UserID:         &user.UserID,
+			Username:       &user.Username,
+			OrganizationID: &orgs[0].ID,
+		})
 		return nil, nil, newAuthenticationFailedError()
 	}
 
@@ -106,6 +148,15 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 	}
 
 	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "login",
+		Description:    "Login",
+		UserID:         &user.UserID,
+		Username:       &user.Username,
+		OrganizationID: &orgs[0].ID,
+	})
 
 	return &authv1.AuthenticateResponse{
 		// SessionExpiry is provided for client-side UI purposes (showing remaining time, triggering
@@ -139,6 +190,15 @@ func (s *Service) Logout(ctx context.Context) (*http.Cookie, error) {
 		// Return error so user knows logout may not be complete server-side
 		return nil, fleeterror.NewInternalErrorf("failed to revoke session: %v", err)
 	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "logout",
+		Description:    "Logout",
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 
 	return s.sessionSvc.CreateLogoutCookie(), nil
 }
@@ -218,6 +278,22 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 		return nil, fleeterror.NewPlainError("fleet already onboarded", connect.CodeAlreadyExists)
 	}
 
+	var orgID *int64
+	if user, err := s.userStore.GetUserByUsername(ctx, req.Username); err == nil {
+		if orgs, err := s.userStore.GetOrganizationsForUser(ctx, user.ID); err == nil && len(orgs) == 1 {
+			orgID = &orgs[0].ID
+		}
+	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "create_admin_user",
+		Description:    "Admin account created",
+		ActorType:      activitymodels.ActorSystem,
+		Username:       &req.Username,
+		OrganizationID: orgID,
+	})
+
 	return &onboardingv1.CreateAdminLoginResponse{
 		UserId: externalUserID,
 	}, nil
@@ -234,7 +310,26 @@ func (s *Service) UpdateUsername(ctx context.Context, username string) error {
 		return err
 	}
 
-	return s.userStore.UpdateUserUsername(ctx, info.UserID, trimmedUsername)
+	oldUsername := info.Username
+
+	if err := s.userStore.UpdateUserUsername(ctx, info.UserID, trimmedUsername); err != nil {
+		return err
+	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "update_username",
+		Description:    "Username updated",
+		UserID:         &info.ExternalUserID,
+		Username:       &oldUsername,
+		OrganizationID: &info.OrganizationID,
+		Metadata: map[string]any{
+			"old_username": oldUsername,
+			"new_username": trimmedUsername,
+		},
+	})
+
+	return nil
 }
 
 // VerifyCredentials verifies username and password without creating a session
@@ -262,7 +357,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		return err
 	}
 
-	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		user, err := s.userStore.GetUserByID(ctx, info.UserID)
 		if err != nil {
 			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
@@ -296,7 +391,20 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		}
 
 		return nil
+	}); err != nil {
+		return err
+	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "update_password",
+		Description:    "Password updated",
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
 	})
+
+	return nil
 }
 
 func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
@@ -421,6 +529,16 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 		return nil, err
 	}
 
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "create_user",
+		Description:    fmt.Sprintf("User created: %s", trimmedUsername),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"target_user_id": createdUserID, "target_username": trimmedUsername},
+	})
+
 	return &authv1.CreateUserResponse{
 		UserId:            createdUserID,
 		Username:          trimmedUsername,
@@ -517,6 +635,16 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 		return nil, fleeterror.NewInternalErrorf("error resetting password: %v", err)
 	}
 
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "reset_password",
+		Description:    fmt.Sprintf("User password reset: %s", user.Username),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"target_user_id": user.UserID, "target_username": user.Username},
+	})
+
 	return &authv1.ResetUserPasswordResponse{
 		TemporaryPassword: tempPassword,
 	}, nil
@@ -574,6 +702,16 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	if err := s.userManagementStore.SoftDeleteUser(ctx, user.ID); err != nil {
 		return nil, fleeterror.NewInternalErrorf("error deactivating user: %v", err)
 	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "deactivate_user",
+		Description:    fmt.Sprintf("User deactivated: %s", user.Username),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"target_user_id": user.UserID, "target_username": user.Username},
+	})
 
 	return &authv1.DeactivateUserResponse{}, nil
 }

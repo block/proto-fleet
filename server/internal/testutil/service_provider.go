@@ -8,6 +8,7 @@ import (
 
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
 
+	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/command"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner"
@@ -92,7 +93,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	sessionService := session.NewService(sessionConfig, sessionStore)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
-	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService)
+	activityStore := sqlstores.NewSQLActivityStore(db)
+	activitySvc := activity.NewService(activityStore)
+	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService, activitySvc)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

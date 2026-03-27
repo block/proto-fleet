@@ -128,7 +128,7 @@ func start(config *Config) error {
 	sessionSvc := sessionDomain.NewService(config.Session, sessionStore)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
-	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc)
+	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc)
 
 	// Start session cleanup goroutine
 	sessionCleanupCtx, sessionCleanupCancel := context.WithCancel(context.Background())
