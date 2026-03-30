@@ -1,3 +1,4 @@
+import Activity from "./Activity";
 import Alert from "./Alert";
 import ArrowDown from "./ArrowDown";
 import ArrowLeftCompact from "./ArrowLeftCompact";
@@ -81,6 +82,7 @@ import type { IconProps } from "./types";
 import Unpair from "./Unpair";
 
 export {
+  Activity,
   Alert,
   ArrowDown,
   ArrowLeftCompact,

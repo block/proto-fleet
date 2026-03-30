@@ -5,6 +5,7 @@ import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
 import { onboardingClient } from "@/protoFleet/api/clients";
+import { ActivityPage } from "@/protoFleet/features/activity";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
@@ -105,6 +106,9 @@ const router = createBrowserRouter([
 
   // Racks
   createRoute("/racks", <RacksPage />),
+
+  // Activity
+  createRoute("/activity", <ActivityPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout)
   {
