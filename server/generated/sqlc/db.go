@@ -81,6 +81,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createRackExtensionStmt, err = db.PrepareContext(ctx, createRackExtension); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateRackExtension: %w", err)
 	}
+	if q.createScheduleStmt, err = db.PrepareContext(ctx, createSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateSchedule: %w", err)
+	}
+	if q.createScheduleTargetStmt, err = db.PrepareContext(ctx, createScheduleTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateScheduleTarget: %w", err)
+	}
 	if q.createSessionStmt, err = db.PrepareContext(ctx, createSession); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSession: %w", err)
 	}
@@ -98,6 +104,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deletePoolStmt, err = db.PrepareContext(ctx, deletePool); err != nil {
 		return nil, fmt.Errorf("error preparing query DeletePool: %w", err)
+	}
+	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
 	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
@@ -228,6 +237,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
 	}
+	if q.getDueSchedulesStmt, err = db.PrepareContext(ctx, getDueSchedules); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDueSchedules: %w", err)
+	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
 	}
@@ -245,6 +257,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
+	}
+	if q.getMaxPriorityStmt, err = db.PrepareContext(ctx, getMaxPriority); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMaxPriority: %w", err)
 	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
@@ -305,6 +320,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
+	}
+	if q.getRunningPowerTargetSchedulesStmt, err = db.PrepareContext(ctx, getRunningPowerTargetSchedules); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetSchedules: %w", err)
+	}
+	if q.getScheduleStmt, err = db.PrepareContext(ctx, getSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSchedule: %w", err)
+	}
+	if q.getScheduleTargetsStmt, err = db.PrepareContext(ctx, getScheduleTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetScheduleTargets: %w", err)
 	}
 	if q.getSessionByIDStmt, err = db.PrepareContext(ctx, getSessionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSessionByID: %w", err)
@@ -387,6 +411,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
 	}
+	if q.listSchedulesStmt, err = db.PrepareContext(ctx, listSchedules); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSchedules: %w", err)
+	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
@@ -420,6 +447,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeDevicesFromCollectionStmt, err = db.PrepareContext(ctx, removeDevicesFromCollection); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromCollection: %w", err)
 	}
+	if q.reorderSchedulesStmt, err = db.PrepareContext(ctx, reorderSchedules); err != nil {
+		return nil, fmt.Errorf("error preparing query ReorderSchedules: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
@@ -446,6 +476,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteRoleStmt, err = db.PrepareContext(ctx, softDeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteRole: %w", err)
+	}
+	if q.softDeleteScheduleStmt, err = db.PrepareContext(ctx, softDeleteSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteSchedule: %w", err)
 	}
 	if q.softDeleteUserStmt, err = db.PrepareContext(ctx, softDeleteUser); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUser: %w", err)
@@ -512,6 +545,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
+	}
+	if q.updateScheduleStmt, err = db.PrepareContext(ctx, updateSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateSchedule: %w", err)
+	}
+	if q.updateScheduleAfterRunStmt, err = db.PrepareContext(ctx, updateScheduleAfterRun); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateScheduleAfterRun: %w", err)
+	}
+	if q.updateScheduleStatusStmt, err = db.PrepareContext(ctx, updateScheduleStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateScheduleStatus: %w", err)
 	}
 	if q.updateSessionActivityStmt, err = db.PrepareContext(ctx, updateSessionActivity); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSessionActivity: %w", err)
@@ -646,6 +688,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createRackExtensionStmt: %w", cerr)
 		}
 	}
+	if q.createScheduleStmt != nil {
+		if cerr := q.createScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createScheduleStmt: %w", cerr)
+		}
+	}
+	if q.createScheduleTargetStmt != nil {
+		if cerr := q.createScheduleTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createScheduleTargetStmt: %w", cerr)
+		}
+	}
 	if q.createSessionStmt != nil {
 		if cerr := q.createSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createSessionStmt: %w", cerr)
@@ -674,6 +726,11 @@ func (q *Queries) Close() error {
 	if q.deletePoolStmt != nil {
 		if cerr := q.deletePoolStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deletePoolStmt: %w", cerr)
+		}
+	}
+	if q.deleteScheduleTargetsStmt != nil {
+		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
 		}
 	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -891,6 +948,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
 		}
 	}
+	if q.getDueSchedulesStmt != nil {
+		if cerr := q.getDueSchedulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDueSchedulesStmt: %w", cerr)
+		}
+	}
 	if q.getErrorByErrorIDStmt != nil {
 		if cerr := q.getErrorByErrorIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getErrorByErrorIDStmt: %w", cerr)
@@ -919,6 +981,11 @@ func (q *Queries) Close() error {
 	if q.getLatestDeviceMetricsStmt != nil {
 		if cerr := q.getLatestDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
+		}
+	}
+	if q.getMaxPriorityStmt != nil {
+		if cerr := q.getMaxPriorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMaxPriorityStmt: %w", cerr)
 		}
 	}
 	if q.getMessagesToProcessStmt != nil {
@@ -1019,6 +1086,21 @@ func (q *Queries) Close() error {
 	if q.getRoleByNameStmt != nil {
 		if cerr := q.getRoleByNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
+		}
+	}
+	if q.getRunningPowerTargetSchedulesStmt != nil {
+		if cerr := q.getRunningPowerTargetSchedulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRunningPowerTargetSchedulesStmt: %w", cerr)
+		}
+	}
+	if q.getScheduleStmt != nil {
+		if cerr := q.getScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getScheduleStmt: %w", cerr)
+		}
+	}
+	if q.getScheduleTargetsStmt != nil {
+		if cerr := q.getScheduleTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getScheduleTargetsStmt: %w", cerr)
 		}
 	}
 	if q.getSessionByIDStmt != nil {
@@ -1156,6 +1238,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
 		}
 	}
+	if q.listSchedulesStmt != nil {
+		if cerr := q.listSchedulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSchedulesStmt: %w", cerr)
+		}
+	}
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
@@ -1211,6 +1298,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeDevicesFromCollectionStmt: %w", cerr)
 		}
 	}
+	if q.reorderSchedulesStmt != nil {
+		if cerr := q.reorderSchedulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reorderSchedulesStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
@@ -1254,6 +1346,11 @@ func (q *Queries) Close() error {
 	if q.softDeleteRoleStmt != nil {
 		if cerr := q.softDeleteRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteScheduleStmt != nil {
+		if cerr := q.softDeleteScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteScheduleStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteUserStmt != nil {
@@ -1364,6 +1461,21 @@ func (q *Queries) Close() error {
 	if q.updateRoleStmt != nil {
 		if cerr := q.updateRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
+		}
+	}
+	if q.updateScheduleStmt != nil {
+		if cerr := q.updateScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateScheduleStmt: %w", cerr)
+		}
+	}
+	if q.updateScheduleAfterRunStmt != nil {
+		if cerr := q.updateScheduleAfterRunStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateScheduleAfterRunStmt: %w", cerr)
+		}
+	}
+	if q.updateScheduleStatusStmt != nil {
+		if cerr := q.updateScheduleStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateScheduleStatusStmt: %w", cerr)
 		}
 	}
 	if q.updateSessionActivityStmt != nil {
@@ -1479,12 +1591,15 @@ type Queries struct {
 	createPoolStmt                                      *sql.Stmt
 	createQueueMessageStmt                              *sql.Stmt
 	createRackExtensionStmt                             *sql.Stmt
+	createScheduleStmt                                  *sql.Stmt
+	createScheduleTargetStmt                            *sql.Stmt
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
+	deleteScheduleTargetsStmt                           *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
 	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
@@ -1528,12 +1643,14 @@ type Queries struct {
 	getDistinctActivityUsersStmt                        *sql.Stmt
 	getDistinctEventTypesStmt                           *sql.Stmt
 	getDistinctScopeTypesStmt                           *sql.Stmt
+	getDueSchedulesStmt                                 *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
+	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getMinerModelGroupsStmt                             *sql.Stmt
@@ -1554,6 +1671,9 @@ type Queries struct {
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
+	getRunningPowerTargetSchedulesStmt                  *sql.Stmt
+	getScheduleStmt                                     *sql.Stmt
+	getScheduleTargetsStmt                              *sql.Stmt
 	getSessionByIDStmt                                  *sql.Stmt
 	getTotalDevicesPendingAuthStmt                      *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
@@ -1581,6 +1701,7 @@ type Queries struct {
 	listRackLocationsStmt                               *sql.Stmt
 	listRackTypesStmt                                   *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
+	listSchedulesStmt                                   *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
@@ -1592,6 +1713,7 @@ type Queries struct {
 	reapStuckProcessingMessagesStmt                     *sql.Stmt
 	removeAllDevicesFromCollectionStmt                  *sql.Stmt
 	removeDevicesFromCollectionStmt                     *sql.Stmt
+	reorderSchedulesStmt                                *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	softDeleteCollectionStmt                            *sql.Stmt
@@ -1601,6 +1723,7 @@ type Queries struct {
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
+	softDeleteScheduleStmt                              *sql.Stmt
 	softDeleteUserStmt                                  *sql.Stmt
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
 	undeleteOrganizationStmt                            *sql.Stmt
@@ -1623,6 +1746,9 @@ type Queries struct {
 	updatePoolStmt                                      *sql.Stmt
 	updateRackInfoStmt                                  *sql.Stmt
 	updateRoleStmt                                      *sql.Stmt
+	updateScheduleStmt                                  *sql.Stmt
+	updateScheduleAfterRunStmt                          *sql.Stmt
+	updateScheduleStatusStmt                            *sql.Stmt
 	updateSessionActivityStmt                           *sql.Stmt
 	updateUserPasswordStmt                              *sql.Stmt
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
@@ -1659,12 +1785,15 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createPoolStmt:                                      q.createPoolStmt,
 		createQueueMessageStmt:                              q.createQueueMessageStmt,
 		createRackExtensionStmt:                             q.createRackExtensionStmt,
+		createScheduleStmt:                                  q.createScheduleStmt,
+		createScheduleTargetStmt:                            q.createScheduleTargetStmt,
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
+		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
@@ -1708,12 +1837,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
 		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
+		getDueSchedulesStmt:                                 q.getDueSchedulesStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
+		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
@@ -1734,6 +1865,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
+		getRunningPowerTargetSchedulesStmt:                  q.getRunningPowerTargetSchedulesStmt,
+		getScheduleStmt:                                     q.getScheduleStmt,
+		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
 		getSessionByIDStmt:                                  q.getSessionByIDStmt,
 		getTotalDevicesPendingAuthStmt:                      q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
@@ -1761,6 +1895,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackLocationsStmt:                               q.listRackLocationsStmt,
 		listRackTypesStmt:                                   q.listRackTypesStmt,
 		listRolesStmt:                                       q.listRolesStmt,
+		listSchedulesStmt:                                   q.listSchedulesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
@@ -1772,6 +1907,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
 		removeAllDevicesFromCollectionStmt:                  q.removeAllDevicesFromCollectionStmt,
 		removeDevicesFromCollectionStmt:                     q.removeDevicesFromCollectionStmt,
+		reorderSchedulesStmt:                                q.reorderSchedulesStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		softDeleteCollectionStmt:                            q.softDeleteCollectionStmt,
@@ -1781,6 +1917,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
+		softDeleteScheduleStmt:                              q.softDeleteScheduleStmt,
 		softDeleteUserStmt:                                  q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
 		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
@@ -1803,6 +1940,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updatePoolStmt:                                      q.updatePoolStmt,
 		updateRackInfoStmt:                                  q.updateRackInfoStmt,
 		updateRoleStmt:                                      q.updateRoleStmt,
+		updateScheduleStmt:                                  q.updateScheduleStmt,
+		updateScheduleAfterRunStmt:                          q.updateScheduleAfterRunStmt,
+		updateScheduleStatusStmt:                            q.updateScheduleStatusStmt,
 		updateSessionActivityStmt:                           q.updateSessionActivityStmt,
 		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,

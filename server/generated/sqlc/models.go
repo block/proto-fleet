@@ -7,6 +7,7 @@ package sqlc
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -579,6 +580,36 @@ type Role struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   sql.NullTime
+}
+
+type Schedule struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Action       string
+	ActionConfig json.RawMessage
+	ScheduleType string
+	Recurrence   pqtype.NullRawMessage
+	StartDate    time.Time
+	StartTime    time.Time
+	EndTime      sql.NullTime
+	EndDate      sql.NullTime
+	Timezone     string
+	Status       string
+	Priority     int32
+	CreatedBy    int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+	LastRunAt    sql.NullTime
+	NextRunAt    sql.NullTime
+}
+
+type ScheduleTarget struct {
+	ID         int64
+	ScheduleID int64
+	TargetType string
+	TargetID   string
 }
 
 type Session struct {
