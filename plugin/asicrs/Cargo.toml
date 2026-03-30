@@ -1,0 +1,34 @@
+[package]
+name = "asicrs-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "asicrs-plugin"
+path = "src/main.rs"
+
+[dependencies]
+# Fleet plugin SDK
+proto-fleet-plugin = { path = "../../sdk/rust/proto-fleet-plugin" }
+tonic = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+prost-types = "0.13"
+
+# asic-rs miner library
+# TODO: Pin to a tag or rev once feat/miner-auth is merged to main
+asic-rs = { git = "https://github.com/ankitgoswami/asic-rs.git", branch = "feat/miner-auth" }
+asic-rs-core = { git = "https://github.com/ankitgoswami/asic-rs.git", branch = "feat/miner-auth" }
+measurements = "0.11"
+
+# config
+serde = { version = "1", features = ["derive"] }
+serde_yml = "0.0.12"
+
+# logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# utils
+anyhow = "1"
+futures = "0.3"

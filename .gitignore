@@ -22,6 +22,7 @@ server/devtools/seedtelemetry/seedtelemetry
 plugin/proto/proto-plugin
 plugin/antminer/antminer-plugin
 plugin/virtual/virtual
+plugin/asicrs/target/
 
 server/plugins/*
 

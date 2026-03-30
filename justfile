@@ -25,13 +25,13 @@ gen: _server-init _client-init _lint-protos _gen-protos _gen-server _format-clie
 # --- Plugin builds ---
 
 # build plugin binaries for local development
-build-plugins: (_build-go-plugins-native "server/plugins") _pyasic-build
+build-plugins: (_build-go-plugins-native "server/plugins") _pyasic-build _asicrs-build
 
 # build plugin binaries for Docker (Linux ARM64)
-build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins") _pyasic-build-docker
+build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins") _pyasic-build-docker _asicrs-build-docker
 
 # build plugin binaries for multiple architectures (deployment)
-build-plugins-release: _build-go-plugins-multi-arch _pyasic-build-release
+build-plugins-release: _build-go-plugins-multi-arch _pyasic-build-release _asicrs-build-release
 
 # build virtual miner plugin for Docker (Linux ARM64)
 build-virtual-plugin:
@@ -264,3 +264,43 @@ _pyasic-build-release:
   done
   cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
   chmod +x deployment-files/server/pyasic-plugin-*
+
+_asicrs-build:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building asicrs plugin..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --file plugin/asicrs/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/asicrs-plugin
+
+_asicrs-build-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building asicrs plugin for Docker (Linux ARM64)..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --platform linux/arm64 \
+    --file plugin/asicrs/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
+  chmod +x server/plugins/asicrs-plugin
+
+_asicrs-build-release:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building asicrs plugin for multiple architectures..."
+  mkdir -p deployment-files/server
+  for arch in amd64 arm64; do
+    docker buildx build \
+      --platform "linux/${arch}" \
+      --file plugin/asicrs/Dockerfile.build \
+      --output "type=local,dest=/tmp/asicrs-${arch}" \
+      .
+    cp "/tmp/asicrs-${arch}/asicrs-plugin" "deployment-files/server/asicrs-plugin-${arch}"
+    cp "/tmp/asicrs-${arch}/asicrs-config.yaml" "deployment-files/server/asicrs-config.yaml"
+    rm -rf "/tmp/asicrs-${arch}"
+  done
+  chmod +x deployment-files/server/asicrs-plugin-*
