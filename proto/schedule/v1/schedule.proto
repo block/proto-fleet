@@ -5,7 +5,7 @@ package schedule.v1;
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
 
-// Service for managing scheduled miner operations (power target changes and reboots)
+// Service for managing scheduled miner operations (power target changes, reboots, and sleep)
 // with priority-based conflict resolution.
 service ScheduleService {
     // Lists all schedules for the organization, ordered by priority
@@ -45,7 +45,7 @@ enum ScheduleAction {
     SCHEDULE_ACTION_UNSPECIFIED = 0;
     SCHEDULE_ACTION_SET_POWER_TARGET = 1;
     SCHEDULE_ACTION_REBOOT = 2;
-    reserved 3;
+    SCHEDULE_ACTION_SLEEP = 3;
 }
 
 enum ScheduleType {
@@ -66,7 +66,6 @@ enum PowerTargetMode {
     POWER_TARGET_MODE_UNSPECIFIED = 0;
     POWER_TARGET_MODE_DEFAULT = 1;
     POWER_TARGET_MODE_MAX = 2;
-    POWER_TARGET_MODE_SLEEP = 3;
 }
 
 // Day of week for weekly recurrence
