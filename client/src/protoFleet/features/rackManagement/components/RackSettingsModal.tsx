@@ -40,9 +40,9 @@ const coolingTypeOptions: SelectOption[] = [
   { value: String(RackCoolingType.IMMERSION), label: "Immersion" },
 ];
 
-function abbreviateLocation(location: string): string {
-  if (!location.trim()) return "";
-  return location
+function abbreviateZone(zone: string): string {
+  if (!zone.trim()) return "";
+  return zone
     .trim()
     .split(/\s+/)
     .map((word) => {
@@ -65,21 +65,21 @@ const RackSettingsModal = ({
   const isEditMode = !!rack;
   const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
 
-  const { updateRack, listRackLocations, listRackTypes } = useCollections();
+  const { updateRack, listRackZones, listRackTypes } = useCollections();
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
   const [labelManuallyEdited, setLabelManuallyEdited] = useState(isEditMode || !!initialFormData?.label);
-  const [location, setLocation] = useState(() => {
-    if (initialFormData?.location) return initialFormData.location;
-    if (rackInfo?.location) return rackInfo.location;
+  const [zone, setZone] = useState(() => {
+    if (initialFormData?.zone) return initialFormData.zone;
+    if (rackInfo?.zone) return rackInfo.zone;
     if (existingRacks.length > 0) {
       const sorted = [...existingRacks].sort((a, b) => {
         const aTime = a.createdAt?.seconds ?? BigInt(0);
         const bTime = b.createdAt?.seconds ?? BigInt(0);
         return aTime > bTime ? -1 : aTime < bTime ? 1 : 0;
       });
-      const lastLocation = sorted[0].typeDetails.case === "rackInfo" ? sorted[0].typeDetails.value.location : undefined;
-      if (lastLocation) return lastLocation;
+      const lastZone = sorted[0].typeDetails.case === "rackInfo" ? sorted[0].typeDetails.value.zone : undefined;
+      if (lastZone) return lastZone;
     }
     return "";
   });
@@ -97,27 +97,27 @@ const RackSettingsModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [labelError, setLabelError] = useState<string | undefined>();
-  const [locationError, setLocationError] = useState<string | undefined>();
+  const [zoneError, setZoneError] = useState<string | undefined>();
   const [columnsError, setColumnsError] = useState<string | undefined>();
   const [rowsError, setRowsError] = useState<string | undefined>();
 
-  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([]);
   const [rackTypes, setRackTypes] = useState<RackType[]>([]);
-  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-  const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [showZoneSuggestions, setShowZoneSuggestions] = useState(false);
+  const [zonesLoaded, setZonesLoaded] = useState(false);
   const [rackTypesLoaded, setRackTypesLoaded] = useState(false);
-  const isInitialLoading = !locationsLoaded || !rackTypesLoaded;
+  const isInitialLoading = !zonesLoaded || !rackTypesLoaded;
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const locationInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
+  const zoneInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   // Fetch data on mount
   useEffect(() => {
-    listRackLocations({
-      onSuccess: (locations) => {
-        setLocationSuggestions(locations);
+    listRackZones({
+      onSuccess: (zones) => {
+        setZoneSuggestions(zones);
         setHighlightedIndex(-1);
       },
-      onFinally: () => setLocationsLoaded(true),
+      onFinally: () => setZonesLoaded(true),
     });
     listRackTypes({
       onSuccess: (types) => {
@@ -132,51 +132,51 @@ const RackSettingsModal = ({
       onFinally: () => setRackTypesLoaded(true),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
-  }, [listRackLocations, listRackTypes]);
+  }, [listRackZones, listRackTypes]);
 
-  // Auto-generate label when location changes
+  // Auto-generate label when zone changes
   const autoLabel = useMemo(() => {
-    const abbr = abbreviateLocation(location);
+    const abbr = abbreviateZone(zone);
     if (!abbr) return "";
-    const trimmedLocation = location.trim();
-    const racksAtLocation = existingRacks.filter((r) => {
+    const trimmedZone = zone.trim();
+    const racksInZone = existingRacks.filter((r) => {
       if (r.typeDetails.case !== "rackInfo") return false;
-      return r.typeDetails.value.location === trimmedLocation;
+      return r.typeDetails.value.zone === trimmedZone;
     });
-    const nextNum = racksAtLocation.length + 1;
+    const nextNum = racksInZone.length + 1;
     return `${abbr}-${String(nextNum).padStart(2, "0")}`;
-  }, [location, existingRacks]);
+  }, [zone, existingRacks]);
 
   const effectiveLabel = labelManuallyEdited ? label : autoLabel;
 
   const filteredSuggestions = useMemo(() => {
-    if (!location.trim()) return locationSuggestions;
-    const lower = location.toLowerCase();
-    return locationSuggestions.filter((s) => s.toLowerCase().includes(lower));
-  }, [location, locationSuggestions]);
+    if (!zone.trim()) return zoneSuggestions;
+    const lower = zone.toLowerCase();
+    return zoneSuggestions.filter((s) => s.toLowerCase().includes(lower));
+  }, [zone, zoneSuggestions]);
 
   const selectSuggestion = useCallback((suggestion: string) => {
-    setLocation(suggestion);
-    setShowLocationSuggestions(false);
+    setZone(suggestion);
+    setShowZoneSuggestions(false);
     setHighlightedIndex(-1);
-    locationInputRef.current?.blur();
+    zoneInputRef.current?.blur();
   }, []);
 
   // Use refs for values needed in the native keydown handler to avoid stale closures
-  const suggestionsStateRef = useRef({ showLocationSuggestions, filteredSuggestions, highlightedIndex });
+  const suggestionsStateRef = useRef({ showZoneSuggestions, filteredSuggestions, highlightedIndex });
   useEffect(() => {
-    suggestionsStateRef.current = { showLocationSuggestions, filteredSuggestions, highlightedIndex };
-  }, [showLocationSuggestions, filteredSuggestions, highlightedIndex]);
+    suggestionsStateRef.current = { showZoneSuggestions, filteredSuggestions, highlightedIndex };
+  }, [showZoneSuggestions, filteredSuggestions, highlightedIndex]);
   const mouseInPopoverRef = useRef(false);
 
   // Attach native keydown to prevent default for arrow keys and Enter when navigating suggestions
   useEffect(() => {
-    const input = locationInputRef.current;
+    const input = zoneInputRef.current;
     if (!input) return;
 
     const handler = (e: KeyboardEvent) => {
       const {
-        showLocationSuggestions: show,
+        showZoneSuggestions: show,
         filteredSuggestions: suggestions,
         highlightedIndex: idx,
       } = suggestionsStateRef.current;
@@ -228,7 +228,7 @@ const RackSettingsModal = ({
 
   const handleSubmit = useCallback(() => {
     setLabelError(undefined);
-    setLocationError(undefined);
+    setZoneError(undefined);
     setColumnsError(undefined);
     setRowsError(undefined);
     setErrorMsg("");
@@ -239,8 +239,8 @@ const RackSettingsModal = ({
       setLabelError("A label is required");
       hasError = true;
     }
-    if (!location.trim()) {
-      setLocationError("A location is required");
+    if (!zone.trim()) {
+      setZoneError("A zone is required");
       hasError = true;
     }
     const colsNum = Number(columns);
@@ -258,7 +258,7 @@ const RackSettingsModal = ({
 
     const formData: RackFormData = {
       label: effectiveLabel.trim(),
-      location: location.trim(),
+      zone: zone.trim(),
       rows: rowsNum,
       columns: colsNum,
       orderIndex,
@@ -275,7 +275,7 @@ const RackSettingsModal = ({
     updateRack({
       collectionId: rack!.id,
       label: formData.label,
-      location: formData.location,
+      zone: formData.zone,
       rows: formData.rows,
       columns: formData.columns,
       orderIndex: formData.orderIndex,
@@ -297,7 +297,7 @@ const RackSettingsModal = ({
     });
   }, [
     effectiveLabel,
-    location,
+    zone,
     rows,
     columns,
     orderIndex,
@@ -342,25 +342,25 @@ const RackSettingsModal = ({
 
           <div className="relative">
             <Input
-              id="rack-location"
-              label="Location"
-              initValue={location}
-              inputRef={locationInputRef}
+              id="rack-zone"
+              label="Zone"
+              initValue={zone}
+              inputRef={zoneInputRef}
               onChange={(value) => {
-                setLocation(value);
+                setZone(value);
                 setHighlightedIndex(-1);
               }}
-              onFocus={() => setShowLocationSuggestions(true)}
+              onFocus={() => setShowZoneSuggestions(true)}
               onBlur={() => {
                 if (!mouseInPopoverRef.current) {
-                  setShowLocationSuggestions(false);
+                  setShowZoneSuggestions(false);
                 }
               }}
-              error={locationError}
+              error={zoneError}
               autoComplete="off"
               autoFocus
             />
-            {showLocationSuggestions && filteredSuggestions.length > 0 && (
+            {showZoneSuggestions && filteredSuggestions.length > 0 && (
               <div
                 className="absolute top-full z-10 mt-1 w-full rounded-xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
                 onMouseEnter={() => {

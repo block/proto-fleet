@@ -102,17 +102,17 @@ func (mr *MockCollectionStoreMockRecorder) CreateCollection(ctx, orgID, collecti
 }
 
 // CreateRackExtension mocks base method.
-func (m *MockCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns, orderIndex, coolingType int32, orgID int64) error {
+func (m *MockCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns, orderIndex, coolingType int32, orgID int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateRackExtension", ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID)
+	ret := m.ctrl.Call(m, "CreateRackExtension", ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CreateRackExtension indicates an expected call of CreateRackExtension.
-func (mr *MockCollectionStoreMockRecorder) CreateRackExtension(ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) CreateRackExtension(ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRackExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateRackExtension), ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRackExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateRackExtension), ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID)
 }
 
 // GetCollection mocks base method.
@@ -267,9 +267,9 @@ func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, col
 }
 
 // ListCollections mocks base method.
-func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, locations []string) ([]*collectionv1.DeviceCollection, string, int32, error) {
+func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, zones []string) ([]*collectionv1.DeviceCollection, string, int32, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCollections", ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, locations)
+	ret := m.ctrl.Call(m, "ListCollections", ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones)
 	ret0, _ := ret[0].([]*collectionv1.DeviceCollection)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(int32)
@@ -278,24 +278,9 @@ func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, 
 }
 
 // ListCollections indicates an expected call of ListCollections.
-func (mr *MockCollectionStoreMockRecorder) ListCollections(ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, locations any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) ListCollections(ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollections", reflect.TypeOf((*MockCollectionStore)(nil).ListCollections), ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, locations)
-}
-
-// ListRackLocations mocks base method.
-func (m *MockCollectionStore) ListRackLocations(ctx context.Context, orgID int64) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListRackLocations", ctx, orgID)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListRackLocations indicates an expected call of ListRackLocations.
-func (mr *MockCollectionStoreMockRecorder) ListRackLocations(ctx, orgID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackLocations", reflect.TypeOf((*MockCollectionStore)(nil).ListRackLocations), ctx, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollections", reflect.TypeOf((*MockCollectionStore)(nil).ListCollections), ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones)
 }
 
 // ListRackTypes mocks base method.
@@ -311,6 +296,21 @@ func (m *MockCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([
 func (mr *MockCollectionStoreMockRecorder) ListRackTypes(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackTypes", reflect.TypeOf((*MockCollectionStore)(nil).ListRackTypes), ctx, orgID)
+}
+
+// ListRackZones mocks base method.
+func (m *MockCollectionStore) ListRackZones(ctx context.Context, orgID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRackZones", ctx, orgID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRackZones indicates an expected call of ListRackZones.
+func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
 }
 
 // RemoveAllDevicesFromCollection mocks base method.
@@ -387,15 +387,15 @@ func (mr *MockCollectionStoreMockRecorder) UpdateCollection(ctx, orgID, collecti
 }
 
 // UpdateRackInfo mocks base method.
-func (m *MockCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns, orderIndex, coolingType int32, orgID int64) error {
+func (m *MockCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, zone string, rows, columns, orderIndex, coolingType int32, orgID int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateRackInfo", ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID)
+	ret := m.ctrl.Call(m, "UpdateRackInfo", ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateRackInfo indicates an expected call of UpdateRackInfo.
-func (mr *MockCollectionStoreMockRecorder) UpdateRackInfo(ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) UpdateRackInfo(ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackInfo", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackInfo), ctx, collectionID, location, rows, columns, orderIndex, coolingType, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackInfo", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackInfo), ctx, collectionID, zone, rows, columns, orderIndex, coolingType, orgID)
 }

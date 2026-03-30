@@ -58,10 +58,10 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 	}, nil
 }
 
-func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
+func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).CreateRackExtension(ctx, sqlc.CreateRackExtensionParams{
 		CollectionID: collectionID,
-		Location:     toNullString(location),
+		Zone:         toNullString(zone),
 		Rows:         rows,
 		Columns:      columns,
 		OrderIndex:   safeInt32ToInt16(orderIndex),
@@ -107,8 +107,8 @@ func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64
 		OrderIndex:  pb.RackOrderIndex(row.OrderIndex),
 		CoolingType: pb.RackCoolingType(row.CoolingType),
 	}
-	if row.Location.Valid {
-		rackInfo.Location = row.Location.String
+	if row.Zone.Valid {
+		rackInfo.Zone = row.Zone.String
 	}
 	return rackInfo, nil
 }
@@ -130,8 +130,8 @@ func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, 
 	result := make(map[int64]*pb.RackInfo, len(collectionIDs))
 	for _, row := range rows {
 		ri := &pb.RackInfo{Rows: row.Rows, Columns: row.Columns, OrderIndex: pb.RackOrderIndex(row.OrderIndex), CoolingType: pb.RackCoolingType(row.CoolingType)}
-		if row.Location.Valid {
-			ri.Location = row.Location.String
+		if row.Zone.Valid {
+			ri.Zone = row.Zone.String
 		}
 		result[row.CollectionID] = ri
 	}
@@ -175,9 +175,9 @@ func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, 
 	return nil
 }
 
-func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
+func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).UpdateRackInfo(ctx, sqlc.UpdateRackInfoParams{
-		Location:     toNullString(location),
+		Zone:         toNullString(zone),
 		Rows:         rows,
 		Columns:      columns,
 		OrderIndex:   safeInt32ToInt16(orderIndex),
@@ -198,7 +198,7 @@ func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int
 	})
 }
 
-func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, locations []string) ([]*pb.DeviceCollection, string, int32, error) {
+func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, zones []string) ([]*pb.DeviceCollection, string, int32, error) {
 	cursor, err := decodeCollectionCursor(pageToken)
 	if err != nil {
 		return nil, "", 0, err
@@ -216,14 +216,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Count total
 	var totalCount int32
-	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, errorComponentTypes, locations)
+	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, errorComponentTypes, zones)
 	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
 	}
 
 	// Build list query
 	fetchLimit := pageSize + 1
-	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, errorComponentTypes, locations)
+	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, errorComponentTypes, zones)
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -239,13 +239,13 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		DeviceCount int32
 		CreatedAt   time.Time
 		UpdatedAt   time.Time
-		Location    sql.NullString
+		Zone        sql.NullString
 	}
 
 	var rows []collectionRow
 	for sqlRows.Next() {
 		var r collectionRow
-		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.Location); err != nil {
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.Zone); err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
 		rows = append(rows, r)
@@ -262,9 +262,9 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		if sortField == collectionSortFieldDeviceCount {
 			cur.DeviceCount = &last.DeviceCount
 		}
-		if sortField == collectionSortFieldLocation && last.Location.Valid {
-			loc := last.Location.String
-			cur.Location = &loc
+		if sortField == collectionSortFieldZone && last.Zone.Valid {
+			z := last.Zone.String
+			cur.Zone = &z
 		}
 		nextPageToken = encodeCollectionCursor(cur)
 	}
@@ -653,19 +653,19 @@ ORDER BY ap.collection_id, ap.row_num, ap.col_num`
 	return result, nil
 }
 
-func (s *SQLCollectionStore) ListRackLocations(ctx context.Context, orgID int64) ([]string, error) {
-	rows, err := s.GetQueries(ctx).ListRackLocations(ctx, orgID)
+func (s *SQLCollectionStore) ListRackZones(ctx context.Context, orgID int64) ([]string, error) {
+	rows, err := s.GetQueries(ctx).ListRackZones(ctx, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list rack locations: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list rack zones: %v", err)
 	}
 
-	locations := make([]string, 0, len(rows))
+	zones := make([]string, 0, len(rows))
 	for _, row := range rows {
 		if row.Valid {
-			locations = append(locations, row.String)
+			zones = append(zones, row.String)
 		}
 	}
-	return locations, nil
+	return zones, nil
 }
 
 func (s *SQLCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error) {

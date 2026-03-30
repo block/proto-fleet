@@ -53,7 +53,7 @@ interface ListCollectionsProps {
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
-  locations?: string[];
+  zones?: string[];
   onSuccess?: (collections: DeviceCollection[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -77,7 +77,7 @@ interface GetCollectionStatsProps {
 
 interface CreateRackProps {
   label: string;
-  location: string;
+  zone: string;
   rows: number;
   columns: number;
   orderIndex: RackOrderIndex;
@@ -87,8 +87,8 @@ interface CreateRackProps {
   onFinally?: () => void;
 }
 
-interface ListRackLocationsProps {
-  onSuccess?: (locations: string[]) => void;
+interface ListRackZonesProps {
+  onSuccess?: (zones: string[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -118,7 +118,7 @@ interface RemoveDevicesFromCollectionProps {
 interface UpdateRackProps {
   collectionId: bigint;
   label?: string;
-  location?: string;
+  zone?: string;
   rows?: number;
   columns?: number;
   orderIndex?: RackOrderIndex;
@@ -155,7 +155,7 @@ interface ClearRackSlotPositionProps {
 interface SaveRackProps {
   collectionId?: bigint;
   label: string;
-  location: string;
+  zone: string;
   rows: number;
   columns: number;
   orderIndex: RackOrderIndex;
@@ -329,7 +329,7 @@ const useCollections = () => {
       pageToken,
       sort,
       errorComponentTypes,
-      locations,
+      zones,
       onSuccess,
       onError,
       onFinally,
@@ -341,7 +341,7 @@ const useCollections = () => {
           pageToken: pageToken ?? "",
           sort,
           errorComponentTypes: errorComponentTypes ?? [],
-          locations: locations ?? [],
+          zones: zones ?? [],
         });
         onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
       } catch (err) {
@@ -446,22 +446,12 @@ const useCollections = () => {
   );
 
   const createRack = useCallback(
-    async ({
-      label,
-      location,
-      rows,
-      columns,
-      orderIndex,
-      coolingType,
-      onSuccess,
-      onError,
-      onFinally,
-    }: CreateRackProps) => {
+    async ({ label, zone, rows, columns, orderIndex, coolingType, onSuccess, onError, onFinally }: CreateRackProps) => {
       try {
         const rackInfo = create(RackInfoSchema, {
           rows,
           columns,
-          location,
+          zone,
           orderIndex,
           coolingType,
         });
@@ -496,11 +486,11 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
-  const listRackLocations = useCallback(
-    async ({ onSuccess, onError, onFinally }: ListRackLocationsProps) => {
+  const listRackZones = useCallback(
+    async ({ onSuccess, onError, onFinally }: ListRackZonesProps) => {
       try {
-        const response = await collectionClient.listRackLocations({});
-        onSuccess?.(response.locations);
+        const response = await collectionClient.listRackZones({});
+        onSuccess?.(response.zones);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -573,7 +563,7 @@ const useCollections = () => {
     async ({
       collectionId,
       label,
-      location,
+      zone,
       rows,
       columns,
       orderIndex,
@@ -584,13 +574,13 @@ const useCollections = () => {
     }: UpdateRackProps) => {
       try {
         const rackInfo =
-          location !== undefined ||
+          zone !== undefined ||
           rows !== undefined ||
           columns !== undefined ||
           orderIndex !== undefined ||
           coolingType !== undefined
             ? create(RackInfoSchema, {
-                ...(location !== undefined && { location }),
+                ...(zone !== undefined && { zone }),
                 ...(rows !== undefined && { rows }),
                 ...(columns !== undefined && { columns }),
                 ...(orderIndex !== undefined && { orderIndex }),
@@ -705,7 +695,7 @@ const useCollections = () => {
     async ({
       collectionId,
       label,
-      location,
+      zone,
       rows,
       columns,
       orderIndex,
@@ -721,7 +711,7 @@ const useCollections = () => {
         const rackInfo = create(RackInfoSchema, {
           rows,
           columns,
-          location,
+          zone,
           orderIndex,
           coolingType,
         });
@@ -775,7 +765,7 @@ const useCollections = () => {
     deleteGroup,
     listGroups,
     listRacks,
-    listRackLocations,
+    listRackZones,
     listRackTypes,
     listGroupMembers,
     getCollectionStats,

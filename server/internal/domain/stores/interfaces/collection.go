@@ -17,7 +17,7 @@ type CollectionStore interface {
 
 	// CreateRackExtension creates the rack extension record with dimensions.
 	// Must be called after CreateCollection for rack-type collections.
-	CreateRackExtension(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
+	CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
 
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
@@ -31,7 +31,7 @@ type CollectionStore interface {
 	UpdateCollection(ctx context.Context, orgID int64, collectionID int64, label, description *string) error
 
 	// UpdateRackInfo updates rack-specific info.
-	UpdateRackInfo(ctx context.Context, collectionID int64, location string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
+	UpdateRackInfo(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
 
 	// SoftDeleteCollection marks a collection as deleted.
 	// Returns the number of rows affected (0 if not found).
@@ -41,7 +41,7 @@ type CollectionStore interface {
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.
 	// Returns the collections, a next page token (empty if no more results), and the total count.
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32, locations []string) ([]*pb.DeviceCollection, string, int32, error)
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32, zones []string) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)
@@ -94,8 +94,8 @@ type CollectionStore interface {
 	// Returns all rows×cols positions including empty slots, keyed by collection ID.
 	GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*pb.RackSlotStatus, error)
 
-	// ListRackLocations returns all distinct non-empty rack locations for an organization.
-	ListRackLocations(ctx context.Context, orgID int64) ([]string, error)
+	// ListRackZones returns all distinct non-empty rack zones for an organization.
+	ListRackZones(ctx context.Context, orgID int64) ([]string, error)
 
 	// ListRackTypes returns all distinct rack types (row/column combinations) for an organization.
 	ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error)

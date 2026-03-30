@@ -50,7 +50,7 @@ function InteractiveRackCard({
   ...rest
 }: {
   label: string;
-  building?: string;
+  zone?: string;
   cols: number;
   rows: number;
   healthyCount: number;
@@ -88,7 +88,7 @@ const meta: Meta<typeof InteractiveRackCard> = {
   tags: ["autodocs"],
   argTypes: {
     label: { control: "text", description: "Rack label, e.g. R-01" },
-    building: { control: "text", description: "Building / location label" },
+    zone: { control: "text", description: "Zone label (building, room, area)" },
     cols: { control: { type: "range", min: 2, max: 12, step: 1 }, description: "Grid columns" },
     rows: { control: { type: "range", min: 2, max: 12, step: 1 }, description: "Grid rows" },
     healthyCount: {
@@ -129,7 +129,7 @@ type Story = StoryObj<typeof InteractiveRackCard>;
 export const Default: Story = {
   args: {
     label: "R-01",
-    building: "Austin — Building 1",
+    zone: "Austin — Building 1",
     cols: 5,
     rows: 5,
     healthyCount: 25,
@@ -147,7 +147,7 @@ export const Default: Story = {
 export const WithIssues: Story = {
   args: {
     label: "R-02",
-    building: "Austin — Building 1",
+    zone: "Austin — Building 1",
     cols: 5,
     rows: 5,
     healthyCount: 17,
@@ -165,7 +165,7 @@ export const WithIssues: Story = {
 export const WithOffline: Story = {
   args: {
     label: "R-03",
-    building: "Austin — Building 2",
+    zone: "Austin — Building 2",
     cols: 5,
     rows: 5,
     healthyCount: 15,
@@ -183,7 +183,7 @@ export const WithOffline: Story = {
 export const Sleeping: Story = {
   args: {
     label: "R-04",
-    building: "Austin — Building 2",
+    zone: "Austin — Building 2",
     cols: 5,
     rows: 5,
     healthyCount: 12,
@@ -201,7 +201,7 @@ export const Sleeping: Story = {
 export const Mixed: Story = {
   args: {
     label: "R-05",
-    building: "Austin — Building 3",
+    zone: "Austin — Building 3",
     cols: 5,
     rows: 5,
     healthyCount: 12,
@@ -223,7 +223,7 @@ export const Mixed: Story = {
 export const Empty: Story = {
   args: {
     label: "R-06",
-    building: "Austin — Building 3",
+    zone: "Austin — Building 3",
     cols: 5,
     rows: 5,
     healthyCount: 0,
@@ -241,7 +241,7 @@ export const Empty: Story = {
 export const SparseRack: Story = {
   args: {
     label: "R-07",
-    building: "Austin — Building 2",
+    zone: "Austin — Building 2",
     cols: 6,
     rows: 6,
     healthyCount: 12,
@@ -263,7 +263,7 @@ export const SparseRack: Story = {
 export const CompactRack: Story = {
   args: {
     label: "R-08",
-    building: "Austin — Building 1",
+    zone: "Austin — Building 1",
     cols: 4,
     rows: 8,
     healthyCount: 26,
@@ -305,7 +305,7 @@ export const WideRack: Story = {
 export const MaxSize: Story = {
   args: {
     label: "R-10",
-    building: "Austin — Building 4",
+    zone: "Austin — Building 4",
     cols: 12,
     rows: 12,
     healthyCount: 110,
@@ -336,7 +336,7 @@ export const GridView: Story = {
     <RackCardGrid>
       <RackCard
         label="R-01"
-        building="Building 1"
+        zone="Building 1"
         cols={5}
         rows={5}
         slots={makeSlots(25, 25)}
@@ -348,7 +348,7 @@ export const GridView: Story = {
       />
       <RackCard
         label="R-02"
-        building="Building 1"
+        zone="Building 1"
         cols={5}
         rows={5}
         slots={makeSlots(25, 17, 5, 0, 0, 99)}
@@ -360,7 +360,7 @@ export const GridView: Story = {
       />
       <RackCard
         label="R-03"
-        building="Building 2"
+        zone="Building 2"
         cols={6}
         rows={6}
         slots={makeSlots(36, 12, 3, 2, 1, 77)}
@@ -376,7 +376,7 @@ export const GridView: Story = {
       />
       <RackCard
         label="R-04"
-        building="Building 2"
+        zone="Building 2"
         cols={12}
         rows={12}
         slots={makeSlots(144, 110, 10, 8, 6, 55)}
@@ -390,10 +390,10 @@ export const GridView: Story = {
         power="146.3 kW"
         temperature="58°–74°"
       />
-      <RackCard label="R-05" building="Building 3" cols={5} rows={5} slots={makeSlots(25, 0)} statusSegments={[]} />
+      <RackCard label="R-05" zone="Building 3" cols={5} rows={5} slots={makeSlots(25, 0)} statusSegments={[]} />
       <RackCard
         label="R-06"
-        building="Building 3"
+        zone="Building 3"
         cols={6}
         rows={6}
         slots={makeSlots(36, 28, 0, 0, 6, 33)}

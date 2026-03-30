@@ -103,8 +103,8 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
 	}
-	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil && rackInfo.GetLocation() == "" {
-		return nil, fleeterror.NewInvalidArgumentError("location is required for rack collections")
+	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil && rackInfo.GetZone() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("zone is required for rack collections")
 	}
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil {
 		if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
@@ -143,7 +143,7 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		}
 
 		if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-			err = s.collectionStore.CreateRackExtension(ctx, collection.Id, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			err = s.collectionStore.CreateRackExtension(ctx, collection.Id, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
 			if err != nil {
 				return nil, err
 			}
@@ -375,13 +375,13 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		errorComponentTypes[i] = int32(ct)
 	}
 
-	// Validate that locations filter and location sort are only used with rack collections
-	isLocationSort := sort != nil && sort.Field == interfaces.SortFieldLocation
-	if (len(req.Locations) > 0 || isLocationSort) && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		return nil, fleeterror.NewInvalidArgumentErrorf("location filter and sort are only supported for rack collections")
+	// Validate that zone filter and zone sort are only used with rack collections
+	isZoneSort := sort != nil && sort.Field == interfaces.SortFieldLocation
+	if (len(req.Zones) > 0 || isZoneSort) && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone filter and sort are only supported for rack collections")
 	}
 
-	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes, req.Locations)
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes, req.Zones)
 	if err != nil {
 		return nil, err
 	}
@@ -873,19 +873,19 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 	return &pb.ListRackTypesResponse{RackTypes: rackTypes}, nil
 }
 
-// ListRackLocations returns all distinct rack locations for the organization.
-func (s *Service) ListRackLocations(ctx context.Context, _ *pb.ListRackLocationsRequest) (*pb.ListRackLocationsResponse, error) {
+// ListRackZones returns all distinct rack zones for the organization.
+func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	locations, err := s.collectionStore.ListRackLocations(ctx, info.OrganizationID)
+	zones, err := s.collectionStore.ListRackZones(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.ListRackLocationsResponse{Locations: locations}, nil
+	return &pb.ListRackZonesResponse{Zones: zones}, nil
 }
 
 // saveRackResult holds the result of the SaveRack transaction.
@@ -905,8 +905,8 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	if rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required")
 	}
-	if rackInfo.GetLocation() == "" {
-		return nil, fleeterror.NewInvalidArgumentError("location is required for rack collections")
+	if rackInfo.GetZone() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("zone is required for rack collections")
 	}
 	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
 		return nil, fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
@@ -999,7 +999,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			}
 
 			// Update rack-specific info.
-			err = s.collectionStore.UpdateRackInfo(ctx, collectionID, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			err = s.collectionStore.UpdateRackInfo(ctx, collectionID, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
 			if err != nil {
 				return nil, err
 			}
@@ -1011,7 +1011,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			}
 			collectionID = collection.Id
 
-			err = s.collectionStore.CreateRackExtension(ctx, collectionID, rackInfo.GetLocation(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			err = s.collectionStore.CreateRackExtension(ctx, collectionID, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
 			if err != nil {
 				return nil, err
 			}

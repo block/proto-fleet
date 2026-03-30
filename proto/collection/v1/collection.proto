@@ -50,8 +50,8 @@ service DeviceCollectionService {
     // Returns aggregated telemetry stats for a list of collections
     rpc GetCollectionStats(GetCollectionStatsRequest) returns (GetCollectionStatsResponse);
 
-    // Returns all distinct rack locations for the organization
-    rpc ListRackLocations(ListRackLocationsRequest) returns (ListRackLocationsResponse);
+    // Returns all distinct rack zones for the organization
+    rpc ListRackZones(ListRackZonesRequest) returns (ListRackZonesResponse);
 
     // Returns all distinct rack types (row/column combinations) for the organization
     rpc ListRackTypes(ListRackTypesRequest) returns (ListRackTypesResponse);
@@ -123,8 +123,8 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Physical location description
-    string location = 3 [(buf.validate.field).string.min_len = 1];
+    // Physical zone description (e.g. building, room, area)
+    string zone = 3 [(buf.validate.field).string.min_len = 1];
     // Order index defining where numbering starts
     RackOrderIndex order_index = 4;
     // Cooling type for this rack
@@ -277,9 +277,9 @@ message ListCollectionsRequest {
     // matching any of the specified component types are returned.
     repeated errors.v1.ComponentType error_component_types = 5;
 
-    // Filter by rack locations. Only valid when type is RACK.
-    // When non-empty, only racks at any of the specified locations are returned.
-    repeated string locations = 6;
+    // Filter by rack zones. Only valid when type is RACK.
+    // When non-empty, only racks in any of the specified zones are returned.
+    repeated string zones = 6;
 }
 
 // Response containing collections
@@ -488,13 +488,13 @@ message RackSlotStatus {
     SlotDeviceStatus status = 3;
 }
 
-// Request to list all distinct rack locations for the organization
-message ListRackLocationsRequest {}
+// Request to list all distinct rack zones for the organization
+message ListRackZonesRequest {}
 
-// Response containing all distinct rack locations
-message ListRackLocationsResponse {
-    // Distinct location strings across all racks, sorted alphabetically
-    repeated string locations = 1;
+// Response containing all distinct rack zones
+message ListRackZonesResponse {
+    // Distinct zone strings across all racks, sorted alphabetically
+    repeated string zones = 1;
 }
 
 // Request to list all distinct rack types for the organization

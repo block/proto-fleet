@@ -356,7 +356,7 @@ export default function AssignMinersModal({
         saveRack({
           collectionId: existingRackId,
           label: rackSettings.label,
-          location: rackSettings.location,
+          zone: rackSettings.zone,
           rows: rackSettings.rows,
           columns: rackSettings.columns,
           orderIndex: rackSettings.orderIndex,

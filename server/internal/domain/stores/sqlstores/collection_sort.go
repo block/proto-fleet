@@ -13,7 +13,7 @@ import (
 const (
 	collectionSortFieldName        = "name"
 	collectionSortFieldDeviceCount = "device_count"
-	collectionSortFieldLocation    = "location"
+	collectionSortFieldZone        = "zone"
 	collectionSortDirASC           = "ASC"
 	collectionSortDirDESC          = "DESC"
 )
@@ -28,11 +28,11 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 		return field, dir
 	}
 
-	switch sort.Field { //nolint:exhaustive // only name, device_count, and location are valid for collections
+	switch sort.Field { //nolint:exhaustive // only name, device_count, and zone are valid for collections
 	case stores.SortFieldDeviceCount:
 		field = collectionSortFieldDeviceCount
 	case stores.SortFieldLocation:
-		field = collectionSortFieldLocation
+		field = collectionSortFieldZone
 	default:
 		field = collectionSortFieldName
 	}
@@ -48,14 +48,14 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 }
 
 // buildCollectionCountQuery returns the SQL and args for counting collections.
-func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, errorComponentTypes []int32, locations []string) (string, []any) {
+func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, errorComponentTypes []int32, zones []string) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
 
 	sb.WriteString("SELECT COUNT(*)::int FROM device_collection dc")
 
-	if len(locations) > 0 {
+	if len(zones) > 0 {
 		sb.WriteString(" LEFT JOIN device_collection_rack dcr ON dcr.collection_id = dc.id")
 	}
 
@@ -68,9 +68,9 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 		argNum++
 	}
 
-	if len(locations) > 0 {
-		sb.WriteString(fmt.Sprintf(" AND dcr.location = ANY($%d::text[])", argNum))
-		args = append(args, pq.Array(locations))
+	if len(zones) > 0 {
+		sb.WriteString(fmt.Sprintf(" AND dcr.zone = ANY($%d::text[])", argNum))
+		args = append(args, pq.Array(zones))
 		argNum++
 	}
 
@@ -96,16 +96,16 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 
 // buildCollectionListQuery generates a dynamic SQL query for listing collections
 // with sort and cursor-based keyset pagination.
-func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, errorComponentTypes []int32, locations []string) (string, []any) {
+func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, errorComponentTypes []int32, zones []string) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
 
-	// Base query — always LEFT JOIN rack table so we can always scan dcr.location
+	// Base query — always LEFT JOIN rack table so we can always scan dcr.zone
 	// without conditional branching. LEFT JOIN ensures racks without a
 	// device_collection_rack row are not silently excluded.
 	sb.WriteString(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count, dcr.location
+       COUNT(dcm.id)::int AS device_count, dcr.zone
 FROM device_collection dc
 LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
 LEFT JOIN device_collection_rack dcr ON dcr.collection_id = dc.id
@@ -119,10 +119,10 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		argNum++
 	}
 
-	// Location filter
-	if len(locations) > 0 {
-		sb.WriteString(fmt.Sprintf(" AND dcr.location = ANY($%d::text[])", argNum))
-		args = append(args, pq.Array(locations))
+	// Zone filter
+	if len(zones) > 0 {
+		sb.WriteString(fmt.Sprintf(" AND dcr.zone = ANY($%d::text[])", argNum))
+		args = append(args, pq.Array(zones))
 		argNum++
 	}
 
@@ -160,35 +160,35 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		argNum += 2
 	}
 
-	// Keyset cursor for location sort (WHERE before GROUP BY, similar to name).
-	// Location is nullable (LEFT JOIN), so use the same NULL-aware pattern as
-	// device_sort.go: NULL locations sort last (NULLS LAST in ORDER BY) and cursor
+	// Keyset cursor for zone sort (WHERE before GROUP BY, similar to name).
+	// Zone is nullable (LEFT JOIN), so use the same NULL-aware pattern as
+	// device_sort.go: NULL zones sort last (NULLS LAST in ORDER BY) and cursor
 	// predicates branch on whether the cursor row itself had a NULL value.
-	if cursor != nil && sortField == collectionSortFieldLocation {
+	if cursor != nil && sortField == collectionSortFieldZone {
 		cmp := ">"
 		if sortDir == collectionSortDirDESC {
 			cmp = "<"
 		}
-		if cursor.Location == nil {
-			// Cursor row had NULL location — only compare IDs among NULLs
+		if cursor.Zone == nil {
+			// Cursor row had NULL zone — only compare IDs among NULLs
 			sb.WriteString(fmt.Sprintf(
-				" AND (dcr.location IS NULL AND dc.id %s $%d)",
+				" AND (dcr.zone IS NULL AND dc.id %s $%d)",
 				cmp, argNum,
 			))
 			args = append(args, cursor.ID)
 			argNum++
 		} else {
-			// Cursor row had non-NULL location — include NULLs (they sort last)
+			// Cursor row had non-NULL zone — include NULLs (they sort last)
 			sb.WriteString(fmt.Sprintf(
-				" AND ((dcr.location, dc.id) %s ($%d, $%d) OR dcr.location IS NULL)",
+				" AND ((dcr.zone, dc.id) %s ($%d, $%d) OR dcr.zone IS NULL)",
 				cmp, argNum, argNum+1,
 			))
-			args = append(args, *cursor.Location, cursor.ID)
+			args = append(args, *cursor.Zone, cursor.ID)
 			argNum += 2
 		}
 	}
 
-	sb.WriteString(" GROUP BY dc.id, dcr.location")
+	sb.WriteString(" GROUP BY dc.id, dcr.zone")
 
 	// Keyset cursor for aggregate fields (HAVING after GROUP BY)
 	if cursor != nil && sortField == collectionSortFieldDeviceCount {
@@ -212,8 +212,8 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 	switch sortField {
 	case collectionSortFieldDeviceCount:
 		sb.WriteString(fmt.Sprintf(" ORDER BY device_count %s, dc.id %s", sortDir, sortDir))
-	case collectionSortFieldLocation:
-		sb.WriteString(fmt.Sprintf(" ORDER BY dcr.location %s NULLS LAST, dc.id %s", sortDir, sortDir))
+	case collectionSortFieldZone:
+		sb.WriteString(fmt.Sprintf(" ORDER BY dcr.zone %s NULLS LAST, dc.id %s", sortDir, sortDir))
 	default:
 		sb.WriteString(fmt.Sprintf(" ORDER BY dc.label %s, dc.id %s", sortDir, sortDir))
 	}

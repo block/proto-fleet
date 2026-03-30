@@ -32,7 +32,7 @@ CREATE TRIGGER update_device_collection_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Rack-specific extension (dimensions, location)
+-- Rack-specific extension (dimensions, zone)
 CREATE TABLE device_collection_rack (
     collection_id BIGINT PRIMARY KEY REFERENCES device_collection(id) ON DELETE CASCADE,
     location TEXT,

@@ -35,14 +35,14 @@ func TestResolveCollectionSort(t *testing.T) {
 			Field:     stores.SortFieldDeviceCount,
 			Direction: stores.SortDirectionDesc,
 		}, "device_count", "DESC"},
-		{"location ASC", &stores.SortConfig{
+		{"zone ASC", &stores.SortConfig{
 			Field:     stores.SortFieldLocation,
 			Direction: stores.SortDirectionAsc,
-		}, "location", "ASC"},
-		{"location DESC", &stores.SortConfig{
+		}, "zone", "ASC"},
+		{"zone DESC", &stores.SortConfig{
 			Field:     stores.SortFieldLocation,
 			Direction: stores.SortDirectionDesc,
-		}, "location", "DESC"},
+		}, "zone", "DESC"},
 	}
 
 	for _, tt := range tests {
@@ -96,50 +96,50 @@ func TestBuildCollectionListQuery_ErrorComponentTypes(t *testing.T) {
 	assert.Equal(t, pq.Array(errorTypes), args[2])
 }
 
-func TestBuildCollectionListQuery_LocationSortASC(t *testing.T) {
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "location", "ASC", 51, nil, nil)
-	assert.Contains(t, query, "ORDER BY dcr.location ASC NULLS LAST, dc.id ASC")
+func TestBuildCollectionListQuery_ZoneSortASC(t *testing.T) {
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "zone", "ASC", 51, nil, nil)
+	assert.Contains(t, query, "ORDER BY dcr.zone ASC NULLS LAST, dc.id ASC")
 	assert.Contains(t, query, "dc.type = $2")
 	assert.Len(t, args, 3)
 }
 
-func TestBuildCollectionListQuery_LocationSortDESC(t *testing.T) {
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "location", "DESC", 51, nil, nil)
-	assert.Contains(t, query, "ORDER BY dcr.location DESC NULLS LAST, dc.id DESC")
+func TestBuildCollectionListQuery_ZoneSortDESC(t *testing.T) {
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "zone", "DESC", 51, nil, nil)
+	assert.Contains(t, query, "ORDER BY dcr.zone DESC NULLS LAST, dc.id DESC")
 	assert.Len(t, args, 3)
 }
 
-func TestBuildCollectionListQuery_LocationCursorASC(t *testing.T) {
-	loc := "Building A"
-	cursor := &collectionCursor{Label: "Rack1", ID: 7, SortField: "location", Location: &loc}
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, cursor, "location", "ASC", 51, nil, nil)
-	assert.Contains(t, query, "AND ((dcr.location, dc.id) > ($3, $4) OR dcr.location IS NULL)")
-	assert.Contains(t, query, "ORDER BY dcr.location ASC NULLS LAST, dc.id ASC")
+func TestBuildCollectionListQuery_ZoneCursorASC(t *testing.T) {
+	z := "Building A"
+	cursor := &collectionCursor{Label: "Rack1", ID: 7, SortField: "zone", Zone: &z}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, cursor, "zone", "ASC", 51, nil, nil)
+	assert.Contains(t, query, "AND ((dcr.zone, dc.id) > ($3, $4) OR dcr.zone IS NULL)")
+	assert.Contains(t, query, "ORDER BY dcr.zone ASC NULLS LAST, dc.id ASC")
 	assert.Equal(t, "Building A", args[2])
 	assert.Equal(t, int64(7), args[3])
 }
 
-func TestBuildCollectionListQuery_LocationCursorNullASC(t *testing.T) {
-	cursor := &collectionCursor{Label: "Rack1", ID: 7, SortField: "location", Location: nil}
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, cursor, "location", "ASC", 51, nil, nil)
-	assert.Contains(t, query, "AND (dcr.location IS NULL AND dc.id > $3)")
+func TestBuildCollectionListQuery_ZoneCursorNullASC(t *testing.T) {
+	cursor := &collectionCursor{Label: "Rack1", ID: 7, SortField: "zone", Zone: nil}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, cursor, "zone", "ASC", 51, nil, nil)
+	assert.Contains(t, query, "AND (dcr.zone IS NULL AND dc.id > $3)")
 	assert.Equal(t, int64(7), args[2])
 }
 
-func TestBuildCollectionListQuery_LocationFilter(t *testing.T) {
-	locations := []string{"Building A", "Building B"}
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, nil, locations)
-	assert.Contains(t, query, "AND dcr.location = ANY($3::text[])")
-	assert.Equal(t, pq.Array(locations), args[2])
+func TestBuildCollectionListQuery_ZoneFilter(t *testing.T) {
+	zones := []string{"Building A", "Building B"}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, nil, zones)
+	assert.Contains(t, query, "AND dcr.zone = ANY($3::text[])")
+	assert.Equal(t, pq.Array(zones), args[2])
 	assert.Len(t, args, 4)
 }
 
-func TestBuildCollectionCountQuery_LocationFilter(t *testing.T) {
-	locations := []string{"Building A"}
-	query, args := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, locations)
+func TestBuildCollectionCountQuery_ZoneFilter(t *testing.T) {
+	zones := []string{"Building A"}
+	query, args := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, zones)
 	assert.Contains(t, query, "LEFT JOIN device_collection_rack dcr")
-	assert.Contains(t, query, "AND dcr.location = ANY($3::text[])")
-	assert.Equal(t, pq.Array(locations), args[2])
+	assert.Contains(t, query, "AND dcr.zone = ANY($3::text[])")
+	assert.Equal(t, pq.Array(zones), args[2])
 }
 
 func TestBuildCollectionCountQuery_ErrorComponentTypes(t *testing.T) {

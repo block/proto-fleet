@@ -138,7 +138,7 @@ func TestService_CreateCollection_RackCreatesExtension(t *testing.T) {
 
 	// Arrange
 	loc := "Building A"
-	rackInfo := &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}
+	rackInfo := &pb.RackInfo{Rows: 4, Columns: 8, Zone: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
@@ -167,7 +167,7 @@ func TestService_GetCollection_RackPopulatesTypeDetails(t *testing.T) {
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
-		Return(&pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
+		Return(&pb.RackInfo{Rows: 4, Columns: 8, Zone: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
 
 	resp, err := svc.GetCollection(ctx, &pb.GetCollectionRequest{CollectionId: testCollectionID})
 
@@ -175,7 +175,7 @@ func TestService_GetCollection_RackPopulatesTypeDetails(t *testing.T) {
 	assert.NotNil(t, resp.Collection.GetRackInfo())
 	assert.Equal(t, int32(4), resp.Collection.GetRackInfo().Rows)
 	assert.Equal(t, int32(8), resp.Collection.GetRackInfo().Columns)
-	assert.Equal(t, "Building A", resp.Collection.GetRackInfo().GetLocation())
+	assert.Equal(t, "Building A", resp.Collection.GetRackInfo().GetZone())
 }
 
 func TestService_GetCollection_GroupDoesNotFetchRackInfo(t *testing.T) {
@@ -201,7 +201,7 @@ func TestService_CreateCollection_RackRejectsUnspecifiedOrderIndex(t *testing.T)
 		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
 		Label: "Rack A",
 		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
-			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Zone: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
 		},
 	})
 
@@ -219,7 +219,7 @@ func TestService_CreateCollection_RackRejectsUnspecifiedCoolingType(t *testing.T
 		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
 		Label: "Rack A",
 		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
-			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
+			RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Zone: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
 		},
 	})
 
@@ -902,7 +902,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 var testRackInfo = &pb.RackInfo{
 	Rows:        4,
 	Columns:     8,
-	Location:    "Building A",
+	Zone:        "Building A",
 	OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
 	CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
 }
@@ -1027,18 +1027,18 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			want: "rack_info is required",
 		},
 		{
-			name: "missing location",
+			name: "missing zone",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
 				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
 			},
-			want: "location is required",
+			want: "zone is required",
 		},
 		{
 			name: "rows too large",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 13, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+				RackInfo: &pb.RackInfo{Rows: 13, Columns: 8, Zone: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
 			},
 			want: "rows must be between 1 and 12",
 		},
@@ -1046,7 +1046,7 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			name: "columns too large",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 4, Columns: 13, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 13, Zone: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
 			},
 			want: "columns must be between 1 and 12",
 		},
@@ -1054,7 +1054,7 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			name: "unspecified order_index",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Zone: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
 			},
 			want: "order_index is required",
 		},
@@ -1062,7 +1062,7 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			name: "unspecified cooling_type",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Location: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, Zone: "A", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED},
 			},
 			want: "cooling_type is required",
 		},

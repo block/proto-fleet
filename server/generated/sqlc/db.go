@@ -402,11 +402,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listPoolsStmt, err = db.PrepareContext(ctx, listPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPools: %w", err)
 	}
-	if q.listRackLocationsStmt, err = db.PrepareContext(ctx, listRackLocations); err != nil {
-		return nil, fmt.Errorf("error preparing query ListRackLocations: %w", err)
-	}
 	if q.listRackTypesStmt, err = db.PrepareContext(ctx, listRackTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRackTypes: %w", err)
+	}
+	if q.listRackZonesStmt, err = db.PrepareContext(ctx, listRackZones); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRackZones: %w", err)
 	}
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
@@ -1223,14 +1223,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listPoolsStmt: %w", cerr)
 		}
 	}
-	if q.listRackLocationsStmt != nil {
-		if cerr := q.listRackLocationsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listRackLocationsStmt: %w", cerr)
-		}
-	}
 	if q.listRackTypesStmt != nil {
 		if cerr := q.listRackTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRackTypesStmt: %w", cerr)
+		}
+	}
+	if q.listRackZonesStmt != nil {
+		if cerr := q.listRackZonesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRackZonesStmt: %w", cerr)
 		}
 	}
 	if q.listRolesStmt != nil {
@@ -1698,8 +1698,8 @@ type Queries struct {
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
-	listRackLocationsStmt                               *sql.Stmt
 	listRackTypesStmt                                   *sql.Stmt
+	listRackZonesStmt                                   *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
 	listSchedulesStmt                                   *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
@@ -1892,8 +1892,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
-		listRackLocationsStmt:                               q.listRackLocationsStmt,
 		listRackTypesStmt:                                   q.listRackTypesStmt,
+		listRackZonesStmt:                                   q.listRackZonesStmt,
 		listRolesStmt:                                       q.listRolesStmt,
 		listSchedulesStmt:                                   q.listSchedulesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,

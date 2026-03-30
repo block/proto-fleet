@@ -75,11 +75,11 @@ export function mapRackToCardProps(rack: DeviceCollection, stats: CollectionStat
   const cols = rackInfo?.columns ?? 1;
   const orderIndex = rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT;
 
-  const building = rackInfo?.location || undefined;
+  const zone = rackInfo?.zone || undefined;
 
   if (!stats) {
     return {
-      building,
+      zone,
       rows,
       cols,
       loading: true,
@@ -96,5 +96,5 @@ export function mapRackToCardProps(rack: DeviceCollection, stats: CollectionStat
   const slots = mapSlotStatuses(stats.slotStatuses, rows, cols, orderIndex);
   const { hashrate, efficiency, power, temperature } = formatRackCardStats(stats);
 
-  return { building, rows, cols, loading: false, statusSegments, slots, hashrate, efficiency, power, temperature };
+  return { zone, rows, cols, loading: false, statusSegments, slots, hashrate, efficiency, power, temperature };
 }

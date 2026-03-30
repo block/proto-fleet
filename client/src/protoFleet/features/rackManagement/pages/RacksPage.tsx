@@ -36,13 +36,13 @@ const RACK_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_LIST_POLL_INTERVA
 
 const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: "name", label: "Name" },
-  { id: "location", label: "Location" },
+  { id: "zone", label: "Zone" },
   { id: "miners", label: "Miners" },
 ];
 
 const RACK_COLUMNS: CollectionColumn[] = [
   "name",
-  "location",
+  "zone",
   "miners",
   "issues",
   "hashrate",
@@ -53,11 +53,11 @@ const RACK_COLUMNS: CollectionColumn[] = [
 ];
 
 const RacksPage = () => {
-  const { listRacks, listRackLocations } = useCollections();
+  const { listRacks, listRackZones } = useCollections();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
-  const [allLocations, setAllLocations] = useState<{ id: string; label: string }[]>([]);
+  const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
 
   // AssignMinersModal state
   const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
@@ -65,8 +65,8 @@ const RacksPage = () => {
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
-  const selectedLocationsRef = useRef<string[]>([]);
-  const getLocations = useCallback(() => selectedLocationsRef.current, []);
+  const selectedZonesRef = useRef<string[]>([]);
+  const getZones = useCallback(() => selectedZonesRef.current, []);
 
   const {
     collections: racks,
@@ -84,26 +84,26 @@ const RacksPage = () => {
     handlePrevPage,
     resetAndFetch,
     refreshCurrentPage,
-  } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getLocations);
+  } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones);
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
 
-  // Fetch all rack locations once on mount
-  const locationsRequestId = useRef(0);
-  const fetchLocations = useCallback(() => {
-    const requestId = ++locationsRequestId.current;
-    listRackLocations({
-      onSuccess: (locations) => {
-        if (requestId !== locationsRequestId.current) return;
-        setAllLocations(locations.map((loc) => ({ id: loc, label: loc })));
+  // Fetch all rack zones once on mount
+  const zonesRequestId = useRef(0);
+  const fetchZones = useCallback(() => {
+    const requestId = ++zonesRequestId.current;
+    listRackZones({
+      onSuccess: (zones) => {
+        if (requestId !== zonesRequestId.current) return;
+        setAllZones(zones.map((z) => ({ id: z, label: z })));
       },
     });
-  }, [listRackLocations]);
+  }, [listRackZones]);
 
   useEffect(() => {
-    fetchLocations();
-  }, [fetchLocations]);
+    fetchZones();
+  }, [fetchZones]);
 
   const handleIssuesChange = useCallback(
     (issues: string[]) => {
@@ -114,23 +114,23 @@ const RacksPage = () => {
     [resetAndFetch, selectedIssuesRef],
   );
 
-  const handleLocationsChange = useCallback(
-    (locations: string[]) => {
-      setSelectedLocations(locations);
-      selectedLocationsRef.current = locations;
+  const handleZonesChange = useCallback(
+    (zones: string[]) => {
+      setSelectedZones(zones);
+      selectedZonesRef.current = zones;
       resetAndFetch();
     },
     [resetAndFetch],
   );
 
-  const handleRemoveLocation = useCallback(
-    (locationId: string) => {
-      const next = selectedLocations.filter((id) => id !== locationId);
-      setSelectedLocations(next);
-      selectedLocationsRef.current = next;
+  const handleRemoveZone = useCallback(
+    (zoneId: string) => {
+      const next = selectedZones.filter((id) => id !== zoneId);
+      setSelectedZones(next);
+      selectedZonesRef.current = next;
       resetAndFetch();
     },
-    [selectedLocations, resetAndFetch],
+    [selectedZones, resetAndFetch],
   );
 
   const handleRemoveIssue = useCallback(
@@ -144,11 +144,11 @@ const RacksPage = () => {
   );
 
   const activeFilterPills = useMemo(() => {
-    const pills: { key: string; label: string; type: "location" | "issue"; id: string }[] = [];
-    for (const locId of selectedLocations) {
-      const loc = allLocations.find((l) => l.id === locId);
-      if (loc) {
-        pills.push({ key: `loc-${locId}`, label: loc.label, type: "location", id: locId });
+    const pills: { key: string; label: string; type: "zone" | "issue"; id: string }[] = [];
+    for (const zoneId of selectedZones) {
+      const z = allZones.find((l) => l.id === zoneId);
+      if (z) {
+        pills.push({ key: `zone-${zoneId}`, label: z.label, type: "zone", id: zoneId });
       }
     }
     for (const issueId of selectedIssues) {
@@ -158,13 +158,13 @@ const RacksPage = () => {
       }
     }
     return pills;
-  }, [selectedLocations, selectedIssues, allLocations]);
+  }, [selectedZones, selectedIssues, allZones]);
 
   const handleOpenRackForEdit = useCallback((rack: DeviceCollection) => {
     const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
     setAssignMinersFormData({
       label: rack.label,
-      location: rackInfo?.location ?? "",
+      zone: rackInfo?.zone ?? "",
       rows: rackInfo?.rows ?? 1,
       columns: rackInfo?.columns ?? 1,
       orderIndex: rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
@@ -188,8 +188,8 @@ const RacksPage = () => {
     setAssignMinersFormData(null);
     setAssignMinersRackId(undefined);
     resetAndFetch();
-    fetchLocations();
-  }, [resetAndFetch, fetchLocations]);
+    fetchZones();
+  }, [resetAndFetch, fetchZones]);
 
   const renderName = useCallback(
     (item: CollectionListItem) => (
@@ -348,10 +348,10 @@ const RacksPage = () => {
                 onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
               />
               <DropdownFilter
-                title="Location"
-                options={allLocations}
-                selectedOptions={selectedLocations}
-                onSelect={handleLocationsChange}
+                title="Zone"
+                options={allZones}
+                selectedOptions={selectedZones}
+                onSelect={handleZonesChange}
                 withButtons
               />
               <DropdownFilter
@@ -382,10 +382,10 @@ const RacksPage = () => {
           {/* Filters — shown separately on tablet/phone */}
           <div className="hidden items-center gap-2 phone:flex tablet:flex">
             <DropdownFilter
-              title="Location"
-              options={allLocations}
-              selectedOptions={selectedLocations}
-              onSelect={handleLocationsChange}
+              title="Zone"
+              options={allZones}
+              selectedOptions={selectedZones}
+              onSelect={handleZonesChange}
               withButtons
             />
             <DropdownFilter
@@ -412,9 +412,7 @@ const RacksPage = () => {
                   size={sizes.compact}
                   variant={variants.secondary}
                   prefixIcon={<DismissTiny />}
-                  onClick={() =>
-                    pill.type === "location" ? handleRemoveLocation(pill.id) : handleRemoveIssue(pill.id)
-                  }
+                  onClick={() => (pill.type === "zone" ? handleRemoveZone(pill.id) : handleRemoveIssue(pill.id))}
                 >
                   {pill.label}
                 </Button>
@@ -464,23 +462,13 @@ const RacksPage = () => {
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
                 {racks.map((rack) => {
                   const stats = statsMap.get(rack.id);
-                  const {
-                    building,
-                    rows,
-                    cols,
-                    loading,
-                    statusSegments,
-                    slots,
-                    hashrate,
-                    efficiency,
-                    power,
-                    temperature,
-                  } = mapRackToCardProps(rack, stats);
+                  const { zone, rows, cols, loading, statusSegments, slots, hashrate, efficiency, power, temperature } =
+                    mapRackToCardProps(rack, stats);
                   return (
                     <RackCard
                       key={rack.id.toString()}
                       label={rack.label}
-                      building={building}
+                      zone={zone}
                       cols={cols}
                       rows={rows}
                       slots={slots}

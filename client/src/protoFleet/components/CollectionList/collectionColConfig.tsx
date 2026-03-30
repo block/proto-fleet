@@ -32,10 +32,10 @@ const createCollectionColConfig = ({
     component: (item: CollectionListItem) => renderName(item),
     width: "min-w-44",
   },
-  [collectionCols.location]: {
+  [collectionCols.zone]: {
     component: (item: CollectionListItem) => {
       if (item.collection.typeDetails.case !== "rackInfo") return <span>{INACTIVE_PLACEHOLDER}</span>;
-      return <span>{item.collection.typeDetails.value.location || INACTIVE_PLACEHOLDER}</span>;
+      return <span>{item.collection.typeDetails.value.zone || INACTIVE_PLACEHOLDER}</span>;
     },
     width: "min-w-28",
   },

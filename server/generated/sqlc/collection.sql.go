@@ -125,7 +125,7 @@ func (q *Queries) CreateCollection(ctx context.Context, arg CreateCollectionPara
 }
 
 const createRackExtension = `-- name: CreateRackExtension :exec
-INSERT INTO device_collection_rack (collection_id, location, rows, columns, order_index, cooling_type)
+INSERT INTO device_collection_rack (collection_id, zone, rows, columns, order_index, cooling_type)
 SELECT $1, $2, $3, $4, $5, $6
 FROM device_collection
 WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL
@@ -133,7 +133,7 @@ WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL
 
 type CreateRackExtensionParams struct {
 	CollectionID int64
-	Location     sql.NullString
+	Zone         sql.NullString
 	Rows         int32
 	Columns      int32
 	OrderIndex   int16
@@ -144,7 +144,7 @@ type CreateRackExtensionParams struct {
 func (q *Queries) CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error {
 	_, err := q.exec(ctx, q.createRackExtensionStmt, createRackExtension,
 		arg.CollectionID,
-		arg.Location,
+		arg.Zone,
 		arg.Rows,
 		arg.Columns,
 		arg.OrderIndex,
@@ -410,7 +410,7 @@ func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabe
 }
 
 const getRackInfo = `-- name: GetRackInfo :one
-SELECT dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+SELECT dcr.zone, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
 FROM device_collection_rack dcr
 JOIN device_collection dc ON dcr.collection_id = dc.id
 WHERE dcr.collection_id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL
@@ -422,7 +422,7 @@ type GetRackInfoParams struct {
 }
 
 type GetRackInfoRow struct {
-	Location    sql.NullString
+	Zone        sql.NullString
 	Rows        int32
 	Columns     int32
 	OrderIndex  int16
@@ -433,7 +433,7 @@ func (q *Queries) GetRackInfo(ctx context.Context, arg GetRackInfoParams) (GetRa
 	row := q.queryRow(ctx, q.getRackInfoStmt, getRackInfo, arg.CollectionID, arg.OrgID)
 	var i GetRackInfoRow
 	err := row.Scan(
-		&i.Location,
+		&i.Zone,
 		&i.Rows,
 		&i.Columns,
 		&i.OrderIndex,
@@ -443,7 +443,7 @@ func (q *Queries) GetRackInfo(ctx context.Context, arg GetRackInfoParams) (GetRa
 }
 
 const getRackInfoBatch = `-- name: GetRackInfoBatch :many
-SELECT dcr.collection_id, dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+SELECT dcr.collection_id, dcr.zone, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
 FROM device_collection_rack dcr
 JOIN device_collection dc ON dcr.collection_id = dc.id
 WHERE dcr.collection_id = ANY($2::bigint[]) AND dc.org_id = $1 AND dc.deleted_at IS NULL
@@ -465,7 +465,7 @@ func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchPara
 		var i DeviceCollectionRack
 		if err := rows.Scan(
 			&i.CollectionID,
-			&i.Location,
+			&i.Zone,
 			&i.Rows,
 			&i.Columns,
 			&i.OrderIndex,
@@ -688,40 +688,6 @@ func (q *Queries) ListCollectionMembersPaginatedAfter(ctx context.Context, arg L
 	return items, nil
 }
 
-const listRackLocations = `-- name: ListRackLocations :many
-SELECT DISTINCT dcr.location
-FROM device_collection_rack dcr
-JOIN device_collection dc ON dcr.collection_id = dc.id
-WHERE dc.org_id = $1
-  AND dc.deleted_at IS NULL
-  AND dcr.location IS NOT NULL
-  AND dcr.location != ''
-ORDER BY dcr.location
-`
-
-func (q *Queries) ListRackLocations(ctx context.Context, orgID int64) ([]sql.NullString, error) {
-	rows, err := q.query(ctx, q.listRackLocationsStmt, listRackLocations, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []sql.NullString
-	for rows.Next() {
-		var location sql.NullString
-		if err := rows.Scan(&location); err != nil {
-			return nil, err
-		}
-		items = append(items, location)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRackTypes = `-- name: ListRackTypes :many
 SELECT dcr.rows, dcr.columns, COUNT(*)::int AS rack_count
 FROM device_collection_rack dcr
@@ -750,6 +716,40 @@ func (q *Queries) ListRackTypes(ctx context.Context, orgID int64) ([]ListRackTyp
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRackZones = `-- name: ListRackZones :many
+SELECT DISTINCT dcr.zone
+FROM device_collection_rack dcr
+JOIN device_collection dc ON dcr.collection_id = dc.id
+WHERE dc.org_id = $1
+  AND dc.deleted_at IS NULL
+  AND dcr.zone IS NOT NULL
+  AND dcr.zone != ''
+ORDER BY dcr.zone
+`
+
+func (q *Queries) ListRackZones(ctx context.Context, orgID int64) ([]sql.NullString, error) {
+	rows, err := q.query(ctx, q.listRackZonesStmt, listRackZones, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullString
+	for rows.Next() {
+		var zone sql.NullString
+		if err := rows.Scan(&zone); err != nil {
+			return nil, err
+		}
+		items = append(items, zone)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -910,13 +910,13 @@ func (q *Queries) UpdateCollectionLabelAndDescription(ctx context.Context, arg U
 
 const updateRackInfo = `-- name: UpdateRackInfo :exec
 UPDATE device_collection_rack
-SET location = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
+SET zone = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
 WHERE collection_id = $6
   AND EXISTS (SELECT 1 FROM device_collection WHERE id = $6 AND org_id = $7 AND deleted_at IS NULL)
 `
 
 type UpdateRackInfoParams struct {
-	Location     sql.NullString
+	Zone         sql.NullString
 	Rows         int32
 	Columns      int32
 	OrderIndex   int16
@@ -927,7 +927,7 @@ type UpdateRackInfoParams struct {
 
 func (q *Queries) UpdateRackInfo(ctx context.Context, arg UpdateRackInfoParams) error {
 	_, err := q.exec(ctx, q.updateRackInfoStmt, updateRackInfo,
-		arg.Location,
+		arg.Zone,
 		arg.Rows,
 		arg.Columns,
 		arg.OrderIndex,

@@ -73,9 +73,9 @@ const (
 	// DeviceCollectionServiceGetCollectionStatsProcedure is the fully-qualified name of the
 	// DeviceCollectionService's GetCollectionStats RPC.
 	DeviceCollectionServiceGetCollectionStatsProcedure = "/collection.v1.DeviceCollectionService/GetCollectionStats"
-	// DeviceCollectionServiceListRackLocationsProcedure is the fully-qualified name of the
-	// DeviceCollectionService's ListRackLocations RPC.
-	DeviceCollectionServiceListRackLocationsProcedure = "/collection.v1.DeviceCollectionService/ListRackLocations"
+	// DeviceCollectionServiceListRackZonesProcedure is the fully-qualified name of the
+	// DeviceCollectionService's ListRackZones RPC.
+	DeviceCollectionServiceListRackZonesProcedure = "/collection.v1.DeviceCollectionService/ListRackZones"
 	// DeviceCollectionServiceListRackTypesProcedure is the fully-qualified name of the
 	// DeviceCollectionService's ListRackTypes RPC.
 	DeviceCollectionServiceListRackTypesProcedure = "/collection.v1.DeviceCollectionService/ListRackTypes"
@@ -112,8 +112,8 @@ type DeviceCollectionServiceClient interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of collections
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
-	// Returns all distinct rack locations for the organization
-	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
+	// Returns all distinct rack zones for the organization
+	ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 	// Atomically creates or updates a rack with its membership and slot assignments.
@@ -196,9 +196,9 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceGetCollectionStatsProcedure,
 			opts...,
 		),
-		listRackLocations: connect.NewClient[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse](
+		listRackZones: connect.NewClient[v1.ListRackZonesRequest, v1.ListRackZonesResponse](
 			httpClient,
-			baseURL+DeviceCollectionServiceListRackLocationsProcedure,
+			baseURL+DeviceCollectionServiceListRackZonesProcedure,
 			opts...,
 		),
 		listRackTypes: connect.NewClient[v1.ListRackTypesRequest, v1.ListRackTypesResponse](
@@ -229,7 +229,7 @@ type deviceCollectionServiceClient struct {
 	clearRackSlotPosition       *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
 	getRackSlots                *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
 	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
-	listRackLocations           *connect.Client[v1.ListRackLocationsRequest, v1.ListRackLocationsResponse]
+	listRackZones               *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
 	listRackTypes               *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
 	saveRack                    *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
 }
@@ -300,9 +300,9 @@ func (c *deviceCollectionServiceClient) GetCollectionStats(ctx context.Context, 
 	return c.getCollectionStats.CallUnary(ctx, req)
 }
 
-// ListRackLocations calls collection.v1.DeviceCollectionService.ListRackLocations.
-func (c *deviceCollectionServiceClient) ListRackLocations(ctx context.Context, req *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error) {
-	return c.listRackLocations.CallUnary(ctx, req)
+// ListRackZones calls collection.v1.DeviceCollectionService.ListRackZones.
+func (c *deviceCollectionServiceClient) ListRackZones(ctx context.Context, req *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error) {
+	return c.listRackZones.CallUnary(ctx, req)
 }
 
 // ListRackTypes calls collection.v1.DeviceCollectionService.ListRackTypes.
@@ -344,8 +344,8 @@ type DeviceCollectionServiceHandler interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of collections
 	GetCollectionStats(context.Context, *connect.Request[v1.GetCollectionStatsRequest]) (*connect.Response[v1.GetCollectionStatsResponse], error)
-	// Returns all distinct rack locations for the organization
-	ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error)
+	// Returns all distinct rack zones for the organization
+	ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 	// Atomically creates or updates a rack with its membership and slot assignments.
@@ -424,9 +424,9 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 		svc.GetCollectionStats,
 		opts...,
 	)
-	deviceCollectionServiceListRackLocationsHandler := connect.NewUnaryHandler(
-		DeviceCollectionServiceListRackLocationsProcedure,
-		svc.ListRackLocations,
+	deviceCollectionServiceListRackZonesHandler := connect.NewUnaryHandler(
+		DeviceCollectionServiceListRackZonesProcedure,
+		svc.ListRackZones,
 		opts...,
 	)
 	deviceCollectionServiceListRackTypesHandler := connect.NewUnaryHandler(
@@ -467,8 +467,8 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceGetRackSlotsHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceGetCollectionStatsProcedure:
 			deviceCollectionServiceGetCollectionStatsHandler.ServeHTTP(w, r)
-		case DeviceCollectionServiceListRackLocationsProcedure:
-			deviceCollectionServiceListRackLocationsHandler.ServeHTTP(w, r)
+		case DeviceCollectionServiceListRackZonesProcedure:
+			deviceCollectionServiceListRackZonesHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceListRackTypesProcedure:
 			deviceCollectionServiceListRackTypesHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceSaveRackProcedure:
@@ -534,8 +534,8 @@ func (UnimplementedDeviceCollectionServiceHandler) GetCollectionStats(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.GetCollectionStats is not implemented"))
 }
 
-func (UnimplementedDeviceCollectionServiceHandler) ListRackLocations(context.Context, *connect.Request[v1.ListRackLocationsRequest]) (*connect.Response[v1.ListRackLocationsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackLocations is not implemented"))
+func (UnimplementedDeviceCollectionServiceHandler) ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListRackZones is not implemented"))
 }
 
 func (UnimplementedDeviceCollectionServiceHandler) ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {

@@ -9,7 +9,7 @@ export interface StatusSegment {
 
 interface RackCardProps {
   label: string;
-  building?: string;
+  zone?: string;
   cols: number;
   rows: number;
   slots: SlotStatus[];
@@ -24,7 +24,7 @@ interface RackCardProps {
 
 const RackCard = ({
   label,
-  building,
+  zone,
   cols,
   rows,
   slots,
@@ -62,7 +62,7 @@ const RackCard = ({
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
           <span className="text-300 text-emphasis-300">{label}</span>
-          {building && <span className="text-300 text-text-primary-50">{building}</span>}
+          {zone && <span className="text-300 text-text-primary-50">{zone}</span>}
         </div>
 
         {/* Mini Rack Grid */}

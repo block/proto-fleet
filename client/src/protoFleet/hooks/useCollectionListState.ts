@@ -15,7 +15,7 @@ import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
 
 const SORT_FIELD_MAP: Partial<Record<CollectionColumn, SortField>> = {
   name: SortField.NAME,
-  location: SortField.LOCATION,
+  zone: SortField.LOCATION,
   miners: SortField.DEVICE_COUNT,
 };
 
@@ -34,7 +34,7 @@ export function useCollectionListState(
   listFn: ListFn,
   pageSize: number,
   getErrorComponentTypes?: () => number[],
-  getLocations?: () => string[],
+  getZones?: () => string[],
 ) {
   const { getCollectionStats } = useCollections();
   const [collections, setCollections] = useState<DeviceCollection[]>([]);
@@ -90,7 +90,7 @@ export function useCollectionListState(
         pageToken,
         sort: sortRef.current,
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
-        locations: getLocations?.() ?? [],
+        zones: getZones?.() ?? [],
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -118,7 +118,7 @@ export function useCollectionListState(
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes, getLocations],
+    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones],
   );
 
   const resetAndFetch = useCallback(() => {

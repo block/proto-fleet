@@ -5,7 +5,7 @@ export type AssignmentMode = "manual" | "byName" | "byNetwork";
 
 export interface RackFormData {
   label: string;
-  location: string;
+  zone: string;
   rows: number;
   columns: number;
   orderIndex: RackOrderIndex;

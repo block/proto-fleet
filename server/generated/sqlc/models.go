@@ -355,7 +355,7 @@ type DeviceCollectionMembership struct {
 
 type DeviceCollectionRack struct {
 	CollectionID int64
-	Location     sql.NullString
+	Zone         sql.NullString
 	Rows         int32
 	Columns      int32
 	OrderIndex   int16

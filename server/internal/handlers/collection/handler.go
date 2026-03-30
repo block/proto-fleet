@@ -149,9 +149,9 @@ func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[pb.ListR
 	return connect.NewResponse(result), nil
 }
 
-// ListRackLocations returns all distinct rack locations for the organization.
-func (h *Handler) ListRackLocations(ctx context.Context, r *connect.Request[pb.ListRackLocationsRequest]) (*connect.Response[pb.ListRackLocationsResponse], error) {
-	result, err := h.collectionSvc.ListRackLocations(ctx, r.Msg)
+// ListRackZones returns all distinct rack zones for the organization.
+func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[pb.ListRackZonesRequest]) (*connect.Response[pb.ListRackZonesResponse], error) {
+	result, err := h.collectionSvc.ListRackZones(ctx, r.Msg)
 	if err != nil {
 		return nil, err
 	}

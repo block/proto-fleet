@@ -4,7 +4,7 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
 -- name: CreateRackExtension :exec
-INSERT INTO device_collection_rack (collection_id, location, rows, columns, order_index, cooling_type)
+INSERT INTO device_collection_rack (collection_id, zone, rows, columns, order_index, cooling_type)
 SELECT $1, $2, $3, $4, $5, $6
 FROM device_collection
 WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL;
@@ -18,7 +18,7 @@ WHERE dc.id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL
 GROUP BY dc.id;
 
 -- name: GetRackInfo :one
-SELECT dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+SELECT dcr.zone, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
 FROM device_collection_rack dcr
 JOIN device_collection dc ON dcr.collection_id = dc.id
 WHERE dcr.collection_id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL;
@@ -40,7 +40,7 @@ WHERE id = $3 AND org_id = $4 AND deleted_at IS NULL;
 
 -- name: UpdateRackInfo :exec
 UPDATE device_collection_rack
-SET location = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
+SET zone = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
 WHERE collection_id = $6
   AND EXISTS (SELECT 1 FROM device_collection WHERE id = $6 AND org_id = $7 AND deleted_at IS NULL);
 
@@ -176,7 +176,7 @@ WHERE rs.collection_id = $1 AND dc.org_id = $2 AND dc.deleted_at IS NULL
 ORDER BY rs.row, rs.col;
 
 -- name: GetRackInfoBatch :many
-SELECT dcr.collection_id, dcr.location, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
+SELECT dcr.collection_id, dcr.zone, dcr.rows, dcr.columns, dcr.order_index, dcr.cooling_type
 FROM device_collection_rack dcr
 JOIN device_collection dc ON dcr.collection_id = dc.id
 WHERE dcr.collection_id = ANY(@collection_ids::bigint[]) AND dc.org_id = $1 AND dc.deleted_at IS NULL;
@@ -185,15 +185,15 @@ WHERE dcr.collection_id = ANY(@collection_ids::bigint[]) AND dc.org_id = $1 AND 
 SELECT id, type FROM device_collection
 WHERE org_id = $1 AND deleted_at IS NULL AND id = ANY(@collection_ids::bigint[]);
 
--- name: ListRackLocations :many
-SELECT DISTINCT dcr.location
+-- name: ListRackZones :many
+SELECT DISTINCT dcr.zone
 FROM device_collection_rack dcr
 JOIN device_collection dc ON dcr.collection_id = dc.id
 WHERE dc.org_id = $1
   AND dc.deleted_at IS NULL
-  AND dcr.location IS NOT NULL
-  AND dcr.location != ''
-ORDER BY dcr.location;
+  AND dcr.zone IS NOT NULL
+  AND dcr.zone != ''
+ORDER BY dcr.zone;
 
 -- name: ListRackTypes :many
 SELECT dcr.rows, dcr.columns, COUNT(*)::int AS rack_count

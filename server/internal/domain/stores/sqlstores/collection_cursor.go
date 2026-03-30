@@ -18,7 +18,7 @@ type collectionCursor struct {
 	SortField   string  `json:"sf,omitempty"`
 	SortDir     string  `json:"sd,omitempty"`
 	DeviceCount *int32  `json:"dc,omitempty"`
-	Location    *string `json:"loc,omitempty"`
+	Zone        *string `json:"z,omitempty"`
 }
 
 // memberCursor holds pagination state for ListCollectionMembers (ordered by created_at DESC, id DESC).
