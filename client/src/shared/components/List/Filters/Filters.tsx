@@ -165,6 +165,7 @@ const Filters = <ItemType,>({
                   pluralTitle={filter.title + "s"}
                   options={filter.options}
                   selectedOptions={selectedOptions || []}
+                  showSelectAll={filter.showSelectAll}
                   onSelect={(items) => {
                     setActiveFilters((prev) => ({
                       ...prev,

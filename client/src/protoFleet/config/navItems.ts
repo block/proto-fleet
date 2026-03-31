@@ -79,4 +79,9 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Firmware",
     parent: "/settings",
   },
+  {
+    path: "/settings/schedules",
+    label: "Schedules",
+    parent: "/settings",
+  },
 ];

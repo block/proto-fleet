@@ -1,12 +1,47 @@
-import { ChangeEvent, ReactNode, Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  type CSSProperties,
+  ReactNode,
+  Ref,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  type UniqueIdentifier,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
-import { ColConfig, ColTitles, ListAction, SORT_ASC, SORT_DESC, SortDirection } from "@/shared/components/List/types";
+import {
+  ColConfig,
+  ColTitles,
+  ListAction,
+  resolveListActionValue,
+  SORT_ASC,
+  SORT_DESC,
+  SortDirection,
+} from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SortIndicator from "@/shared/components/SortIndicator";
@@ -44,6 +79,23 @@ type UncontrolledSelectionModeProps<ItemKeyValueType> = {
    */
   onSelectionModeChange?: (mode: SelectionMode) => void;
   customSelectionMode?: undefined;
+};
+
+type RowReorderDisabledProps = {
+  onRowReorder?: undefined;
+  rowDragHandleColumn?: undefined;
+};
+
+type RowReorderEnabledProps<ColKey extends string, ItemKeyValueType> = {
+  onRowReorder: (
+    activeId: ItemKeyValueType,
+    overId: ItemKeyValueType,
+    visibleItemKeys: ItemKeyValueType[],
+  ) => void | Promise<void>;
+  /**
+   * Column key that renders the drag handle when row reordering is enabled.
+   */
+  rowDragHandleColumn: ColKey;
 };
 
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
@@ -148,6 +200,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * The direction passed is the NEW direction to sort by.
    */
   onSort?: (field: ColKey, direction: SortDirection) => void;
+  stickyFirstColumn?: boolean;
   /**
    * Optional callback to determine the default sort direction for a column.
    * Called when clicking on a column that isn't currently sorted.
@@ -185,7 +238,272 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * page instead of promoting selection into a dataset-wide "all" state.
    */
   pageScopedSelection?: boolean;
-} & (ControlledSelectionModeProps<ItemKeyValueType> | UncontrolledSelectionModeProps<ItemKeyValueType>);
+  /**
+   * Optional accessibility labels for column headers when the visible title is empty or abbreviated.
+   */
+  columnHeaderAriaLabels?: Partial<Record<ColKey, string>>;
+} & (ControlledSelectionModeProps<ItemKeyValueType> | UncontrolledSelectionModeProps<ItemKeyValueType>) &
+  (RowReorderDisabledProps | RowReorderEnabledProps<ColKey, ItemKeyValueType>);
+
+type SortableDragHandleProps = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
+
+type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
+  item: ListItem;
+  index: number;
+  itemKey: keyof ListItem;
+  itemSelectable: boolean;
+  pageScopedSelection: boolean;
+  currentSelectionMode: SelectionMode;
+  currentSelectedItems: ItemKeyValueType[];
+  activeCols: ColKey[];
+  actions: ListAction<ListItem>[];
+  rowDisabled: boolean;
+  columnsExemptFromDisabledStyling?: Set<ColKey>;
+  colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
+  tdClassList: string;
+  firstStickyClasses: string;
+  secondStickyClasses: string;
+  stickyFirstColumn: boolean;
+  columnShadowBaseClassList: string;
+  columnShadowVisibleClassList: string;
+  stickyStateHorizontalIsStuck: boolean;
+  applyColumnWidthsToCells: boolean;
+  rightPaddingClasses: string;
+  paddingCssVariables: Record<string, string>;
+  tdPaddingClassList: string;
+  disabled: boolean;
+  handleSelectItem: (
+    itemKeyValue: ItemKeyValueType,
+    checked: boolean,
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => void;
+  itemRef?: (itemKey: ItemKeyValueType, element: HTMLTableRowElement | null) => void;
+  rowDragHandleColumn?: ColKey;
+  dragHandleProps?: SortableDragHandleProps;
+  rowClassName?: string;
+  rowStyle?: CSSProperties;
+  rowRef?: (element: HTMLTableRowElement | null) => void;
+};
+
+const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  item,
+  index,
+  itemKey,
+  itemSelectable,
+  pageScopedSelection,
+  currentSelectionMode,
+  currentSelectedItems,
+  activeCols,
+  actions,
+  rowDisabled,
+  columnsExemptFromDisabledStyling,
+  colConfig,
+  tdClassList,
+  firstStickyClasses,
+  secondStickyClasses,
+  stickyFirstColumn,
+  columnShadowBaseClassList,
+  columnShadowVisibleClassList,
+  stickyStateHorizontalIsStuck,
+  applyColumnWidthsToCells,
+  rightPaddingClasses,
+  paddingCssVariables,
+  tdPaddingClassList,
+  disabled,
+  handleSelectItem,
+  itemRef,
+  rowDragHandleColumn,
+  dragHandleProps,
+  rowClassName = rowClassList,
+  rowStyle,
+  rowRef,
+}: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
+  const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
+  const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
+  const singleVisibleActionTitle = singleVisibleAction
+    ? resolveListActionValue(singleVisibleAction.title, item)
+    : undefined;
+  const singleVisibleActionDisabled = singleVisibleAction
+    ? rowDisabled || resolveListActionValue(singleVisibleAction.disabled, item) === true
+    : rowDisabled;
+  const singleVisibleActionVariant =
+    singleVisibleAction && resolveListActionValue(singleVisibleAction.variant, item) === "destructive"
+      ? variants.secondaryDanger
+      : variants.secondary;
+  const rowKey = item[itemKey] as ItemKeyValueType;
+
+  return (
+    <tr
+      key={rowKey as string | number}
+      className={rowClassName}
+      ref={(element) => {
+        itemRef?.(rowKey, element);
+        rowRef?.(element);
+      }}
+      data-testid="list-row"
+      style={rowStyle}
+    >
+      {itemSelectable && (
+        <td className={clsx(tdClassList, firstStickyClasses, "w-9")} style={paddingCssVariables} data-testid="checkbox">
+          <div
+            className={clsx("w-9 truncate overflow-hidden py-4", {
+              "opacity-50": rowDisabled,
+            })}
+          >
+            <Checkbox
+              checked={
+                pageScopedSelection && currentSelectionMode === "all"
+                  ? !rowDisabled
+                  : currentSelectedItems.includes(rowKey)
+              }
+              onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
+              disabled={rowDisabled}
+            />
+          </div>
+        </td>
+      )}
+
+      {activeCols.map((row, columnIndex) => {
+        const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
+        const columnWidthClass = colConfig[row]?.width;
+        const content = colConfig[row]?.component
+          ? colConfig[row].component(item, currentSelectedItems)
+          : typeof item === "object" && item !== null && row in item
+            ? ((item as Record<string, unknown>)[row as string] as ReactNode)
+            : null;
+        const isDragHandleColumn = rowDragHandleColumn === row && dragHandleProps !== undefined;
+
+        return (
+          <td
+            className={clsx(
+              tdClassList,
+              columnIndex === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+              columnIndex === 0 && stickyFirstColumn && columnShadowBaseClassList,
+              columnIndex === 0 && stickyFirstColumn && stickyStateHorizontalIsStuck && columnShadowVisibleClassList,
+              applyColumnWidthsToCells && columnWidthClass,
+              columnIndex === activeCols.length - 1 && rightPaddingClasses,
+            )}
+            key={row}
+            style={paddingCssVariables}
+            data-testid={row}
+          >
+            <div
+              className={clsx(
+                "truncate overflow-hidden",
+                tdPaddingClassList,
+                applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
+                {
+                  "opacity-50": rowDisabled && !isExempt,
+                },
+                {
+                  "text-core-primary-50": disabled,
+                },
+              )}
+            >
+              {isDragHandleColumn ? (
+                <div
+                  {...dragHandleProps.attributes}
+                  {...dragHandleProps.listeners}
+                  role="button"
+                  aria-label="Drag to reorder row"
+                  tabIndex={0}
+                  className="cursor-grab touch-none active:cursor-grabbing"
+                  data-testid="reorder-handle"
+                >
+                  {content}
+                </div>
+              ) : (
+                content
+              )}
+            </div>
+          </td>
+        );
+      })}
+
+      {visibleActions.length === 1 && singleVisibleAction && singleVisibleActionTitle ? (
+        <td
+          className={clsx(tdClassList, {
+            "opacity-50": rowDisabled,
+          })}
+          data-testid="action"
+        >
+          <div className={clsx("flex justify-end", tdPaddingClassList)}>
+            <Button
+              variant={singleVisibleActionVariant}
+              size={sizes.compact}
+              text={singleVisibleActionTitle}
+              onClick={() => singleVisibleAction.actionHandler(item)}
+              disabled={singleVisibleActionDisabled}
+            />
+          </div>
+        </td>
+      ) : visibleActions.length > 1 ? (
+        <td
+          className={clsx(tdClassList, {
+            "opacity-50": rowDisabled,
+          })}
+          data-testid="action"
+        >
+          <div className={clsx("w-11", tdPaddingClassList)}>
+            <PopoverProvider>
+              <ListActions<ListItem> item={item} actions={visibleActions} disabled={rowDisabled} />
+            </PopoverProvider>
+          </div>
+        </td>
+      ) : actions.length > 0 ? (
+        <td
+          className={clsx(tdClassList, {
+            "opacity-50": rowDisabled,
+          })}
+          data-testid="action"
+        >
+          <div className={clsx("w-11", tdPaddingClassList)} />
+        </td>
+      ) : null}
+    </tr>
+  );
+};
+
+type StaticListRowProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = Omit<
+  ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>,
+  "rowRef" | "rowStyle" | "rowClassName" | "dragHandleProps"
+>;
+
+const StaticListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>(
+  props: StaticListRowProps<ListItem, ItemKeyValueType, ColKey>,
+) => renderListRow(props);
+
+type SortableListRowProps<
+  ListItem,
+  ItemKeyValueType,
+  ColKey extends string = keyof ListItem & string,
+> = StaticListRowProps<ListItem, ItemKeyValueType, ColKey> & {
+  dragId: UniqueIdentifier;
+};
+
+const SortableListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  dragId,
+  ...props
+}: SortableListRowProps<ListItem, ItemKeyValueType, ColKey>) => {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+    id: dragId,
+    animateLayoutChanges: () => false,
+  });
+
+  return renderListRow({
+    ...props,
+    dragHandleProps: { attributes, listeners },
+    rowRef: setNodeRef,
+    rowStyle: {
+      transform: CSS.Translate.toString(transform),
+      transition: undefined,
+      opacity: isDragging ? 0.5 : 1,
+      position: "relative",
+      zIndex: isDragging ? 1 : 0,
+    },
+  });
+};
 
 const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
@@ -243,12 +561,16 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   sortableColumns,
   currentSort,
   onSort,
+  onRowReorder,
+  rowDragHandleColumn,
+  stickyFirstColumn = true,
   getDefaultSortDirection,
   footerContent,
   applyColumnWidthsToCells = false,
   scrollRef,
   preserveOffPageSelection = false,
   pageScopedSelection = false,
+  columnHeaderAriaLabels,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -262,6 +584,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const prevCustomSelectedLengthRef = useRef<number | undefined>(undefined);
   const currentSelectionMode = customSelectionMode ?? selectionMode;
   const currentSelectedItems = customSelectedItems ?? selectedItems;
+  const rowDragEnabled = !!onRowReorder && filteredItems.length > 1;
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   // Helper to get selectable items (excludes disabled rows)
   const getSelectableItems = useCallback(
@@ -601,6 +932,210 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     </div>
   );
 
+  const visibleItemKeys = useMemo(
+    () => filteredItems.map((item) => item[itemKey] as ItemKeyValueType),
+    [filteredItems, itemKey],
+  );
+
+  const handleRowDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!onRowReorder || !event.over || event.active.id === event.over.id) {
+        return;
+      }
+
+      // Async handlers surface their own UI; catch here to avoid unhandled rejections.
+      void Promise.resolve(
+        onRowReorder(event.active.id as ItemKeyValueType, event.over.id as ItemKeyValueType, visibleItemKeys),
+      ).catch((error) => {
+        console.error("List row reorder failed:", error);
+      });
+    },
+    [onRowReorder, visibleItemKeys],
+  );
+
+  const totalColumnCount = activeCols.length + (itemSelectable ? 1 : 0) + (actions.length > 0 ? 1 : 0);
+  const renderRow = (item: ListItem, index: number) => {
+    const rowKey = item[itemKey] as ItemKeyValueType;
+    const sharedRowProps: StaticListRowProps<ListItem, ItemKeyValueType, ColKey> = {
+      item,
+      index,
+      itemKey,
+      itemSelectable,
+      pageScopedSelection,
+      currentSelectionMode,
+      currentSelectedItems,
+      activeCols,
+      actions,
+      rowDisabled: isRowDisabled?.(item) ?? false,
+      columnsExemptFromDisabledStyling,
+      colConfig,
+      tdClassList,
+      firstStickyClasses,
+      secondStickyClasses,
+      stickyFirstColumn,
+      columnShadowBaseClassList,
+      columnShadowVisibleClassList,
+      stickyStateHorizontalIsStuck: stickyState.horizontal.isStuck,
+      applyColumnWidthsToCells,
+      rightPaddingClasses,
+      paddingCssVariables,
+      tdPaddingClassList,
+      disabled,
+      handleSelectItem,
+      itemRef,
+    };
+
+    if (rowDragEnabled) {
+      return (
+        <SortableListRow<ListItem, ItemKeyValueType, ColKey>
+          key={rowKey as string | number}
+          dragId={rowKey as UniqueIdentifier}
+          {...sharedRowProps}
+          rowDragHandleColumn={rowDragHandleColumn}
+        />
+      );
+    }
+
+    return <StaticListRow<ListItem, ItemKeyValueType, ColKey> key={rowKey as string | number} {...sharedRowProps} />;
+  };
+
+  const listContent = (
+    <>
+      <div ref={refs.vertical.start} />
+      <div className="sticky top-0 flex justify-between">
+        <div ref={refs.horizontal.start} />
+        <div ref={refs.horizontal.end} />
+      </div>
+      <table className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
+        <thead data-testid="list-header">
+          <tr
+            className={clsx(
+              "sticky top-0 z-2 transition-shadow duration-500",
+              stickyBgColor,
+              stickyState.vertical.isStuck
+                ? "shadow-[0_4px_6px_0_rgba(0,0,0,0.06)]"
+                : "shadow-[0_4px_6px_0_rgba(0,0,0,0)]",
+            )}
+          >
+            {itemSelectable && (
+              <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
+                <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
+                  <Checkbox
+                    checked={allSelected}
+                    partiallyChecked={visibleSelectedCount > 0 && !allSelected}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                  />
+                </div>
+              </th>
+            )}
+
+            {activeCols.map((row, idx) => {
+              const isSortable = sortableColumns?.has(row);
+              const isCurrentSort = currentSort?.field === row;
+              const sortDirection = isCurrentSort ? currentSort.direction : undefined;
+              const isHovering = hoveredHeader === row;
+              const columnWidthClass = colConfig[row]?.width;
+
+              const handleHeaderClick = () => {
+                if (!isSortable || !onSort) return;
+
+                let newDirection: SortDirection;
+                if (isCurrentSort) {
+                  newDirection = sortDirection === SORT_ASC ? SORT_DESC : SORT_ASC;
+                } else {
+                  newDirection = getDefaultSortDirection?.(row) ?? SORT_ASC;
+                }
+                onSort(row, newDirection);
+              };
+
+              return (
+                <th
+                  className={clsx(
+                    "pl-2",
+                    thClassList,
+                    idx === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                    idx === 0 && stickyFirstColumn && columnShadowBaseClassList,
+                    idx === 0 && stickyFirstColumn && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                    idx === activeCols.length - 1 && rightPaddingClasses,
+                    applyColumnWidthsToCells && columnWidthClass,
+                  )}
+                  key={idx}
+                  style={paddingCssVariables}
+                  aria-label={columnHeaderAriaLabels?.[row]}
+                  aria-sort={isCurrentSort ? (sortDirection === SORT_ASC ? "ascending" : "descending") : undefined}
+                >
+                  {isSortable ? (
+                    <button
+                      type="button"
+                      className={clsx(
+                        "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
+                        applyColumnWidthsToCells ? "box-border" : columnWidthClass,
+                      )}
+                      onClick={handleHeaderClick}
+                      onMouseEnter={() => setHoveredHeader(row)}
+                      onMouseLeave={() => setHoveredHeader(null)}
+                    >
+                      {colTitles[row]}
+                      <SortIndicator
+                        direction={sortDirection}
+                        defaultDirection={getDefaultSortDirection?.(row)}
+                        isHovering={isHovering}
+                      />
+                    </button>
+                  ) : (
+                    <div
+                      className={clsx(
+                        "inline-flex w-full items-center truncate overflow-hidden",
+                        applyColumnWidthsToCells ? "box-border" : columnWidthClass,
+                      )}
+                    >
+                      {colTitles[row]}
+                    </div>
+                  )}
+                </th>
+              );
+            })}
+            {actions.length > 0 && (
+              <th className={thClassList}>
+                <div className="w-11 truncate overflow-hidden" />
+              </th>
+            )}
+          </tr>
+        </thead>
+        {rowDragEnabled ? (
+          <SortableContext items={visibleItemKeys as UniqueIdentifier[]} strategy={verticalListSortingStrategy}>
+            <tbody data-testid="list-body">
+              {filteredItems.length > 0
+                ? filteredItems.map(renderRow)
+                : emptyStateRow && (
+                    <tr data-testid="list-empty-row">
+                      <td colSpan={totalColumnCount}>{emptyStateRow}</td>
+                    </tr>
+                  )}
+            </tbody>
+          </SortableContext>
+        ) : (
+          <tbody data-testid="list-body">
+            {filteredItems.length > 0
+              ? filteredItems.map(renderRow)
+              : emptyStateRow && (
+                  <tr data-testid="list-empty-row">
+                    <td colSpan={totalColumnCount}>{emptyStateRow}</td>
+                  </tr>
+                )}
+          </tbody>
+        )}
+      </table>
+      {footerContent}
+      {onLoadMore && hasMore && (
+        <div ref={loadMoreTriggerRef} className="flex justify-center py-6">
+          {isLoadingMore && <ProgressCircular indeterminate />}
+        </div>
+      )}
+      <div ref={refs.vertical.end} />
+    </>
+  );
+
   return (
     <div style={paddingCssVariables}>
       {filtersElement}
@@ -615,239 +1150,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       <div className={clsx("flex flex-col", containerClassName)}>
         <div ref={scrollRef} className={clsx({ "overflow-x-auto": overflowContainer })}>
           {!noDataElement || (items && items.length > 0) ? (
-            <>
-              <div ref={refs.vertical.start} />
-              <div className="sticky top-0 flex justify-between">
-                <div ref={refs.horizontal.start} />
-                <div ref={refs.horizontal.end} />
-              </div>
-              <table className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
-                <thead data-testid="list-header">
-                  <tr
-                    className={clsx(
-                      "sticky top-0 z-2 transition-shadow duration-500",
-                      stickyBgColor,
-                      stickyState.vertical.isStuck
-                        ? "shadow-[0_4px_6px_0_rgba(0,0,0,0.06)]"
-                        : "shadow-[0_4px_6px_0_rgba(0,0,0,0)]",
-                    )}
-                  >
-                    {itemSelectable && (
-                      <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
-                        <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
-                          <Checkbox
-                            checked={allSelected}
-                            partiallyChecked={visibleSelectedCount > 0 && !allSelected}
-                            onChange={(e) => handleSelectAll(e.target.checked)}
-                          />
-                        </div>
-                      </th>
-                    )}
-
-                    {activeCols.map((row, idx) => {
-                      const isSortable = sortableColumns?.has(row);
-                      const isCurrentSort = currentSort?.field === row;
-                      const sortDirection = isCurrentSort ? currentSort.direction : undefined;
-                      const isHovering = hoveredHeader === row;
-                      const columnWidthClass = colConfig[row]?.width;
-
-                      const handleHeaderClick = () => {
-                        if (!isSortable || !onSort) return;
-
-                        let newDirection: SortDirection;
-                        if (isCurrentSort) {
-                          // Toggle direction when clicking currently sorted column
-                          newDirection = sortDirection === SORT_ASC ? SORT_DESC : SORT_ASC;
-                        } else {
-                          // Use callback or default to ASC for new columns (matches server default)
-                          newDirection = getDefaultSortDirection?.(row) ?? SORT_ASC;
-                        }
-                        onSort(row, newDirection);
-                      };
-
-                      return (
-                        <th
-                          className={clsx(
-                            "pl-2",
-                            thClassList,
-                            idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                            idx === 0 && columnShadowBaseClassList,
-                            idx === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
-                            idx === activeCols.length - 1 && rightPaddingClasses,
-                            applyColumnWidthsToCells && columnWidthClass,
-                          )}
-                          key={idx}
-                          style={paddingCssVariables}
-                          aria-sort={
-                            isCurrentSort ? (sortDirection === SORT_ASC ? "ascending" : "descending") : undefined
-                          }
-                        >
-                          {isSortable ? (
-                            <button
-                              type="button"
-                              className={clsx(
-                                "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
-                                applyColumnWidthsToCells ? "box-border" : columnWidthClass,
-                              )}
-                              onClick={handleHeaderClick}
-                              onMouseEnter={() => setHoveredHeader(row)}
-                              onMouseLeave={() => setHoveredHeader(null)}
-                            >
-                              {colTitles[row]}
-                              <SortIndicator
-                                direction={sortDirection}
-                                defaultDirection={getDefaultSortDirection?.(row)}
-                                isHovering={isHovering}
-                              />
-                            </button>
-                          ) : (
-                            <div
-                              className={clsx(
-                                "inline-flex w-full items-center truncate overflow-hidden",
-                                applyColumnWidthsToCells ? "box-border" : columnWidthClass,
-                              )}
-                            >
-                              {colTitles[row]}
-                            </div>
-                          )}
-                        </th>
-                      );
-                    })}
-                    {actions.length > 0 && (
-                      <th className={thClassList}>
-                        <div className="w-11 truncate overflow-hidden" />
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody data-testid="list-body">
-                  {filteredItems.length > 0
-                    ? filteredItems.map((item, i) => {
-                        const rowDisabled = isRowDisabled?.(item) ?? false;
-                        return (
-                          <tr
-                            key={item[itemKey] as string | number}
-                            className={rowClassList}
-                            ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}
-                            data-testid="list-row"
-                          >
-                            {itemSelectable && (
-                              <td
-                                className={clsx(tdClassList, firstStickyClasses, "w-9")}
-                                style={paddingCssVariables}
-                                data-testid="checkbox"
-                              >
-                                <div
-                                  className={clsx("w-9 truncate overflow-hidden py-4", {
-                                    "opacity-50": rowDisabled,
-                                  })}
-                                >
-                                  <Checkbox
-                                    checked={
-                                      pageScopedSelection && currentSelectionMode === "all"
-                                        ? !rowDisabled
-                                        : currentSelectedItems.includes(item[itemKey] as ItemKeyValueType)
-                                    }
-                                    onChange={(e) =>
-                                      handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked, i, e)
-                                    }
-                                    disabled={rowDisabled}
-                                  />
-                                </div>
-                              </td>
-                            )}
-
-                            {activeCols.map((row, j) => {
-                              const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
-                              const columnWidthClass = colConfig[row]?.width;
-                              return (
-                                <td
-                                  className={clsx(
-                                    tdClassList,
-                                    j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
-                                    j === 0 && columnShadowBaseClassList,
-                                    j === 0 && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
-                                    applyColumnWidthsToCells && columnWidthClass,
-                                    j === activeCols.length - 1 && rightPaddingClasses,
-                                  )}
-                                  key={j}
-                                  style={paddingCssVariables}
-                                  data-testid={row}
-                                >
-                                  <div
-                                    className={clsx(
-                                      "truncate overflow-hidden",
-                                      tdPaddingClassList,
-                                      applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
-                                      {
-                                        "opacity-50": rowDisabled && !isExempt,
-                                      },
-                                      {
-                                        "text-core-primary-50": disabled,
-                                      },
-                                    )}
-                                  >
-                                    {colConfig[row]?.component
-                                      ? colConfig[row].component(item, currentSelectedItems)
-                                      : typeof item === "object" && item !== null && row in item
-                                        ? ((item as Record<string, unknown>)[row as string] as ReactNode)
-                                        : null}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                            {actions.length == 1 ? (
-                              <td
-                                className={clsx(tdClassList, {
-                                  "opacity-50": rowDisabled,
-                                })}
-                                data-testid="action"
-                              >
-                                <div className={clsx("flex justify-end", tdPaddingClassList)}>
-                                  <Button
-                                    variant={variants.secondary}
-                                    size={sizes.compact}
-                                    text={actions[0].title}
-                                    onClick={() => actions[0].actionHandler(item)}
-                                    disabled={rowDisabled}
-                                  />
-                                </div>
-                              </td>
-                            ) : actions.length > 1 ? (
-                              <td
-                                className={clsx(tdClassList, {
-                                  "opacity-50": rowDisabled,
-                                })}
-                                data-testid="action"
-                              >
-                                <div className={clsx("w-11", tdPaddingClassList)}>
-                                  <PopoverProvider>
-                                    <ListActions<ListItem> item={item} actions={actions} disabled={rowDisabled} />
-                                  </PopoverProvider>
-                                </div>
-                              </td>
-                            ) : null}
-                          </tr>
-                        );
-                      })
-                    : emptyStateRow && (
-                        <tr data-testid="list-empty-row">
-                          <td colSpan={activeCols.length + (itemSelectable ? 1 : 0) + (actions.length > 0 ? 1 : 0)}>
-                            {emptyStateRow}
-                          </td>
-                        </tr>
-                      )}
-                </tbody>
-              </table>
-              {/* Infinite scroll trigger element */}
-              {onLoadMore && hasMore && (
-                <div ref={loadMoreTriggerRef} className="flex justify-center py-6">
-                  {isLoadingMore && <ProgressCircular indeterminate />}
-                </div>
-              )}
-              {footerContent}
-              <div ref={refs.vertical.end} />
-            </>
+            rowDragEnabled ? (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
+                {listContent}
+              </DndContext>
+            ) : (
+              listContent
+            )
           ) : (
             noDataElement
           )}

@@ -19,6 +19,7 @@ type DropdownFilterProps = {
   selectedOptions: string[];
   onSelect: (selectedItems: string[]) => void;
   withButtons?: boolean;
+  showSelectAll?: boolean;
   className?: string;
   testId?: string;
 };
@@ -29,6 +30,7 @@ const FilterContent = ({
   selectedOptions: externalSelectedItems,
   onSelect,
   withButtons = false,
+  showSelectAll = true,
   className,
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
@@ -137,6 +139,7 @@ const FilterContent = ({
             handleSelectAll={handleSelectAll}
             handleToggleItem={handleToggleItem}
             withButtons={withButtons}
+            showSelectAll={showSelectAll}
             handleReset={handleReset}
             handleApply={handleApply}
             popoverRef={popoverRef}

@@ -129,6 +129,22 @@ describe("List", () => {
     expect(selectItemCheckboxes).toHaveLength(0);
   });
 
+  it("makes the row drag handle keyboard-focusable when reordering is enabled", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        onRowReorder={vi.fn()}
+        rowDragHandleColumn={testCols.name as keyof TestItem}
+      />,
+    );
+
+    expect(screen.getAllByTestId("reorder-handle")[0]).toHaveAttribute("tabindex", "0");
+  });
+
   it("selects all items when clicking select all checkbox", () => {
     const { getByTestId } = render(
       <List<TestItem, TestItemKey>
@@ -334,11 +350,59 @@ describe("List", () => {
     const actionButton = getAllByTestId("list-actions-trigger")[0];
     fireEvent.click(actionButton);
 
-    const editAction = screen.getByText(actions[0].title);
+    const editAction = screen.getByText("Edit");
     fireEvent.click(editAction);
 
     expect(mockAction).toHaveBeenCalled();
     expect(mockAction).toHaveBeenCalledWith(testItems[0]);
+  });
+
+  it("keeps the action column aligned when a row hides every action", () => {
+    const actions = [
+      {
+        title: "Edit",
+        actionHandler: vi.fn(),
+        hidden: (item: TestItem) => item.id === testItems[0].id,
+      },
+    ] as ListAction<TestItem>[];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        actions={actions}
+      />,
+    );
+
+    expect(screen.getAllByTestId("action")).toHaveLength(testItems.length);
+  });
+
+  it("preserves destructive styling when a row renders a single visible action button", () => {
+    const actions = [
+      {
+        title: "Delete",
+        actionHandler: vi.fn(),
+        variant: "destructive" as const,
+      },
+    ] as ListAction<TestItem>[];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        actions={actions}
+      />,
+    );
+
+    const button = screen.getAllByRole("button", { name: "Delete" })[0];
+    expect(button).toHaveClass("bg-intent-critical-10");
+    expect(button).toHaveClass("text-text-critical");
   });
 
   it("exempts specified columns from disabled styling on disabled rows", () => {
@@ -1560,15 +1624,12 @@ describe("List", () => {
       const table = container.querySelector("table");
       const footerContent = screen.getByTestId("footer-content");
 
-      // Footer content should come after the table in the DOM
       expect(table).toBeInTheDocument();
       expect(footerContent).toBeInTheDocument();
 
-      // Verify footer is a sibling or descendant after the table
       const tableParent = table?.parentElement;
       const footerParent = footerContent.parentElement;
 
-      // Both should share a common scroll container ancestor
       expect(tableParent).toBeTruthy();
       expect(footerParent).toBeTruthy();
     });

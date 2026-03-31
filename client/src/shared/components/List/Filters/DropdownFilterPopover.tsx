@@ -16,6 +16,7 @@ type DropdownFilterPopoverProps = {
   handleSelectAll: () => void;
   handleToggleItem: (itemId: string) => void;
   withButtons: boolean;
+  showSelectAll: boolean;
   handleReset: () => void;
   handleApply: () => void;
   popoverRef: RefObject<HTMLDivElement>;
@@ -29,6 +30,7 @@ const DropdownFilterPopover = ({
   handleSelectAll,
   handleToggleItem,
   withButtons,
+  showSelectAll,
   handleReset,
   handleApply,
   popoverRef,
@@ -57,18 +59,22 @@ const DropdownFilterPopover = ({
       }
     >
       <div ref={popoverRef} className="space-y-0">
-        <div
-          className={clsx(
-            "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-            "transition-[background-color] duration-200 ease-in-out",
-            "text-text-primary hover:bg-core-primary-5",
-          )}
-          onClick={handleSelectAll}
-        >
-          <div className="grow text-emphasis-300">Select all</div>
-          <Checkbox checked={allSelected} partiallyChecked={partiallySelected} />
-        </div>
-        <Divider className="px-0" />
+        {showSelectAll && (
+          <>
+            <div
+              className={clsx(
+                "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+                "transition-[background-color] duration-200 ease-in-out",
+                "text-text-primary hover:bg-core-primary-5",
+              )}
+              onClick={handleSelectAll}
+            >
+              <div className="grow text-emphasis-300">Select all</div>
+              <Checkbox checked={allSelected} partiallyChecked={partiallySelected} />
+            </div>
+            <Divider className="px-0" />
+          </>
+        )}
 
         {options.map((item, index) => (
           <div key={item.id}>

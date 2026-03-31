@@ -446,18 +446,18 @@ const MiningPools = () => {
   return (
     <>
       <div className="flex flex-col gap-6">
-        {/* Desktop: Side-by-side header */}
-        <div className="hidden items-start justify-between laptop:flex">
-          <Header title="Pools" description="Add and manage the pools for your fleet." titleSize="text-heading-300" />
-          <Button variant={variants.primary} onClick={() => setShowAddPoolModal(true)}>
-            Add pool
-          </Button>
-        </div>
-
-        {/* Mobile & Tablet: Stacked header */}
-        <div className="flex flex-col gap-4 laptop:hidden">
-          <Header title="Pools" description="Add and manage the pools for your fleet." titleSize="text-heading-300" />
-          <Button variant={variants.primary} onClick={() => setShowAddPoolModal(true)} className="w-fit">
+        <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+          <Header
+            title="Pools"
+            description="Add and manage the pools for your fleet."
+            descriptionClassName="max-w-none"
+            titleSize="text-heading-300"
+          />
+          <Button
+            variant={variants.primary}
+            onClick={() => setShowAddPoolModal(true)}
+            className="shrink-0 phone:w-full"
+          >
             Add pool
           </Button>
         </div>

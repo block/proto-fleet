@@ -17,6 +17,7 @@ import {
   Firmware,
   General,
   MiningPools,
+  Schedules,
   SettingsLayout,
   Team,
 } from "@/protoFleet/features/settings";
@@ -149,6 +150,12 @@ const router = createBrowserRouter([
     "/settings/firmware",
     <SettingsLayout>
       <Firmware />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/schedules",
+    <SettingsLayout>
+      <Schedules />
     </SettingsLayout>,
   ),
 

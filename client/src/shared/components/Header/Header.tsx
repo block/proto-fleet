@@ -12,6 +12,7 @@ interface HeaderProps {
   children?: ReactNode;
   className?: string;
   compact?: boolean;
+  descriptionClassName?: string;
   iconButtonClassName?: string;
   icon?: ReactNode;
   iconOnClick?: () => void;
@@ -39,6 +40,7 @@ const Header = ({
   className,
   children,
   compact,
+  descriptionClassName,
   iconButtonClassName,
   icon,
   iconOnClick,
@@ -104,7 +106,11 @@ const Header = ({
               {subtitle}
             </div>
           )}
-          {description && <div className="mt-1 max-w-[600px] text-300 text-text-primary-70">{description}</div>}
+          {description && (
+            <div className={clsx("mt-1 max-w-[600px] text-300 text-text-primary-70", descriptionClassName)}>
+              {description}
+            </div>
+          )}
         </div>
       </div>
       {children}

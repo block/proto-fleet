@@ -165,4 +165,73 @@ describe("List actions", () => {
     expect(popoverContainer.style.top).toBe("580px");
     expect(popoverContainer.style.left).toBe("8px");
   });
+
+  test("supports item-aware action labels and keeps disabled actions inert", () => {
+    const dynamicActions = [
+      {
+        title: (currentItem: typeof item) => `Pause ${currentItem.alertType}`,
+        actionHandler: vi.fn(),
+      },
+      {
+        title: "Hidden action",
+        hidden: true,
+        actionHandler: vi.fn(),
+      },
+      {
+        title: "Disabled action",
+        disabled: true,
+        actionHandler: vi.fn(),
+      },
+    ];
+
+    render(
+      <PopoverProvider>
+        <ListActions item={item} actions={dynamicActions} />
+      </PopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("list-actions-trigger"));
+
+    expect(screen.getByText("Pause hashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden action")).not.toBeInTheDocument();
+    expect(screen.getByText("Disabled action")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Disabled action"));
+    expect(dynamicActions[2].actionHandler).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Pause hashboard"));
+    expect(dynamicActions[0].actionHandler).toHaveBeenCalledWith(item);
+  });
+
+  test("allows actions to suppress the divider after a specific row", () => {
+    const dividerActions = [
+      {
+        title: "Edit",
+        showDividerAfter: false,
+        actionHandler: vi.fn(),
+      },
+      {
+        title: "Pause",
+        actionHandler: vi.fn(),
+      },
+      {
+        title: "Delete",
+        actionHandler: vi.fn(),
+      },
+    ];
+
+    render(
+      <PopoverProvider>
+        <ListActions item={item} actions={dividerActions} />
+      </PopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("list-actions-trigger"));
+
+    const editRow = screen.getByText("Edit").closest("button")?.parentElement;
+    const pauseRow = screen.getByText("Pause").closest("button")?.parentElement;
+
+    expect(editRow?.querySelector("div.mt-\\[-1px\\]")).not.toBeInTheDocument();
+    expect(pauseRow?.querySelector("div.mt-\\[-1px\\]")).toBeInTheDocument();
+  });
 });

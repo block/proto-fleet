@@ -156,4 +156,29 @@ describe("Filters", () => {
       expect(handleFiltering).toHaveBeenCalled();
     }
   });
+
+  it("can hide the select all option for a dropdown filter", async () => {
+    const handleFiltering = vi.fn();
+
+    const testDropdownFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      showSelectAll: false,
+      options: [
+        { id: "running", label: "Running" },
+        { id: "paused", label: "Paused" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(<Filters<TestItem> filterItems={[testDropdownFilter]} items={testItems} onFilter={handleFiltering} />);
+
+    fireEvent.click(screen.getByText("Status"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Running")).toBeInTheDocument();
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    });
+  });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { Ellipsis } from "@/shared/assets/icons";
-import { ListAction } from "@/shared/components/List/types";
+import { ListAction, resolveListActionValue } from "@/shared/components/List/types";
 import Popover, { popoverSizes, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
@@ -25,6 +25,21 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
     return null;
   }
 
+  const resolvedActions = actions
+    .filter((action) => !resolveListActionValue(action.hidden, item))
+    .map((action, index, visibleActions) => ({
+      action,
+      title: resolveListActionValue(action.title, item),
+      icon: resolveListActionValue(action.icon, item),
+      variant: resolveListActionValue(action.variant, item),
+      disabled: resolveListActionValue(action.disabled, item) === true,
+      showDividerAfter: resolveListActionValue(action.showDividerAfter, item) ?? index < visibleActions.length - 1,
+    }));
+
+  if (resolvedActions.length === 0) {
+    return null;
+  }
+
   return (
     <div className="relative" ref={triggerRef}>
       <button
@@ -45,21 +60,31 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
           size={popoverSizes.small}
           closePopover={() => setActionsVisible(false)}
         >
-          {actions.map((action, index) => (
-            <Row
-              key={action.title}
-              className={clsx("text-emphasis-300", action.variant === "destructive" && "text-intent-critical-text")}
-              prefixIcon={action.icon}
-              onClick={() => {
-                action.actionHandler(item);
-                setActionsVisible(false);
-              }}
-              compact
-              divider={index < actions.length - 1}
-            >
-              {action.title}
-            </Row>
-          ))}
+          {resolvedActions.map(
+            ({ action, title, icon, variant, disabled: actionDisabled, showDividerAfter }, index) => (
+              <Row
+                key={`${title}-${index}`}
+                className={clsx(
+                  "text-emphasis-300",
+                  variant === "destructive" && "text-intent-critical-text",
+                  actionDisabled && "text-text-primary-50",
+                )}
+                prefixIcon={icon}
+                onClick={
+                  actionDisabled
+                    ? undefined
+                    : () => {
+                        action.actionHandler(item);
+                        setActionsVisible(false);
+                      }
+                }
+                compact
+                divider={showDividerAfter}
+              >
+                {title}
+              </Row>
+            ),
+          )}
         </Popover>
       )}
     </div>

@@ -10,6 +10,7 @@ import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/ne
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { TelemetryService } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 const activityClient = createClient(ActivityService, transport);
@@ -21,6 +22,7 @@ const fleetManagementClient = createClient(FleetManagementService, transport);
 const onboardingClient = createClient(OnboardingService, transport);
 const minerCommandClient = createClient(MinerCommandService, transport);
 const poolsClient = createClient(PoolsService, transport);
+const scheduleClient = createClient(ScheduleService, transport);
 const collectionClient = createClient(DeviceCollectionService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 
@@ -35,5 +37,6 @@ export {
   onboardingClient,
   minerCommandClient,
   poolsClient,
+  scheduleClient,
   telemetryClient,
 };

@@ -23,6 +23,7 @@ export type DropdownFilterItem = BaseFilterItem & {
   type: "dropdown";
   options: DropdownOption[];
   defaultOptionIds: string[];
+  showSelectAll?: boolean;
 };
 
 export type FilterItem = ButtonFilterItem | DropdownFilterItem;
