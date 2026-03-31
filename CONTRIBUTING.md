@@ -2,6 +2,16 @@
 
 Thank you for your interest in contributing to Proto Fleet! This guide covers the development workflows and conventions used in this project.
 
+## Reporting Issues
+
+We use GitHub issue templates to keep reports consistent and actionable. When you open a new issue you will see an issue chooser with these options:
+
+- **Bug Report** — something is broken or behaving unexpectedly
+- **Feature Request** — suggest a new feature or improvement
+- **Miner Compatibility Issue** — report a problem with a specific miner model or firmware version
+
+If you have a question or want to start a discussion, head to [GitHub Discussions](https://github.com/block/proto-fleet/discussions) instead. For security vulnerabilities, follow the process described in [SECURITY.md](SECURITY.md).
+
 ## Development Setup
 
 Start with the [README](README.md) for the basic development flow, then use the details here for contributor-specific setup requirements.

@@ -1,0 +1,79 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Proto Fleet
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: preconditions
+    attributes:
+      label: Preconditions
+      description: Any relevant conditions or setup required to reproduce (e.g., number of miners, network conditions, specific configuration).
+      placeholder: "e.g., At least 10 miners added, unstable network connection"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Proto Fleet version
+      description: The version of Proto Fleet you are running (e.g., v1.2.3 or commit SHA).
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: What environment are you running Proto Fleet in?
+      placeholder: |
+        OS: Ubuntu 22.04
+        Browser: Chrome 120
+        Docker: 24.0.7
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste any relevant log output.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots & screen recordings
+      description: If applicable, add screenshots or screen recordings to help explain the problem.
+    validations:
+      required: false
