@@ -60,8 +60,8 @@ vi.mock("@/protoFleet/store", () => {
   };
 });
 
-vi.mock("@/protoFleet/api/useCollections", () => ({
-  useCollections: vi.fn(() => ({
+vi.mock("@/protoFleet/api/useDeviceSets", () => ({
+  useDeviceSets: vi.fn(() => ({
     listGroups: vi.fn(),
     listRacks: vi.fn(),
   })),

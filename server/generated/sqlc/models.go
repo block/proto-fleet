@@ -58,48 +58,6 @@ func (ns NullBatchStatusEnum) Value() (driver.Value, error) {
 	return string(ns.BatchStatusEnum), nil
 }
 
-type CollectionType string
-
-const (
-	CollectionTypeGroup CollectionType = "group"
-	CollectionTypeRack  CollectionType = "rack"
-)
-
-func (e *CollectionType) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = CollectionType(s)
-	case string:
-		*e = CollectionType(s)
-	default:
-		return fmt.Errorf("unsupported scan type for CollectionType: %T", src)
-	}
-	return nil
-}
-
-type NullCollectionType struct {
-	CollectionType CollectionType
-	Valid          bool // Valid is true if CollectionType is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullCollectionType) Scan(value interface{}) error {
-	if value == nil {
-		ns.CollectionType, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.CollectionType.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullCollectionType) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.CollectionType), nil
-}
-
 type DeviceCommandStatusEnum string
 
 const (
@@ -140,6 +98,48 @@ func (ns NullDeviceCommandStatusEnum) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.DeviceCommandStatusEnum), nil
+}
+
+type DeviceSetType string
+
+const (
+	DeviceSetTypeGroup DeviceSetType = "group"
+	DeviceSetTypeRack  DeviceSetType = "rack"
+)
+
+func (e *DeviceSetType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DeviceSetType(s)
+	case string:
+		*e = DeviceSetType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DeviceSetType: %T", src)
+	}
+	return nil
+}
+
+type NullDeviceSetType struct {
+	DeviceSetType DeviceSetType
+	Valid         bool // Valid is true if DeviceSetType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDeviceSetType) Scan(value interface{}) error {
+	if value == nil {
+		ns.DeviceSetType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DeviceSetType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDeviceSetType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DeviceSetType), nil
 }
 
 type DeviceStatusEnum string
@@ -332,36 +332,6 @@ type Device struct {
 	WorkerName         sql.NullString
 }
 
-type DeviceCollection struct {
-	ID          int64
-	OrgID       int64
-	Type        CollectionType
-	Label       string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   sql.NullTime
-}
-
-type DeviceCollectionMembership struct {
-	ID               int64
-	OrgID            int64
-	CollectionID     int64
-	CollectionType   CollectionType
-	DeviceID         int64
-	DeviceIdentifier string
-	CreatedAt        time.Time
-}
-
-type DeviceCollectionRack struct {
-	CollectionID int64
-	Zone         sql.NullString
-	Rows         int32
-	Columns      int32
-	OrderIndex   int16
-	CoolingType  int16
-}
-
 type DeviceMetric struct {
 	Time             time.Time
 	DeviceIdentifier string
@@ -427,6 +397,36 @@ type DevicePairing struct {
 	UnpairedAt    sql.NullTime
 	CreatedAt     sql.NullTime
 	UpdatedAt     sql.NullTime
+}
+
+type DeviceSet struct {
+	ID          int64
+	OrgID       int64
+	Type        DeviceSetType
+	Label       string
+	Description sql.NullString
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   sql.NullTime
+}
+
+type DeviceSetMembership struct {
+	ID               int64
+	OrgID            int64
+	DeviceSetID      int64
+	DeviceSetType    DeviceSetType
+	DeviceID         int64
+	DeviceIdentifier string
+	CreatedAt        time.Time
+}
+
+type DeviceSetRack struct {
+	DeviceSetID int64
+	Zone        sql.NullString
+	Rows        int32
+	Columns     int32
+	OrderIndex  int16
+	CoolingType int16
 }
 
 type DeviceStatus struct {
@@ -566,11 +566,11 @@ type QueueMessage struct {
 }
 
 type RackSlot struct {
-	CollectionID int64
-	DeviceID     int64
-	Row          int32
-	Col          int32
-	CreatedAt    time.Time
+	DeviceSetID int64
+	DeviceID    int64
+	Row         int32
+	Col         int32
+	CreatedAt   time.Time
 }
 
 type Role struct {

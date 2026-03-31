@@ -2,12 +2,12 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import clsx from "clsx";
 
 import {
-  type DeviceCollection,
+  type DeviceSet,
   RackCoolingType,
   RackOrderIndex,
   type RackType,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/rackManagement/components/AssignMinersModal/types";
 
 import Input from "@/shared/components/Input";
@@ -20,8 +20,8 @@ export type { RackFormData };
 
 interface RackSettingsModalProps {
   show: boolean;
-  existingRacks: DeviceCollection[];
-  rack?: DeviceCollection;
+  existingRacks: DeviceSet[];
+  rack?: DeviceSet;
   initialFormData?: RackFormData;
   onDismiss: () => void;
   onContinue?: (formData: RackFormData) => void;
@@ -65,7 +65,7 @@ const RackSettingsModal = ({
   const isEditMode = !!rack;
   const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
 
-  const { updateRack, listRackZones, listRackTypes } = useCollections();
+  const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
   const [labelManuallyEdited, setLabelManuallyEdited] = useState(isEditMode || !!initialFormData?.label);
@@ -273,7 +273,7 @@ const RackSettingsModal = ({
     setIsSubmitting(true);
 
     updateRack({
-      collectionId: rack!.id,
+      deviceSetId: rack!.id,
       label: formData.label,
       zone: formData.zone,
       rows: formData.rows,

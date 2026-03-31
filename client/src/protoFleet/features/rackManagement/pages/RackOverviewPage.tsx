@@ -2,22 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import type {
-  CollectionStats,
-  DeviceCollection,
+  DeviceSet,
+  DeviceSetStats,
   RackCoolingType,
   RackOrderIndex,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   AggregationType,
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
-import CollectionActionsMenu from "@/protoFleet/features/groupManagement/components/CollectionActionsMenu";
-import { CollectionPerformanceSection } from "@/protoFleet/features/groupManagement/components/CollectionPerformanceSection";
+import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
+import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import {
   AssignMinersModal,
@@ -64,9 +64,9 @@ const RackOverviewPage = () => {
   const navigate = useNavigate();
 
   // Rack resolution state
-  const [rack, setRack] = useState<DeviceCollection | null>(null);
+  const [rack, setRack] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
-  const [collectionStats, setCollectionStats] = useState<CollectionStats | null>(null);
+  const [deviceSetStats, setDeviceSetStats] = useState<DeviceSetStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -74,7 +74,7 @@ const RackOverviewPage = () => {
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getCollection, listGroupMembers, getCollectionStats } = useCollections();
+  const { getDeviceSet, listGroupMembers, getDeviceSetStats } = useDeviceSets();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -88,24 +88,24 @@ const RackOverviewPage = () => {
         setLoading(true);
         setRack(null);
         setMemberDeviceIds(null);
-        setCollectionStats(null);
+        setDeviceSetStats(null);
         setNotFound(false);
         setResolveError(null);
       }
 
-      getCollection({
-        collectionId: rackId,
-        onSuccess: (collection) => {
+      getDeviceSet({
+        deviceSetId: rackId,
+        onSuccess: (deviceSet) => {
           if (version !== resolveVersionRef.current) return;
 
-          // Reject non-rack collections
-          if (collection.typeDetails.case !== "rackInfo") {
+          // Reject non-rack device sets
+          if (deviceSet.typeDetails.case !== "rackInfo") {
             setNotFound(true);
             setLoading(false);
             return;
           }
 
-          setRack(collection);
+          setRack(deviceSet);
           // Clear any latched error state from a prior failed poll
           setNotFound(false);
           setResolveError(null);
@@ -119,7 +119,7 @@ const RackOverviewPage = () => {
 
           // Fetch member device IDs
           listGroupMembers({
-            collectionId: collection.id,
+            deviceSetId: deviceSet.id,
             onSuccess: (deviceIdentifiers) => {
               if (version !== resolveVersionRef.current) return;
               // Only update if membership actually changed to avoid resetting telemetry
@@ -144,13 +144,13 @@ const RackOverviewPage = () => {
             },
           });
 
-          // Fetch collection stats (for slot grid + KPIs)
-          getCollectionStats({
-            collectionIds: [collection.id],
+          // Fetch device set stats (for slot grid + KPIs)
+          getDeviceSetStats({
+            deviceSetIds: [deviceSet.id],
             onSuccess: (stats) => {
               if (version !== resolveVersionRef.current) return;
               if (stats.length > 0) {
-                setCollectionStats(stats[0]);
+                setDeviceSetStats(stats[0]);
               }
               onRequestDone();
             },
@@ -174,7 +174,7 @@ const RackOverviewPage = () => {
         },
       });
     },
-    [getCollection, listGroupMembers, getCollectionStats],
+    [getDeviceSet, listGroupMembers, getDeviceSetStats],
   );
 
   // Initial resolution from URL param
@@ -212,15 +212,15 @@ const RackOverviewPage = () => {
   const orderIndex = rackInfo?.orderIndex;
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
 
-  // Build slot states for RackDetailGrid from collection stats
+  // Build slot states for RackDetailGrid from device set stats
   const slotStates = useMemo<Record<string, SlotHealthState>>(() => {
-    if (!collectionStats) return {};
+    if (!deviceSetStats) return {};
     const states: Record<string, SlotHealthState> = {};
-    for (const s of collectionStats.slotStatuses) {
+    for (const s of deviceSetStats.slotStatuses) {
       states[`${s.row}-${s.column}`] = SLOT_STATUS_MAP[s.status] ?? "empty";
     }
     return states;
-  }, [collectionStats]);
+  }, [deviceSetStats]);
 
   // AssignMinersModal form data (for edit rack flow)
   const assignMinersFormData = useMemo<RackFormData | null>(() => {
@@ -414,7 +414,7 @@ const RackOverviewPage = () => {
               <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
                 Edit rack
               </Button>
-              <CollectionActionsMenu
+              <DeviceSetActionsMenu
                 memberDeviceIds={memberDeviceIds ?? []}
                 onEdit={() => setShowEditModal(true)}
                 editLabel="Edit rack"
@@ -512,7 +512,7 @@ const RackOverviewPage = () => {
           </div>
 
           <div className="px-10 phone:px-6 tablet:px-6">
-            <CollectionPerformanceSection duration={duration} />
+            <DeviceSetPerformanceSection duration={duration} />
           </div>
           <div ref={refs.vertical.end} />
         </section>

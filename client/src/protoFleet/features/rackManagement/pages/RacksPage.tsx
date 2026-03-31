@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useCollections } from "@/protoFleet/api/useCollections";
-import type { CollectionListItem } from "@/protoFleet/components/CollectionList";
-import type { CollectionColumn } from "@/protoFleet/components/CollectionList";
-import {
-  CollectionList,
-  DEFAULT_PAGE_SIZE,
-  issueOptions,
-  useIssueFilter,
-} from "@/protoFleet/components/CollectionList";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
+import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
+import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
 import {
   AssignMinersModal,
   type RackFormData,
@@ -16,7 +11,7 @@ import {
 import { RackCard } from "@/protoFleet/features/rackManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
 import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
-import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
+import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 import { ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
@@ -36,7 +31,7 @@ const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: "miners", label: "Miners" },
 ];
 
-const RACK_COLUMNS: CollectionColumn[] = [
+const RACK_COLUMNS: DeviceSetColumn[] = [
   "name",
   "zone",
   "miners",
@@ -50,7 +45,7 @@ const RACK_COLUMNS: CollectionColumn[] = [
 
 const RacksPage = () => {
   const navigate = useNavigate();
-  const { listRacks, listRackZones } = useCollections();
+  const { listRacks, listRackZones } = useDeviceSets();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
@@ -66,7 +61,7 @@ const RacksPage = () => {
   const getZones = useCallback(() => selectedZonesRef.current, []);
 
   const {
-    collections: racks,
+    deviceSets: racks,
     statsMap,
     isLoading,
     hasEverLoaded,
@@ -81,7 +76,7 @@ const RacksPage = () => {
     handlePrevPage,
     resetAndFetch,
     refreshCurrentPage,
-  } = useCollectionListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones);
+  } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones);
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
@@ -176,19 +171,19 @@ const RacksPage = () => {
   }, [resetAndFetch, fetchZones]);
 
   const renderName = useCallback(
-    (item: CollectionListItem) => (
+    (item: DeviceSetListItem) => (
       <button
         type="button"
         className="text-left hover:underline"
-        onClick={() => navigate(`/racks/${item.collection.id}`)}
+        onClick={() => navigate(`/racks/${item.deviceSet.id}`)}
       >
-        {item.collection.label}
+        {item.deviceSet.label}
       </button>
     ),
     [navigate],
   );
 
-  const renderMiners = useCallback((item: CollectionListItem) => <span>{item.collection.deviceCount}</span>, []);
+  const renderMiners = useCallback((item: DeviceSetListItem) => <span>{item.deviceSet.deviceCount}</span>, []);
 
   // Responsive grid measurement
   const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
@@ -216,7 +211,7 @@ const RacksPage = () => {
       }
       // DropdownFilter is multi-select — find the newly toggled field
       const newField = selected.find((s) => s !== currentSort.field) ?? selected[0];
-      const field = newField as CollectionColumn;
+      const field = newField as DeviceSetColumn;
       const direction = field === currentSort.field && currentSort.direction === "asc" ? "desc" : "asc";
       handleSort(field, direction);
     },
@@ -412,8 +407,8 @@ const RacksPage = () => {
       )}
       {racksViewMode === "list" ? (
         <div className="overflow-x-auto p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
-          <CollectionList
-            collections={racks}
+          <DeviceSetList
+            deviceSets={racks}
             statsMap={statsMap}
             renderName={renderName}
             renderMiners={renderMiners}

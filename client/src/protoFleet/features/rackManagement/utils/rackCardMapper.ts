@@ -1,10 +1,10 @@
 import {
-  type CollectionStats,
-  type DeviceCollection,
+  type DeviceSet,
+  type DeviceSetStats,
   RackOrderIndex,
   type RackSlotStatus,
   SlotDeviceStatus,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { SlotStatus } from "@/protoFleet/features/rackManagement/components/RackCard/types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
@@ -19,7 +19,7 @@ export const SLOT_STATUS_MAP: Record<SlotDeviceStatus, SlotStatus> = {
 
 export type StatusSegment = { color: string; text: string };
 
-export function deriveStatusSegments(stats: CollectionStats): StatusSegment[] {
+export function deriveStatusSegments(stats: DeviceSetStats): StatusSegment[] {
   const issueCount =
     stats.controlBoardIssueCount + stats.fanIssueCount + stats.hashBoardIssueCount + stats.psuIssueCount;
 
@@ -59,7 +59,7 @@ const formatTempRange = (min: number, max: number): string => {
   return `${getDisplayValue(min)}°–${getDisplayValue(max)}°C`;
 };
 
-export function formatRackCardStats(stats: CollectionStats) {
+export function formatRackCardStats(stats: DeviceSetStats) {
   return {
     hashrate: stats.hashrateReportingCount > 0 ? `${getDisplayValue(stats.totalHashrateThs)} TH/s` : undefined,
     efficiency: stats.efficiencyReportingCount > 0 ? `${getDisplayValue(stats.avgEfficiencyJth)} J/TH` : undefined,
@@ -69,7 +69,7 @@ export function formatRackCardStats(stats: CollectionStats) {
   };
 }
 
-export function mapRackToCardProps(rack: DeviceCollection, stats: CollectionStats | undefined) {
+export function mapRackToCardProps(rack: DeviceSet, stats: DeviceSetStats | undefined) {
   const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
   const rows = rackInfo?.rows ?? 1;
   const cols = rackInfo?.columns ?? 1;

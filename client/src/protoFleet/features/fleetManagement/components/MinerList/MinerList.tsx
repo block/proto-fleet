@@ -15,8 +15,8 @@ import {
 import createMinerColConfig from "./minerColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   type MinerListFilter,
@@ -131,11 +131,11 @@ type MinerListProps = {
   /**
    * Available groups for the group filter dropdown.
    */
-  availableGroups?: DeviceCollection[];
+  availableGroups?: DeviceSet[];
   /**
    * Available racks for the rack filter dropdown.
    */
-  availableRacks?: DeviceCollection[];
+  availableRacks?: DeviceSet[];
   /**
    * Exports the full paired miner list as CSV.
    */

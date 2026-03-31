@@ -33,9 +33,9 @@ func NewSQLCollectionStore(conn *sql.DB) *SQLCollectionStore {
 }
 
 func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, collectionType pb.CollectionType, label, description string) (*pb.DeviceCollection, error) {
-	row, err := s.GetQueries(ctx).CreateCollection(ctx, sqlc.CreateCollectionParams{
+	row, err := s.GetQueries(ctx).CreateDeviceSet(ctx, sqlc.CreateDeviceSetParams{
 		OrgID:       orgID,
-		Type:        protoCollectionTypeToSQL(collectionType),
+		Type:        protoDeviceSetTypeToSQL(collectionType),
 		Label:       label,
 		Description: toNullString(description),
 	})
@@ -49,7 +49,7 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 
 	return &pb.DeviceCollection{
 		Id:          row.ID,
-		Type:        sqlCollectionTypeToProto(row.Type),
+		Type:        sqlDeviceSetTypeToProto(row.Type),
 		Label:       row.Label,
 		Description: fromNullString(row.Description),
 		DeviceCount: 0,
@@ -60,13 +60,13 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 
 func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).CreateRackExtension(ctx, sqlc.CreateRackExtensionParams{
-		CollectionID: collectionID,
-		Zone:         toNullString(zone),
-		Rows:         rows,
-		Columns:      columns,
-		OrderIndex:   safeInt32ToInt16(orderIndex),
-		CoolingType:  safeInt32ToInt16(coolingType),
-		OrgID:        orgID,
+		DeviceSetID: collectionID,
+		Zone:        toNullString(zone),
+		Rows:        rows,
+		Columns:     columns,
+		OrderIndex:  safeInt32ToInt16(orderIndex),
+		CoolingType: safeInt32ToInt16(coolingType),
+		OrgID:       orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create rack extension: %v", err)
@@ -75,7 +75,7 @@ func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collection
 }
 
 func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error) {
-	row, err := s.GetQueries(ctx).GetCollection(ctx, sqlc.GetCollectionParams{
+	row, err := s.GetQueries(ctx).GetDeviceSet(ctx, sqlc.GetDeviceSetParams{
 		ID:    collectionID,
 		OrgID: orgID,
 	})
@@ -91,8 +91,8 @@ func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, col
 
 func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error) {
 	row, err := s.GetQueries(ctx).GetRackInfo(ctx, sqlc.GetRackInfoParams{
-		CollectionID: collectionID,
-		OrgID:        orgID,
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -120,8 +120,8 @@ func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, 
 	}
 
 	rows, err := s.GetQueries(ctx).GetRackInfoBatch(ctx, sqlc.GetRackInfoBatchParams{
-		OrgID:         orgID,
-		CollectionIds: collectionIDs,
+		OrgID:        orgID,
+		DeviceSetIds: collectionIDs,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to batch-fetch rack info: %v", err)
@@ -133,7 +133,7 @@ func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, 
 		if row.Zone.Valid {
 			ri.Zone = row.Zone.String
 		}
-		result[row.CollectionID] = ri
+		result[row.DeviceSetID] = ri
 	}
 	return result, nil
 }
@@ -144,20 +144,20 @@ func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, 
 	var err error
 	switch {
 	case label != nil && description != nil:
-		err = q.UpdateCollectionLabelAndDescription(ctx, sqlc.UpdateCollectionLabelAndDescriptionParams{
+		err = q.UpdateDeviceSetLabelAndDescription(ctx, sqlc.UpdateDeviceSetLabelAndDescriptionParams{
 			Label:       *label,
 			Description: toNullString(*description),
 			ID:          collectionID,
 			OrgID:       orgID,
 		})
 	case label != nil:
-		err = q.UpdateCollectionLabel(ctx, sqlc.UpdateCollectionLabelParams{
+		err = q.UpdateDeviceSetLabel(ctx, sqlc.UpdateDeviceSetLabelParams{
 			Label: *label,
 			ID:    collectionID,
 			OrgID: orgID,
 		})
 	case description != nil:
-		err = q.UpdateCollectionDescription(ctx, sqlc.UpdateCollectionDescriptionParams{
+		err = q.UpdateDeviceSetDescription(ctx, sqlc.UpdateDeviceSetDescriptionParams{
 			Description: toNullString(*description),
 			ID:          collectionID,
 			OrgID:       orgID,
@@ -177,13 +177,13 @@ func (s *SQLCollectionStore) UpdateCollection(ctx context.Context, orgID int64, 
 
 func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
 	err := s.GetQueries(ctx).UpdateRackInfo(ctx, sqlc.UpdateRackInfoParams{
-		Zone:         toNullString(zone),
-		Rows:         rows,
-		Columns:      columns,
-		OrderIndex:   safeInt32ToInt16(orderIndex),
-		CoolingType:  safeInt32ToInt16(coolingType),
-		CollectionID: collectionID,
-		OrgID:        orgID,
+		Zone:        toNullString(zone),
+		Rows:        rows,
+		Columns:     columns,
+		OrderIndex:  safeInt32ToInt16(orderIndex),
+		CoolingType: safeInt32ToInt16(coolingType),
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update rack info: %v", err)
@@ -192,7 +192,7 @@ func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID in
 }
 
 func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error) {
-	return s.GetQueries(ctx).SoftDeleteCollection(ctx, sqlc.SoftDeleteCollectionParams{
+	return s.GetQueries(ctx).SoftDeleteDeviceSet(ctx, sqlc.SoftDeleteDeviceSetParams{
 		ID:    collectionID,
 		OrgID: orgID,
 	})
@@ -272,8 +272,8 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	result := make([]*pb.DeviceCollection, len(rows))
 	var rackIDs []int64
 	for i, row := range rows {
-		result[i] = newDeviceCollection(row.ID, sqlc.CollectionType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
-		if sqlc.CollectionType(row.Type) == sqlc.CollectionTypeRack {
+		result[i] = newDeviceCollection(row.ID, sqlc.DeviceSetType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+		if sqlc.DeviceSetType(row.Type) == sqlc.DeviceSetTypeRack {
 			rackIDs = append(rackIDs, row.ID)
 		}
 	}
@@ -295,14 +295,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 }
 
 func (s *SQLCollectionStore) CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error) {
-	return s.GetQueries(ctx).CollectionBelongsToOrg(ctx, sqlc.CollectionBelongsToOrgParams{
+	return s.GetQueries(ctx).DeviceSetBelongsToOrg(ctx, sqlc.DeviceSetBelongsToOrgParams{
 		ID:    collectionID,
 		OrgID: orgID,
 	})
 }
 
 func (s *SQLCollectionStore) GetCollectionType(ctx context.Context, orgID int64, collectionID int64) (pb.CollectionType, error) {
-	sqlType, err := s.GetQueries(ctx).GetCollectionType(ctx, sqlc.GetCollectionTypeParams{
+	sqlType, err := s.GetQueries(ctx).GetDeviceSetType(ctx, sqlc.GetDeviceSetTypeParams{
 		ID:    collectionID,
 		OrgID: orgID,
 	})
@@ -312,7 +312,7 @@ func (s *SQLCollectionStore) GetCollectionType(ctx context.Context, orgID int64,
 		}
 		return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, fleeterror.NewInternalErrorf("failed to get collection type: %v", err)
 	}
-	return sqlCollectionTypeToProto(sqlType), nil
+	return sqlDeviceSetTypeToProto(sqlType), nil
 }
 
 func (s *SQLCollectionStore) GetCollectionTypes(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]pb.CollectionType, error) {
@@ -320,9 +320,9 @@ func (s *SQLCollectionStore) GetCollectionTypes(ctx context.Context, orgID int64
 		return make(map[int64]pb.CollectionType), nil
 	}
 
-	rows, err := s.GetQueries(ctx).GetCollectionTypesBatch(ctx, sqlc.GetCollectionTypesBatchParams{
-		OrgID:         orgID,
-		CollectionIds: collectionIDs,
+	rows, err := s.GetQueries(ctx).GetDeviceSetTypesBatch(ctx, sqlc.GetDeviceSetTypesBatchParams{
+		OrgID:        orgID,
+		DeviceSetIds: collectionIDs,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get collection types: %v", err)
@@ -330,15 +330,15 @@ func (s *SQLCollectionStore) GetCollectionTypes(ctx context.Context, orgID int64
 
 	result := make(map[int64]pb.CollectionType, len(collectionIDs))
 	for _, row := range rows {
-		result[row.ID] = sqlCollectionTypeToProto(row.Type)
+		result[row.ID] = sqlDeviceSetTypeToProto(row.Type)
 	}
 	return result, nil
 }
 
 func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error) {
-	count, err := s.GetQueries(ctx).AddDevicesToCollection(ctx, sqlc.AddDevicesToCollectionParams{
+	count, err := s.GetQueries(ctx).AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
 		OrgID:             orgID,
-		CollectionID:      collectionID,
+		DeviceSetID:       collectionID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
@@ -348,9 +348,9 @@ func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID i
 }
 
 func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error) {
-	count, err := s.GetQueries(ctx).RemoveAllDevicesFromCollection(ctx, sqlc.RemoveAllDevicesFromCollectionParams{
-		CollectionID: collectionID,
-		OrgID:        orgID,
+	count, err := s.GetQueries(ctx).RemoveAllDevicesFromDeviceSet(ctx, sqlc.RemoveAllDevicesFromDeviceSetParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to remove all devices from collection: %v", err)
@@ -359,8 +359,8 @@ func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context,
 }
 
 func (s *SQLCollectionStore) RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error) {
-	count, err := s.GetQueries(ctx).RemoveDevicesFromCollection(ctx, sqlc.RemoveDevicesFromCollectionParams{
-		CollectionID:      collectionID,
+	count, err := s.GetQueries(ctx).RemoveDevicesFromDeviceSet(ctx, sqlc.RemoveDevicesFromDeviceSetParams{
+		DeviceSetID:       collectionID,
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
@@ -389,10 +389,10 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 	var rows []memberRow
 
 	if cursor == nil {
-		sqlRows, err := s.GetQueries(ctx).ListCollectionMembersPaginated(ctx, sqlc.ListCollectionMembersPaginatedParams{
-			CollectionID: collectionID,
-			OrgID:        orgID,
-			Limit:        fetchLimit,
+		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginated(ctx, sqlc.ListDeviceSetMembersPaginatedParams{
+			DeviceSetID: collectionID,
+			OrgID:       orgID,
+			Limit:       fetchLimit,
 		})
 		if err != nil {
 			return nil, "", fleeterror.NewInternalErrorf("failed to list collection members: %v", err)
@@ -401,8 +401,8 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
 		}
 	} else {
-		sqlRows, err := s.GetQueries(ctx).ListCollectionMembersPaginatedAfter(ctx, sqlc.ListCollectionMembersPaginatedAfterParams{
-			CollectionID:    collectionID,
+		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginatedAfter(ctx, sqlc.ListDeviceSetMembersPaginatedAfterParams{
+			DeviceSetID:     collectionID,
 			OrgID:           orgID,
 			Limit:           fetchLimit,
 			CursorCreatedAt: cursor.CreatedAt,
@@ -446,7 +446,7 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 
 func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int64, deviceIdentifier string, collectionType pb.CollectionType) ([]*pb.DeviceCollection, error) {
 	if collectionType == pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
-		rows, err := s.GetQueries(ctx).GetDeviceCollections(ctx, sqlc.GetDeviceCollectionsParams{
+		rows, err := s.GetQueries(ctx).GetDeviceDeviceSets(ctx, sqlc.GetDeviceDeviceSetsParams{
 			DeviceIdentifier: deviceIdentifier,
 			OrgID:            orgID,
 		})
@@ -461,10 +461,10 @@ func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int
 		return result, nil
 	}
 
-	rows, err := s.GetQueries(ctx).GetDeviceCollectionsByType(ctx, sqlc.GetDeviceCollectionsByTypeParams{
+	rows, err := s.GetQueries(ctx).GetDeviceDeviceSetsByType(ctx, sqlc.GetDeviceDeviceSetsByTypeParams{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
-		Type:             protoCollectionTypeToSQL(collectionType),
+		Type:             protoDeviceSetTypeToSQL(collectionType),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get device collections by type: %v", err)
@@ -519,7 +519,7 @@ func (s *SQLCollectionStore) GetRackLabelsForDevices(ctx context.Context, orgID 
 
 func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32, orgID int64) error {
 	err := s.GetQueries(ctx).SetRackSlotPosition(ctx, sqlc.SetRackSlotPositionParams{
-		CollectionID:     collectionID,
+		DeviceSetID:      collectionID,
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
 		Row:              row,
@@ -533,7 +533,7 @@ func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collection
 
 func (s *SQLCollectionStore) ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, orgID int64) error {
 	err := s.GetQueries(ctx).ClearRackSlotPosition(ctx, sqlc.ClearRackSlotPositionParams{
-		CollectionID:     collectionID,
+		DeviceSetID:      collectionID,
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
 	})
@@ -545,8 +545,8 @@ func (s *SQLCollectionStore) ClearRackSlotPosition(ctx context.Context, collecti
 
 func (s *SQLCollectionStore) GetRackSlots(ctx context.Context, collectionID int64, orgID int64) ([]*pb.RackSlot, error) {
 	rows, err := s.GetQueries(ctx).GetRackSlots(ctx, sqlc.GetRackSlotsParams{
-		CollectionID: collectionID,
-		OrgID:        orgID,
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get rack slots: %v", err)
@@ -574,28 +574,28 @@ func (s *SQLCollectionStore) GetRackSlotStatuses(ctx context.Context, orgID int6
 	// slot assignments + device status to produce SlotDeviceStatus per position.
 	// Uses the same bucket logic as GetMinerStateCountsByCollections.
 	query := `WITH rack_dims AS (
-    SELECT dcr.collection_id, dcr.rows, dcr.columns
-    FROM device_collection_rack dcr
-    JOIN device_collection dc ON dcr.collection_id = dc.id
-    WHERE dcr.collection_id = ANY($2::bigint[])
+    SELECT dcr.device_set_id, dcr.rows, dcr.columns
+    FROM device_set_rack dcr
+    JOIN device_set dc ON dcr.device_set_id = dc.id
+    WHERE dcr.device_set_id = ANY($2::bigint[])
       AND dc.org_id = $1
       AND dc.deleted_at IS NULL
 ),
 all_positions AS (
-    SELECT rd.collection_id, r.row_num, c.col_num
+    SELECT rd.device_set_id, r.row_num, c.col_num
     FROM rack_dims rd
     CROSS JOIN LATERAL generate_series(0, rd.rows - 1) AS r(row_num)
     CROSS JOIN LATERAL generate_series(0, rd.columns - 1) AS c(col_num)
 ),
 slot_devices AS (
-    SELECT rs.collection_id, rs.row, rs.col,
+    SELECT rs.device_set_id, rs.row, rs.col,
            dcm.device_identifier,
            ds.status AS device_status,
            dp.pairing_status,
            CASE WHEN open_errors.device_id IS NOT NULL THEN true ELSE false END AS has_errors
     FROM rack_slot rs
-    JOIN device_collection dc ON rs.collection_id = dc.id AND dc.org_id = $1 AND dc.deleted_at IS NULL
-    JOIN device_collection_membership dcm ON rs.collection_id = dcm.collection_id AND rs.device_id = dcm.device_id
+    JOIN device_set dc ON rs.device_set_id = dc.id AND dc.org_id = $1 AND dc.deleted_at IS NULL
+    JOIN device_set_membership dcm ON rs.device_set_id = dcm.device_set_id AND rs.device_id = dcm.device_id
     JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
     JOIN device_pairing dp ON d.id = dp.device_id
         AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
@@ -606,11 +606,11 @@ slot_devices AS (
         WHERE errors.org_id = $1
           AND errors.closed_at IS NULL
           AND errors.severity IN (1, 2, 3)
-          AND errors.device_id IN (SELECT device_id FROM rack_slot WHERE collection_id = ANY($2::bigint[]))
+          AND errors.device_id IN (SELECT device_id FROM rack_slot WHERE device_set_id = ANY($2::bigint[]))
     ) open_errors ON d.id = open_errors.device_id
-    WHERE rs.collection_id = ANY($2::bigint[])
+    WHERE rs.device_set_id = ANY($2::bigint[])
 )
-SELECT ap.collection_id, ap.row_num AS row, ap.col_num AS col,
+SELECT ap.device_set_id, ap.row_num AS row, ap.col_num AS col,
     CASE
         -- SlotDeviceStatus enum values (collection.v1.SlotDeviceStatus):
         -- 1 = EMPTY, 2 = HEALTHY, 3 = NEEDS_ATTENTION, 4 = OFFLINE, 5 = SLEEPING
@@ -623,9 +623,9 @@ SELECT ap.collection_id, ap.row_num AS row, ap.col_num AS col,
         ELSE 2
     END AS status
 FROM all_positions ap
-LEFT JOIN slot_devices sd ON sd.collection_id = ap.collection_id
+LEFT JOIN slot_devices sd ON sd.device_set_id = ap.device_set_id
     AND sd.row = ap.row_num AND sd.col = ap.col_num
-ORDER BY ap.collection_id, ap.row_num, ap.col_num`
+ORDER BY ap.device_set_id, ap.row_num, ap.col_num`
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {
@@ -694,26 +694,26 @@ func safeInt32ToInt16(v int32) int16 {
 
 // Type conversion helpers
 
-func protoCollectionTypeToSQL(ct pb.CollectionType) sqlc.CollectionType {
+func protoDeviceSetTypeToSQL(ct pb.CollectionType) sqlc.DeviceSetType {
 	switch ct {
 	case pb.CollectionType_COLLECTION_TYPE_GROUP:
-		return sqlc.CollectionTypeGroup
+		return sqlc.DeviceSetTypeGroup
 	case pb.CollectionType_COLLECTION_TYPE_RACK:
-		return sqlc.CollectionTypeRack
+		return sqlc.DeviceSetTypeRack
 	case pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED:
 		// Callers should validate type before reaching this point.
 		// Default to group to avoid panicking on unvalidated input.
-		return sqlc.CollectionTypeGroup
+		return sqlc.DeviceSetTypeGroup
 	default:
-		return sqlc.CollectionTypeGroup
+		return sqlc.DeviceSetTypeGroup
 	}
 }
 
-func sqlCollectionTypeToProto(ct sqlc.CollectionType) pb.CollectionType {
+func sqlDeviceSetTypeToProto(ct sqlc.DeviceSetType) pb.CollectionType {
 	switch ct {
-	case sqlc.CollectionTypeGroup:
+	case sqlc.DeviceSetTypeGroup:
 		return pb.CollectionType_COLLECTION_TYPE_GROUP
-	case sqlc.CollectionTypeRack:
+	case sqlc.DeviceSetTypeRack:
 		return pb.CollectionType_COLLECTION_TYPE_RACK
 	default:
 		return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED
@@ -729,10 +729,10 @@ func fromNullString(ns sql.NullString) string {
 	return ""
 }
 
-func newDeviceCollection(id int64, ct sqlc.CollectionType, label string, description sql.NullString, deviceCount int32, createdAt, updatedAt time.Time) *pb.DeviceCollection {
+func newDeviceCollection(id int64, ct sqlc.DeviceSetType, label string, description sql.NullString, deviceCount int32, createdAt, updatedAt time.Time) *pb.DeviceCollection {
 	return &pb.DeviceCollection{
 		Id:          id,
-		Type:        sqlCollectionTypeToProto(ct),
+		Type:        sqlDeviceSetTypeToProto(ct),
 		Label:       label,
 		Description: fromNullString(description),
 		DeviceCount: deviceCount,

@@ -236,10 +236,10 @@ func TestAppendFilterSQL_GroupIDsOnly(t *testing.T) {
 
 	// Assert
 	sql := sb.String()
-	assert.Contains(t, sql, "device_collection_membership")
-	assert.Contains(t, sql, "collection_type = 'group'")
+	assert.Contains(t, sql, "device_set_membership")
+	assert.Contains(t, sql, "device_set_type = 'group'")
 	assert.Contains(t, sql, "org_id = $2")
-	assert.Contains(t, sql, "collection_id = ANY($3::bigint[])")
+	assert.Contains(t, sql, "device_set_id = ANY($3::bigint[])")
 	assert.Len(t, resultArgs, 3) // initial + orgID + groupIDs
 	assert.Equal(t, 4, resultArgNum)
 }
@@ -259,9 +259,9 @@ func TestAppendFilterSQL_RackIDsOnly(t *testing.T) {
 
 	// Assert
 	sql := sb.String()
-	assert.Contains(t, sql, "collection_type = 'rack'")
+	assert.Contains(t, sql, "device_set_type = 'rack'")
 	assert.Contains(t, sql, "org_id = $2")
-	assert.Contains(t, sql, "collection_id = ANY($3::bigint[])")
+	assert.Contains(t, sql, "device_set_id = ANY($3::bigint[])")
 	assert.Len(t, resultArgs, 3) // initial + orgID + rackIDs
 	assert.Equal(t, 4, resultArgNum)
 }
@@ -284,8 +284,8 @@ func TestAppendFilterSQL_GroupAndRackIDs_ProducesAND(t *testing.T) {
 
 	// Assert
 	sql := sb.String()
-	assert.Contains(t, sql, "collection_type = 'group'")
-	assert.Contains(t, sql, "collection_type = 'rack'")
+	assert.Contains(t, sql, "device_set_type = 'group'")
+	assert.Contains(t, sql, "device_set_type = 'rack'")
 	// Both should be AND-ed (separate AND EXISTS clauses, no OR between them)
 	assert.NotContains(t, sql, " OR ")
 	assert.Equal(t, strings.Count(sql, " AND EXISTS"), 2)
@@ -315,7 +315,7 @@ func TestAppendFilterSQL_CollectionFiltersWithExistingFilters_ArgNumContinuity(t
 	// Model filter gets $2, group gets $3 (orgID) and $4 (groupIDs)
 	assert.Contains(t, sql, "model = ANY($2::text[])")
 	assert.Contains(t, sql, "org_id = $3")
-	assert.Contains(t, sql, "collection_id = ANY($4::bigint[])")
+	assert.Contains(t, sql, "device_set_id = ANY($4::bigint[])")
 	assert.Len(t, resultArgs, 4) // initial + model + orgID + groupIDs
 	assert.Equal(t, 5, resultArgNum)
 }

@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import CollectionActionsMenu from "@/protoFleet/features/groupManagement/components/CollectionActionsMenu";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { variants } from "@/shared/components/Button";
 
 type GroupNameCellProps = {
-  group: DeviceCollection;
-  onEdit: (group: DeviceCollection) => void;
+  group: DeviceSet;
+  onEdit: (group: DeviceSet) => void;
   onActionComplete?: () => void;
 };
 
@@ -20,8 +20,8 @@ const GroupNameCell = ({ group, onEdit, onActionComplete }: GroupNameCellProps) 
       >
         {group.label}
       </Link>
-      <CollectionActionsMenu
-        collectionId={group.id}
+      <DeviceSetActionsMenu
+        deviceSetId={group.id}
         onEdit={() => onEdit(group)}
         onActionComplete={onActionComplete}
         buttonVariant={variants.textOnly}

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package collection.v1;
+package device_set.v1;
 
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
@@ -8,36 +8,35 @@ import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
 import "errors/v1/errors.proto";
 
-// Deprecated: Use device_set.v1.DeviceSetService instead.
-// Service for managing device collections (groups and racks)
-// Collections allow grouping devices for filtering and bulk operations
-service DeviceCollectionService {
-    // Creates a new collection
-    rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+// Service for managing device sets (groups and racks)
+// Device sets allow grouping devices for filtering and bulk operations
+service DeviceSetService {
+    // Creates a new device set
+    rpc CreateDeviceSet(CreateDeviceSetRequest) returns (CreateDeviceSetResponse);
 
-    // Gets a collection by ID
-    rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
+    // Gets a device set by ID
+    rpc GetDeviceSet(GetDeviceSetRequest) returns (GetDeviceSetResponse);
 
-    // Updates a collection's label or description
-    rpc UpdateCollection(UpdateCollectionRequest) returns (UpdateCollectionResponse);
+    // Updates a device set's label or description
+    rpc UpdateDeviceSet(UpdateDeviceSetRequest) returns (UpdateDeviceSetResponse);
 
-    // Deletes a collection (soft delete)
-    rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+    // Deletes a device set (soft delete)
+    rpc DeleteDeviceSet(DeleteDeviceSetRequest) returns (DeleteDeviceSetResponse);
 
-    // Lists all collections for the organization
-    rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+    // Lists all device sets for the organization
+    rpc ListDeviceSets(ListDeviceSetsRequest) returns (ListDeviceSetsResponse);
 
-    // Adds devices to a collection
-    rpc AddDevicesToCollection(AddDevicesToCollectionRequest) returns (AddDevicesToCollectionResponse);
+    // Adds devices to a device set
+    rpc AddDevicesToDeviceSet(AddDevicesToDeviceSetRequest) returns (AddDevicesToDeviceSetResponse);
 
-    // Removes devices from a collection
-    rpc RemoveDevicesFromCollection(RemoveDevicesFromCollectionRequest) returns (RemoveDevicesFromCollectionResponse);
+    // Removes devices from a device set
+    rpc RemoveDevicesFromDeviceSet(RemoveDevicesFromDeviceSetRequest) returns (RemoveDevicesFromDeviceSetResponse);
 
-    // Lists members of a collection
-    rpc ListCollectionMembers(ListCollectionMembersRequest) returns (ListCollectionMembersResponse);
+    // Lists members of a device set
+    rpc ListDeviceSetMembers(ListDeviceSetMembersRequest) returns (ListDeviceSetMembersResponse);
 
-    // Gets collections that a device belongs to
-    rpc GetDeviceCollections(GetDeviceCollectionsRequest) returns (GetDeviceCollectionsResponse);
+    // Gets device sets that a device belongs to
+    rpc GetDeviceDeviceSets(GetDeviceDeviceSetsRequest) returns (GetDeviceDeviceSetsResponse);
 
     // Sets a device's slot position within a rack
     rpc SetRackSlotPosition(SetRackSlotPositionRequest) returns (SetRackSlotPositionResponse);
@@ -48,8 +47,8 @@ service DeviceCollectionService {
     // Lists all occupied slot positions in a rack
     rpc GetRackSlots(GetRackSlotsRequest) returns (GetRackSlotsResponse);
 
-    // Returns aggregated telemetry stats for a list of collections
-    rpc GetCollectionStats(GetCollectionStatsRequest) returns (GetCollectionStatsResponse);
+    // Returns aggregated telemetry stats for a list of device sets
+    rpc GetDeviceSetStats(GetDeviceSetStatsRequest) returns (GetDeviceSetStatsResponse);
 
     // Returns all distinct rack zones for the organization
     rpc ListRackZones(ListRackZonesRequest) returns (ListRackZonesResponse);
@@ -62,37 +61,37 @@ service DeviceCollectionService {
     rpc SaveRack(SaveRackRequest) returns (SaveRackResponse);
 }
 
-// Type of collection
-enum CollectionType {
+// Type of device set
+enum DeviceSetType {
     // Unspecified type - returns all types when filtering
-    COLLECTION_TYPE_UNSPECIFIED = 0;
+    DEVICE_SET_TYPE_UNSPECIFIED = 0;
     // Group: many-to-many relationship (device can belong to multiple groups)
-    COLLECTION_TYPE_GROUP = 1;
+    DEVICE_SET_TYPE_GROUP = 1;
     // Rack: one-to-one relationship (device can only be in one rack)
-    COLLECTION_TYPE_RACK = 2;
+    DEVICE_SET_TYPE_RACK = 2;
 }
 
-// DeviceCollection represents a group or rack of devices
-message DeviceCollection {
-    // Unique identifier for the collection
+// DeviceSet represents a group or rack of devices
+message DeviceSet {
+    // Unique identifier for the device set
     int64 id = 1;
 
-    // Type of collection (group or rack)
-    CollectionType type = 2;
+    // Type of device set (group or rack)
+    DeviceSetType type = 2;
 
-    // Human-readable label for the collection
+    // Human-readable label for the device set
     string label = 3;
 
-    // Optional description of the collection's purpose
+    // Optional description of the device set's purpose
     string description = 4;
 
-    // Number of devices in this collection
+    // Number of devices in this device set
     int32 device_count = 5;
 
-    // When the collection was created
+    // When the device set was created
     google.protobuf.Timestamp created_at = 6;
 
-    // When the collection was last updated
+    // When the device set was last updated
     google.protobuf.Timestamp updated_at = 7;
 
     // Type-specific metadata (enforces only one detail type is set)
@@ -118,7 +117,7 @@ enum RackCoolingType {
     RACK_COOLING_TYPE_IMMERSION = 2;
 }
 
-// Rack-specific metadata for rack-type collections
+// Rack-specific metadata for rack-type device sets
 message RackInfo {
     // Number of rows in the rack grid
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
@@ -132,16 +131,16 @@ message RackInfo {
     RackCoolingType cooling_type = 5;
 }
 
-// Group-specific metadata for group-type collections
+// Group-specific metadata for group-type device sets
 // Reserved for future group-specific fields (e.g., tags, policies)
 message GroupInfo {}
 
-// CollectionMember represents a device in a collection
-message CollectionMember {
+// DeviceSetMember represents a device in a device set
+message DeviceSetMember {
     // Device identifier of the member
     string device_identifier = 1;
 
-    // When the device was added to the collection
+    // When the device was added to the device set
     google.protobuf.Timestamp added_at = 2;
 
     // Type-specific member details
@@ -150,7 +149,7 @@ message CollectionMember {
     }
 }
 
-// Rack-specific details for a collection member
+// Rack-specific details for a device set member
 message RackMemberDetails {
     // Slot position of the device within the rack
     RackSlotPosition slot_position = 1;
@@ -164,15 +163,15 @@ message RackSlotPosition {
     int32 column = 2 [(buf.validate.field).int32.gte = 0];
 }
 
-// Request to create a new collection
-message CreateCollectionRequest {
-    // Type of collection to create (required)
-    CollectionType type = 1 [(buf.validate.field).enum = {
+// Request to create a new device set
+message CreateDeviceSetRequest {
+    // Type of device set to create (required)
+    DeviceSetType type = 1 [(buf.validate.field).enum = {
         defined_only: true
         not_in: [0]  // Must specify group or rack
     }];
 
-    // Label for the collection (required, 1-100 characters)
+    // Label for the device set (required, 1-100 characters)
     string label = 2 [(buf.validate.field) = {
         string: { min_len: 1, max_len: 100 }
         required: true
@@ -187,36 +186,36 @@ message CreateCollectionRequest {
         GroupInfo group_info = 5;
     }
 
-    // Optional: devices to add atomically when creating the collection.
-    // If provided, devices are added in the same transaction as collection creation.
+    // Optional: devices to add atomically when creating the device set.
+    // If provided, devices are added in the same transaction as device set creation.
     optional common.v1.DeviceSelector device_selector = 6;
 }
 
-// Response after creating a collection
-message CreateCollectionResponse {
-    // The newly created collection
-    DeviceCollection collection = 1;
+// Response after creating a device set
+message CreateDeviceSetResponse {
+    // The newly created device set
+    DeviceSet device_set = 1;
 
-    // Number of devices added to the collection (0 if no device_selector was provided)
+    // Number of devices added to the device set (0 if no device_selector was provided)
     int32 added_count = 2;
 }
 
-// Request to get a collection by ID
-message GetCollectionRequest {
-    // ID of the collection to retrieve
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to get a device set by ID
+message GetDeviceSetRequest {
+    // ID of the device set to retrieve
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
-// Response containing the requested collection
-message GetCollectionResponse {
-    // The requested collection
-    DeviceCollection collection = 1;
+// Response containing the requested device set
+message GetDeviceSetResponse {
+    // The requested device set
+    DeviceSet device_set = 1;
 }
 
-// Request to update a collection
-message UpdateCollectionRequest {
-    // ID of the collection to update
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to update a device set
+message UpdateDeviceSetRequest {
+    // ID of the device set to update
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // New label (optional, 1-100 characters if provided)
     optional string label = 2 [(buf.validate.field) = {
@@ -231,39 +230,39 @@ message UpdateCollectionRequest {
         string: { max_len: 500 }
     }];
 
-    // Type-specific metadata updates (only applicable for the collection's type)
+    // Type-specific metadata updates (only applicable for the device set's type)
     oneof type_details {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
     }
 
-    // Optional: atomically replace all collection members with the selected devices.
+    // Optional: atomically replace all device set members with the selected devices.
     common.v1.DeviceSelector device_selector = 6;
 }
 
-// Response after updating a collection
-message UpdateCollectionResponse {
-    // The updated collection
-    DeviceCollection collection = 1;
+// Response after updating a device set
+message UpdateDeviceSetResponse {
+    // The updated device set
+    DeviceSet device_set = 1;
 }
 
-// Request to delete a collection
-message DeleteCollectionRequest {
-    // ID of the collection to delete
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to delete a device set
+message DeleteDeviceSetRequest {
+    // ID of the device set to delete
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
-// Response after deleting a collection
-message DeleteCollectionResponse {
+// Response after deleting a device set
+message DeleteDeviceSetResponse {
     // Empty response - success indicated by gRPC status
 }
 
-// Request to list all collections
-message ListCollectionsRequest {
-    // Filter by collection type (optional, returns all types if unspecified)
-    CollectionType type = 1 [(buf.validate.field).enum.defined_only = true];
+// Request to list all device sets
+message ListDeviceSetsRequest {
+    // Filter by device set type (optional, returns all types if unspecified)
+    DeviceSetType type = 1 [(buf.validate.field).enum.defined_only = true];
 
-    // Maximum number of collections to return (0 = server default)
+    // Maximum number of device sets to return (0 = server default)
     int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
 
     // Pagination cursor from a previous response
@@ -273,8 +272,8 @@ message ListCollectionsRequest {
     // Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
     common.v1.SortConfig sort = 4;
 
-    // Filter by collections containing devices with open errors of these component types.
-    // When non-empty, only collections with at least one device having an open error
+    // Filter by device sets containing devices with open errors of these component types.
+    // When non-empty, only device sets with at least one device having an open error
     // matching any of the specified component types are returned.
     repeated errors.v1.ComponentType error_component_types = 5;
 
@@ -283,56 +282,56 @@ message ListCollectionsRequest {
     repeated string zones = 6;
 }
 
-// Response containing collections
-message ListCollectionsResponse {
-    // List of collections ordered by label
-    repeated DeviceCollection collections = 1;
+// Response containing device sets
+message ListDeviceSetsResponse {
+    // List of device sets ordered by label
+    repeated DeviceSet device_sets = 1;
 
     // Cursor for the next page, empty if no more results
     string next_page_token = 2;
 
-    // Total number of collections matching the request filters
+    // Total number of device sets matching the request filters
     int32 total_count = 3;
 }
 
-// Request to add devices to a collection
-message AddDevicesToCollectionRequest {
-    // ID of the collection to add devices to
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to add devices to a device set
+message AddDevicesToDeviceSetRequest {
+    // ID of the device set to add devices to
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Devices to add: specific list or all paired devices
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after adding devices to a collection
-message AddDevicesToCollectionResponse {
-    // ID of the collection devices were added to
-    int64 collection_id = 1;
+// Response after adding devices to a device set
+message AddDevicesToDeviceSetResponse {
+    // ID of the device set devices were added to
+    int64 device_set_id = 1;
 
     // Number of devices successfully added
     // May be less than requested if some devices were already members
     int32 added_count = 2;
 }
 
-// Request to remove devices from a collection
-message RemoveDevicesFromCollectionRequest {
-    // ID of the collection to remove devices from
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to remove devices from a device set
+message RemoveDevicesFromDeviceSetRequest {
+    // ID of the device set to remove devices from
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Devices to remove: specific list or all paired devices
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after removing devices from a collection
-message RemoveDevicesFromCollectionResponse {
+// Response after removing devices from a device set
+message RemoveDevicesFromDeviceSetResponse {
     // Number of devices successfully removed
     int32 removed_count = 1;
 }
 
-// Request to list members of a collection
-message ListCollectionMembersRequest {
-    // ID of the collection to list members for
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to list members of a device set
+message ListDeviceSetMembersRequest {
+    // ID of the device set to list members for
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Maximum number of members to return (default: all)
     int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
@@ -341,34 +340,34 @@ message ListCollectionMembersRequest {
     string page_token = 3;
 }
 
-// Response containing collection members
-message ListCollectionMembersResponse {
+// Response containing device set members
+message ListDeviceSetMembersResponse {
     // List of members ordered by when they were added (newest first)
-    repeated CollectionMember members = 1;
+    repeated DeviceSetMember members = 1;
 
     // Cursor for the next page, empty if no more results
     string next_page_token = 2;
 }
 
-// Request to get collections for a device
-message GetDeviceCollectionsRequest {
+// Request to get device sets for a device
+message GetDeviceDeviceSetsRequest {
     // Device identifier to look up
     string device_identifier = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Filter by collection type (optional, returns all types if unspecified)
-    CollectionType type = 2;
+    // Filter by device set type (optional, returns all types if unspecified)
+    DeviceSetType type = 2;
 }
 
-// Response containing collections the device belongs to
-message GetDeviceCollectionsResponse {
-    // Collections the device belongs to, ordered by label
-    repeated DeviceCollection collections = 1;
+// Response containing device sets the device belongs to
+message GetDeviceDeviceSetsResponse {
+    // Device sets the device belongs to, ordered by label
+    repeated DeviceSet device_sets = 1;
 }
 
 // Request to set a device's slot position within a rack
 message SetRackSlotPositionRequest {
-    // ID of the rack collection
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+    // ID of the rack device set
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Device to position
     string device_identifier = 2 [(buf.validate.field).string.min_len = 1];
@@ -379,8 +378,8 @@ message SetRackSlotPositionRequest {
 
 // Response after setting a rack slot position
 message SetRackSlotPositionResponse {
-    // ID of the rack collection
-    int64 collection_id = 1;
+    // ID of the rack device set
+    int64 device_set_id = 1;
 
     // The slot that was set
     RackSlot slot = 2;
@@ -388,8 +387,8 @@ message SetRackSlotPositionResponse {
 
 // Request to clear a device's slot position within a rack
 message ClearRackSlotPositionRequest {
-    // ID of the rack collection
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+    // ID of the rack device set
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Device to unposition
     string device_identifier = 2 [(buf.validate.field).string.min_len = 1];
@@ -400,8 +399,8 @@ message ClearRackSlotPositionResponse {}
 
 // Request to list all occupied slots in a rack
 message GetRackSlotsRequest {
-    // ID of the rack collection
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
+    // ID of the rack device set
+    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
 // Represents a device assigned to a specific slot in a rack
@@ -418,11 +417,11 @@ message GetRackSlotsResponse {
     repeated RackSlot slots = 1;
 }
 
-// Aggregated telemetry stats for a single collection
-message CollectionStats {
-    // Collection identifier
-    int64 collection_id = 1;
-    // Total number of devices in the collection
+// Aggregated telemetry stats for a single device set
+message DeviceSetStats {
+    // Device set identifier
+    int64 device_set_id = 1;
+    // Total number of devices in the device set
     int32 device_count = 2;
     // Number of devices with recent telemetry data
     int32 reporting_count = 3;
@@ -452,21 +451,21 @@ message CollectionStats {
     int32 hash_board_issue_count = 19;
     int32 psu_issue_count = 20;
 
-    // Per-slot device status for rack-type collections (empty for groups).
-    // Contains one entry per row×column position, including empty slots.
+    // Per-slot device status for rack-type device sets (empty for groups).
+    // Contains one entry per row x column position, including empty slots.
     repeated RackSlotStatus slot_statuses = 21;
 }
 
-// Request to get aggregated stats for collections
-message GetCollectionStatsRequest {
-    // Collection IDs to get stats for
-    repeated int64 collection_ids = 1;
+// Request to get aggregated stats for device sets
+message GetDeviceSetStatsRequest {
+    // Device set IDs to get stats for
+    repeated int64 device_set_ids = 1;
 }
 
-// Response containing stats for each requested collection
-message GetCollectionStatsResponse {
-    // Stats per collection (one entry per requested collection ID)
-    repeated CollectionStats stats = 1;
+// Response containing stats for each requested device set
+message GetDeviceSetStatsResponse {
+    // Stats per device set (one entry per requested device set ID)
+    repeated DeviceSetStats stats = 1;
 }
 
 // Status of a device in a specific rack slot position
@@ -520,7 +519,7 @@ message ListRackTypesResponse {
 // Request to atomically create or update a rack with membership and slot assignments.
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
-    optional int64 collection_id = 1 [(buf.validate.field) = {
+    optional int64 device_set_id = 1 [(buf.validate.field) = {
         ignore: IGNORE_IF_UNPOPULATED
         int64: { gt: 0 }
     }];
@@ -546,8 +545,8 @@ message SaveRackRequest {
 
 // Response after saving a rack.
 message SaveRackResponse {
-    // The created or updated rack collection
-    DeviceCollection collection = 1;
+    // The created or updated rack device set
+    DeviceSet device_set = 1;
 
     // Number of slot positions assigned
     int32 assigned_count = 2;

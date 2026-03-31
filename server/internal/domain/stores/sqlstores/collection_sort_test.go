@@ -137,7 +137,7 @@ func TestBuildCollectionListQuery_ZoneFilter(t *testing.T) {
 func TestBuildCollectionCountQuery_ZoneFilter(t *testing.T) {
 	zones := []string{"Building A"}
 	query, args := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, zones)
-	assert.Contains(t, query, "LEFT JOIN device_collection_rack dcr")
+	assert.Contains(t, query, "LEFT JOIN device_set_rack dcr")
 	assert.Contains(t, query, "AND dcr.zone = ANY($3::text[])")
 	assert.Equal(t, pq.Array(zones), args[2])
 }

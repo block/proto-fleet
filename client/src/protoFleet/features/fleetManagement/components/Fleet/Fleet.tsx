@@ -2,16 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   type SortConfig,
   SortConfigSchema,
   SortDirection,
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
-import { useCollections } from "@/protoFleet/api/useCollections";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
@@ -38,19 +38,19 @@ const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
 
 const Fleet = () => {
   const navigate = useNavigate();
-  const { listGroups, listRacks } = useCollections();
-  const [availableGroups, setAvailableGroups] = useState<DeviceCollection[]>([]);
-  const [availableRacks, setAvailableRacks] = useState<DeviceCollection[]>([]);
+  const { listGroups, listRacks } = useDeviceSets();
+  const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
+  const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
 
   useEffect(() => {
     listGroups({
-      onSuccess: (collections) => {
-        setAvailableGroups(collections);
+      onSuccess: (deviceSets) => {
+        setAvailableGroups(deviceSets);
       },
     });
     listRacks({
-      onSuccess: (collections) => {
-        setAvailableRacks(collections);
+      onSuccess: (deviceSets) => {
+        setAvailableRacks(deviceSets);
       },
     });
   }, [listGroups, listRacks]);

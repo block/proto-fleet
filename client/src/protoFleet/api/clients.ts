@@ -2,7 +2,7 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "./transport";
 import { ActivityService } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import { DeviceCollectionService } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -23,13 +23,13 @@ const onboardingClient = createClient(OnboardingService, transport);
 const minerCommandClient = createClient(MinerCommandService, transport);
 const poolsClient = createClient(PoolsService, transport);
 const scheduleClient = createClient(ScheduleService, transport);
-const collectionClient = createClient(DeviceCollectionService, transport);
+const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 
 export {
   activityClient,
   authClient,
-  collectionClient,
+  deviceSetClient,
   errorQueryClient,
   networkInfoClient,
   pairingClient,

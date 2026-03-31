@@ -34,6 +34,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -60,6 +61,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/auth"
 	collectionHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/collection"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/command"
+	devicesetHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/deviceset"
 	errorqueryHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/firmware"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/fleetmanagement"
@@ -350,6 +352,7 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
+	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))

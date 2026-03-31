@@ -1,14 +1,14 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot as ProtoMinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 
@@ -128,12 +128,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
   ({ filterConfig, initialSelectedItems, isMembersLoading = false, isRowDisabled, onSelectionChange }, ref) => {
     const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
 
-    const { listGroups, listRacks } = useCollections();
+    const { listGroups, listRacks } = useDeviceSets();
     const [filter, setFilter] = useState(() => create(MinerListFilterSchema, {}));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(false);
-    const [availableGroups, setAvailableGroups] = useState<DeviceCollection[]>([]);
-    const [availableRacks, setAvailableRacks] = useState<DeviceCollection[]>([]);
+    const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
+    const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
     const [hasInitialSynced, setHasInitialSynced] = useState(!initialSelectedItems || initialSelectedItems.length > 0);
 
     const {

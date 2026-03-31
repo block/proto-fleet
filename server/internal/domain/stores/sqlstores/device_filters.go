@@ -158,11 +158,11 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 
 	if fp.groupIDsFilter.Valid {
 		fmt.Fprintf(sb,
-			" AND EXISTS (SELECT 1 FROM device_collection_membership dcm"+
+			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
 				" WHERE dcm.device_id = device.id"+
 				" AND dcm.org_id = $%d"+
-				" AND dcm.collection_type = 'group'"+
-				" AND dcm.collection_id = ANY($%d::bigint[]))",
+				" AND dcm.device_set_type = 'group'"+
+				" AND dcm.device_set_id = ANY($%d::bigint[]))",
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.groupIDValues))
 		argNum += 2
@@ -170,11 +170,11 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 
 	if fp.rackIDsFilter.Valid {
 		fmt.Fprintf(sb,
-			" AND EXISTS (SELECT 1 FROM device_collection_membership dcm"+
+			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
 				" WHERE dcm.device_id = device.id"+
 				" AND dcm.org_id = $%d"+
-				" AND dcm.collection_type = 'rack'"+
-				" AND dcm.collection_id = ANY($%d::bigint[]))",
+				" AND dcm.device_set_type = 'rack'"+
+				" AND dcm.device_set_id = ANY($%d::bigint[]))",
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.rackIDValues))
 		argNum += 2

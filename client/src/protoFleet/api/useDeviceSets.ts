@@ -2,11 +2,16 @@ import { useCallback } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { collectionClient } from "@/protoFleet/api/clients";
+import { deviceSetClient } from "@/protoFleet/api/clients";
 import {
-  type CollectionStats,
-  CollectionType,
-  type DeviceCollection,
+  DeviceIdentifierListSchema,
+  DeviceSelectorSchema,
+} from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import {
+  type DeviceSet,
+  type DeviceSetStats,
+  DeviceSetType,
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
@@ -15,53 +20,48 @@ import {
   RackSlotPositionSchema,
   RackSlotSchema,
   type RackType,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import {
-  DeviceIdentifierListSchema,
-  DeviceSelectorSchema,
-} from "@/protoFleet/api/generated/common/v1/device_selector_pb";
-import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateGroupProps {
   label: string;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (collection: DeviceCollection) => void;
+  onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
 interface UpdateGroupProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   label?: string;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (collection: DeviceCollection) => void;
+  onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
 interface DeleteGroupProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   onSuccess?: () => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface ListCollectionsProps {
+interface ListDeviceSetsProps {
   pageSize?: number;
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
   zones?: string[];
-  onSuccess?: (collections: DeviceCollection[], nextPageToken: string, totalCount: number) => void;
+  onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface AddDevicesToCollectionProps {
-  collectionId: bigint;
+interface AddDevicesToDeviceSetProps {
+  deviceSetId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
   onSuccess?: (addedCount: number) => void;
@@ -69,17 +69,17 @@ interface AddDevicesToCollectionProps {
   onFinally?: () => void;
 }
 
-interface GetCollectionProps {
-  collectionId: bigint;
-  onSuccess?: (collection: DeviceCollection) => void;
+interface GetDeviceSetProps {
+  deviceSetId: bigint;
+  onSuccess?: (deviceSet: DeviceSet) => void;
   onNotFound?: () => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface GetCollectionStatsProps {
-  collectionIds: bigint[];
-  onSuccess?: (stats: CollectionStats[]) => void;
+interface GetDeviceSetStatsProps {
+  deviceSetIds: bigint[];
+  onSuccess?: (stats: DeviceSetStats[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -91,7 +91,7 @@ interface CreateRackProps {
   columns: number;
   orderIndex: RackOrderIndex;
   coolingType: RackCoolingType;
-  onSuccess?: (collection: DeviceCollection) => void;
+  onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -109,14 +109,14 @@ interface ListRackTypesProps {
 }
 
 interface ListGroupMembersProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   onSuccess?: (deviceIdentifiers: string[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface RemoveDevicesFromCollectionProps {
-  collectionId: bigint;
+interface RemoveDevicesFromDeviceSetProps {
+  deviceSetId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
   onSuccess?: (removedCount: number) => void;
@@ -125,27 +125,27 @@ interface RemoveDevicesFromCollectionProps {
 }
 
 interface UpdateRackProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   label?: string;
   zone?: string;
   rows?: number;
   columns?: number;
   orderIndex?: RackOrderIndex;
   coolingType?: RackCoolingType;
-  onSuccess?: (collection: DeviceCollection) => void;
+  onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
 interface GetRackSlotsProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   onSuccess?: (slots: RackSlot[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
 interface SetRackSlotPositionProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   deviceIdentifier: string;
   position: RackSlotPosition;
   onSuccess?: (slot: RackSlot) => void;
@@ -154,7 +154,7 @@ interface SetRackSlotPositionProps {
 }
 
 interface ClearRackSlotPositionProps {
-  collectionId: bigint;
+  deviceSetId: bigint;
   deviceIdentifier: string;
   onSuccess?: () => void;
   onError?: (message: string) => void;
@@ -162,7 +162,7 @@ interface ClearRackSlotPositionProps {
 }
 
 interface SaveRackProps {
-  collectionId?: bigint;
+  deviceSetId?: bigint;
   label: string;
   zone: string;
   rows: number;
@@ -172,7 +172,7 @@ interface SaveRackProps {
   deviceIdentifiers: string[];
   allDevices?: boolean;
   slotAssignments: { deviceIdentifier: string; row: number; column: number }[];
-  onSuccess?: (collection: DeviceCollection, assignedCount: number) => void;
+  onSuccess?: (deviceSet: DeviceSet, assignedCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -202,7 +202,7 @@ function buildDeviceSelector(deviceIdentifiers: string[] | undefined, allDevices
   return undefined;
 }
 
-const useCollections = () => {
+const useDeviceSets = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createGroup = useCallback(
@@ -211,19 +211,19 @@ const useCollections = () => {
         const deviceSelector =
           allDevices || deviceIdentifiers.length > 0 ? buildDeviceSelector(deviceIdentifiers, allDevices) : undefined;
 
-        const createResponse = await collectionClient.createCollection({
-          type: CollectionType.GROUP,
+        const createResponse = await deviceSetClient.createDeviceSet({
+          type: DeviceSetType.GROUP,
           label,
           deviceSelector,
         });
 
-        const collection = createResponse.collection;
-        if (!collection) {
+        const deviceSet = createResponse.deviceSet;
+        if (!deviceSet) {
           onError?.("Failed to create group");
           return;
         }
 
-        onSuccess?.(collection);
+        onSuccess?.(deviceSet);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -239,23 +239,23 @@ const useCollections = () => {
   );
 
   const updateGroup = useCallback(
-    async ({ collectionId, label, deviceIdentifiers, allDevices, onSuccess, onError, onFinally }: UpdateGroupProps) => {
+    async ({ deviceSetId, label, deviceIdentifiers, allDevices, onSuccess, onError, onFinally }: UpdateGroupProps) => {
       try {
         const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
-        const response = await collectionClient.updateCollection({
-          collectionId,
+        const response = await deviceSetClient.updateDeviceSet({
+          deviceSetId,
           label,
           deviceSelector,
         });
 
-        const collection = response.collection;
-        if (!collection) {
+        const deviceSet = response.deviceSet;
+        if (!deviceSet) {
           onError?.("Failed to update group");
           return;
         }
 
-        onSuccess?.(collection);
+        onSuccess?.(deviceSet);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -271,9 +271,9 @@ const useCollections = () => {
   );
 
   const deleteGroup = useCallback(
-    async ({ collectionId, onSuccess, onError, onFinally }: DeleteGroupProps) => {
+    async ({ deviceSetId, onSuccess, onError, onFinally }: DeleteGroupProps) => {
       try {
-        await collectionClient.deleteCollection({ collectionId });
+        await deviceSetClient.deleteDeviceSet({ deviceSetId });
         onSuccess?.();
       } catch (err) {
         handleAuthErrors({
@@ -290,30 +290,30 @@ const useCollections = () => {
   );
 
   const listGroups = useCallback(
-    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListCollectionsProps) => {
+    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListDeviceSetsProps) => {
       try {
         if (pageSize) {
-          const response = await collectionClient.listCollections({
-            type: CollectionType.GROUP,
+          const response = await deviceSetClient.listDeviceSets({
+            type: DeviceSetType.GROUP,
             pageSize,
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
           });
-          onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
+          onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
           // Server caps pageSize at 1000, so we page through all results
           // to support callers that need the full unpaginated list.
-          const all: DeviceCollection[] = [];
+          const all: DeviceSet[] = [];
           let nextToken = "";
           do {
-            const response = await collectionClient.listCollections({
-              type: CollectionType.GROUP,
+            const response = await deviceSetClient.listDeviceSets({
+              type: DeviceSetType.GROUP,
               pageSize: 1000,
               pageToken: nextToken,
               sort,
             });
-            all.push(...response.collections);
+            all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
           } while (nextToken);
           onSuccess?.(all, "", all.length);
@@ -342,32 +342,32 @@ const useCollections = () => {
       onSuccess,
       onError,
       onFinally,
-    }: ListCollectionsProps) => {
+    }: ListDeviceSetsProps) => {
       try {
         if (pageSize) {
-          const response = await collectionClient.listCollections({
-            type: CollectionType.RACK,
+          const response = await deviceSetClient.listDeviceSets({
+            type: DeviceSetType.RACK,
             pageSize,
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
           });
-          onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
+          onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
           // Server caps pageSize at 1000, so we page through all results
           // to support callers that need the full unpaginated list.
-          const all: DeviceCollection[] = [];
+          const all: DeviceSet[] = [];
           let nextToken = "";
           do {
-            const response = await collectionClient.listCollections({
-              type: CollectionType.RACK,
+            const response = await deviceSetClient.listDeviceSets({
+              type: DeviceSetType.RACK,
               pageSize: 1000,
               pageToken: nextToken,
               sort,
               zones: zones ?? [],
             });
-            all.push(...response.collections);
+            all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
           } while (nextToken);
           onSuccess?.(all, "", all.length);
@@ -386,16 +386,16 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
-  const getCollection = useCallback(
-    async ({ collectionId, onSuccess, onNotFound, onError, onFinally }: GetCollectionProps) => {
+  const getDeviceSet = useCallback(
+    async ({ deviceSetId, onSuccess, onNotFound, onError, onFinally }: GetDeviceSetProps) => {
       try {
-        const response = await collectionClient.getCollection({ collectionId });
-        const collection = response.collection;
-        if (!collection) {
+        const response = await deviceSetClient.getDeviceSet({ deviceSetId });
+        const deviceSet = response.deviceSet;
+        if (!deviceSet) {
           onNotFound?.();
           return;
         }
-        onSuccess?.(collection);
+        onSuccess?.(deviceSet);
       } catch (err) {
         if (err instanceof ConnectError && err.code === Code.NotFound) {
           onNotFound?.();
@@ -415,14 +415,14 @@ const useCollections = () => {
   );
 
   const listGroupMembers = useCallback(
-    async ({ collectionId, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+    async ({ deviceSetId, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
       try {
         const allIdentifiers: string[] = [];
         let pageToken = "";
 
         do {
-          const response = await collectionClient.listCollectionMembers({
-            collectionId,
+          const response = await deviceSetClient.listDeviceSetMembers({
+            deviceSetId,
             pageSize: memberPageSize,
             pageToken,
           });
@@ -447,10 +447,10 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
-  const getCollectionStats = useCallback(
-    async ({ collectionIds, onSuccess, onError, onFinally }: GetCollectionStatsProps) => {
+  const getDeviceSetStats = useCallback(
+    async ({ deviceSetIds, onSuccess, onError, onFinally }: GetDeviceSetStatsProps) => {
       try {
-        const response = await collectionClient.getCollectionStats({ collectionIds });
+        const response = await deviceSetClient.getDeviceSetStats({ deviceSetIds });
         onSuccess?.(response.stats);
       } catch (err) {
         handleAuthErrors({
@@ -466,23 +466,23 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
-  const addDevicesToCollection = useCallback(
+  const addDevicesToDeviceSet = useCallback(
     async ({
-      collectionId,
+      deviceSetId,
       deviceIdentifiers,
       allDevices,
       onSuccess,
       onError,
       onFinally,
-    }: AddDevicesToCollectionProps) => {
+    }: AddDevicesToDeviceSetProps) => {
       try {
         const deviceSelector =
           allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
             ? buildDeviceSelector(deviceIdentifiers, allDevices)
             : undefined;
 
-        const response = await collectionClient.addDevicesToCollection({
-          collectionId,
+        const response = await deviceSetClient.addDevicesToDeviceSet({
+          deviceSetId,
           deviceSelector,
         });
 
@@ -512,8 +512,8 @@ const useCollections = () => {
           coolingType,
         });
 
-        const createResponse = await collectionClient.createCollection({
-          type: CollectionType.RACK,
+        const createResponse = await deviceSetClient.createDeviceSet({
+          type: DeviceSetType.RACK,
           label,
           typeDetails: {
             case: "rackInfo",
@@ -521,13 +521,13 @@ const useCollections = () => {
           },
         });
 
-        const collection = createResponse.collection;
-        if (!collection) {
+        const deviceSet = createResponse.deviceSet;
+        if (!deviceSet) {
           onError?.("Failed to create rack");
           return;
         }
 
-        onSuccess?.(collection);
+        onSuccess?.(deviceSet);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -545,7 +545,7 @@ const useCollections = () => {
   const listRackZones = useCallback(
     async ({ onSuccess, onError, onFinally }: ListRackZonesProps) => {
       try {
-        const response = await collectionClient.listRackZones({});
+        const response = await deviceSetClient.listRackZones({});
         onSuccess?.(response.zones);
       } catch (err) {
         handleAuthErrors({
@@ -564,7 +564,7 @@ const useCollections = () => {
   const listRackTypes = useCallback(
     async ({ onSuccess, onError, onFinally }: ListRackTypesProps) => {
       try {
-        const response = await collectionClient.listRackTypes({});
+        const response = await deviceSetClient.listRackTypes({});
         onSuccess?.(response.rackTypes);
       } catch (err) {
         handleAuthErrors({
@@ -580,23 +580,23 @@ const useCollections = () => {
     [handleAuthErrors],
   );
 
-  const removeDevicesFromCollection = useCallback(
+  const removeDevicesFromDeviceSet = useCallback(
     async ({
-      collectionId,
+      deviceSetId,
       deviceIdentifiers,
       allDevices,
       onSuccess,
       onError,
       onFinally,
-    }: RemoveDevicesFromCollectionProps) => {
+    }: RemoveDevicesFromDeviceSetProps) => {
       try {
         const deviceSelector =
           allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
             ? buildDeviceSelector(deviceIdentifiers, allDevices)
             : undefined;
 
-        const response = await collectionClient.removeDevicesFromCollection({
-          collectionId,
+        const response = await deviceSetClient.removeDevicesFromDeviceSet({
+          deviceSetId,
           deviceSelector,
         });
 
@@ -617,7 +617,7 @@ const useCollections = () => {
 
   const updateRack = useCallback(
     async ({
-      collectionId,
+      deviceSetId,
       label,
       zone,
       rows,
@@ -644,8 +644,8 @@ const useCollections = () => {
               })
             : undefined;
 
-        const response = await collectionClient.updateCollection({
-          collectionId,
+        const response = await deviceSetClient.updateDeviceSet({
+          deviceSetId,
           label,
           ...(rackInfo && {
             typeDetails: {
@@ -655,13 +655,13 @@ const useCollections = () => {
           }),
         });
 
-        const collection = response.collection;
-        if (!collection) {
+        const deviceSet = response.deviceSet;
+        if (!deviceSet) {
           onError?.("Failed to update rack");
           return;
         }
 
-        onSuccess?.(collection);
+        onSuccess?.(deviceSet);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -677,9 +677,9 @@ const useCollections = () => {
   );
 
   const getRackSlots = useCallback(
-    async ({ collectionId, onSuccess, onError, onFinally }: GetRackSlotsProps) => {
+    async ({ deviceSetId, onSuccess, onError, onFinally }: GetRackSlotsProps) => {
       try {
-        const response = await collectionClient.getRackSlots({ collectionId });
+        const response = await deviceSetClient.getRackSlots({ deviceSetId });
         onSuccess?.(response.slots);
       } catch (err) {
         handleAuthErrors({
@@ -696,10 +696,10 @@ const useCollections = () => {
   );
 
   const setRackSlotPosition = useCallback(
-    async ({ collectionId, deviceIdentifier, position, onSuccess, onError, onFinally }: SetRackSlotPositionProps) => {
+    async ({ deviceSetId, deviceIdentifier, position, onSuccess, onError, onFinally }: SetRackSlotPositionProps) => {
       try {
-        const response = await collectionClient.setRackSlotPosition({
-          collectionId,
+        const response = await deviceSetClient.setRackSlotPosition({
+          deviceSetId,
           deviceIdentifier,
           position,
         });
@@ -726,10 +726,10 @@ const useCollections = () => {
   );
 
   const clearRackSlotPosition = useCallback(
-    async ({ collectionId, deviceIdentifier, onSuccess, onError, onFinally }: ClearRackSlotPositionProps) => {
+    async ({ deviceSetId, deviceIdentifier, onSuccess, onError, onFinally }: ClearRackSlotPositionProps) => {
       try {
-        await collectionClient.clearRackSlotPosition({
-          collectionId,
+        await deviceSetClient.clearRackSlotPosition({
+          deviceSetId,
           deviceIdentifier,
         });
         onSuccess?.();
@@ -749,7 +749,7 @@ const useCollections = () => {
 
   const saveRack = useCallback(
     async ({
-      collectionId,
+      deviceSetId,
       label,
       zone,
       rows,
@@ -784,21 +784,21 @@ const useCollections = () => {
           }),
         );
 
-        const response = await collectionClient.saveRack({
-          collectionId,
+        const response = await deviceSetClient.saveRack({
+          deviceSetId,
           label,
           rackInfo,
           deviceSelector,
           slotAssignments: rackSlots,
         });
 
-        const collection = response.collection;
-        if (!collection) {
+        const deviceSet = response.deviceSet;
+        if (!deviceSet) {
           onError?.("Failed to save rack");
           return;
         }
 
-        onSuccess?.(collection, response.assignedCount);
+        onSuccess?.(deviceSet, response.assignedCount);
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -819,15 +819,15 @@ const useCollections = () => {
     updateGroup,
     updateRack,
     deleteGroup,
-    getCollection,
+    getDeviceSet,
     listGroups,
     listRacks,
     listRackZones,
     listRackTypes,
     listGroupMembers,
-    getCollectionStats,
-    addDevicesToCollection,
-    removeDevicesFromCollection,
+    getDeviceSetStats,
+    addDevicesToDeviceSet,
+    removeDevicesFromDeviceSet,
     getRackSlots,
     setRackSlotPosition,
     clearRackSlotPosition,
@@ -835,5 +835,5 @@ const useCollections = () => {
   };
 };
 
-export { useCollections };
-export type { ListCollectionsProps };
+export { useDeviceSets };
+export type { ListDeviceSetsProps };

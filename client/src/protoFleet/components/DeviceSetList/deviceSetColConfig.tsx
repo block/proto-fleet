@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import type { CollectionListItem } from "./CollectionList";
-import { collectionCols, type CollectionColumn } from "./constants";
+import { deviceSetCols, type DeviceSetColumn } from "./constants";
+import type { DeviceSetListItem } from "./DeviceSetList";
 import StatCell from "./StatCell";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import { type ColConfig } from "@/shared/components/List/types";
@@ -19,32 +19,32 @@ const formatTempRange = (min: number, max: number): string => {
   return `${getDisplayValue(min)}°–${getDisplayValue(max)}°C`;
 };
 
-type CreateCollectionColConfigParams = {
-  renderName: (item: CollectionListItem) => ReactNode;
-  renderMiners: (item: CollectionListItem) => ReactNode;
+type CreateDeviceSetColConfigParams = {
+  renderName: (item: DeviceSetListItem) => ReactNode;
+  renderMiners: (item: DeviceSetListItem) => ReactNode;
 };
 
-const createCollectionColConfig = ({
+const createDeviceSetColConfig = ({
   renderName,
   renderMiners,
-}: CreateCollectionColConfigParams): ColConfig<CollectionListItem, string, CollectionColumn> => ({
-  [collectionCols.name]: {
-    component: (item: CollectionListItem) => renderName(item),
+}: CreateDeviceSetColConfigParams): ColConfig<DeviceSetListItem, string, DeviceSetColumn> => ({
+  [deviceSetCols.name]: {
+    component: (item: DeviceSetListItem) => renderName(item),
     width: "min-w-44",
   },
-  [collectionCols.zone]: {
-    component: (item: CollectionListItem) => {
-      if (item.collection.typeDetails.case !== "rackInfo") return <span>{INACTIVE_PLACEHOLDER}</span>;
-      return <span>{item.collection.typeDetails.value.zone || INACTIVE_PLACEHOLDER}</span>;
+  [deviceSetCols.zone]: {
+    component: (item: DeviceSetListItem) => {
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>{INACTIVE_PLACEHOLDER}</span>;
+      return <span>{item.deviceSet.typeDetails.value.zone || INACTIVE_PLACEHOLDER}</span>;
     },
     width: "min-w-28",
   },
-  [collectionCols.miners]: {
-    component: (item: CollectionListItem) => renderMiners(item),
+  [deviceSetCols.miners]: {
+    component: (item: DeviceSetListItem) => renderMiners(item),
     width: "min-w-20",
   },
-  [collectionCols.issues]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.issues]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats) return <span>{INACTIVE_PLACEHOLDER}</span>;
       const count =
         item.stats.controlBoardIssueCount +
@@ -56,15 +56,15 @@ const createCollectionColConfig = ({
     },
     width: "min-w-20",
   },
-  [collectionCols.hashrate]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.hashrate]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.hashrateReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return <span>{getDisplayValue(item.stats.totalHashrateThs)} TH/s</span>;
     },
     width: "min-w-28",
   },
-  [collectionCols.efficiency]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.efficiency]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.efficiencyReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return (
         <StatCell metricReportingCount={item.stats.efficiencyReportingCount} deviceCount={item.stats.deviceCount}>
@@ -74,8 +74,8 @@ const createCollectionColConfig = ({
     },
     width: "min-w-28",
   },
-  [collectionCols.power]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.power]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.powerReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return (
         <StatCell metricReportingCount={item.stats.powerReportingCount} deviceCount={item.stats.deviceCount}>
@@ -85,15 +85,15 @@ const createCollectionColConfig = ({
     },
     width: "min-w-24",
   },
-  [collectionCols.temperature]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.temperature]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.temperatureReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       return <span>{formatTempRange(item.stats.minTemperatureC, item.stats.maxTemperatureC)}</span>;
     },
     width: "min-w-28",
   },
-  [collectionCols.health]: {
-    component: (item: CollectionListItem) => {
+  [deviceSetCols.health]: {
+    component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.deviceCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
       const { hashingCount, brokenCount, offlineCount, sleepingCount } = item.stats;
       const segments: Segment[] = [
@@ -112,4 +112,4 @@ const createCollectionColConfig = ({
   },
 });
 
-export { createCollectionColConfig };
+export { createDeviceSetColConfig };

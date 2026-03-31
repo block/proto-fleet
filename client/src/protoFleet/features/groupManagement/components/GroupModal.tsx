@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 
 import { variants } from "@/shared/components/Button";
@@ -14,12 +14,12 @@ interface GroupModalProps {
   show: boolean;
   onDismiss: () => void;
   onSuccess: () => void;
-  group?: DeviceCollection;
+  group?: DeviceSet;
 }
 
 const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
   const isEditMode = Boolean(group);
-  const { createGroup, updateGroup, deleteGroup, listGroupMembers } = useCollections();
+  const { createGroup, updateGroup, deleteGroup, listGroupMembers } = useDeviceSets();
   const [groupName, setGroupName] = useState(group?.label ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -34,7 +34,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
   useEffect(() => {
     if (!group) return;
     listGroupMembers({
-      collectionId: group.id,
+      deviceSetId: group.id,
       onSuccess: (identifiers) => {
         setExistingMemberIds(identifiers);
       },
@@ -56,7 +56,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
 
       if (isEditMode && group) {
         updateGroup({
-          collectionId: group.id,
+          deviceSetId: group.id,
           label: groupName.trim(),
           ...(allSelected ? { allDevices: true } : { deviceIdentifiers: selectedItems }),
           onSuccess: () => {
@@ -103,7 +103,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
 
     setIsDeleting(true);
     deleteGroup({
-      collectionId: group.id,
+      deviceSetId: group.id,
       onSuccess: () => {
         pushToast({
           message: `Group "${group.label}" deleted`,

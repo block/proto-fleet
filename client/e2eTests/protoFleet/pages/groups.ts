@@ -50,7 +50,7 @@ export class GroupsPage extends BasePage {
     const groupRow = this.getGroupRow(groupName);
     await expect(groupRow).toBeVisible();
 
-    await groupRow.getByLabel("Collection actions").click();
+    await groupRow.getByLabel("Device set actions").click();
     await this.clickButton("Edit group");
     await this.validateModalIsOpen();
   }

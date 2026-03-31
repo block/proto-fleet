@@ -1,21 +1,21 @@
 import { type ReactNode, useCallback, useMemo, useRef } from "react";
 
-import { createCollectionColConfig } from "./collectionColConfig";
-import { collectionColTitles, type CollectionColumn, DEFAULT_PAGE_SIZE } from "./constants";
+import { DEFAULT_PAGE_SIZE, deviceSetColTitles, type DeviceSetColumn } from "./constants";
+import { createDeviceSetColConfig } from "./deviceSetColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
-import type { CollectionStats, DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { type SortDirection } from "@/shared/components/List/types";
 
-export type CollectionListItem = {
+export type DeviceSetListItem = {
   id: string;
-  collection: DeviceCollection;
-  stats?: CollectionStats;
+  deviceSet: DeviceSet;
+  stats?: DeviceSetStats;
 };
 
-const DEFAULT_ACTIVE_COLS: CollectionColumn[] = [
+const DEFAULT_ACTIVE_COLS: DeviceSetColumn[] = [
   "name",
   "miners",
   "issues",
@@ -26,15 +26,15 @@ const DEFAULT_ACTIVE_COLS: CollectionColumn[] = [
   "health",
 ];
 
-type CollectionListProps = {
-  collections: DeviceCollection[];
-  statsMap: Map<bigint, CollectionStats>;
-  renderName: (item: CollectionListItem) => ReactNode;
-  renderMiners: (item: CollectionListItem) => ReactNode;
-  currentSort: { field: CollectionColumn; direction: SortDirection };
-  onSort: (field: CollectionColumn, direction: SortDirection) => void;
+type DeviceSetListProps = {
+  deviceSets: DeviceSet[];
+  statsMap: Map<bigint, DeviceSetStats>;
+  renderName: (item: DeviceSetListItem) => ReactNode;
+  renderMiners: (item: DeviceSetListItem) => ReactNode;
+  currentSort: { field: DeviceSetColumn; direction: SortDirection };
+  onSort: (field: DeviceSetColumn, direction: SortDirection) => void;
   itemName: { singular: string; plural: string };
-  columns?: CollectionColumn[];
+  columns?: DeviceSetColumn[];
   loading?: boolean;
   total?: number;
   pageSize?: number;
@@ -45,8 +45,8 @@ type CollectionListProps = {
   onPrevPage?: () => void;
 };
 
-const CollectionList = ({
-  collections,
+const DeviceSetList = ({
+  deviceSets,
   statsMap,
   renderName,
   renderMiners,
@@ -62,16 +62,15 @@ const CollectionList = ({
   hasNextPage = false,
   onNextPage,
   onPrevPage,
-}: CollectionListProps) => {
+}: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
 
-  const items: CollectionListItem[] = useMemo(
-    () =>
-      collections.map((collection) => ({ id: String(collection.id), collection, stats: statsMap.get(collection.id) })),
-    [collections, statsMap],
+  const items: DeviceSetListItem[] = useMemo(
+    () => deviceSets.map((deviceSet) => ({ id: String(deviceSet.id), deviceSet, stats: statsMap.get(deviceSet.id) })),
+    [deviceSets, statsMap],
   );
 
-  const colConfig = useMemo(() => createCollectionColConfig({ renderName, renderMiners }), [renderName, renderMiners]);
+  const colConfig = useMemo(() => createDeviceSetColConfig({ renderName, renderMiners }), [renderName, renderMiners]);
 
   const handleNextPage = useCallback(() => {
     onNextPage?.();
@@ -84,15 +83,15 @@ const CollectionList = ({
   }, [onPrevPage]);
 
   const firstItemIndex = currentPage * pageSize + 1;
-  const lastItemIndex = currentPage * pageSize + collections.length;
+  const lastItemIndex = currentPage * pageSize + deviceSets.length;
   const shouldRenderPagination = !loading && total !== undefined && total > 0;
 
   return (
     <>
       <div ref={topRef} />
-      <List<CollectionListItem, string, CollectionColumn>
+      <List<DeviceSetListItem, string, DeviceSetColumn>
         activeCols={columns}
-        colTitles={collectionColTitles}
+        colTitles={deviceSetColTitles}
         colConfig={colConfig}
         items={items}
         itemKey="id"
@@ -133,4 +132,4 @@ const CollectionList = ({
   );
 };
 
-export default CollectionList;
+export default DeviceSetList;

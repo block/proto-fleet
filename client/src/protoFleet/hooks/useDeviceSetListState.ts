@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import type { CollectionStats, DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   SortDirection as ProtoSortDirection,
   type SortConfig,
   SortConfigSchema,
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
-import type { ListCollectionsProps } from "@/protoFleet/api/useCollections";
-import { useCollections } from "@/protoFleet/api/useCollections";
-import type { CollectionColumn } from "@/protoFleet/components/CollectionList";
+import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import type { ListDeviceSetsProps } from "@/protoFleet/api/useDeviceSets";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
 
-const SORT_FIELD_MAP: Partial<Record<CollectionColumn, SortField>> = {
+const SORT_FIELD_MAP: Partial<Record<DeviceSetColumn, SortField>> = {
   name: SortField.NAME,
   zone: SortField.LOCATION,
   miners: SortField.DEVICE_COUNT,
 };
 
-function toProtoSort(field: CollectionColumn, direction: SortDirection): SortConfig {
+function toProtoSort(field: DeviceSetColumn, direction: SortDirection): SortConfig {
   return create(SortConfigSchema, {
     field: SORT_FIELD_MAP[field] ?? SortField.NAME,
     direction: direction === SORT_ASC ? ProtoSortDirection.ASC : ProtoSortDirection.DESC,
@@ -28,17 +28,17 @@ function toProtoSort(field: CollectionColumn, direction: SortDirection): SortCon
 
 const DEFAULT_SORT = toProtoSort("name", SORT_ASC);
 
-type ListFn = (props: ListCollectionsProps) => Promise<void>;
+type ListFn = (props: ListDeviceSetsProps) => Promise<void>;
 
-export function useCollectionListState(
+export function useDeviceSetListState(
   listFn: ListFn,
   pageSize: number,
   getErrorComponentTypes?: () => number[],
   getZones?: () => string[],
 ) {
-  const { getCollectionStats } = useCollections();
-  const [collections, setCollections] = useState<DeviceCollection[]>([]);
-  const [statsMap, setStatsMap] = useState<Map<bigint, CollectionStats>>(new Map());
+  const { getDeviceSetStats } = useDeviceSets();
+  const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
+  const [statsMap, setStatsMap] = useState<Map<bigint, DeviceSetStats>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [hasEverLoaded, setHasEverLoaded] = useState(false);
   const [hasCompletedInitialFetch, setHasCompletedInitialFetch] = useState(false);
@@ -61,23 +61,23 @@ export function useCollectionListState(
   const statsRequestId = useRef(0);
 
   const fetchStats = useCallback(
-    (items: DeviceCollection[]) => {
+    (items: DeviceSet[]) => {
       if (items.length === 0) return;
       const requestId = ++statsRequestId.current;
       const ids = items.map((c) => c.id);
-      getCollectionStats({
-        collectionIds: ids,
+      getDeviceSetStats({
+        deviceSetIds: ids,
         onSuccess: (stats) => {
           if (requestId !== statsRequestId.current) return;
-          const map = new Map<bigint, CollectionStats>();
+          const map = new Map<bigint, DeviceSetStats>();
           for (const s of stats) {
-            map.set(s.collectionId, s);
+            map.set(s.deviceSetId, s);
           }
           setStatsMap(map);
         },
       });
     },
-    [getCollectionStats],
+    [getDeviceSetStats],
   );
 
   const fetchPage = useCallback(
@@ -95,7 +95,7 @@ export function useCollectionListState(
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
           setHasCompletedInitialFetch(true);
-          setCollections(items);
+          setDeviceSets(items);
           fetchStats(items);
           setCurrentPage(page);
           setHasNextPage(!!nextPageToken);
@@ -135,7 +135,7 @@ export function useCollectionListState(
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSort = useCallback(
-    (field: CollectionColumn, direction: SortDirection) => {
+    (field: DeviceSetColumn, direction: SortDirection) => {
       const newSort = toProtoSort(field, direction);
       setSortConfig(newSort);
       sortRef.current = newSort;
@@ -176,13 +176,13 @@ export function useCollectionListState(
 
   const currentSort = useMemo(() => {
     const fieldEntry = Object.entries(SORT_FIELD_MAP).find(([, v]) => v === sortConfig.field);
-    const field = (fieldEntry?.[0] ?? "name") as CollectionColumn;
+    const field = (fieldEntry?.[0] ?? "name") as DeviceSetColumn;
     const direction: SortDirection = sortConfig.direction === ProtoSortDirection.DESC ? "desc" : "asc";
     return { field, direction };
   }, [sortConfig]);
 
   return {
-    collections,
+    deviceSets,
     statsMap,
     isLoading,
     hasEverLoaded,

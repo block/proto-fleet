@@ -1,6 +1,6 @@
 import type { ColTitles } from "@/shared/components/List/types";
 
-export const collectionCols = {
+export const deviceSetCols = {
   name: "name",
   zone: "zone",
   miners: "miners",
@@ -12,9 +12,9 @@ export const collectionCols = {
   health: "health",
 } as const;
 
-export type CollectionColumn = (typeof collectionCols)[keyof typeof collectionCols];
+export type DeviceSetColumn = (typeof deviceSetCols)[keyof typeof deviceSetCols];
 
-export const collectionColTitles: ColTitles<CollectionColumn> = {
+export const deviceSetColTitles: ColTitles<DeviceSetColumn> = {
   name: "Name",
   zone: "Zone",
   miners: "Miners",

@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   AggregationType,
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
-import CollectionActionsMenu from "@/protoFleet/features/groupManagement/components/CollectionActionsMenu";
-import { CollectionPerformanceSection } from "@/protoFleet/features/groupManagement/components/CollectionPerformanceSection";
+import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
+import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import {
@@ -52,14 +52,14 @@ const GroupOverviewPage = () => {
   const navigate = useNavigate();
 
   // Group resolution state
-  const [group, setGroup] = useState<DeviceCollection | null>(null);
+  const [group, setGroup] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  const { listGroups, listGroupMembers } = useCollections();
+  const { listGroups, listGroupMembers } = useDeviceSets();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -75,11 +75,11 @@ const GroupOverviewPage = () => {
       setResolveError(null);
 
       listGroups({
-        onSuccess: (collections) => {
+        onSuccess: (deviceSets) => {
           if (version !== resolveVersionRef.current) return;
           const match = groupId
-            ? collections.find((c) => c.id === groupId)
-            : collections.find((c) => c.label === resolveLabel);
+            ? deviceSets.find((c) => c.id === groupId)
+            : deviceSets.find((c) => c.label === resolveLabel);
           if (!match) {
             setNotFound(true);
             setLoading(false);
@@ -92,7 +92,7 @@ const GroupOverviewPage = () => {
             return;
           }
           listGroupMembers({
-            collectionId: match.id,
+            deviceSetId: match.id,
             onSuccess: (deviceIdentifiers) => {
               if (version !== resolveVersionRef.current) return;
               setMemberDeviceIds(deviceIdentifiers);
@@ -315,7 +315,7 @@ const GroupOverviewPage = () => {
               <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
                 Edit group
               </Button>
-              <CollectionActionsMenu
+              <DeviceSetActionsMenu
                 memberDeviceIds={memberDeviceIds ?? []}
                 onEdit={() => setShowEditModal(true)}
                 onActionComplete={() => resolveGroup(label, group?.id)}
@@ -408,7 +408,7 @@ const GroupOverviewPage = () => {
           </div>
 
           <div className="px-10 phone:px-6 tablet:px-6">
-            <CollectionPerformanceSection duration={duration} />
+            <DeviceSetPerformanceSection duration={duration} />
           </div>
           <div ref={refs.vertical.end} />
         </section>

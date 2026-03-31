@@ -1600,6 +1600,7 @@ export const SlotDeviceStatusSchema: GenEnum<SlotDeviceStatus> =
   enumDesc(file_collection_v1_collection, 3);
 
 /**
+ * Deprecated: Use device_set.v1.DeviceSetService instead.
  * Service for managing device collections (groups and racks)
  * Collections allow grouping devices for filtering and bulk operations
  *

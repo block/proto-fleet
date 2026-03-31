@@ -1,7 +1,7 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
 
-import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import { type SelectionMode } from "@/shared/components/List";
@@ -20,9 +20,9 @@ interface AddToGroupModalProps {
 const pluralizeMiners = (count: number) => `${count} ${count === 1 ? "miner" : "miners"}`;
 
 const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displayCount }: AddToGroupModalProps) => {
-  const { createGroup, addDevicesToCollection, listGroups } = useCollections();
+  const { createGroup, addDevicesToDeviceSet, listGroups } = useDeviceSets();
 
-  const [groups, setGroups] = useState<DeviceCollection[]>([]);
+  const [groups, setGroups] = useState<DeviceSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -39,7 +39,7 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
     setCreateNewChecked(false);
 
     listGroups({
-      onSuccess: (collections) => setGroups(collections),
+      onSuccess: (deviceSets) => setGroups(deviceSets),
       onError: (message) => pushToast({ status: TOAST_STATUSES.error, message }),
       onFinally: () => setLoading(false),
     });
@@ -82,8 +82,8 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
     for (const groupId of selectedGroupIds) {
       promises.push(
         new Promise<void>((resolve, reject) => {
-          addDevicesToCollection({
-            collectionId: groupId,
+          addDevicesToDeviceSet({
+            deviceSetId: groupId,
             deviceIdentifiers,
             allDevices,
             onSuccess: () => resolve(),
@@ -129,7 +129,7 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
     hasGroups,
     createNewChecked,
     newGroupName,
-    addDevicesToCollection,
+    addDevicesToDeviceSet,
     createGroup,
     deviceIdentifiers,
     allDevices,

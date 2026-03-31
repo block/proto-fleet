@@ -13,12 +13,12 @@ import MinerStatusCell from "./MinerStatusCell";
 import MinerTemperature from "./MinerTemperature";
 import MinerWorkerName from "./MinerWorkerName";
 import { type DeviceListItem } from "./types";
-import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type ColConfig } from "@/shared/components/List/types";
 
 type CreateMinerColConfigParams = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
-  availableGroups: DeviceCollection[];
+  availableGroups: DeviceSet[];
 };
 
 const createMinerColConfig = ({

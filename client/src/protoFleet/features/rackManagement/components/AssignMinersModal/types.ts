@@ -1,4 +1,4 @@
-import { type RackCoolingType, RackOrderIndex } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import { type RackCoolingType, RackOrderIndex } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
 
 export type AssignmentMode = "manual" | "byName" | "byNetwork";

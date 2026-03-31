@@ -5,13 +5,13 @@ import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData } from "./types";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
-import { type DeviceCollection, type RackSlot } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
 import { slotNumberToRowCol } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
@@ -75,7 +75,7 @@ interface AssignMinersModalProps {
   show: boolean;
   rackSettings: RackFormData;
   existingRackId?: bigint;
-  existingRacks: DeviceCollection[];
+  existingRacks: DeviceSet[];
   onDismiss: () => void;
   onSave: () => void;
 }
@@ -88,7 +88,7 @@ export default function AssignMinersModal({
   onDismiss,
   onSave,
 }: AssignMinersModalProps) {
-  const { saveRack, getRackSlots, listGroupMembers } = useCollections();
+  const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
 
   // Fetch all miners for display data (name, IP, model, etc.)
   const { miners: minersMap } = useFleet({ scope: "local", pageSize: 1000 });
@@ -144,7 +144,7 @@ export default function AssignMinersModal({
     };
 
     listGroupMembers({
-      collectionId: existingRackId,
+      deviceSetId: existingRackId,
       onSuccess: (ids) => {
         members = ids;
         loadedMembers = true;
@@ -160,7 +160,7 @@ export default function AssignMinersModal({
     });
 
     getRackSlots({
-      collectionId: existingRackId,
+      deviceSetId: existingRackId,
       onSuccess: (s) => {
         slots = s;
         loadedSlots = true;
@@ -354,7 +354,7 @@ export default function AssignMinersModal({
 
       await new Promise<void>((resolve, reject) => {
         saveRack({
-          collectionId: existingRackId,
+          deviceSetId: existingRackId,
           label: rackSettings.label,
           zone: rackSettings.zone,
           rows: rackSettings.rows,

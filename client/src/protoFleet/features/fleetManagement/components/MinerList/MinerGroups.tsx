@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { type DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useMinerGroupLabels } from "@/protoFleet/store";
 
 type MinerGroupsProps = {
   deviceIdentifier: string;
-  availableGroups: DeviceCollection[];
+  availableGroups: DeviceSet[];
 };
 
 const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) => {

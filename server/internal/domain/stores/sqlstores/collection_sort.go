@@ -53,16 +53,16 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 	args := []any{orgID}
 	argNum := 2
 
-	sb.WriteString("SELECT COUNT(*)::int FROM device_collection dc")
+	sb.WriteString("SELECT COUNT(*)::int FROM device_set dc")
 
 	if len(zones) > 0 {
-		sb.WriteString(" LEFT JOIN device_collection_rack dcr ON dcr.collection_id = dc.id")
+		sb.WriteString(" LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id")
 	}
 
 	sb.WriteString(" WHERE dc.org_id = $1 AND dc.deleted_at IS NULL")
 
 	if collectionType != pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
-		sqlType := protoCollectionTypeToSQL(collectionType)
+		sqlType := protoDeviceSetTypeToSQL(collectionType)
 		sb.WriteString(fmt.Sprintf(" AND dc.type = $%d", argNum))
 		args = append(args, sqlType)
 		argNum++
@@ -76,7 +76,7 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 
 	if len(errorComponentTypes) > 0 {
 		sb.WriteString(fmt.Sprintf(` AND EXISTS (
-			SELECT 1 FROM device_collection_membership dcm_err
+			SELECT 1 FROM device_set_membership dcm_err
 			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
 			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
 			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
@@ -86,7 +86,7 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 				AND e.closed_at IS NULL
 				AND e.severity IN (1, 2, 3)
 				AND e.component_type = ANY($%d::int[])
-			WHERE dcm_err.collection_id = dc.id AND dcm_err.org_id = $1
+			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
 		)`, argNum))
 		args = append(args, pq.Array(errorComponentTypes))
 	}
@@ -103,17 +103,17 @@ func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cur
 
 	// Base query — always LEFT JOIN rack table so we can always scan dcr.zone
 	// without conditional branching. LEFT JOIN ensures racks without a
-	// device_collection_rack row are not silently excluded.
+	// device_set_rack row are not silently excluded.
 	sb.WriteString(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
        COUNT(dcm.id)::int AS device_count, dcr.zone
-FROM device_collection dc
-LEFT JOIN device_collection_membership dcm ON dc.id = dcm.collection_id
-LEFT JOIN device_collection_rack dcr ON dcr.collection_id = dc.id
+FROM device_set dc
+LEFT JOIN device_set_membership dcm ON dc.id = dcm.device_set_id
+LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id
 WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 
 	// Type filter
 	if collectionType != pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
-		sqlType := protoCollectionTypeToSQL(collectionType)
+		sqlType := protoDeviceSetTypeToSQL(collectionType)
 		sb.WriteString(fmt.Sprintf(" AND dc.type = $%d", argNum))
 		args = append(args, sqlType)
 		argNum++
@@ -130,7 +130,7 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 	// (active, non-deleted, paired devices with actionable severity errors)
 	if len(errorComponentTypes) > 0 {
 		sb.WriteString(fmt.Sprintf(` AND EXISTS (
-			SELECT 1 FROM device_collection_membership dcm_err
+			SELECT 1 FROM device_set_membership dcm_err
 			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
 			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
 			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
@@ -140,7 +140,7 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 				AND e.closed_at IS NULL
 				AND e.severity IN (1, 2, 3)
 				AND e.component_type = ANY($%d::int[])
-			WHERE dcm_err.collection_id = dc.id AND dcm_err.org_id = $1
+			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
 		)`, argNum))
 		args = append(args, pq.Array(errorComponentTypes))
 		argNum++

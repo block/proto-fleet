@@ -3,16 +3,16 @@ import { describe, expect, test } from "vitest";
 import { deriveStatusSegments, formatRackCardStats, mapSlotStatuses } from "./rackCardMapper";
 
 import {
-  type CollectionStats,
+  type DeviceSetStats,
   RackOrderIndex,
   type RackSlotStatus,
   SlotDeviceStatus,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 
-// Helper to create a partial CollectionStats with sensible defaults
-function makeStats(overrides: Partial<CollectionStats> = {}): CollectionStats {
+// Helper to create a partial DeviceSetStats with sensible defaults
+function makeStats(overrides: Partial<DeviceSetStats> = {}): DeviceSetStats {
   return {
-    collectionId: 1n,
+    deviceSetId: 1n,
     deviceCount: 10,
     reportingCount: 0,
     totalHashrateThs: 0,
@@ -34,7 +34,7 @@ function makeStats(overrides: Partial<CollectionStats> = {}): CollectionStats {
     psuIssueCount: 0,
     slotStatuses: [],
     ...overrides,
-  } as CollectionStats;
+  } as DeviceSetStats;
 }
 
 function makeSlot(row: number, column: number, status: SlotDeviceStatus): RackSlotStatus {

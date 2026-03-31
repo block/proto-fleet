@@ -561,7 +561,7 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
 		}
 
-		// Device membership is enforced by the store query joining on device_collection_membership.
+		// Device membership is enforced by the store query joining on device_set_membership.
 		if err := s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID); err != nil {
 			return nil, err
 		}

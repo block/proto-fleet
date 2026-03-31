@@ -978,7 +978,7 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
 		return make(map[int64]stores.MinerStateCounts), nil
 	}
 
-	query := `SELECT dcm.collection_id,
+	query := `SELECT dcm.device_set_id,
     COALESCE(SUM(CASE WHEN ds.status = 'OFFLINE' OR ds.status IS NULL THEN 1 ELSE 0 END), 0)::int AS offline_count,
     COALESCE(SUM(CASE WHEN ds.status IN ('MAINTENANCE', 'INACTIVE') THEN 1 ELSE 0 END), 0)::int AS sleeping_count,
     COALESCE(SUM(CASE
@@ -995,8 +995,8 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count
-FROM device_collection_membership dcm
-JOIN device_collection dc ON dcm.collection_id = dc.id
+FROM device_set_membership dcm
+JOIN device_set dc ON dcm.device_set_id = dc.id
 JOIN device d ON dcm.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -1008,13 +1008,13 @@ LEFT JOIN (
       AND errors.closed_at IS NULL
       AND errors.severity IN (1, 2, 3)
 ) open_errors ON d.id = open_errors.device_id
-WHERE dcm.collection_id = ANY($2::bigint[])
+WHERE dcm.device_set_id = ANY($2::bigint[])
   AND dcm.org_id = $1
   AND dc.deleted_at IS NULL
   AND d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-GROUP BY dcm.collection_id`
+GROUP BY dcm.device_set_id`
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {
@@ -1043,9 +1043,9 @@ func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Contex
 		return nil, nil
 	}
 
-	query := `SELECT dcm.collection_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
-FROM device_collection_membership dcm
-JOIN device_collection dc ON dcm.collection_id = dc.id AND dc.deleted_at IS NULL
+	query := `SELECT dcm.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+FROM device_set_membership dcm
+JOIN device_set dc ON dcm.device_set_id = dc.id AND dc.deleted_at IS NULL
 JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id AND dd.is_active = TRUE
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -1055,8 +1055,8 @@ JOIN errors e ON d.id = e.device_id
     AND e.closed_at IS NULL
     AND e.severity IN (1, 2, 3)
     AND e.component_type IN (1, 2, 3, 4)
-WHERE dcm.collection_id = ANY($2::bigint[]) AND dcm.org_id = $1
-GROUP BY dcm.collection_id, e.component_type`
+WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1
+GROUP BY dcm.device_set_id, e.component_type`
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {

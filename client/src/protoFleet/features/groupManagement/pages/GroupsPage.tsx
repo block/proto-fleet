@@ -1,17 +1,17 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import { useCollections } from "@/protoFleet/api/useCollections";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import {
-  CollectionList,
-  type CollectionListItem,
+  DeviceSetList,
+  type DeviceSetListItem,
   issueOptions,
   useIssueFilter,
-} from "@/protoFleet/components/CollectionList";
+} from "@/protoFleet/components/DeviceSetList";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
-import { useCollectionListState } from "@/protoFleet/hooks/useCollectionListState";
+import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 
 import { DismissTiny, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -22,15 +22,15 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 const GROUPS_PAGE_SIZE = 50;
 
 const GroupsPage = () => {
-  const { listGroups } = useCollections();
+  const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [editGroup, setEditGroup] = useState<DeviceCollection | null>(null);
+  const [editGroup, setEditGroup] = useState<DeviceSet | null>(null);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
   const {
-    collections: groups,
+    deviceSets: groups,
     statsMap,
     isLoading,
     hasEverLoaded,
@@ -43,7 +43,7 @@ const GroupsPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
-  } = useCollectionListState(listGroups, GROUPS_PAGE_SIZE, getErrorComponentTypes);
+  } = useDeviceSetListState(listGroups, GROUPS_PAGE_SIZE, getErrorComponentTypes);
 
   const handleIssuesChange = useCallback(
     (issues: string[]) => {
@@ -75,20 +75,20 @@ const GroupsPage = () => {
   }, [selectedIssues, handleRemoveIssue]);
 
   const renderName = useCallback(
-    (item: CollectionListItem) => (
-      <GroupNameCell group={item.collection} onEdit={setEditGroup} onActionComplete={resetAndFetch} />
+    (item: DeviceSetListItem) => (
+      <GroupNameCell group={item.deviceSet} onEdit={setEditGroup} onActionComplete={resetAndFetch} />
     ),
     [resetAndFetch],
   );
 
   const renderMiners = useCallback(
-    (item: CollectionListItem) => (
+    (item: DeviceSetListItem) => (
       <Link
-        to={`/miners?group=${item.collection.id}`}
+        to={`/miners?group=${item.deviceSet.id}`}
         className="hover:underline"
-        aria-label={`View miners in ${item.collection.label}`}
+        aria-label={`View miners in ${item.deviceSet.label}`}
       >
-        {item.collection.deviceCount}
+        {item.deviceSet.deviceCount}
       </Link>
     ),
     [],
@@ -176,8 +176,8 @@ const GroupsPage = () => {
             </div>
           )}
           <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
-            <CollectionList
-              collections={groups}
+            <DeviceSetList
+              deviceSets={groups}
               statsMap={statsMap}
               renderName={renderName}
               renderMiners={renderMiners}

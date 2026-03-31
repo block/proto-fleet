@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
 
-import { useCollections } from "@/protoFleet/api/useCollections";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { BulkActionsPopover } from "@/protoFleet/features/fleetManagement/components/BulkActions";
@@ -15,7 +15,7 @@ import {
   type SupportedAction,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 
-type CollectionActionType = SupportedAction | "edit-group";
+type DeviceSetActionType = SupportedAction | "edit-group";
 import CoolingModeModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/CoolingModeModal";
 import ManagePowerModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManagePowerModal";
 import {
@@ -32,9 +32,9 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
-interface CollectionActionsMenuProps {
+interface DeviceSetActionsMenuProps {
   memberDeviceIds?: string[];
-  collectionId?: bigint;
+  deviceSetId?: bigint;
   onEdit: () => void;
   /** Label for the edit action in the popover menu (e.g., "Edit group", "Edit rack"). */
   editLabel?: string;
@@ -47,17 +47,17 @@ interface CollectionActionsMenuProps {
   actionActiveRef?: RefObject<boolean>;
 }
 
-const CollectionActionsMenu = (props: CollectionActionsMenuProps) => {
+const DeviceSetActionsMenu = (props: DeviceSetActionsMenuProps) => {
   return (
     <PopoverProvider>
-      <CollectionActionsMenuInner {...props} />
+      <DeviceSetActionsMenuInner {...props} />
     </PopoverProvider>
   );
 };
 
-const CollectionActionsMenuInner = ({
+const DeviceSetActionsMenuInner = ({
   memberDeviceIds: propMemberDeviceIds,
-  collectionId,
+  deviceSetId,
   onEdit,
   editLabel = "Edit group",
   onActionComplete,
@@ -65,14 +65,14 @@ const CollectionActionsMenuInner = ({
   buttonVariant = variants.secondary,
   sleepActionRef,
   actionActiveRef,
-}: CollectionActionsMenuProps) => {
+}: DeviceSetActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Lazy-fetched member IDs for table context (when collectionId is provided but memberDeviceIds aren't)
+  // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
   const [fetchedMemberIds, setFetchedMemberIds] = useState<string[] | null>(null);
   const [fetchingMembers, setFetchingMembers] = useState(false);
-  const { listGroupMembers } = useCollections();
+  const { listGroupMembers } = useDeviceSets();
 
   const memberDeviceIds = useMemo(
     () => propMemberDeviceIds ?? fetchedMemberIds ?? [],
@@ -98,11 +98,11 @@ const CollectionActionsMenuInner = ({
   const handleOpen = useCallback(() => {
     setIsOpen((prev) => {
       const opening = !prev;
-      if (opening && !propMemberDeviceIds && collectionId && !fetchingMembers) {
+      if (opening && !propMemberDeviceIds && deviceSetId && !fetchingMembers) {
         setFetchedMemberIds(null);
         setFetchingMembers(true);
         listGroupMembers({
-          collectionId,
+          deviceSetId,
           onSuccess: (ids) => {
             setFetchedMemberIds(ids);
             setFetchingMembers(false);
@@ -114,7 +114,7 @@ const CollectionActionsMenuInner = ({
       }
       return opening;
     });
-  }, [propMemberDeviceIds, collectionId, fetchingMembers, listGroupMembers]);
+  }, [propMemberDeviceIds, deviceSetId, fetchingMembers, listGroupMembers]);
 
   const selectedMinersWithStatus = useMemo(
     () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),
@@ -174,7 +174,7 @@ const CollectionActionsMenuInner = ({
   const groupPopoverActions = useMemo(() => {
     const filtered = popoverActions.filter((a) => a.action !== groupActions.addToGroup);
 
-    const editGroupAction: BulkAction<CollectionActionType> = {
+    const editGroupAction: BulkAction<DeviceSetActionType> = {
       action: "edit-group",
       title: editLabel,
       icon: <Edit />,
@@ -269,7 +269,7 @@ const CollectionActionsMenuInner = ({
         <Button
           size={sizes.compact}
           variant={buttonVariant}
-          ariaLabel="Collection actions"
+          ariaLabel="Device set actions"
           prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
           onClick={(e) => {
             e.stopPropagation();
@@ -284,7 +284,7 @@ const CollectionActionsMenuInner = ({
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            <BulkActionsPopover<CollectionActionType>
+            <BulkActionsPopover<DeviceSetActionType>
               actions={groupPopoverActions}
               beforeEach={handlePopoverAction}
               testId="group-actions-popover"
@@ -366,4 +366,4 @@ const CollectionActionsMenuInner = ({
   );
 };
 
-export default CollectionActionsMenu;
+export default DeviceSetActionsMenu;
