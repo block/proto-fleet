@@ -46,13 +46,15 @@ const ComponentErrors = ({ icon, heading, errorCount, href, className }: Compone
     </>
   );
 
+  const isClickable = href && errorCount && errorCount > 0;
+
   const baseClassName = clsx(
     "flex items-center gap-3 rounded-xl bg-surface-base dark:bg-core-primary-5 p-4",
-    href && "hover:bg-core-primary-10",
+    isClickable && "hover:bg-core-primary-10",
     className,
   );
 
-  if (href) {
+  if (isClickable) {
     return (
       <Link to={href} className={baseClassName}>
         {content}

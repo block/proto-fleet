@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCollections } from "@/protoFleet/api/useCollections";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -15,7 +15,7 @@ import {
   type SupportedAction,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 
-type GroupActionType = SupportedAction | "edit-group";
+type CollectionActionType = SupportedAction | "edit-group";
 import CoolingModeModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/CoolingModeModal";
 import ManagePowerModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManagePowerModal";
 import {
@@ -32,31 +32,40 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
-interface GroupActionsMenuProps {
+interface CollectionActionsMenuProps {
   memberDeviceIds?: string[];
   collectionId?: bigint;
-  onEditGroup: () => void;
+  onEdit: () => void;
+  /** Label for the edit action in the popover menu (e.g., "Edit group", "Edit rack"). */
+  editLabel?: string;
   onActionComplete?: () => void;
   popoverClassName?: string;
   buttonVariant?: ButtonVariant;
+  /** Ref that exposes the sleep action handler so a parent can trigger it from an external button. */
+  sleepActionRef?: RefObject<(() => void) | null>;
+  /** Ref that reflects whether a bulk-action dialog is currently open. */
+  actionActiveRef?: RefObject<boolean>;
 }
 
-const GroupActionsMenu = (props: GroupActionsMenuProps) => {
+const CollectionActionsMenu = (props: CollectionActionsMenuProps) => {
   return (
     <PopoverProvider>
-      <GroupActionsMenuInner {...props} />
+      <CollectionActionsMenuInner {...props} />
     </PopoverProvider>
   );
 };
 
-const GroupActionsMenuInner = ({
+const CollectionActionsMenuInner = ({
   memberDeviceIds: propMemberDeviceIds,
   collectionId,
-  onEditGroup,
+  onEdit,
+  editLabel = "Edit group",
   onActionComplete,
   popoverClassName,
   buttonVariant = variants.secondary,
-}: GroupActionsMenuProps) => {
+  sleepActionRef,
+  actionActiveRef,
+}: CollectionActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -151,6 +160,13 @@ const GroupActionsMenuInner = ({
     onActionComplete,
   });
 
+  // Keep actionActiveRef in sync so the parent can pause polling during action flows
+  useEffect(() => {
+    if (actionActiveRef) {
+      actionActiveRef.current = currentAction !== null;
+    }
+  }, [actionActiveRef, currentAction]);
+
   // Customize actions for group context:
   // 1. Filter out "Add to group" (already in a group)
   // 2. Insert "Edit group" after the cooling mode divider
@@ -158,13 +174,13 @@ const GroupActionsMenuInner = ({
   const groupPopoverActions = useMemo(() => {
     const filtered = popoverActions.filter((a) => a.action !== groupActions.addToGroup);
 
-    const editGroupAction: BulkAction<GroupActionType> = {
+    const editGroupAction: BulkAction<CollectionActionType> = {
       action: "edit-group",
-      title: "Edit group",
+      title: editLabel,
       icon: <Edit />,
       actionHandler: () => {
         setIsOpen(false);
-        onEditGroup();
+        onEdit();
       },
       requiresConfirmation: false,
       showGroupDivider: true,
@@ -199,7 +215,7 @@ const GroupActionsMenuInner = ({
           }
         : a,
     );
-  }, [popoverActions, onEditGroup]);
+  }, [popoverActions, onEdit, editLabel]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
@@ -209,6 +225,20 @@ const GroupActionsMenuInner = ({
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
   const [showWarnDialog, setShowWarnDialog] = useState(false);
+
+  // Expose the sleep action handler to the parent via ref
+  useEffect(() => {
+    if (!sleepActionRef) return;
+    const sleepAction = popoverActions.find((a) => a.action === deviceActions.shutdown);
+    if (sleepAction) {
+      sleepActionRef.current = () => {
+        setShowWarnDialog(sleepAction.requiresConfirmation);
+        sleepAction.actionHandler();
+      };
+    } else {
+      sleepActionRef.current = null;
+    }
+  }, [sleepActionRef, popoverActions]);
 
   const handlePopoverAction = useCallback((requiresConfirmation: boolean) => {
     setIsOpen(false);
@@ -239,7 +269,7 @@ const GroupActionsMenuInner = ({
         <Button
           size={sizes.compact}
           variant={buttonVariant}
-          ariaLabel="Group actions"
+          ariaLabel="Collection actions"
           prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
           onClick={(e) => {
             e.stopPropagation();
@@ -254,7 +284,7 @@ const GroupActionsMenuInner = ({
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            <BulkActionsPopover<GroupActionType>
+            <BulkActionsPopover<CollectionActionType>
               actions={groupPopoverActions}
               beforeEach={handlePopoverAction}
               testId="group-actions-popover"
@@ -336,4 +366,4 @@ const GroupActionsMenuInner = ({
   );
 };
 
-export default GroupActionsMenu;
+export default CollectionActionsMenu;

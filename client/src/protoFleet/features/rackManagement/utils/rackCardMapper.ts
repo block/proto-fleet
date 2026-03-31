@@ -8,7 +8,7 @@ import {
 import type { SlotStatus } from "@/protoFleet/features/rackManagement/components/RackCard/types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
-const SLOT_STATUS_MAP: Record<SlotDeviceStatus, SlotStatus> = {
+export const SLOT_STATUS_MAP: Record<SlotDeviceStatus, SlotStatus> = {
   [SlotDeviceStatus.UNSPECIFIED]: "empty",
   [SlotDeviceStatus.EMPTY]: "empty",
   [SlotDeviceStatus.HEALTHY]: "healthy",

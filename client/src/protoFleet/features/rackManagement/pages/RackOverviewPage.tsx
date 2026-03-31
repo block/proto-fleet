@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
+import type {
+  CollectionStats,
+  DeviceCollection,
+  RackCoolingType,
+  RackOrderIndex,
+} from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import {
   AggregationType,
   GetCombinedMetricsResponse,
@@ -11,11 +16,17 @@ import { useCollections } from "@/protoFleet/api/useCollections";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
-import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import CollectionActionsMenu from "@/protoFleet/features/groupManagement/components/CollectionActionsMenu";
 import { CollectionPerformanceSection } from "@/protoFleet/features/groupManagement/components/CollectionPerformanceSection";
-import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import {
+  AssignMinersModal,
+  type RackFormData,
+} from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
+import { orderIndexToOrigin } from "@/protoFleet/features/rackManagement/components/AssignMinersModal/types";
+import type { SlotHealthState } from "@/protoFleet/features/rackManagement/components/RackDetailGrid/types";
+import { RackHealthModule } from "@/protoFleet/features/rackManagement/components/RackHealthModule";
+import { SLOT_STATUS_MAP } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
 import {
   useAppendStreamingMetrics,
   useAppendStreamingTemperatureCounts,
@@ -36,6 +47,8 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
+const RACK_OVERVIEW_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_OVERVIEW_POLL_INTERVAL_MS) || 60000;
+
 const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.HASHRATE,
   MeasurementType.POWER,
@@ -46,116 +59,196 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
 
-const GroupOverviewPage = () => {
-  const { groupLabel } = useParams<{ groupLabel: string }>();
-  const label = groupLabel ?? "";
+const RackOverviewPage = () => {
+  const { rackId: rackIdParam } = useParams<{ rackId: string }>();
   const navigate = useNavigate();
 
-  // Group resolution state
-  const [group, setGroup] = useState<DeviceCollection | null>(null);
+  // Rack resolution state
+  const [rack, setRack] = useState<DeviceCollection | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
+  const [collectionStats, setCollectionStats] = useState<CollectionStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const sleepActionRef = useRef<(() => void) | null>(null);
+  const actionActiveRef = useRef(false);
 
-  const { listGroups, listGroupMembers } = useCollections();
+  const { getCollection, listGroupMembers, getCollectionStats } = useCollections();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
 
-  // Resolve a group by label (or by ID if provided) → set group + member device IDs
-  const resolveGroup = useCallback(
-    (resolveLabel: string, groupId?: bigint) => {
+  // Resolve rack by ID → set rack + member device IDs + stats
+  // When `silent` is true (polling), keep existing state visible while refreshing in the background.
+  const resolveRack = useCallback(
+    (rackId: bigint, { silent = false } = {}) => {
       const version = ++resolveVersionRef.current;
-      setLoading(true);
-      setGroup(null);
-      setMemberDeviceIds(null);
-      setNotFound(false);
-      setResolveError(null);
+      if (!silent) {
+        setLoading(true);
+        setRack(null);
+        setMemberDeviceIds(null);
+        setCollectionStats(null);
+        setNotFound(false);
+        setResolveError(null);
+      }
 
-      listGroups({
-        onSuccess: (collections) => {
+      getCollection({
+        collectionId: rackId,
+        onSuccess: (collection) => {
           if (version !== resolveVersionRef.current) return;
-          const match = groupId
-            ? collections.find((c) => c.id === groupId)
-            : collections.find((c) => c.label === resolveLabel);
-          if (!match) {
+
+          // Reject non-rack collections
+          if (collection.typeDetails.case !== "rackInfo") {
             setNotFound(true);
             setLoading(false);
             return;
           }
-          setGroup(match);
-          // If the label changed (e.g., after edit), navigate to the new URL
-          if (match.label !== resolveLabel) {
-            navigate(`/groups/${encodeURIComponent(match.label)}`);
-            return;
-          }
+
+          setRack(collection);
+          // Clear any latched error state from a prior failed poll
+          setNotFound(false);
+          setResolveError(null);
+
+          // Wait for both members and stats before clearing loading state
+          let pending = 2;
+          const onRequestDone = () => {
+            pending--;
+            if (pending <= 0) setLoading(false);
+          };
+
+          // Fetch member device IDs
           listGroupMembers({
-            collectionId: match.id,
+            collectionId: collection.id,
             onSuccess: (deviceIdentifiers) => {
               if (version !== resolveVersionRef.current) return;
-              setMemberDeviceIds(deviceIdentifiers);
-              setLoading(false);
+              // Only update if membership actually changed to avoid resetting telemetry
+              setMemberDeviceIds((prev) => {
+                if (
+                  prev &&
+                  prev.length === deviceIdentifiers.length &&
+                  prev.every((id, i) => id === deviceIdentifiers[i])
+                ) {
+                  return prev;
+                }
+                return deviceIdentifiers;
+              });
+              onRequestDone();
             },
             onError: (msg) => {
               if (version !== resolveVersionRef.current) return;
-              setResolveError(msg);
-              setLoading(false);
+              if (!silent) {
+                setResolveError(msg);
+              }
+              onRequestDone();
+            },
+          });
+
+          // Fetch collection stats (for slot grid + KPIs)
+          getCollectionStats({
+            collectionIds: [collection.id],
+            onSuccess: (stats) => {
+              if (version !== resolveVersionRef.current) return;
+              if (stats.length > 0) {
+                setCollectionStats(stats[0]);
+              }
+              onRequestDone();
+            },
+            onError: () => {
+              if (version !== resolveVersionRef.current) return;
+              onRequestDone();
             },
           });
         },
+        onNotFound: () => {
+          if (version !== resolveVersionRef.current) return;
+          setNotFound(true);
+          setLoading(false);
+        },
         onError: (msg) => {
           if (version !== resolveVersionRef.current) return;
+          // During silent polls, don't latch errors — keep existing UI visible
+          if (silent) return;
           setResolveError(msg);
           setLoading(false);
         },
       });
     },
-    [listGroups, listGroupMembers, navigate],
+    [getCollection, listGroupMembers, getCollectionStats],
   );
 
-  // Resolve group label → group object → device IDs
+  // Initial resolution from URL param
   useEffect(() => {
-    if (!label) {
+    if (!rackIdParam) {
       setNotFound(true);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-    resolveGroup(label);
+    try {
+      const id = BigInt(rackIdParam);
+      resolveRack(id);
+    } catch {
+      setNotFound(true);
+      setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [label]);
+  }, [rackIdParam]);
+
+  // Polling — refresh rack data, paused while modals or bulk-action dialogs are open
+  useEffect(() => {
+    if (loading || !rack || showEditModal) return;
+    const intervalId = setInterval(() => {
+      if (actionActiveRef.current) return;
+      resolveRack(rack.id, { silent: true });
+    }, RACK_OVERVIEW_POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [loading, rack, showEditModal, resolveRack]);
+
+  // Rack metadata
+  const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+  const rows = rackInfo?.rows ?? 1;
+  const cols = rackInfo?.columns ?? 1;
+  const orderIndex = rackInfo?.orderIndex;
+  const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
+
+  // Build slot states for RackDetailGrid from collection stats
+  const slotStates = useMemo<Record<string, SlotHealthState>>(() => {
+    if (!collectionStats) return {};
+    const states: Record<string, SlotHealthState> = {};
+    for (const s of collectionStats.slotStatuses) {
+      states[`${s.row}-${s.column}`] = SLOT_STATUS_MAP[s.status] ?? "empty";
+    }
+    return states;
+  }, [collectionStats]);
+
+  // AssignMinersModal form data (for edit rack flow)
+  const assignMinersFormData = useMemo<RackFormData | null>(() => {
+    if (!showEditModal || !rack || !rackInfo) return null;
+    return {
+      label: rack.label,
+      zone: rackInfo.zone ?? "",
+      rows: rackInfo.rows ?? 1,
+      columns: rackInfo.columns ?? 1,
+      orderIndex: rackInfo.orderIndex as RackOrderIndex,
+      coolingType: rackInfo.coolingType as RackCoolingType,
+    };
+  }, [showEditModal, rack, rackInfo]);
 
   // Dashboard store hooks
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
 
-  // Component errors scoped to group's devices
-  // Pass undefined when no members yet (loading); pass empty array for truly empty groups
-  // so useComponentErrors can distinguish "no scope" from "empty scope"
+  // Component errors scoped to rack's devices
   const componentErrorsOptions = useMemo(
     () => (memberDeviceIds ? { deviceIdentifiers: memberDeviceIds } : undefined),
     [memberDeviceIds],
   );
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
 
-  // Group size for "X of Y miners reporting" subtitles
-  const groupSize = memberDeviceIds?.length ?? 0;
-
-  const streamingStateCounts = useMinerStateCounts();
+  const stateCounts = useMinerStateCounts();
   const setMinerStateCounts = useSetMinerStateCounts();
-
-  // Use streaming counts when available, fall back to group member count
-  const stateCounts = streamingStateCounts;
-  const totalMiners = streamingStateCounts
-    ? (streamingStateCounts.hashingCount ?? 0) +
-      (streamingStateCounts.brokenCount ?? 0) +
-      (streamingStateCounts.offlineCount ?? 0) +
-      (streamingStateCounts.sleepingCount ?? 0)
-    : groupSize;
 
   // Store action hooks
   const setAllHistoricalData = useSetAllHistoricalData();
@@ -166,7 +259,6 @@ const GroupOverviewPage = () => {
   const setError = useSetDashboardError();
 
   // Clear dashboard store on mount and unmount
-  // Also reset minerStateCounts so stale all-fleet counts from Dashboard don't show
   useEffect(() => {
     clearMetrics();
     setMinerStateCounts(undefined);
@@ -177,9 +269,9 @@ const GroupOverviewPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Telemetry fetching - scoped to group's device IDs
+  // Telemetry fetching - scoped to rack's device IDs
   const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
-  const isEmptyGroup = memberDeviceIds !== null && memberDeviceIds.length === 0;
+  const isEmptyRack = memberDeviceIds !== null && memberDeviceIds.length === 0;
 
   const telemetryOptions = useMemo(
     () => ({
@@ -206,7 +298,7 @@ const GroupOverviewPage = () => {
 
   const { latestData: streamingData } = useStreamingTelemetryMetrics(streamingOptions);
 
-  // Write historical data to store (mirrors Dashboard pattern)
+  // Write historical data to store
   const lastLoadedDataRef = useRef<GetCombinedMetricsResponse | null>(null);
   const hasLoadedForCurrentDurationRef = useRef(false);
 
@@ -239,7 +331,7 @@ const GroupOverviewPage = () => {
     prevDurationRef.current = duration;
   }, [duration, clearMetrics]);
 
-  // Reset historical data refs and miner state counts when group membership changes
+  // Reset historical data refs and miner state counts when rack membership changes
   useEffect(() => {
     lastLoadedDataRef.current = null;
     hasLoadedForCurrentDurationRef.current = false;
@@ -247,12 +339,12 @@ const GroupOverviewPage = () => {
     setMinerStateCounts(undefined);
   }, [memberDeviceIds, clearMetrics, setMinerStateCounts]);
 
-  // Seed empty metrics for zero-member groups so charts show "No data" instead of skeleton
+  // Seed empty metrics for zero-member racks (also re-seed after duration changes clear metrics)
   useEffect(() => {
     if (memberDeviceIds !== null && memberDeviceIds.length === 0) {
       setAllHistoricalData([], [], []);
     }
-  }, [memberDeviceIds, setAllHistoricalData]);
+  }, [memberDeviceIds, duration, setAllHistoricalData]);
 
   // Append streaming data
   useEffect(() => {
@@ -281,8 +373,8 @@ const GroupOverviewPage = () => {
   if (notFound) {
     return (
       <div className="p-10 phone:p-6 tablet:p-6">
-        <h1 className="text-heading-300 text-text-primary">Group not found</h1>
-        <p className="mt-2 text-300 text-text-primary-50">No group with the label &ldquo;{label}&rdquo; exists.</p>
+        <h1 className="text-heading-300 text-text-primary">Rack not found</h1>
+        <p className="mt-2 text-300 text-text-primary-50">No rack with ID &ldquo;{rackIdParam}&rdquo; exists.</p>
       </div>
     );
   }
@@ -290,7 +382,7 @@ const GroupOverviewPage = () => {
   if (resolveError) {
     return (
       <div className="p-10 phone:p-6 tablet:p-6">
-        <h1 className="text-heading-300 text-text-primary">Error loading group</h1>
+        <h1 className="text-heading-300 text-text-primary">Error loading rack</h1>
         <p className="mt-2 text-300 text-text-primary-50">{resolveError}</p>
       </div>
     );
@@ -302,47 +394,59 @@ const GroupOverviewPage = () => {
         {/* Header */}
         <div className="p-10 pb-0 phone:p-6 phone:pb-0 tablet:p-6 tablet:pb-0">
           <Header
-            title={label}
+            title={rack?.label ?? ""}
             titleSize="text-heading-300"
             inline
             icon={<ChevronDown className="rotate-90" />}
-            iconOnClick={() => navigate("/groups")}
+            iconOnClick={() => navigate("/racks")}
           >
             <div className="ml-3 flex items-center gap-3">
-              <Button variant={variants.secondary} onClick={() => navigate(`/miners?group=${group?.id}`)}>
+              <Button variant={variants.secondary} onClick={() => navigate(`/miners?rack=${rack?.id}`)}>
                 View miners
               </Button>
+              <Button
+                variant={variants.secondary}
+                onClick={() => sleepActionRef.current?.()}
+                disabled={!memberDeviceIds || memberDeviceIds.length === 0}
+              >
+                Sleep all miners
+              </Button>
               <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
-                Edit group
+                Edit rack
               </Button>
               <CollectionActionsMenu
                 memberDeviceIds={memberDeviceIds ?? []}
                 onEdit={() => setShowEditModal(true)}
-                onActionComplete={() => resolveGroup(label, group?.id)}
+                editLabel="Edit rack"
+                onActionComplete={() => rack && resolveRack(rack.id)}
+                sleepActionRef={sleepActionRef}
+                actionActiveRef={actionActiveRef}
               />
             </div>
           </Header>
         </div>
 
-        {/* Overview Section */}
+        {/* Health Overview Section */}
         <section className="p-10 phone:p-6 tablet:p-6">
           <div className="flex flex-col gap-1">
-            <FleetHealth
-              title="Miners"
-              fleetSize={streamingStateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
-              healthyMiners={stateCounts?.hashingCount ?? (isEmptyGroup ? 0 : undefined)}
-              needsAttentionMiners={stateCounts?.brokenCount ?? (isEmptyGroup ? 0 : undefined)}
-              offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup ? 0 : undefined)}
-              sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup ? 0 : undefined)}
-              extraFilterParams={group ? `group=${group.id}` : undefined}
-              totalMinersLink={group ? `/miners?group=${group.id}` : undefined}
+            <RackHealthModule
+              rows={rows}
+              cols={cols}
+              slotStates={slotStates}
+              numberingOrigin={numberingOrigin}
+              onEmptySlotClick={() => setShowEditModal(true)}
+              hashingCount={stateCounts?.hashingCount ?? (isEmptyRack ? 0 : undefined)}
+              needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack ? 0 : undefined)}
+              offlineCount={stateCounts?.offlineCount ?? (isEmptyRack ? 0 : undefined)}
+              sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack ? 0 : undefined)}
+              rackFilterParam={rack ? `rack=${rack.id}` : undefined}
             />
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
               fanErrors={fanErrors}
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
-              extraFilterParams={group ? `group=${group.id}` : undefined}
+              extraFilterParams={rack ? `rack=${rack.id}` : undefined}
             />
           </div>
         </section>
@@ -366,7 +470,7 @@ const GroupOverviewPage = () => {
                       strokeLinecap="round"
                     />
                   </svg>
-                  <span>Group</span>
+                  <span>Rack</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
@@ -414,15 +518,16 @@ const GroupOverviewPage = () => {
         </section>
       </div>
 
-      {showEditModal && group && (
-        <GroupModal
+      {showEditModal && rack && assignMinersFormData && (
+        <AssignMinersModal
           show
-          group={group}
+          rackSettings={assignMinersFormData}
+          existingRackId={rack.id}
+          existingRacks={[rack]}
           onDismiss={() => setShowEditModal(false)}
-          onSuccess={() => {
+          onSave={() => {
             setShowEditModal(false);
-            // Re-resolve group to pick up label and membership changes
-            resolveGroup(label, group.id);
+            resolveRack(rack.id);
           }}
         />
       )}
@@ -430,4 +535,4 @@ const GroupOverviewPage = () => {
   );
 };
 
-export default GroupOverviewPage;
+export default RackOverviewPage;

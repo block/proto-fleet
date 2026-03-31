@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { collectionClient } from "@/protoFleet/api/clients";
 import {
@@ -64,6 +65,14 @@ interface AddDevicesToCollectionProps {
   deviceIdentifiers?: string[];
   allDevices?: boolean;
   onSuccess?: (addedCount: number) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface GetCollectionProps {
+  collectionId: bigint;
+  onSuccess?: (collection: DeviceCollection) => void;
+  onNotFound?: () => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -335,15 +344,34 @@ const useCollections = () => {
       onFinally,
     }: ListCollectionsProps) => {
       try {
-        const response = await collectionClient.listCollections({
-          type: CollectionType.RACK,
-          pageSize: pageSize ?? 100,
-          pageToken: pageToken ?? "",
-          sort,
-          errorComponentTypes: errorComponentTypes ?? [],
-          zones: zones ?? [],
-        });
-        onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
+        if (pageSize) {
+          const response = await collectionClient.listCollections({
+            type: CollectionType.RACK,
+            pageSize,
+            pageToken: pageToken ?? "",
+            sort,
+            errorComponentTypes: errorComponentTypes ?? [],
+            zones: zones ?? [],
+          });
+          onSuccess?.(response.collections, response.nextPageToken, response.totalCount);
+        } else {
+          // Server caps pageSize at 1000, so we page through all results
+          // to support callers that need the full unpaginated list.
+          const all: DeviceCollection[] = [];
+          let nextToken = "";
+          do {
+            const response = await collectionClient.listCollections({
+              type: CollectionType.RACK,
+              pageSize: 1000,
+              pageToken: nextToken,
+              sort,
+              zones: zones ?? [],
+            });
+            all.push(...response.collections);
+            nextToken = response.nextPageToken;
+          } while (nextToken);
+          onSuccess?.(all, "", all.length);
+        }
       } catch (err) {
         handleAuthErrors({
           error: err,
@@ -351,6 +379,34 @@ const useCollections = () => {
             onError?.((err as Error)?.message ?? String(err));
           },
         });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  const getCollection = useCallback(
+    async ({ collectionId, onSuccess, onNotFound, onError, onFinally }: GetCollectionProps) => {
+      try {
+        const response = await collectionClient.getCollection({ collectionId });
+        const collection = response.collection;
+        if (!collection) {
+          onNotFound?.();
+          return;
+        }
+        onSuccess?.(collection);
+      } catch (err) {
+        if (err instanceof ConnectError && err.code === Code.NotFound) {
+          onNotFound?.();
+        } else {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.((err as Error)?.message ?? String(err));
+            },
+          });
+        }
       } finally {
         onFinally?.();
       }
@@ -763,6 +819,7 @@ const useCollections = () => {
     updateGroup,
     updateRack,
     deleteGroup,
+    getCollection,
     listGroups,
     listRacks,
     listRackZones,

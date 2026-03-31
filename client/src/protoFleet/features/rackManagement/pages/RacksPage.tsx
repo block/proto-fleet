@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  type DeviceCollection,
-  RackCoolingType,
-  RackOrderIndex,
-} from "@/protoFleet/api/generated/collection/v1/collection_pb";
 import { useCollections } from "@/protoFleet/api/useCollections";
 import type { CollectionListItem } from "@/protoFleet/components/CollectionList";
 import type { CollectionColumn } from "@/protoFleet/components/CollectionList";
@@ -31,6 +26,7 @@ import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import useMeasure from "@/shared/hooks/useMeasure";
+import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const RACK_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_LIST_POLL_INTERVAL_MS) || 60000;
 
@@ -53,6 +49,7 @@ const RACK_COLUMNS: CollectionColumn[] = [
 ];
 
 const RacksPage = () => {
+  const navigate = useNavigate();
   const { listRacks, listRackZones } = useCollections();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
@@ -160,19 +157,6 @@ const RacksPage = () => {
     return pills;
   }, [selectedZones, selectedIssues, allZones]);
 
-  const handleOpenRackForEdit = useCallback((rack: DeviceCollection) => {
-    const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
-    setAssignMinersFormData({
-      label: rack.label,
-      zone: rackInfo?.zone ?? "",
-      rows: rackInfo?.rows ?? 1,
-      columns: rackInfo?.columns ?? 1,
-      orderIndex: rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
-      coolingType: rackInfo?.coolingType ?? RackCoolingType.AIR,
-    });
-    setAssignMinersRackId(rack.id);
-  }, []);
-
   const handleRackSettingsContinue = useCallback((formData: RackFormData) => {
     setShowRackSettingsModal(false);
     setAssignMinersFormData(formData);
@@ -196,12 +180,12 @@ const RacksPage = () => {
       <button
         type="button"
         className="text-left hover:underline"
-        onClick={() => handleOpenRackForEdit(item.collection)}
+        onClick={() => navigate(`/racks/${item.collection.id}`)}
       >
         {item.collection.label}
       </button>
     ),
-    [handleOpenRackForEdit],
+    [navigate],
   );
 
   const renderMiners = useCallback((item: CollectionListItem) => <span>{item.collection.deviceCount}</span>, []);
@@ -478,7 +462,7 @@ const RacksPage = () => {
                       efficiency={efficiency}
                       power={power}
                       temperature={temperature}
-                      onClick={() => handleOpenRackForEdit(rack)}
+                      onClick={() => navigate(`/racks/${rack.id}`)}
                     />
                   );
                 })}

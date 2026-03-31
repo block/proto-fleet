@@ -30,10 +30,10 @@ describe("FleetErrors", () => {
     expect(screen.getByText("58 miners need attention")).toBeInTheDocument();
   });
 
-  it("renders all components as links with correct filters", () => {
+  it("renders all components as links with correct filters when errors exist", () => {
     render(
       <BrowserRouter>
-        <FleetErrors />
+        <FleetErrors controlBoardErrors={1} fanErrors={2} hashboardErrors={3} psuErrors={4} />
       </BrowserRouter>,
     );
 
@@ -43,6 +43,16 @@ describe("FleetErrors", () => {
     expect(links[1]).toHaveAttribute("href", "/miners?issues=fans");
     expect(links[2]).toHaveAttribute("href", "/miners?issues=hash-boards");
     expect(links[3]).toHaveAttribute("href", "/miners?issues=psu");
+  });
+
+  it("does not render as links when error counts are zero", () => {
+    render(
+      <BrowserRouter>
+        <FleetErrors controlBoardErrors={0} fanErrors={0} hashboardErrors={0} psuErrors={0} />
+      </BrowserRouter>,
+    );
+
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 
   it("applies custom className", () => {

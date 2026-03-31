@@ -11,7 +11,7 @@ import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
 import { GroupOverviewPage, GroupsPage } from "@/protoFleet/features/groupManagement";
 import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFleet/features/onboarding";
-import { RacksPage } from "@/protoFleet/features/rackManagement";
+import { RackOverviewPage, RacksPage } from "@/protoFleet/features/rackManagement";
 import {
   Authentication as AuthSettings,
   Firmware,
@@ -107,6 +107,7 @@ const router = createBrowserRouter([
 
   // Racks
   createRoute("/racks", <RacksPage />),
+  createRoute("/racks/:rackId", <RackOverviewPage />),
 
   // Activity
   createRoute("/activity", <ActivityPage />),

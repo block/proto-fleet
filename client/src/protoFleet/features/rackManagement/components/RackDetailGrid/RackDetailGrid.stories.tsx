@@ -32,7 +32,6 @@ function InteractiveRackDetailGrid({
   offlineCount: number;
   sleepingCount: number;
   numberingOrigin?: NumberingOrigin;
-  slotsPerMiner?: number;
   slotSize?: number;
 }) {
   const slotStates = useMemo(() => {
@@ -80,7 +79,6 @@ const meta: Meta<typeof InteractiveRackDetailGrid> = {
       control: "select",
       options: ["bottom-left", "top-left", "bottom-right", "top-right"],
     },
-    slotsPerMiner: { control: { type: "number", min: 1, max: 4, step: 1 } },
     healthyCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
     needsAttentionCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
     offlineCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
@@ -182,18 +180,6 @@ export const WideRack: Story = {
     needsAttentionCount: 4,
     offlineCount: 2,
     sleepingCount: 2,
-  },
-};
-
-export const SlotsPerMiner2: Story = {
-  args: {
-    rows: 5,
-    cols: 5,
-    slotsPerMiner: 2,
-    healthyCount: 8,
-    needsAttentionCount: 2,
-    offlineCount: 0,
-    sleepingCount: 0,
   },
 };
 

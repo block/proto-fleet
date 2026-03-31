@@ -1,12 +1,10 @@
 import { useMemo } from "react";
-import clsx from "clsx";
 
 import { DEFAULT_CHART_HEIGHT } from "./constants";
 import type { SegmentedMetricPanelProps } from "./types";
 import { durationToHours, getCurrentBreakdown, processMultiDayChartData } from "./utils";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
-import Button, { variants } from "@/shared/components/Button";
-import Divider from "@/shared/components/Divider";
+import { StatusBreakdownPanel } from "@/protoFleet/features/dashboard/components/StatusBreakdownPanel";
 import SegmentedBarChart from "@/shared/components/SegmentedBarChart";
 
 // Constants for bar chart display
@@ -172,41 +170,7 @@ export const SegmentedMetricPanel = ({
       </ChartWidget>
 
       {/* Right Panel: Current Values Breakdown */}
-      <div className="flex w-1/2 flex-col justify-between space-y-3 bg-transparent p-10 dark:bg-transparent phone:w-full phone:gap-4 phone:p-6 phone:pt-0 tablet:w-full tablet:gap-4 tablet:p-6 tablet:pt-0">
-        {currentBreakdown.map((segment, idx) => (
-          <div key={segment.key} className="relative flex grow flex-row items-center">
-            {/* Icon or color indicator */}
-            {segment.icon ? (
-              <span className="mr-3 flex" style={{ color: `var(${segment.color})` }}>
-                {segment.icon}
-              </span>
-            ) : (
-              <div className="mr-3 h-3 w-3 rounded-full" style={{ backgroundColor: `var(${segment.color})` }} />
-            )}
-
-            {/* Label and percentage */}
-            <div className="flex flex-1 flex-col">
-              <span className="text-400 text-text-primary">{segment.label}</span>
-              <span className="text-text-secondary text-300">{segment.percentageLabel}</span>
-            </div>
-
-            {/* Button with count - only show if showButton is true and count > 0 */}
-            {segment.showButton && segment.count > 0 && (
-              <Button
-                variant={variants[segment.buttonVariant] || variants.secondary}
-                size="compact"
-                onClick={segment.onClick}
-                className={clsx({ "pointer-events-none": !segment.onClick })}
-              >
-                {segment.count} {segment.count === 1 ? "miner" : "miners"}
-              </Button>
-            )}
-
-            {/* Divider between segments (not on last item) */}
-            {idx < currentBreakdown.length - 1 && <Divider className="absolute -bottom-4 left-0 w-full" />}
-          </div>
-        ))}
-      </div>
+      <StatusBreakdownPanel items={currentBreakdown} className="w-1/2 phone:w-full tablet:w-full" />
     </div>
   );
 };

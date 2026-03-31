@@ -2,16 +2,20 @@ import { useMemo } from "react";
 import RackDetailSlot from "./RackDetailSlot";
 import type { RackDetailGridProps, SlotHealthState } from "./types";
 import { computeSlotNumber } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import useMeasure from "@/shared/hooks/useMeasure";
+
+const GAP = 4;
+const MIN_SLOT_SIZE = 24;
 
 export default function RackDetailGrid({
   rows,
   cols,
   slotStates = {},
   numberingOrigin = "bottom-left",
-  slotsPerMiner = 1,
   slotSize = 64,
+  onEmptySlotClick,
 }: RackDetailGridProps) {
-  const spm = slotsPerMiner || 1;
+  const [measureRef, { width: containerWidth }] = useMeasure<HTMLDivElement>();
 
   const { displaySlots, gridCols } = useMemo(() => {
     const allSlots: { row: number; col: number; slotNumber: number }[] = [];
@@ -21,20 +25,6 @@ export default function RackDetailGrid({
       }
     }
 
-    if (spm > 1) {
-      const filtered = allSlots.filter((_, i) => i % spm === 0);
-      const totalSlots = Math.floor((cols * rows) / spm);
-      const display = filtered.slice(0, totalSlots);
-      const displayCols = Math.ceil(display.length / rows) || cols;
-      return {
-        displaySlots: display.map((s, idx) => ({
-          slotNumber: idx + 1,
-          state: slotStates[`${s.row}-${s.col}`] ?? ("empty" as SlotHealthState),
-        })),
-        gridCols: displayCols,
-      };
-    }
-
     return {
       displaySlots: allSlots.map((s) => ({
         slotNumber: s.slotNumber,
@@ -42,19 +32,30 @@ export default function RackDetailGrid({
       })),
       gridCols: cols,
     };
-  }, [rows, cols, slotStates, numberingOrigin, spm]);
+  }, [rows, cols, slotStates, numberingOrigin]);
+
+  const computedSlotSize = useMemo(() => {
+    if (!containerWidth) return 0;
+    const maxFit = Math.floor((containerWidth - (gridCols - 1) * GAP) / gridCols);
+    return Math.max(MIN_SLOT_SIZE, Math.min(slotSize, maxFit));
+  }, [containerWidth, gridCols, slotSize]);
 
   return (
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: `repeat(${gridCols}, minmax(0, ${slotSize}px))`,
-        gap: 4,
-      }}
-    >
-      {displaySlots.map((slot, i) => (
-        <RackDetailSlot key={i} slot={slot} slotSize={slotSize} />
-      ))}
+    <div ref={measureRef} className="flex w-full justify-center">
+      {computedSlotSize > 0 && (
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: `repeat(${gridCols}, ${computedSlotSize}px)`,
+            gridAutoRows: `${computedSlotSize}px`,
+            gap: GAP,
+          }}
+        >
+          {displaySlots.map((slot, i) => (
+            <RackDetailSlot key={i} slot={slot} slotSize={computedSlotSize} onEmptySlotClick={onEmptySlotClick} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

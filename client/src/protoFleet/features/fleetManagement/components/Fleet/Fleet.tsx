@@ -38,8 +38,9 @@ const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
 
 const Fleet = () => {
   const navigate = useNavigate();
-  const { listGroups } = useCollections();
+  const { listGroups, listRacks } = useCollections();
   const [availableGroups, setAvailableGroups] = useState<DeviceCollection[]>([]);
+  const [availableRacks, setAvailableRacks] = useState<DeviceCollection[]>([]);
 
   useEffect(() => {
     listGroups({
@@ -47,7 +48,12 @@ const Fleet = () => {
         setAvailableGroups(collections);
       },
     });
-  }, [listGroups]);
+    listRacks({
+      onSuccess: (collections) => {
+        setAvailableRacks(collections);
+      },
+    });
+  }, [listGroups, listRacks]);
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
@@ -174,6 +180,7 @@ const Fleet = () => {
           onSort={handleSort}
           availableModels={availableModels}
           availableGroups={availableGroups}
+          availableRacks={availableRacks}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
           onExportCsv={exportCsv}

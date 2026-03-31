@@ -12,6 +12,7 @@ export interface DetailSlotData {
 export interface RackDetailSlotProps {
   slot: DetailSlotData;
   slotSize?: number;
+  onEmptySlotClick?: () => void;
 }
 
 export interface RackDetailGridProps {
@@ -19,6 +20,6 @@ export interface RackDetailGridProps {
   cols: number;
   slotStates?: Record<string, SlotHealthState>;
   numberingOrigin?: NumberingOrigin;
-  slotsPerMiner?: number;
   slotSize?: number;
+  onEmptySlotClick?: () => void;
 }

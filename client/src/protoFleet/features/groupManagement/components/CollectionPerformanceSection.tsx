@@ -15,7 +15,7 @@ import type { ChartData } from "@/shared/components/LineChart/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
 
-interface GroupPerformanceSectionProps {
+interface CollectionPerformanceSectionProps {
   duration: FleetDuration;
 }
 
@@ -220,7 +220,7 @@ function ChartPanel({
   );
 }
 
-export function GroupPerformanceSection({ duration }: GroupPerformanceSectionProps) {
+export function CollectionPerformanceSection({ duration }: CollectionPerformanceSectionProps) {
   const hashrateTransform = useMemo(
     () => (metrics: Metric[]) => {
       const chartData = transformMetrics(metrics, normalizeHashrateToTHs);

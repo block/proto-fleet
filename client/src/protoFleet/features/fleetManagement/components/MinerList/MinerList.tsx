@@ -133,6 +133,10 @@ type MinerListProps = {
    */
   availableGroups?: DeviceCollection[];
   /**
+   * Available racks for the rack filter dropdown.
+   */
+  availableRacks?: DeviceCollection[];
+  /**
    * Exports the full paired miner list as CSV.
    */
   onExportCsv?: () => void | Promise<void>;
@@ -381,6 +385,7 @@ const MinerList = ({
   onSort,
   availableModels = [],
   availableGroups = [],
+  availableRacks = [],
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -478,7 +483,11 @@ const MinerList = ({
 
   const hasActiveFilters = useMemo(() => {
     return (
-      searchParams.has("status") || searchParams.has("issues") || searchParams.has("model") || searchParams.has("group")
+      searchParams.has("status") ||
+      searchParams.has("issues") ||
+      searchParams.has("model") ||
+      searchParams.has("group") ||
+      searchParams.has("rack")
     );
   }, [searchParams]);
   const selectionFilterKey = useMemo(() => {
@@ -499,6 +508,7 @@ const MinerList = ({
     nextSearchParams.delete("issues");
     nextSearchParams.delete("model");
     nextSearchParams.delete("group");
+    nextSearchParams.delete("rack");
 
     const nextSearch = nextSearchParams.toString();
     navigate({ search: nextSearch ? `?${nextSearch}` : "" }, { replace: true });
@@ -547,8 +557,15 @@ const MinerList = ({
         options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
         defaultOptionIds: [],
       },
+      {
+        type: "dropdown",
+        title: "Racks",
+        value: "rack",
+        options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
+        defaultOptionIds: [],
+      },
     ] as FilterItem[];
-  }, [availableModels, availableGroups]);
+  }, [availableModels, availableGroups, availableRacks]);
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
@@ -605,6 +622,13 @@ const MinerList = ({
       if (groupFilters && groupFilters.length > 0) {
         groupFilters.forEach((id) => {
           minerFilter.groupIds.push(BigInt(id));
+        });
+      }
+
+      const rackFilters = filters.dropdownFilters.rack;
+      if (rackFilters && rackFilters.length > 0) {
+        rackFilters.forEach((id) => {
+          minerFilter.rackIds.push(BigInt(id));
         });
       }
 

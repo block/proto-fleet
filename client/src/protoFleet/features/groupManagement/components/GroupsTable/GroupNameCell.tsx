@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { DeviceCollection } from "@/protoFleet/api/generated/collection/v1/collection_pb";
-import GroupActionsMenu from "@/protoFleet/features/groupManagement/components/GroupActionsMenu";
+import CollectionActionsMenu from "@/protoFleet/features/groupManagement/components/CollectionActionsMenu";
 import { variants } from "@/shared/components/Button";
 
 type GroupNameCellProps = {
@@ -20,9 +20,9 @@ const GroupNameCell = ({ group, onEdit, onActionComplete }: GroupNameCellProps) 
       >
         {group.label}
       </Link>
-      <GroupActionsMenu
+      <CollectionActionsMenu
         collectionId={group.id}
-        onEditGroup={() => onEdit(group)}
+        onEdit={() => onEdit(group)}
         onActionComplete={onActionComplete}
         buttonVariant={variants.textOnly}
       />

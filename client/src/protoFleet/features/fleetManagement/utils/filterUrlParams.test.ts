@@ -147,4 +147,91 @@ describe("filterUrlParams", () => {
       expect(filter).toBeUndefined();
     });
   });
+
+  describe("parseUrlToActiveFilters - rack IDs", () => {
+    it("should parse valid rack IDs from URL", () => {
+      const params = new URLSearchParams("rack=10,20,30");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.rack).toEqual(["10", "20", "30"]);
+    });
+
+    it("should deduplicate rack values from URL", () => {
+      const params = new URLSearchParams("rack=5,5,6,6");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.rack).toEqual(["5", "6"]);
+    });
+
+    it("should filter out empty rack values from URL", () => {
+      const params = new URLSearchParams("rack=1,,2,");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.rack).toEqual(["1", "2"]);
+    });
+
+    it("should filter out non-numeric rack values from URL", () => {
+      const params = new URLSearchParams("rack=1,abc,2,xyz");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.rack).toEqual(["1", "2"]);
+    });
+
+    it("should not set rack filter when all values are invalid", () => {
+      const params = new URLSearchParams("rack=abc,,xyz");
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(activeFilters.dropdownFilters.rack).toBeUndefined();
+    });
+  });
+
+  describe("encodeFilterToURL - rack IDs", () => {
+    it("should encode rack IDs to URL params", () => {
+      const filter = create(MinerListFilterSchema, {
+        rackIds: [10n, 20n, 30n],
+      });
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.get("rack")).toBe("10,20,30");
+    });
+
+    it("should not set rack param when no rack IDs", () => {
+      const filter = create(MinerListFilterSchema, {});
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.has("rack")).toBe(false);
+    });
+  });
+
+  describe("parseFilterFromURL - rack IDs", () => {
+    it("should parse valid rack IDs into BigInt values", () => {
+      const params = new URLSearchParams("rack=10,20,30");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.rackIds).toEqual([10n, 20n, 30n]);
+    });
+
+    it("should skip empty rack ID values", () => {
+      const params = new URLSearchParams("rack=1,,3");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.rackIds).toEqual([1n, 3n]);
+    });
+
+    it("should skip non-numeric rack ID values without throwing", () => {
+      const params = new URLSearchParams("rack=abc,1,xyz,2");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.rackIds).toEqual([1n, 2n]);
+    });
+
+    it("should handle rack param with only invalid values", () => {
+      const params = new URLSearchParams("rack=abc");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.rackIds).toEqual([]);
+    });
+  });
 });

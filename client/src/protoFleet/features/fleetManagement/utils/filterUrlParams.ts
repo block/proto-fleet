@@ -16,6 +16,7 @@ const URL_PARAMS = {
   ISSUES: "issues",
   MODEL: "model",
   GROUP: "group",
+  RACK: "rack",
 } as const;
 
 /**
@@ -103,6 +104,11 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     params.set(URL_PARAMS.GROUP, filter.groupIds.map(String).sort().join(","));
   }
 
+  // Encode rack IDs
+  if (filter.rackIds.length > 0) {
+    params.set(URL_PARAMS.RACK, filter.rackIds.map(String).sort().join(","));
+  }
+
   return params;
 }
 
@@ -114,9 +120,10 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
   const issuesParam = params.get(URL_PARAMS.ISSUES);
   const modelParam = params.get(URL_PARAMS.MODEL);
   const groupParam = params.get(URL_PARAMS.GROUP);
+  const rackParam = params.get(URL_PARAMS.RACK);
 
   // If no filter params, return undefined
-  if (!statusParam && !issuesParam && !modelParam && !groupParam) {
+  if (!statusParam && !issuesParam && !modelParam && !groupParam && !rackParam) {
     return undefined;
   }
 
@@ -190,6 +197,17 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     });
   }
 
+  // Parse rack IDs
+  if (rackParam) {
+    const rackValues = rackParam.split(",");
+    rackValues.forEach((id) => {
+      const trimmed = id.trim();
+      if (trimmed && /^\d+$/.test(trimmed)) {
+        filter.rackIds.push(BigInt(trimmed));
+      }
+    });
+  }
+
   return filter;
 }
 
@@ -242,6 +260,18 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     }
   }
 
+  // Parse rack dropdown
+  const rackParam = params.get(URL_PARAMS.RACK);
+  if (rackParam) {
+    const rackValues = rackParam
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value !== "" && /^\d+$/.test(value));
+    if (rackValues.length > 0) {
+      activeFilters.dropdownFilters.rack = Array.from(new Set(rackValues));
+    }
+  }
+
   return activeFilters;
 }
 
@@ -276,6 +306,12 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const groupFilters = filters.dropdownFilters.group;
   if (groupFilters && groupFilters.length > 0) {
     params.set(URL_PARAMS.GROUP, groupFilters.sort().join(","));
+  }
+
+  // Encode rack dropdown
+  const rackFilters = filters.dropdownFilters.rack;
+  if (rackFilters && rackFilters.length > 0) {
+    params.set(URL_PARAMS.RACK, rackFilters.sort().join(","));
   }
 
   return params;

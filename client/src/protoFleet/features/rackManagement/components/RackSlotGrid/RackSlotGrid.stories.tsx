@@ -32,7 +32,6 @@ function InteractiveRackSlotGrid({
   dragOverCount: number;
   peerHoverCount: number;
   numberingOrigin?: NumberingOrigin;
-  slotsPerMiner?: number;
   slotSize?: number;
 }) {
   const slotStates = useMemo(() => {
@@ -80,7 +79,6 @@ const meta: Meta<typeof InteractiveRackSlotGrid> = {
       control: "select",
       options: ["bottom-left", "top-left", "bottom-right", "top-right"],
     },
-    slotsPerMiner: { control: { type: "number", min: 1, max: 4, step: 1 } },
     occupiedCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
     selectedCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
     dragOverCount: { control: { type: "number", min: 0, max: 144, step: 1 } },
@@ -201,18 +199,6 @@ export const WideRack: Story = {
     rows: 6,
     cols: 8,
     occupiedCount: 30,
-    selectedCount: 0,
-    dragOverCount: 0,
-    peerHoverCount: 0,
-  },
-};
-
-export const SlotsPerMiner2: Story = {
-  args: {
-    rows: 5,
-    cols: 5,
-    slotsPerMiner: 2,
-    occupiedCount: 6,
     selectedCount: 0,
     dragOverCount: 0,
     peerHoverCount: 0,

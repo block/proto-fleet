@@ -19,6 +19,5 @@ export interface RackSlotGridProps {
   cols: number;
   slotStates?: Record<string, SlotVisualState>;
   numberingOrigin?: NumberingOrigin;
-  slotsPerMiner?: number;
   slotSize?: number;
 }
