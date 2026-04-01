@@ -62,4 +62,17 @@ export class EditPoolPage extends BasePage {
     const targetHandle = this.page.getByTestId(`pool-row-${toIndex}`).getByTestId("reorder-handle");
     await sourceHandle.dragTo(targetHandle, { steps: 20 });
   }
+
+  async removeAllPools() {
+    const poolRows = this.page.getByTestId(/^pool-row-\d+$/);
+    const poolCount = await poolRows.count();
+
+    for (let i = 0; i < poolCount; i++) {
+      const firstRow = poolRows.first();
+      await firstRow.getByRole("button", { name: "Pool actions", exact: true }).click();
+      await this.clickButton("Remove");
+      await expect(poolRows).toHaveCount(poolCount - 1 - i);
+    }
+    await expect(poolRows).toHaveCount(0);
+  }
 }

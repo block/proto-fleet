@@ -3,6 +3,7 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
+import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -12,53 +13,77 @@ test.describe("Miners", () => {
     await page.goto("/");
   });
 
-  // Cleanup - re-added Antminers might need authentication again
-  test.afterAll("CLEANUP: Re-authenticate added miners", async ({ browser }, testInfo) => {
+  test.afterAll("CLEANUP: Add miners, re-authenticate, and wake up", async ({ browser }, testInfo) => {
     if (testConfig.target === "real") {
       return;
     }
 
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl });
-    const page = await context.newPage();
-    await page.goto("/");
-
     try {
+      const page = await context.newPage();
+      await page.goto("/");
+
       const homePage = new HomePage(page, isMobile);
       const authPage = new AuthPage(page, isMobile);
       const minersPage = new MinersPage(page, isMobile);
+      const addMinersPage = new AddMinersPage(page, isMobile);
       const commonSteps = new CommonSteps(authPage, minersPage);
 
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
 
-      if (!(await page.getByRole("button", { name: "Authenticate", exact: true }).isVisible({ timeout: 3000 }))) {
-        return;
+      // Step 1: Add miners from network if any are available
+      await minersPage.navigateToMinersPage();
+      await minersPage.clickAddMinersButton();
+      await addMinersPage.clickFindMinersInNetwork();
+      await addMinersPage.waitForFoundMinersList();
+      const foundMinerCount = await addMinersPage.getFoundMinersCount();
+
+      if (foundMinerCount === 0) {
+        await addMinersPage.clickHeaderIconButton();
+      } else {
+        await addMinersPage.clickContinueWithSelectedMiners();
+      }
+      await minersPage.waitForMinersListToLoad();
+
+      // Step 2: Re-authenticate miners if needed (existing logic)
+      if (await page.getByRole("button", { name: "Authenticate", exact: true }).isVisible({ timeout: 3000 })) {
+        await homePage.clickAuthenticateMinersButton();
+        await homePage.validateAuthenticateMinersModalTitle();
+        await homePage.clickShowMinersButton();
+        const miners = await homePage.getListOfMinersToAuthenticate();
+
+        if (miners.some((miner) => miner.includes("S17 XP"))) {
+          await homePage.inputMinerAuthUsername("root17");
+          await homePage.inputMinerAuthPassword("root17");
+          await homePage.clickAuthenticateMinersConfirmButton();
+        }
+        if (miners.some((miner) => miner.includes("S19 XP"))) {
+          await homePage.inputMinerAuthUsername("root19");
+          await homePage.inputMinerAuthPassword("root19");
+          await homePage.clickAuthenticateMinersConfirmButton();
+        }
+        if (miners.some((miner) => miner.includes("S21 XP"))) {
+          await homePage.inputMinerAuthUsername("root21");
+          await homePage.inputMinerAuthPassword("root21");
+          await homePage.clickAuthenticateMinersConfirmButton();
+        }
+        await homePage.validateModalClosed();
       }
 
-      await homePage.clickAuthenticateMinersButton();
-      await homePage.validateAuthenticateMinersModalTitle();
-      await homePage.clickShowMinersButton();
-      const miners = await homePage.getListOfMinersToAuthenticate();
+      // Step 3: Wake up all miners
+      await commonSteps.goToMinersPage();
+      await minersPage.filterRigMiners();
+      const minerCount = await minersPage.getMinersCount();
 
-      if (miners.some((miner) => miner.includes("S17 XP"))) {
-        await homePage.inputMinerAuthUsername("root17");
-        await homePage.inputMinerAuthPassword("root17");
-        await homePage.clickAuthenticateMinersConfirmButton();
+      if (minerCount > 0) {
+        await minersPage.clickSelectAllCheckbox();
+        await minersPage.clickActionsMenuButton();
+        await minersPage.clickWakeUpButton();
+        await minersPage.clickWakeUpConfirm();
+        await minersPage.validateTextInToastGroup("Waking up");
       }
-      if (miners.some((miner) => miner.includes("S19 XP"))) {
-        await homePage.inputMinerAuthUsername("root19");
-        await homePage.inputMinerAuthPassword("root19");
-        await homePage.clickAuthenticateMinersConfirmButton();
-      }
-      if (miners.some((miner) => miner.includes("S21 XP"))) {
-        await homePage.inputMinerAuthUsername("root21");
-        await homePage.inputMinerAuthPassword("root21");
-        await homePage.clickAuthenticateMinersConfirmButton();
-      }
-      await homePage.validateModalClosed();
-    } catch (error) {
-      console.warn("minersActions cleanup failed:", error instanceof Error ? error.message : String(error));
     } finally {
       await context.close();
     }
@@ -591,7 +616,7 @@ test.describe("Miners", () => {
 
     await test.step("Select a miner and delete it", async () => {
       minerCount = await minersPage.getMinersCount();
-      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickDeleteButton();
       await minersPage.clickDeleteConfirm();
@@ -627,9 +652,9 @@ test.describe("Miners", () => {
 
     await test.step("Select multiple miners and delete them", async () => {
       minerCount = await minersPage.getMinersCount();
-      minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
-      minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
-      minerIp3 = await minersPage.getMinerIpAddressByIndex(2);
+      minerIp1 = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      minerIp2 = await minersPage.getAuthenticatedMinerIpAddressByIndex(1);
+      minerIp3 = await minersPage.getAuthenticatedMinerIpAddressByIndex(2);
       await minersPage.clickMinerCheckbox(minerIp1);
       await minersPage.validateActionBarMinerCount(1);
       await minersPage.clickMinerCheckbox(minerIp2);

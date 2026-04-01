@@ -56,6 +56,20 @@ export class AddMinersPage extends BasePage {
     await this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).click();
   }
 
+  async waitForFoundMinersList() {
+    const foundMinersList = this.page.getByTestId("found-miners-list");
+    await expect(foundMinersList).toBeVisible();
+  }
+
+  async getFoundMinersCount(): Promise<number> {
+    const minerRows = this.page.getByTestId("miner-model-row");
+    return await minerRows.count();
+  }
+
+  async clickHeaderIconButton() {
+    await this.page.getByTestId("header-icon-button").click();
+  }
+
   async validateOneMinerWasFoundByIp() {
     const foundMessage = this.page.getByText("1 miners found on your network");
     await expect(foundMessage).toBeVisible();
@@ -71,7 +85,6 @@ export class AddMinersPage extends BasePage {
     await expect(continueButton).toBeVisible();
   }
 
-  // Validation error dialog methods
   async validateValidationErrorDialogIsVisible() {
     const dialog = this.page.getByTestId("validation-error-dialog");
     await expect(dialog).toBeVisible();

@@ -71,8 +71,6 @@ test.describe("Miners Rename", () => {
       await minersPage.confirmBulkRenameWarningsIfPresent();
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
-    } catch (error) {
-      console.warn("minersRename cleanup failed:", error instanceof Error ? error.message : String(error));
     } finally {
       await context.close();
     }

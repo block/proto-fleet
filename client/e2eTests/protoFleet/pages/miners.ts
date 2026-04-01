@@ -714,6 +714,22 @@ export class MinersPage extends BasePage {
     return await row.getByTestId("ipAddress").innerText();
   }
 
+  async getAuthenticatedMinerIpAddressByIndex(index: number): Promise<string> {
+    // Filter out rows where the checkbox input is disabled (unauthenticated miners)
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+
+    const authenticatedCount = await authenticatedRows.count();
+    if (authenticatedCount <= index) {
+      throw new Error(`Only ${authenticatedCount} authenticated miners available, cannot get index ${index}`);
+    }
+
+    const row = authenticatedRows.nth(index);
+    return await row.getByTestId("ipAddress").innerText();
+  }
+
   async validateMinerNotPresent(ipAddress: string) {
     const minerRow = this.page.getByTestId(`ipAddress`).getByText(ipAddress, { exact: true });
     await expect(minerRow).toBeHidden();

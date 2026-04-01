@@ -165,7 +165,7 @@ go test -v -tags=e2e ./e2e -run TestCompletePluginWorkflow
 ```bash
 # From the server/ directory
 
-# Option 1: Run complete workflow test (includes clean-build)
+# Option 1: Run complete workflow test (includes `just rebuild-all`)
 just test-plugin-integration
 
 # Option 2: Run infrastructure validation only (assumes docker-compose is already running)
@@ -467,7 +467,7 @@ docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM \
 
 If tests are running slowly:
 
-1. **Skip clean-build for infrastructure tests**: `TestPluginIntegration` doesn't require clean-build if you already have a healthy environment
+1. **Skip `just rebuild-all` for infrastructure tests**: `TestPluginIntegration` doesn't require a full environment rebuild if you already have a healthy environment
 
 2. **Run tests in parallel** (not currently implemented, but possible):
    ```bash

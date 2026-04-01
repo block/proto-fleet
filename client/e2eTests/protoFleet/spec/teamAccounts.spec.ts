@@ -1,10 +1,60 @@
 /* eslint-disable playwright/expect-expect */
+import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
+import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomUsername } from "../helpers/testDataHelper";
+import { AuthPage } from "../pages/auth";
+import { MinersPage } from "../pages/miners";
+import { SettingsPage } from "../pages/settings";
+import { SettingsTeamPage } from "../pages/settingsTeam";
 
 test.describe("Proto Fleet - Team Accounts", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
+  });
+
+  test.afterAll("CLEANUP: Deactivate any team members created during tests", async ({ browser }, testInfo) => {
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+    const context = await browser.newContext({ baseURL: testConfig.baseUrl });
+
+    try {
+      const page = await context.newPage();
+      await page.goto("/");
+
+      const authPage = new AuthPage(page, isMobile);
+      const minersPage = new MinersPage(page, isMobile);
+      const settingsPage = new SettingsPage(page, isMobile);
+      const settingsTeamPage = new SettingsTeamPage(page, isMobile);
+      const commonSteps = new CommonSteps(authPage, minersPage);
+
+      await commonSteps.loginAsAdmin();
+
+      await settingsPage.navigateToTeamSettings();
+      await settingsTeamPage.validateTeamSettingsPageOpened();
+      await settingsTeamPage.validateMemberVisible("admin");
+
+      const teamMemberRows = await page.getByTestId("list-row").all();
+      const usernamesToDeactivate: string[] = [];
+
+      for (const row of teamMemberRows) {
+        const usernameElement = row.locator(`//td[@data-testid='username']//span`);
+        const username = await usernameElement.textContent();
+
+        const trimmedUsername = username?.trim();
+        if (trimmedUsername && trimmedUsername.startsWith("username_")) {
+          usernamesToDeactivate.push(trimmedUsername);
+        }
+      }
+
+      for (const username of usernamesToDeactivate) {
+        await settingsTeamPage.clickMemberActionsMenu(username);
+        await settingsTeamPage.clickDeactivate();
+        await settingsTeamPage.clickConfirmDeactivation();
+        await settingsTeamPage.validateMemberNotInList(username);
+      }
+    } finally {
+      await context.close();
+    }
   });
 
   test("Add team member", async ({ settingsPage, settingsTeamPage, commonSteps }) => {

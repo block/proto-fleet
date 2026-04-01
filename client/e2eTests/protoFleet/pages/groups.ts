@@ -210,6 +210,11 @@ export class GroupsPage extends BasePage {
     await expect(this.getGroupRow(groupName).getByTestId("miners")).toHaveText(`${minerCount}`);
   }
 
+  async getSavedGroupCount(): Promise<number> {
+    const rows = this.page.getByTestId("list-row");
+    return await rows.count();
+  }
+
   async listSavedGroupNames(): Promise<string[]> {
     await this.waitForSavedGroupsListToLoad();
 

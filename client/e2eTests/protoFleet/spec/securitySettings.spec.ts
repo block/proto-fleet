@@ -2,10 +2,87 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomText, generateRandomUsername } from "../helpers/testDataHelper";
+import { AuthPage } from "../pages/auth";
+import { SettingsPage } from "../pages/settings";
+import { SettingsSecurityPage } from "../pages/settingsSecurity";
 
 test.describe("Proto Fleet - Security Settings", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
+  });
+
+  test.afterAll("CLEANUP: Ensure default admin credentials", async ({ browser }, testInfo) => {
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+    const context = await browser.newContext({ baseURL: testConfig.baseUrl });
+    try {
+      const page = await context.newPage();
+      await page.goto("/");
+
+      const authPage = new AuthPage(page, isMobile);
+      const settingsPage = new SettingsPage(page, isMobile);
+      const settingsSecurityPage = new SettingsSecurityPage(page, isMobile);
+
+      await authPage.inputUsername(username);
+      await authPage.inputPassword(password);
+      await authPage.clickLogin();
+
+      let loggedIn: boolean;
+      try {
+        await authPage.validateLoggedIn(3000);
+        loggedIn = true;
+      } catch {
+        loggedIn = false;
+      }
+
+      if (!loggedIn) {
+        // Default credentials failed
+        await authPage.inputUsername(newUsername);
+        await authPage.inputPassword(password);
+        await authPage.clickLogin();
+
+        try {
+          await authPage.validateLoggedIn(3000);
+          loggedIn = true;
+        } catch {
+          loggedIn = false;
+        }
+
+        if (loggedIn) {
+          // Only username needs to be reverted
+          await settingsPage.navigateToSecuritySettings();
+          await settingsSecurityPage.clickUpdateUsername();
+          await settingsSecurityPage.inputCurrentPassword(password);
+          await settingsSecurityPage.clickConfirm();
+          await settingsSecurityPage.inputNewUsername(username);
+          await settingsSecurityPage.clickConfirmUsername();
+          await settingsSecurityPage.validateUsernameChangeToast();
+        } else {
+          // Both username and password need to be reverted
+          await authPage.inputUsername(newUsername);
+          await authPage.inputPassword(newPassword);
+          await authPage.clickLogin();
+          await authPage.validateLoggedIn();
+
+          await settingsPage.navigateToSecuritySettings();
+          await settingsSecurityPage.clickUpdatePassword();
+          await settingsSecurityPage.inputCurrentPassword(newPassword);
+          await settingsSecurityPage.clickConfirm();
+          await settingsSecurityPage.inputNewPassword(password);
+          await settingsSecurityPage.inputConfirmPassword(password);
+          await settingsSecurityPage.clickConfirmPassword();
+          await settingsSecurityPage.validatePasswordChangeToast();
+
+          await settingsSecurityPage.clickUpdateUsername();
+          await settingsSecurityPage.inputCurrentPassword(password);
+          await settingsSecurityPage.clickConfirm();
+          await settingsSecurityPage.inputNewUsername(username);
+          await settingsSecurityPage.clickConfirmUsername();
+          await settingsSecurityPage.validateUsernameChangeToast();
+        }
+      }
+    } finally {
+      await context.close();
+    }
   });
 
   const username = testConfig.users.admin.username;
@@ -70,42 +147,6 @@ test.describe("Proto Fleet - Security Settings", () => {
     await test.step("Log in with new password", async () => {
       await authPage.inputUsername(newUsername);
       await authPage.inputPassword(newPassword);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Navigate to Security Settings", async () => {
-      await settingsPage.navigateToSecuritySettings();
-    });
-
-    await test.step("Revert admin password", async () => {
-      await settingsSecurityPage.clickUpdatePassword();
-      await settingsSecurityPage.inputCurrentPassword(newPassword);
-      await settingsSecurityPage.clickConfirm();
-      await settingsSecurityPage.inputNewPassword(password);
-      await settingsSecurityPage.inputConfirmPassword(password);
-      await settingsSecurityPage.clickConfirmPassword();
-      await settingsSecurityPage.validatePasswordChangeToast();
-    });
-
-    await test.step("Revert admin username", async () => {
-      await settingsSecurityPage.clickUpdateUsername();
-      await settingsSecurityPage.inputCurrentPassword(password);
-      await settingsSecurityPage.clickConfirm();
-      await settingsSecurityPage.inputNewUsername(username);
-      await settingsSecurityPage.clickConfirmUsername();
-      await settingsSecurityPage.validateUsernameChangeToast();
-      await settingsSecurityPage.validateUsername(username);
-    });
-
-    await test.step("Log out", async () => {
-      await authPage.logout();
-      await authPage.validateRedirectedToAuth();
-    });
-
-    await test.step("Log in with reverted credentials", async () => {
-      await authPage.inputUsername(username);
-      await authPage.inputPassword(password);
       await authPage.clickLogin();
       await authPage.validateLoggedIn();
     });

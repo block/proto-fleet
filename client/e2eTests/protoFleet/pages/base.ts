@@ -11,11 +11,11 @@ export class BasePage {
     await this.page.reload();
   }
 
-  async validateLoggedIn() {
+  async validateLoggedIn(timeout: number = DEFAULT_TIMEOUT) {
     if (this.isMobile) {
-      await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
+      await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible({ timeout });
     } else {
-      await expect(this.page.getByTestId("logout-button")).toBeVisible();
+      await expect(this.page.getByTestId("logout-button")).toBeVisible({ timeout });
     }
   }
 
