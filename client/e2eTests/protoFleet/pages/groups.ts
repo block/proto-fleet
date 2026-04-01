@@ -182,10 +182,6 @@ export class GroupsPage extends BasePage {
     await expect(popover).toBeHidden();
   }
 
-  async clickSaveInModal() {
-    await this.clickIn("Save", "modal");
-  }
-
   async clickDeleteGroupInModal() {
     await this.clickIn("Delete group", "modal");
   }
@@ -244,5 +240,23 @@ export class GroupsPage extends BasePage {
       .getByTestId("list-row")
       .filter({ has: this.page.getByTestId("name").getByText(groupName, { exact: true }) })
       .first();
+  }
+
+  async clickGroupActionsButton(groupName: string) {
+    const groupRow = this.getGroupRow(groupName);
+    await expect(groupRow).toBeVisible();
+    await groupRow.getByLabel("Device set actions").click();
+  }
+
+  async clickRebootGroupButton() {
+    await this.page.getByTestId("reboot-popover-button").click();
+  }
+
+  async validateRebootConfirmationModal(minerCount: number) {
+    await this.validateTitle(`Reboot ${minerCount} miners?`);
+  }
+
+  async clickRebootConfirm() {
+    await this.clickButton("Reboot");
   }
 }

@@ -276,4 +276,70 @@ test.describe("Groups", () => {
       await groupsPage.validateSavedGroupVisible(secondGroupName);
     });
   });
+
+  test("Create a group with all miners from Miners page and reboot group from Groups page", async ({
+    minersPage,
+    groupsPage,
+    commonSteps,
+  }) => {
+    const groupName = generateRandomText("automation");
+    let minerCount: number;
+
+    await test.step("Go to miners page", async () => {
+      await commonSteps.goToMinersPage();
+    });
+
+    await test.step("Select all miners and create group", async () => {
+      minerCount = await minersPage.getMinersCount();
+      await minersPage.clickSelectAllCheckbox();
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickAddToGroupButton();
+      await minersPage.inputNewGroupName(groupName);
+      await minersPage.clickSaveInModal();
+    });
+
+    await test.step("Validate group creation success", async () => {
+      await minersPage.validateTextInToast(`Added ${minerCount} miners to group`);
+    });
+
+    await test.step("Reload page (workaround for DASH-1435)", async () => {
+      await minersPage.reloadPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+    });
+
+    await test.step("Validate group name in group column for all miners", async () => {
+      const currentMinerCount = await minersPage.getMinersCount();
+      for (let i = 0; i < currentMinerCount; i++) {
+        const minerIp = await minersPage.getMinerIpAddressByIndex(i);
+        await minersPage.validateMinerGroupName(minerIp, groupName);
+      }
+    });
+
+    await test.step("Navigate to groups page and validate group", async () => {
+      await groupsPage.navigateToGroupsPage();
+      await groupsPage.validateSavedGroupVisible(groupName);
+      await groupsPage.validateSavedGroupMinerCount(groupName, minerCount);
+    });
+
+    await test.step("Reboot group from Groups page", async () => {
+      await groupsPage.clickGroupActionsButton(groupName);
+      await groupsPage.clickRebootGroupButton();
+      await groupsPage.validateRebootConfirmationModal(minerCount);
+      await groupsPage.clickRebootConfirm();
+    });
+
+    await test.step("Validate reboot success", async () => {
+      await groupsPage.validateTextInToastGroup(`Rebooted ${minerCount} out of ${minerCount} miners`);
+    });
+
+    await test.step("Navigate to miners page and validate rebooting status", async () => {
+      await commonSteps.goToMinersPage();
+      await minersPage.validateAllMinersStatus("Rebooting");
+    });
+
+    await test.step("Wait for Hashing status (reduce risk of causing issues to the next test)", async () => {
+      await minersPage.validateNoMinerWithStatus("Rebooting");
+    });
+  });
 });

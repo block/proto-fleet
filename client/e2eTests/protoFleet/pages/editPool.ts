@@ -23,7 +23,7 @@ export class EditPoolPage extends BasePage {
   }
 
   async clickSavePoolChoice() {
-    await this.clickIn("Save", "modal");
+    await this.clickSaveInModal();
   }
 
   async clickAddNewPool() {

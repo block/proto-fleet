@@ -1,6 +1,7 @@
 import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
+import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 
@@ -43,7 +44,7 @@ test.describe("Miners Rename", () => {
     await page.goto("/");
   });
 
-  test.afterAll(async ({ browser }, testInfo) => {
+  test.afterEach("CLEANUP: Rename back to just model names", async ({ browser }, testInfo) => {
     // CLEANUP: Rename back to just model names
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl });
@@ -311,6 +312,123 @@ test.describe("Miners Rename", () => {
         await minersPage.dismissRenameOptionsModal();
         await minersPage.toggleBulkRenameProperty(propertyId, false);
       }
+    });
+  });
+
+  test("RENAME a single miner", async ({ minersPage, page, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    const requestPromise = page.waitForRequest(/RenameMiners/);
+    const responsePromise = page.waitForResponse(/RenameMiners/);
+
+    const newName = generateRandomText("Renamed Miner E2E");
+    let minerIp: string;
+
+    await test.step("Select first miner and rename it", async () => {
+      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickRenameButton();
+      await minersPage.fillRenameInput(newName);
+      await minersPage.clickRenameSave();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateTextInToastGroup("Miner renamed");
+    });
+
+    await test.step("Validate 'RenameMiners' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(1);
+      test.expect(response.status()).toBe(200);
+    });
+
+    await test.step("Validate name updated in miner list", async () => {
+      await minersPage.validateMinerName(minerIp, newName);
+    });
+  });
+
+  test("BULK RENAME multiple miners", async ({ minersPage, page, commonSteps }, testInfo) => {
+    // eslint-disable-next-line playwright/no-skipped-test
+    test.skip(testInfo.project.use?.isMobile === true, "Desktop-only bulk rename flow");
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    const requestPromise = page.waitForRequest(/RenameMiners/);
+    const responsePromise = page.waitForResponse(/RenameMiners/);
+
+    let minerIp1: string;
+    let minerIp2: string;
+
+    await test.step("Select two rig miners and open bulk rename", async () => {
+      await minersPage.filterRigMiners();
+      minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.validateActionBarMinerCount(1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.validateActionBarMinerCount(2);
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickRenameButton();
+      await minersPage.validateBulkRenamePageOpened();
+    });
+
+    await test.step("Enable MAC address and validate preview updates", async () => {
+      await minersPage.clickBulkRenamePropertyToggle("fixed-mac-address");
+      await test.expect(page.getByTestId("bulk-rename-desktop-preview")).toContainText(/([0-9a-f]{2}:){2}/i);
+    });
+
+    await test.step("Save the bulk rename", async () => {
+      await minersPage.clickBulkRenameSave();
+    });
+
+    await test.step("Validate update process", async () => {
+      await minersPage.validateTextInToastGroup("Renamed 2 miners");
+    });
+
+    await test.step("Validate 'RenameMiners' API request", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
+      test.expect(requestBody.nameConfig.properties).toHaveLength(1);
+      test.expect(requestBody.nameConfig.separator).toBe("-");
+      test.expect(response.status()).toBe(200);
+    });
+  });
+
+  test("BULK RENAME mobile layout", async ({ minersPage, page, commonSteps }, testInfo) => {
+    // eslint-disable-next-line playwright/no-skipped-test
+    test.skip(testInfo.project.use?.isMobile !== true, "Mobile-only bulk rename layout");
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Open bulk rename from selected miners", async () => {
+      await minersPage.filterRigMiners();
+      const minerIp1 = await minersPage.getMinerIpAddressByIndex(0);
+      const minerIp2 = await minersPage.getMinerIpAddressByIndex(1);
+      await minersPage.clickMinerCheckbox(minerIp1);
+      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickRenameButton();
+      await minersPage.validateBulkRenamePageOpened();
+    });
+
+    await test.step("Validate mobile preview and fixed-value options sheet", async () => {
+      await test.expect(page.getByTestId("bulk-rename-mobile-preview")).toBeVisible();
+      await minersPage.clickBulkRenamePropertyToggle("fixed-mac-address");
+      await minersPage.clickBulkRenamePropertyOptions("fixed-mac-address");
+      await minersPage.validateTextIsVisible("Number of characters");
+      await test.expect(page.getByTestId("fixed-value-options-save-button-mobile")).toBeVisible();
+      await page.getByTestId("fixed-value-options-save-button-mobile").click();
+      await minersPage.validateBulkRenamePageOpened();
     });
   });
 });

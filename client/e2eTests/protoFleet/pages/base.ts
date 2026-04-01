@@ -1,5 +1,5 @@
 import { expect, Page } from "@playwright/test";
-import { DEFAULT_TIMEOUT } from "../config/test.config";
+import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
 export class BasePage {
   constructor(
@@ -193,5 +193,24 @@ export class BasePage {
 
   async validateModalIsClosed() {
     await expect(this.page.getByTestId("modal")).toBeHidden();
+  }
+
+  async clickSaveInModal() {
+    await this.clickIn("Save", "modal");
+  }
+
+  // Helper method to try an action with timeout and return success/failure
+  // Useful in cases where we are not sure in what state the system is at a particular moment, e.g. during cleanup
+  async tryAction(action: () => Promise<void>, timeoutMs: number = 3000): Promise<boolean> {
+    const originalTimeout = testConfig.actionTimeout;
+    this.page.setDefaultTimeout(timeoutMs);
+    try {
+      await action();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.page.setDefaultTimeout(originalTimeout);
+    }
   }
 }

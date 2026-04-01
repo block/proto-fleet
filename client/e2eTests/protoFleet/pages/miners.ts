@@ -202,6 +202,19 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("rename-popover-button").click();
   }
 
+  async clickAddToGroupButton() {
+    await this.page.getByTestId("add-to-group-popover-button").click();
+  }
+
+  async inputNewGroupName(groupName: string) {
+    await this.page.locator("#new-group-name").fill(groupName);
+  }
+
+  async validateMinerGroupName(ipAddress: string, expectedGroupName: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await expect(minerRow.getByTestId("groups")).toContainText(expectedGroupName);
+  }
+
   async validateBulkRenamePageOpened() {
     await this.validateTitle("Rename miners");
   }
@@ -303,7 +316,7 @@ export class MinersPage extends BasePage {
 
     expect(didPersist, "Expected bulk rename preferences to be persisted in localStorage").toBe(true);
 
-    await this.page.reload();
+    await this.reloadPage();
     await this.waitForMinersTitle();
     await this.waitForMinersListToLoad();
   }
@@ -510,7 +523,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickRenameSave() {
-    await this.clickIn("Save", "modal");
+    await this.clickSaveInModal();
   }
 
   async validateMinerName(ipAddress: string, expectedName: string) {
@@ -600,7 +613,7 @@ export class MinersPage extends BasePage {
         await expect(spinner).toBeHidden({ timeout: DEFAULT_INTERVAL });
         await expect(statusCell).toHaveText(expectedStatus, { timeout: DEFAULT_INTERVAL });
       } catch (error) {
-        await this.page.reload();
+        await this.reloadPage();
         const minerRow = await this.getMinerRowByIp(ipAddress);
         const statusCell = minerRow.locator(`//td[@data-testid='status']`);
 
@@ -608,6 +621,21 @@ export class MinersPage extends BasePage {
         throw error;
       }
     }).toPass({ timeout: PROLONGED_TIMEOUT });
+  }
+
+  async waitForAllStatusSpinnersToDisappear() {
+    await this.waitForColumnValuesToLoad("status");
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+
+    for (let i = 0; i < rowCount; i++) {
+      await rows.nth(i).scrollIntoViewIfNeeded();
+      const statusCell = rows.nth(i).locator(`//td[@data-testid='status']`);
+      const spinner = statusCell.locator('[class*="animate-spin"]');
+
+      // Wait for spinner to be hidden for this specific row
+      await expect(spinner).toBeHidden({ timeout: PROLONGED_TIMEOUT });
+    }
   }
 
   async validateAllMinersIssues(issue: string, expected: boolean = true) {
@@ -634,7 +662,7 @@ export class MinersPage extends BasePage {
           }
         }
       } catch (error) {
-        await this.page.reload();
+        await this.reloadPage();
         throw error;
       }
     }).toPass({ timeout: PROLONGED_TIMEOUT });
@@ -737,6 +765,10 @@ export class MinersPage extends BasePage {
 
   async clickAddMinersButton() {
     await this.clickButton("Add miners");
+  }
+
+  async clickGetStarted() {
+    await this.clickButton("Get started");
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {

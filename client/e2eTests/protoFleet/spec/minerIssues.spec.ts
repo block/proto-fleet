@@ -132,7 +132,7 @@ test.describe("Miner Issues Tests", () => {
         });
       });
 
-      await page.reload();
+      await minersPage.reloadPage();
       await minersPage.validateMinersPageOpened();
     });
 
