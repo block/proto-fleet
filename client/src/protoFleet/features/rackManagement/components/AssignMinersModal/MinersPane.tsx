@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
-import type { AssignmentMode } from "./types";
+import type { AssignmentMode, SelectedSlot } from "./types";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { BlinkLEDRequestSchema, DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -18,7 +18,12 @@ interface MinersPaneProps {
   miners: Record<string, MinerStateSnapshot>;
   slotAssignments: Record<string, string>;
   assignmentMode: AssignmentMode;
+  /** Which miner is highlighted in the list (drives row styling and hint text). */
   selectedMinerId: string | null;
+  /** Which rack cell is selected (used to compute the slot number shown in the "assign to slot XX" hint). */
+  selectedSlot: SelectedSlot | null;
+  /** Device ID of the miner whose rack cell is currently hovered (drives hover highlight on the corresponding row). */
+  hoveredMinerId: string | null;
   rows: number;
   cols: number;
   numberingOrigin: NumberingOrigin;
@@ -42,6 +47,8 @@ function MinerRow({
   assignedSlotNumber,
   assignmentMode,
   isSelected,
+  isHovered,
+  slotAwaitingAssignment,
   onSelect,
   onRemove,
   onUnassign,
@@ -52,6 +59,8 @@ function MinerRow({
   assignedSlotNumber: number | null;
   assignmentMode: AssignmentMode;
   isSelected: boolean;
+  isHovered: boolean;
+  slotAwaitingAssignment: number | null;
   onSelect: (deviceId: string | null) => void;
   onRemove: (deviceId: string) => void;
   onUnassign: (deviceId: string) => void;
@@ -105,6 +114,7 @@ function MinerRow({
       className={clsx(
         "flex items-center px-3 py-3 transition-colors",
         isSelected && "bg-surface-5",
+        !isSelected && isHovered && "bg-surface-5",
         isClickable && !isSelected && "cursor-pointer hover:bg-surface-5",
         !isClickable && "cursor-default",
       )}
@@ -132,7 +142,13 @@ function MinerRow({
         )}
       </div>
 
-      {isSelected && <span className="shrink-0 text-200 text-text-primary">select rack position</span>}
+      {isSelected && (
+        <span className="shrink-0 text-200 text-text-primary">
+          {slotAwaitingAssignment !== null
+            ? `assign to slot ${String(slotAwaitingAssignment).padStart(2, "0")}`
+            : "select rack position"}
+        </span>
+      )}
 
       {!isSelected && isAssigned && (
         <span className="shrink-0 text-300 font-medium text-text-primary tabular-nums">
@@ -210,6 +226,8 @@ export default function MinersPane({
   slotAssignments,
   assignmentMode,
   selectedMinerId,
+  selectedSlot,
+  hoveredMinerId,
   rows,
   cols,
   numberingOrigin,
@@ -246,6 +264,12 @@ export default function MinersPane({
     },
     [blinkLED],
   );
+
+  // Compute the slot number awaiting assignment (for MinerRow hint text)
+  const slotAwaitingAssignment = useMemo(() => {
+    if (!selectedSlot) return null;
+    return computeSlotNumber(selectedSlot.row, selectedSlot.col, rows, cols, numberingOrigin);
+  }, [selectedSlot, rows, cols, numberingOrigin]);
 
   // Pre-compute deviceId -> slotNumber reverse map for O(1) lookups per MinerRow
   const slotNumberByDevice = useMemo(() => {
@@ -309,6 +333,8 @@ export default function MinersPane({
             assignedSlotNumber={slotNumberByDevice[deviceId] ?? null}
             assignmentMode={assignmentMode}
             isSelected={selectedMinerId === deviceId}
+            isHovered={hoveredMinerId === deviceId}
+            slotAwaitingAssignment={slotAwaitingAssignment}
             onSelect={onSelectMiner}
             onRemove={onRemoveMiner}
             onUnassign={onUnassignMiner}

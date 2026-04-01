@@ -1648,4 +1648,96 @@ describe("List", () => {
       expect(screen.queryByTestId("footer-content")).not.toBeInTheDocument();
     });
   });
+
+  describe("radio selection mode", () => {
+    it("renders radio buttons instead of checkboxes", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          selectionType="radio"
+        />,
+      );
+
+      const radios = getByTestId("list-body").querySelectorAll("input[type='radio']");
+      const checkboxes = getByTestId("list-body").querySelectorAll("input[type='checkbox']");
+      expect(radios).toHaveLength(testItems.length);
+      expect(checkboxes).toHaveLength(0);
+    });
+
+    it("does not render the select-all checkbox in the header", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          selectionType="radio"
+        />,
+      );
+
+      const headerCheckboxes = getByTestId("list-header").querySelectorAll("input[type='checkbox']");
+      expect(headerCheckboxes).toHaveLength(0);
+    });
+
+    it("allows only one item to be selected at a time", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          selectionType="radio"
+        />,
+      );
+
+      const radios = getByTestId("list-body").querySelectorAll(
+        "input[type='radio']",
+        // eslint-disable-next-line
+      ) as NodeListOf<HTMLInputElement>;
+
+      // Select first item
+      fireEvent.click(radios[0]);
+      expect(radios[0].checked).toBe(true);
+
+      // Select second item — first should be deselected
+      fireEvent.click(radios[1]);
+      expect(radios[0].checked).toBe(false);
+      expect(radios[1].checked).toBe(true);
+    });
+
+    it("clicking a selected radio does not deselect it", () => {
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          selectionType="radio"
+        />,
+      );
+
+      const radios = getByTestId("list-body").querySelectorAll(
+        "input[type='radio']",
+        // eslint-disable-next-line
+      ) as NodeListOf<HTMLInputElement>;
+
+      fireEvent.click(radios[0]);
+      expect(radios[0].checked).toBe(true);
+
+      // Click the same radio again — should remain selected
+      fireEvent.click(radios[0]);
+      expect(radios[0].checked).toBe(true);
+    });
+  });
 });

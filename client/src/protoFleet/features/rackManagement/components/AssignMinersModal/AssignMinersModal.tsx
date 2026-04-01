@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
-import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData } from "./types";
+import SearchMinersModal from "./SearchMinersModal";
+import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
@@ -19,6 +20,7 @@ import { slotNumberToRowCol } from "@/protoFleet/features/rackManagement/utils/s
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import Dialog from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -78,6 +80,7 @@ interface AssignMinersModalProps {
   existingRacks: DeviceSet[];
   onDismiss: () => void;
   onSave: () => void;
+  onDelete?: () => Promise<void> | void;
 }
 
 export default function AssignMinersModal({
@@ -87,6 +90,7 @@ export default function AssignMinersModal({
   existingRacks,
   onDismiss,
   onSave,
+  onDelete,
 }: AssignMinersModalProps) {
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
 
@@ -106,9 +110,17 @@ export default function AssignMinersModal({
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});
   const [selectedMinerId, setSelectedMinerId] = useState<string | null>(null);
 
+  // Cell-first selection state
+  const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
+  const [showSlotPopover, setShowSlotPopover] = useState(false);
+  const [hoveredMinerId, setHoveredMinerId] = useState<string | null>(null);
+
   // Sub-modal visibility
   const [showRackSettings, setShowRackSettings] = useState(false);
   const [showManageMiners, setShowManageMiners] = useState(false);
+  const [showSearchMiners, setShowSearchMiners] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Loading / error state
   const [isLoading, setIsLoading] = useState(!!existingRackId);
@@ -233,37 +245,93 @@ export default function AssignMinersModal({
       }
       setAssignmentMode(mode);
       setSelectedMinerId(null);
+      setSelectedSlot(null);
+      setShowSlotPopover(false);
     },
     [assignmentMode, slotAssignments, manualAssignmentCache],
   );
 
-  // Manual slot click handler
-  const handleSlotClick = useCallback(
+  // Cell click handler — if a miner is selected, assign directly; otherwise show popover
+  const handleCellClick = useCallback(
     (row: number, col: number) => {
       if (assignmentMode !== "manual") return;
       const key = `${row}-${col}`;
 
-      if (!selectedMinerId) return; // No miner selected, nothing to do
+      // Miner-first flow: a miner is selected and the slot is empty — assign immediately
+      if (selectedMinerId && !slotAssignments[key]) {
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, selectedMinerId);
+          next[key] = selectedMinerId;
+          return next;
+        });
+        setSelectedMinerId(null);
+        return;
+      }
 
-      // Slot occupied — do nothing
-      if (slotAssignments[key]) return;
-
-      // Assign selected miner to this slot (clear any existing assignment first)
-      const newAssignments = removeAssignmentByValue(slotAssignments, selectedMinerId);
-      newAssignments[key] = selectedMinerId;
-      setSlotAssignments(newAssignments);
+      // Cell-first flow: no miner selected — show popover
+      setSelectedSlot({ row, col, key });
+      setShowSlotPopover(true);
       setSelectedMinerId(null);
     },
     [assignmentMode, selectedMinerId, slotAssignments],
   );
 
-  // When clicking an assigned slot with no miner selected, highlight the miner
-  const handleAssignedSlotClick = useCallback(
-    (deviceIdentifier: string) => {
-      if (assignmentMode !== "manual") return;
-      setSelectedMinerId(deviceIdentifier);
+  // Popover: "Select from list" — keep cell selected, wait for miner click
+  const handleSelectFromList = useCallback(() => {
+    setShowSlotPopover(false);
+  }, []);
+
+  // Popover: "Search miners" — open SearchMinersModal
+  const handleSearchMiners = useCallback(() => {
+    setShowSlotPopover(false);
+    setShowSearchMiners(true);
+  }, []);
+
+  // Popover dismiss — deselect cell
+  const handlePopoverDismiss = useCallback(() => {
+    setSelectedSlot(null);
+    setShowSlotPopover(false);
+  }, []);
+
+  // SearchMinersModal confirm — add miner to rack and assign to selected slot
+  const handleSearchMinerConfirm = useCallback(
+    (minerId: string) => {
+      if (!selectedSlot) return;
+
+      // Add miner to rack if not already present
+      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+
+      // Remove any existing assignment for this miner, then assign to selected slot
+      setSlotAssignments((prev) => {
+        const next = removeAssignmentByValue(prev, minerId);
+        next[selectedSlot.key] = minerId;
+        return next;
+      });
+
+      setSelectedSlot(null);
+      setShowSearchMiners(false);
     },
-    [assignmentMode],
+    [selectedSlot],
+  );
+
+  // Miner selection handler — when a slot is awaiting, assign miner to it
+  const handleSelectMiner = useCallback(
+    (deviceId: string | null) => {
+      if (selectedSlot && deviceId) {
+        // Assign this miner to the selected slot
+        setRackMiners((prev) => (prev.includes(deviceId) ? prev : [...prev, deviceId]));
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, deviceId);
+          next[selectedSlot.key] = deviceId;
+          return next;
+        });
+        setSelectedSlot(null);
+        setSelectedMinerId(null);
+      } else {
+        setSelectedMinerId(deviceId);
+      }
+    },
+    [selectedSlot],
   );
 
   // Clear all assignments
@@ -380,7 +448,7 @@ export default function AssignMinersModal({
     }
   }, [existingRackId, rackSettings, rackMiners, activeAssignments, saveRack, onSave]);
 
-  const hasSubModalOpen = showRackSettings || showManageMiners;
+  const hasSubModalOpen = showRackSettings || showManageMiners || showSearchMiners || showDeleteConfirm;
 
   if (!show) return null;
 
@@ -395,6 +463,16 @@ export default function AssignMinersModal({
         divider={false}
         onDismiss={hasSubModalOpen ? undefined : onDismiss}
         buttons={[
+          ...(onDelete
+            ? [
+                {
+                  text: "Delete Rack",
+                  variant: variants.secondaryDanger,
+                  onClick: () => setShowDeleteConfirm(true),
+                  dismissModalOnClick: false,
+                },
+              ]
+            : []),
           {
             text: "Edit Rack Settings",
             variant: variants.secondary,
@@ -440,14 +518,16 @@ export default function AssignMinersModal({
                   slotAssignments={activeAssignments}
                   assignmentMode={assignmentMode}
                   selectedMinerId={selectedMinerId}
+                  selectedSlot={selectedSlot}
                   rows={rackSettings.rows}
                   cols={rackSettings.columns}
                   numberingOrigin={numberingOrigin}
                   onModeChange={handleModeChange}
-                  onSelectMiner={setSelectedMinerId}
+                  onSelectMiner={handleSelectMiner}
                   onRemoveMiner={handleRemoveMiner}
                   onUnassignMiner={handleUnassignMiner}
                   onClearAssignments={handleClearAssignments}
+                  hoveredMinerId={hoveredMinerId}
                   onOpenManageMiners={() => setShowManageMiners(true)}
                 />
               </div>
@@ -457,13 +537,18 @@ export default function AssignMinersModal({
                   cols={rackSettings.columns}
                   numberingOrigin={numberingOrigin}
                   slotAssignments={activeAssignments}
-                  selectedMinerId={selectedMinerId}
                   assignmentMode={assignmentMode}
                   assignedCount={assignedCount}
                   totalSlots={totalSlots}
                   originLabel={originLabel(numberingOrigin)}
-                  onSlotClick={handleSlotClick}
-                  onAssignedSlotClick={handleAssignedSlotClick}
+                  selectedSlotKey={selectedSlot?.key ?? null}
+                  showPopover={showSlotPopover}
+                  hasMiners={rackMiners.length > 0}
+                  onCellClick={handleCellClick}
+                  onSelectFromList={handleSelectFromList}
+                  onSearchMiners={handleSearchMiners}
+                  onPopoverDismiss={handlePopoverDismiss}
+                  onHoverMiner={setHoveredMinerId}
                 />
               </div>
             </div>
@@ -489,6 +574,47 @@ export default function AssignMinersModal({
           maxSlots={totalSlots}
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
+        />
+      )}
+
+      {showSearchMiners && (
+        <SearchMinersModal
+          show={showSearchMiners}
+          currentRackLabel={initialRackSettings.label}
+          onDismiss={() => {
+            setShowSearchMiners(false);
+            setSelectedSlot(null);
+          }}
+          onConfirm={handleSearchMinerConfirm}
+        />
+      )}
+
+      {showDeleteConfirm && onDelete && (
+        <Dialog
+          title={`Delete "${rackSettings.label}"?`}
+          subtitle="This action cannot be undone. The miners in this rack will not be affected."
+          onDismiss={() => setShowDeleteConfirm(false)}
+          buttons={[
+            {
+              text: "Cancel",
+              onClick: () => setShowDeleteConfirm(false),
+              variant: variants.secondary,
+            },
+            {
+              text: "Delete",
+              onClick: async () => {
+                setIsDeleting(true);
+                try {
+                  await onDelete();
+                } catch {
+                  setIsDeleting(false);
+                  setShowDeleteConfirm(false);
+                }
+              },
+              variant: variants.danger,
+              loading: isDeleting,
+            },
+          ]}
         />
       )}
     </>

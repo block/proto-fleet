@@ -312,6 +312,11 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Remove memberships first so the idx_one_rack_per_device unique index
+		// doesn't prevent the device from being added to another rack after soft-delete.
+		if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
+			return err
+		}
 		rowsAffected, err := s.collectionStore.SoftDeleteCollection(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return err

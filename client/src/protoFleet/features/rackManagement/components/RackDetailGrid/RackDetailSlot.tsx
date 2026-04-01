@@ -18,6 +18,7 @@ const dotColors: Record<string, string | null> = {
 };
 
 export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }: RackDetailSlotProps) {
+  const { row, col } = slot;
   const { state, slotNumber } = slot;
   const num = String(slotNumber).padStart(2, "0");
   const dotColor = dotColors[state];
@@ -28,7 +29,7 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
         <button
           type="button"
           aria-label={`Assign miner to slot ${num}`}
-          onClick={onEmptySlotClick}
+          onClick={() => onEmptySlotClick?.(row, col)}
           className="flex cursor-pointer items-center justify-center rounded-full bg-core-primary-fill/6 text-core-primary-fill/25 transition-colors hover:bg-core-primary-fill/10 hover:text-core-primary-fill/50"
           style={{
             width: slotSize * 0.7,

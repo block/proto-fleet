@@ -5,6 +5,8 @@ export type SlotHealthState = "healthy" | "needsAttention" | "offline" | "sleepi
 export type { NumberingOrigin };
 
 export interface DetailSlotData {
+  row: number;
+  col: number;
   slotNumber: number;
   state: SlotHealthState;
 }
@@ -12,7 +14,7 @@ export interface DetailSlotData {
 export interface RackDetailSlotProps {
   slot: DetailSlotData;
   slotSize?: number;
-  onEmptySlotClick?: () => void;
+  onEmptySlotClick?: (row: number, col: number) => void;
 }
 
 export interface RackDetailGridProps {
@@ -21,5 +23,5 @@ export interface RackDetailGridProps {
   slotStates?: Record<string, SlotHealthState>;
   numberingOrigin?: NumberingOrigin;
   slotSize?: number;
-  onEmptySlotClick?: () => void;
+  onEmptySlotClick?: (row: number, col: number) => void;
 }

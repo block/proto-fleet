@@ -20,6 +20,7 @@ import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -45,7 +46,7 @@ const RACK_COLUMNS: DeviceSetColumn[] = [
 
 const RacksPage = () => {
   const navigate = useNavigate();
-  const { listRacks, listRackZones } = useDeviceSets();
+  const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
@@ -170,6 +171,27 @@ const RacksPage = () => {
     fetchZones();
   }, [resetAndFetch, fetchZones]);
 
+  const handleDeleteRack = useCallback(() => {
+    if (!assignMinersRackId) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      deleteGroup({
+        deviceSetId: assignMinersRackId,
+        onSuccess: () => {
+          pushToast({ message: "Rack deleted", status: STATUSES.success });
+          setAssignMinersFormData(null);
+          setAssignMinersRackId(undefined);
+          resetAndFetch();
+          fetchZones();
+          resolve();
+        },
+        onError: (msg) => {
+          pushToast({ message: msg, status: STATUSES.error });
+          reject(new Error(msg));
+        },
+      });
+    });
+  }, [assignMinersRackId, deleteGroup, resetAndFetch, fetchZones]);
+
   const renderName = useCallback(
     (item: DeviceSetListItem) => (
       <button
@@ -279,6 +301,7 @@ const RacksPage = () => {
             existingRacks={racks}
             onDismiss={handleAssignMinersDismiss}
             onSave={handleAssignMinersSave}
+            onDelete={assignMinersRackId ? handleDeleteRack : undefined}
           />
         )}
       </div>
@@ -290,13 +313,10 @@ const RacksPage = () => {
       <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
         <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>
         <div className="flex flex-col gap-2 pb-6">
-          {/* Action buttons — bottom-right on desktop, top full-width on tablet/phone */}
-          <div className="hidden grid-cols-2 gap-2 phone:grid tablet:grid">
+          {/* Action button — full-width on tablet/phone */}
+          <div className="hidden phone:block tablet:block">
             <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
               Add rack
-            </Button>
-            <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
-              Add multiple racks
             </Button>
           </div>
           {/* View toggle — full width on tablet/phone */}
@@ -349,14 +369,9 @@ const RacksPage = () => {
                 />
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
-                Add rack
-              </Button>
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => {}}>
-                Add multiple racks
-              </Button>
-            </div>
+            <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
+              Add rack
+            </Button>
           </div>
           {/* Filters — shown separately on tablet/phone */}
           <div className="hidden items-center gap-2 phone:flex tablet:flex">

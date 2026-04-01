@@ -1,6 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import {
+  SortConfigSchema,
+  SortDirection as SortDirectionProto,
+  SortField,
+} from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot as ProtoMinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
@@ -16,7 +21,7 @@ import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
-import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+import type { ColConfig, ColTitles, SortDirection } from "@/shared/components/List/types";
 import { ModalSelectAllFooter } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -51,6 +56,8 @@ export interface MinerSelectionListProps {
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
   isRowDisabled?: (item: DeviceListItem) => boolean;
+  /** When true, renders radio buttons for single-item selection instead of checkboxes. */
+  singleSelect?: boolean;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -111,6 +118,15 @@ const modalColConfig: ColConfig<DeviceListItem, string, ModalColumn> = {
   },
 };
 
+/** Columns that support server-side sorting, mapped to their proto SortField. */
+const SORT_FIELD_BY_COLUMN: Partial<Record<ModalColumn, SortField>> = {
+  [modalCols.name]: SortField.NAME,
+  [modalCols.type]: SortField.MODEL,
+  [modalCols.ipAddress]: SortField.IP_ADDRESS,
+};
+
+const ALL_SORTABLE_COLUMNS = new Set<ModalColumn>(Object.keys(SORT_FIELD_BY_COLUMN) as ModalColumn[]);
+
 const PAGE_SIZE = 50;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
@@ -125,7 +141,17 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
 // --- Component ---
 
 const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionListProps>(
-  ({ filterConfig, initialSelectedItems, isMembersLoading = false, isRowDisabled, onSelectionChange }, ref) => {
+  (
+    {
+      filterConfig,
+      initialSelectedItems,
+      isMembersLoading = false,
+      isRowDisabled,
+      singleSelect = false,
+      onSelectionChange,
+    },
+    ref,
+  ) => {
     const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
 
     const { listGroups, listRacks } = useDeviceSets();
@@ -135,6 +161,20 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
     const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
     const [hasInitialSynced, setHasInitialSynced] = useState(!initialSelectedItems || initialSelectedItems.length > 0);
+    const [currentSort, setCurrentSort] = useState<{ field: ModalColumn; direction: SortDirection } | undefined>(
+      undefined,
+    );
+
+    // Build proto SortConfig from the current UI sort state
+    const sortConfig = useMemo(() => {
+      if (!currentSort) return undefined;
+      const protoField = SORT_FIELD_BY_COLUMN[currentSort.field];
+      if (!protoField) return undefined;
+      return create(SortConfigSchema, {
+        field: protoField,
+        direction: currentSort.direction === "asc" ? SortDirectionProto.ASC : SortDirectionProto.DESC,
+      });
+    }, [currentSort]);
 
     const {
       minerIds,
@@ -150,6 +190,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     } = useFleet({
       scope: "local",
       filter,
+      sort: sortConfig,
       pageSize: PAGE_SIZE,
       pairingStatuses: [PairingStatus.PAIRED],
     });
@@ -161,6 +202,10 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
         .map(toDeviceListItem);
     }, [minerIds, miners]);
+
+    const handleSort = useCallback((field: ModalColumn, direction: SortDirection) => {
+      setCurrentSort({ field, direction });
+    }, []);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const currentPageItemsRef = useRef(currentPageItems);
@@ -198,14 +243,22 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       [selectedItems, allSelected, totalMiners, filter],
     );
 
-    const handleSetSelectedItems = useCallback((newSelection: string[]) => {
-      setAllSelected(false);
-      setSelectedItems((prev) => {
-        const currentPageKeys = new Set(currentPageItemsRef.current.map((d) => d.deviceIdentifier));
-        const offPageSelections = prev.filter((id) => !currentPageKeys.has(id));
-        return [...offPageSelections, ...newSelection.filter((id) => currentPageKeys.has(id))];
-      });
-    }, []);
+    const handleSetSelectedItems = useCallback(
+      (newSelection: string[]) => {
+        setAllSelected(false);
+        if (singleSelect) {
+          // In single-select mode, just keep the selected item (no off-page merging)
+          setSelectedItems(newSelection.slice(0, 1));
+        } else {
+          setSelectedItems((prev) => {
+            const currentPageKeys = new Set(currentPageItemsRef.current.map((d) => d.deviceIdentifier));
+            const offPageSelections = prev.filter((id) => !currentPageKeys.has(id));
+            return [...offPageSelections, ...newSelection.filter((id) => currentPageKeys.has(id))];
+          });
+        }
+      },
+      [singleSelect],
+    );
 
     const handleNextPage = useCallback(() => {
       scrollToTop();
@@ -306,6 +359,10 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           items={currentPageItems}
           itemKey="deviceIdentifier"
           itemSelectable
+          selectionType={singleSelect ? "radio" : "checkbox"}
+          sortableColumns={ALL_SORTABLE_COLUMNS}
+          currentSort={currentSort}
+          onSort={handleSort}
           customSelectedItems={selectedItems}
           customSetSelectedItems={handleSetSelectedItems}
           preserveOffPageSelection
@@ -348,7 +405,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             )
           }
         />
-        {totalMiners !== undefined && (
+        {totalMiners !== undefined && !singleSelect && (
           <ModalSelectAllFooter
             label={allSelected ? `All ${totalMiners} miners selected` : `${selectedItems.length} miners selected`}
             onSelectAll={() => {

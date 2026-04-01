@@ -12,6 +12,12 @@ export interface RackFormData {
   coolingType: RackCoolingType;
 }
 
+export interface SelectedSlot {
+  row: number;
+  col: number;
+  key: string; // "row-col" format
+}
+
 export function orderIndexToOrigin(orderIndex: RackOrderIndex): NumberingOrigin {
   const { BOTTOM_LEFT, TOP_LEFT, BOTTOM_RIGHT } = RackOrderIndex;
   if (orderIndex === BOTTOM_LEFT) return "bottom-left";

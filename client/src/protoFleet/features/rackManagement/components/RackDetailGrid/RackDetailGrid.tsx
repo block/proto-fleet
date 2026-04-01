@@ -27,6 +27,8 @@ export default function RackDetailGrid({
 
     return {
       displaySlots: allSlots.map((s) => ({
+        row: s.row,
+        col: s.col,
         slotNumber: s.slotNumber,
         state: slotStates[`${s.row}-${s.col}`] ?? ("empty" as SlotHealthState),
       })),

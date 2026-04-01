@@ -22,7 +22,7 @@ interface RackHealthModuleProps {
   cols: number;
   slotStates: Record<string, SlotHealthState>;
   numberingOrigin: NumberingOrigin;
-  onEmptySlotClick?: () => void;
+  onEmptySlotClick?: (row: number, col: number) => void;
   hashingCount?: number;
   needsAttentionCount?: number;
   offlineCount?: number;

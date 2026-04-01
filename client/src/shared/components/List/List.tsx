@@ -5,6 +5,7 @@ import {
   Ref,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -44,6 +45,7 @@ import {
 } from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Radio from "@/shared/components/Radio";
 import SortIndicator from "@/shared/components/SortIndicator";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -110,6 +112,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
+  /**
+   * Controls whether selectable rows use checkboxes (multi-select) or radio buttons (single-select).
+   * Defaults to "checkbox". When "radio", the header select-all is hidden and only one item can be selected.
+   */
+  selectionType?: "checkbox" | "radio";
   initialSelectedItems?: ItemKeyValueType[];
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
@@ -252,6 +259,8 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   index: number;
   itemKey: keyof ListItem;
   itemSelectable: boolean;
+  selectionType: "checkbox" | "radio";
+  radioGroupName: string;
   pageScopedSelection: boolean;
   currentSelectionMode: SelectionMode;
   currentSelectedItems: ItemKeyValueType[];
@@ -291,6 +300,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   index,
   itemKey,
   itemSelectable,
+  selectionType,
+  radioGroupName,
   pageScopedSelection,
   currentSelectionMode,
   currentSelectedItems,
@@ -351,15 +362,25 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               "opacity-50": rowDisabled,
             })}
           >
-            <Checkbox
-              checked={
-                pageScopedSelection && currentSelectionMode === "all"
-                  ? !rowDisabled
-                  : currentSelectedItems.includes(rowKey)
-              }
-              onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
-              disabled={rowDisabled}
-            />
+            {selectionType === "radio" ? (
+              <Radio
+                name={radioGroupName}
+                value={String(rowKey)}
+                selected={currentSelectedItems.includes(rowKey)}
+                onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
+                disabled={rowDisabled}
+              />
+            ) : (
+              <Checkbox
+                checked={
+                  pageScopedSelection && currentSelectionMode === "all"
+                    ? !rowDisabled
+                    : currentSelectedItems.includes(rowKey)
+                }
+                onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
+                disabled={rowDisabled}
+              />
+            )}
           </div>
         </td>
       )}
@@ -532,6 +553,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   items,
   itemKey,
   itemSelectable = false,
+  selectionType = "checkbox",
   disabled = false,
   actions = [],
   noDataElement,
@@ -576,6 +598,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
 
+  const radioGroupName = useId();
   const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -695,7 +718,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
     let newSelectedItems: ItemKeyValueType[];
 
-    if (canRangeSelect) {
+    if (selectionType === "radio") {
+      // Radio mode: always single-select, no toggle-off.
+      // `checked` is always true for radio onChange events — we ignore it intentionally.
+      newSelectedItems = [itemKeyValue];
+    } else if (canRangeSelect) {
       newSelectedItems = selectRange(lastClickedIndexRef.current!, index, currentSelected);
       lastClickedIndexRef.current = null;
     } else {
@@ -961,6 +988,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       index,
       itemKey,
       itemSelectable,
+      selectionType,
+      radioGroupName,
       pageScopedSelection,
       currentSelectionMode,
       currentSelectedItems,
@@ -1019,13 +1048,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           >
             {itemSelectable && (
               <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
-                <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
-                  <Checkbox
-                    checked={allSelected}
-                    partiallyChecked={visibleSelectedCount > 0 && !allSelected}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                  />
-                </div>
+                {selectionType !== "radio" && (
+                  <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
+                    <Checkbox
+                      checked={allSelected}
+                      partiallyChecked={visibleSelectedCount > 0 && !allSelected}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                    />
+                  </div>
+                )}
               </th>
             )}
 

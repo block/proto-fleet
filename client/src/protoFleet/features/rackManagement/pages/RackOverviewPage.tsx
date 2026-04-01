@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import type {
-  DeviceSet,
-  DeviceSetStats,
-  RackCoolingType,
-  RackOrderIndex,
+import { create } from "@bufbuild/protobuf";
+
+import {
+  type DeviceSet,
+  type DeviceSetStats,
+  type RackCoolingType,
+  type RackOrderIndex,
+  RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   AggregationType,
@@ -23,6 +26,7 @@ import {
   AssignMinersModal,
   type RackFormData,
 } from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
+import SearchMinersModal from "@/protoFleet/features/rackManagement/components/AssignMinersModal/SearchMinersModal";
 import { orderIndexToOrigin } from "@/protoFleet/features/rackManagement/components/AssignMinersModal/types";
 import type { SlotHealthState } from "@/protoFleet/features/rackManagement/components/RackDetailGrid/types";
 import { RackHealthModule } from "@/protoFleet/features/rackManagement/components/RackHealthModule";
@@ -44,6 +48,7 @@ import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
@@ -71,10 +76,12 @@ const RackOverviewPage = () => {
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [searchMinerSlot, setSearchMinerSlot] = useState<{ row: number; col: number } | null>(null);
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getDeviceSet, listGroupMembers, getDeviceSetStats } = useDeviceSets();
+  const { getDeviceSet, listGroupMembers, getDeviceSetStats, addDevicesToDeviceSet, setRackSlotPosition, deleteGroup } =
+    useDeviceSets();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -434,7 +441,7 @@ const RackOverviewPage = () => {
               cols={cols}
               slotStates={slotStates}
               numberingOrigin={numberingOrigin}
-              onEmptySlotClick={() => setShowEditModal(true)}
+              onEmptySlotClick={(row, col) => setSearchMinerSlot({ row, col })}
               hashingCount={stateCounts?.hashingCount ?? (isEmptyRack ? 0 : undefined)}
               needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack ? 0 : undefined)}
               offlineCount={stateCounts?.offlineCount ?? (isEmptyRack ? 0 : undefined)}
@@ -528,6 +535,63 @@ const RackOverviewPage = () => {
           onSave={() => {
             setShowEditModal(false);
             resolveRack(rack.id);
+          }}
+          onDelete={() =>
+            new Promise<void>((resolve, reject) => {
+              deleteGroup({
+                deviceSetId: rack.id,
+                onSuccess: () => {
+                  pushToast({ message: "Rack deleted", status: STATUSES.success });
+                  navigate("/racks");
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: msg, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
+        />
+      )}
+
+      {searchMinerSlot && rack && (
+        <SearchMinersModal
+          show
+          currentRackLabel={rack.label}
+          onDismiss={() => setSearchMinerSlot(null)}
+          onConfirm={(minerId) => {
+            const slot = searchMinerSlot;
+            setSearchMinerSlot(null);
+
+            // Two-step: add miner to rack membership, then assign to slot.
+            // No single API supports both atomically without resending the full rack state.
+            // On partial success (added but slot failed), we still refresh so the UI stays consistent.
+            addDevicesToDeviceSet({
+              deviceSetId: rack.id,
+              deviceIdentifiers: [minerId],
+              onSuccess: () => {
+                setRackSlotPosition({
+                  deviceSetId: rack.id,
+                  deviceIdentifier: minerId,
+                  position: create(RackSlotPositionSchema, { row: slot.row, column: slot.col }),
+                  onSuccess: () => {
+                    pushToast({ message: "Miner assigned to slot", status: STATUSES.success });
+                    resolveRack(rack.id);
+                  },
+                  onError: (msg) => {
+                    pushToast({
+                      message: `Miner added to rack but slot assignment failed: ${msg}`,
+                      status: STATUSES.error,
+                    });
+                    resolveRack(rack.id);
+                  },
+                });
+              },
+              onError: (msg) => {
+                pushToast({ message: msg, status: STATUSES.error });
+              },
+            });
           }}
         />
       )}
