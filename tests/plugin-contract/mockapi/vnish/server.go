@@ -47,22 +47,17 @@ type Server struct {
 	defaultBehavior mockapi.ConnBehavior
 }
 
-// NewServer starts a mock VNish server with RPC on 127.0.0.1:4028 and HTTP on a random port.
-// Not safe for parallel tests (shares port 4028 with the other socket mocks).
+// NewServer starts a mock VNish server with RPC on 127.0.0.1:4028 and HTTP on port 80.
+// Port 80 is required because asic-rs hardcodes VNish HTTP connections to port 80.
+// Not safe for parallel tests (shares ports 4028 and 80 with other mocks).
 func NewServer(t testing.TB, dataDir string) *Server {
 	t.Helper()
 
 	rpcAddr := "127.0.0.1:4028"
-	rpcListener, err := net.Listen("tcp", rpcAddr)
-	if err != nil {
-		t.Fatalf("failed to start mock VNish RPC server on %s: %v", rpcAddr, err)
-	}
+	rpcListener := mockapi.ListenWithRetry(t, rpcAddr)
 
-	httpListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		rpcListener.Close()
-		t.Fatalf("failed to start mock VNish HTTP server: %v", err)
-	}
+	httpAddr := "127.0.0.1:80"
+	httpListener := mockapi.ListenWithRetry(t, httpAddr)
 
 	_, portStr, err := net.SplitHostPort(httpListener.Addr().String())
 	if err != nil {
@@ -356,7 +351,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	s.commands = append(s.commands, "web:"+endpoint)
 	s.mu.Unlock()
 
-	if !isAuthorized(r.Header.Get("Authorization")) {
+	// /api/v1/info is readable without auth (used by asic-rs for model detection).
+	// All other endpoints require auth.
+	if endpoint != "info" && !isAuthorized(r.Header.Get("Authorization")) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

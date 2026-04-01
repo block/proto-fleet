@@ -49,10 +49,7 @@ func NewServer(t testing.TB, dataDir string) *Server {
 	t.Helper()
 
 	rpcAddr := "127.0.0.1:4028"
-	rpcListener, err := net.Listen("tcp", rpcAddr)
-	if err != nil {
-		t.Fatalf("failed to start mock Antminer RPC server on %s: %v", rpcAddr, err)
-	}
+	rpcListener := mockapi.ListenWithRetry(t, rpcAddr)
 
 	httpListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

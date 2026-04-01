@@ -46,22 +46,43 @@ build-virtual-plugin:
 
 # --- Tests ---
 
-# run plugin contract tests
-test-contract: _pyasic-build
+# run plugin contract tests (each test suite in its own container for port isolation)
+test-contract: _asicrs-build
   #!/usr/bin/env bash
   set -euo pipefail
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
+  IMAGE="golang:${GO_VERSION}-alpine"
+
+  # Build Go plugins once (shared via volume mount)
   docker run --rm \
     -v "$(pwd)":/work \
     -w /work \
     -e GOFLAGS=-buildvcs=false \
-    "golang:${GO_VERSION}-alpine" \
+    "$IMAGE" \
     sh -c '\
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
-      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
-      go test -v -count=1 -timeout=5m ./tests/plugin-contract/... \
+      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) \
     '
+
+  # Run each test suite in its own container (isolated network namespace)
+  # so mocks binding port 4028/80 don't conflict between suites.
+  FAILED=0
+  for test in TestAntminerStock TestAntminerVNish TestWhatsMinerStock; do
+    echo "=== Running ${test} ==="
+    docker run --rm \
+      -v "$(pwd)":/work \
+      -w /work \
+      -e GOFLAGS=-buildvcs=false \
+      "$IMAGE" \
+      go test -v -count=1 -timeout=2m -run "^${test}$" ./tests/plugin-contract/miners/ \
+    || FAILED=1
+  done
+
+  if [ "$FAILED" -ne 0 ]; then
+    echo "Some contract tests failed"
+    exit 1
+  fi
 
 # run ProtoFleet E2E tests
 test-e2e-fleet: (_e2e "protoFleet" "--project=desktop")

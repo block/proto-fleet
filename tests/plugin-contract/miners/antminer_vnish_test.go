@@ -25,7 +25,7 @@ func TestAntminerVNish(t *testing.T) {
 	mock := vnish.NewServer(t, antminerVNishTestdataDir)
 	manifest := miners.LoadManifest(t, antminerVNishTestdataDir+"/manifest.json")
 
-	driver := harness.StartPyasicWithConfigAndEnv(t, `plugin:
+	driver := harness.StartAsicrsWithConfig(t, `plugin:
   log_level: debug
   discovery_timeout_seconds: 10
   telemetry_cache_ttl_seconds: 0
@@ -36,9 +36,7 @@ miners:
       enabled: false
     vnish:
       enabled: true
-`, map[string]string{
-		"PYASIC_WEB_PORT": fmt.Sprintf("%d", mock.WebPort()),
-	})
+`)
 
 	func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -96,7 +94,10 @@ miners:
 					"stopped miner should not report HEALTHY_ACTIVE")
 			})
 
+			// Skipped: asic-rs VNish backend doesn't extract chain failure messages.
+			// See https://github.com/256foundation/asic-rs/issues/201
 			t.Run("chain_failures_appear_in_get_errors", func(t *testing.T) {
+				t.Skip("asic-rs #201: VNish chain failure error parsing not implemented")
 				mock.SetWebResponse("summary", []byte(`{
 					"miner":{
 						"chains":[

@@ -318,7 +318,7 @@ func AssertCapabilities(t *testing.T, tc TestContext, device sdk.Device) {
 		require.NotEmpty(t, caps, "device should report capabilities")
 	})
 
-	t.Run("capabilities_for_unknown_model_empty", func(t *testing.T) {
+	t.Run("capabilities_for_unknown_model_returns_base", func(t *testing.T) {
 		provider, ok := tc.Driver.(sdk.ModelCapabilitiesProvider)
 		if !ok {
 			t.Skip("driver does not implement ModelCapabilitiesProvider")
@@ -327,7 +327,11 @@ func AssertCapabilities(t *testing.T, tc TestContext, device sdk.Device) {
 		// Act
 		caps := provider.GetCapabilitiesForModel(TestCtx(t), "totally-unknown-model-xyz")
 
-		// Assert
-		assert.Empty(t, caps, "capabilities for unknown model should be empty")
+		// Assert -- plugins may return nil or conservative base caps for unknown models.
+		// Both are valid; the server merges with driver-level caps from DescribeDriver.
+		if caps != nil {
+			// If non-nil, should not advertise control capabilities for unknown models
+			assert.False(t, caps["reboot"], "unknown model should not advertise reboot")
+		}
 	})
 }

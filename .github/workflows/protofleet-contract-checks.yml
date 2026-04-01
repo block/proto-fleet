@@ -15,9 +15,10 @@ on:
       - "server/go.mod"
       - "server/go.sum"
       - "server/sdk/**"
-      - "plugin/pyasic/**"
+      - "plugin/asicrs/**"
       - "plugin/proto/**"
       - "plugin/antminer/**"
+      - "sdk/rust/**"
   push:
     branches:
       - main
@@ -34,9 +35,10 @@ on:
       - "server/go.mod"
       - "server/go.sum"
       - "server/sdk/**"
-      - "plugin/pyasic/**"
+      - "plugin/asicrs/**"
       - "plugin/proto/**"
       - "plugin/antminer/**"
+      - "sdk/rust/**"
   workflow_dispatch:
 
 permissions:
