@@ -39,7 +39,7 @@ jobs:
           fi
 
           # Clean up our workflow stack and prune unused resources
-          docker compose -f docker-compose.protofleet-real-miners-runner.yaml down -v --remove-orphans || true
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml down -v --remove-orphans || true
           docker system prune -f
       - name: Install client dependencies
         working-directory: client
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           # --wait respects healthchecks and depends_on, ensuring proper startup order
-          docker compose -f docker-compose.protofleet-real-miners-runner.yaml up -d --wait --wait-timeout 120
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml up -d --wait --wait-timeout 120
 
       - name: Run Playwright tests (desktop)
         working-directory: client/e2eTests/protoFleet
@@ -109,11 +109,11 @@ jobs:
           set -euo pipefail
 
           echo "=== Container Status ==="
-          docker compose -f docker-compose.protofleet-real-miners-runner.yaml ps -a
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml ps -a
           echo ""
 
           echo "=== All Service Logs ==="
-          docker compose -f docker-compose.protofleet-real-miners-runner.yaml logs --tail=100
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml logs --tail=100
           echo ""
 
           echo "=== Network Information ==="
@@ -132,4 +132,4 @@ jobs:
           echo "Fleet API: http://localhost:4000/"
           echo ""
           echo "To cleanup:"
-          echo "  docker compose -f docker-compose.protofleet-real-miners-runner.yaml down -v"
+          echo "  docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml down -v"

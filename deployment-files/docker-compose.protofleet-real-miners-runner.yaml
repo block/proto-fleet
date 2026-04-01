@@ -2,15 +2,15 @@
 #
 # - Linux-only (uses host networking for LAN miner discovery)
 # - Includes DB + Fleet API + ProtoFleet frontend (nginx)
-# - All paths are relative to repo root
+# - All paths are relative to deployment-files/
 #
 # Usage (from repo root):
-#   docker compose -f docker-compose.protofleet-real-miners-runner.yaml up -d
+#   docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml up -d
 
 services:
   timescaledb:
     build:
-      context: ./server/timescaledb
+      context: ../server/timescaledb
     restart: unless-stopped
     environment:
       POSTGRES_DB: "fleet"
@@ -52,10 +52,10 @@ services:
 
   fleet-api:
     extends:
-      file: ./server/docker-compose.base.yaml
+      file: ../server/docker-compose.base.yaml
       service: fleet-api
     build:
-      context: .
+      context: ..
       dockerfile: server/Dockerfile
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
@@ -82,7 +82,7 @@ services:
       retries: 30
       start_period: 10s
     volumes:
-      - ./server/plugins:/app/plugins:ro
+      - ../server/plugins:/app/plugins:ro
     restart: unless-stopped
     network_mode: host
 
@@ -93,8 +93,8 @@ services:
       fleet-api:
         condition: service_healthy
     volumes:
-      - ./client/dist/protoFleet:/usr/share/nginx/html:ro
-      - ./client/nginx.runner-protofleet.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../client/dist/protoFleet:/usr/share/nginx/html:ro
+      - ../client/nginx.runner-protofleet.conf:/etc/nginx/conf.d/default.conf:ro
     network_mode: host
 
 volumes:
