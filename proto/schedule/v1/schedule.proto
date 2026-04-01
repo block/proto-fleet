@@ -80,16 +80,6 @@ enum DayOfWeek {
     DAY_OF_WEEK_SATURDAY = 7;
 }
 
-// Relative week position for monthly recurrence (e.g., "second Tuesday")
-enum RelativeWeek {
-    RELATIVE_WEEK_UNSPECIFIED = 0;
-    RELATIVE_WEEK_FIRST = 1;
-    RELATIVE_WEEK_SECOND = 2;
-    RELATIVE_WEEK_THIRD = 3;
-    RELATIVE_WEEK_FOURTH = 4;
-    RELATIVE_WEEK_LAST = 5;
-}
-
 // --- Messages ---
 
 // Configuration for the power target action
@@ -102,22 +92,17 @@ message ScheduleRecurrence {
     // How often the schedule repeats
     RecurrenceFrequency frequency = 1;
 
-    // Repeat interval (e.g., every N days). Must be >= 1.
-    int32 interval = 2 [(buf.validate.field).int32.gte = 1];
+    // Repeat interval. Must be 1.
+    int32 interval = 2 [(buf.validate.field).int32.const = 1];
 
     // Days of the week for weekly recurrence (at least one required when frequency is WEEKLY)
     repeated DayOfWeek days_of_week = 3;
 
-    // Day of month for monthly-by-day recurrence (1-31, clamped to last valid day)
+    // Day of month for monthly recurrence (1-31). Months without this day are
+    // skipped (e.g., day 31 skips Feb, Apr, Jun, Sep, Nov).
     optional int32 day_of_month = 4 [(buf.validate.field).int32 = {
         gte: 1, lte: 31
     }];
-
-    // Relative week for monthly-by-relative-day recurrence (e.g., "second Tuesday")
-    RelativeWeek relative_week = 5;
-
-    // Day of week for monthly-by-relative-day recurrence
-    DayOfWeek relative_day = 6;
 }
 
 // Target type for a schedule

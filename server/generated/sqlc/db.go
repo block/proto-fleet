@@ -108,6 +108,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
+	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
+		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
+	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -330,6 +333,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getScheduleTargetsStmt, err = db.PrepareContext(ctx, getScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetScheduleTargets: %w", err)
 	}
+	if q.getScheduleTargetsByScheduleIDsStmt, err = db.PrepareContext(ctx, getScheduleTargetsByScheduleIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetScheduleTargetsByScheduleIDs: %w", err)
+	}
 	if q.getSessionByIDStmt, err = db.PrepareContext(ctx, getSessionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSessionByID: %w", err)
 	}
@@ -411,11 +417,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
 	}
+	if q.listScheduleIDStatusesStmt, err = db.PrepareContext(ctx, listScheduleIDStatuses); err != nil {
+		return nil, fmt.Errorf("error preparing query ListScheduleIDStatuses: %w", err)
+	}
 	if q.listSchedulesStmt, err = db.PrepareContext(ctx, listSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSchedules: %w", err)
 	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
+	}
+	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
+		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
 	}
 	if q.markCommandBatchFinishedStmt, err = db.PrepareContext(ctx, markCommandBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchFinished: %w", err)
@@ -426,8 +438,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
+	if q.negateSchedulePrioritiesStmt, err = db.PrepareContext(ctx, negateSchedulePriorities); err != nil {
+		return nil, fmt.Errorf("error preparing query NegateSchedulePriorities: %w", err)
+	}
 	if q.passwordUpdatedAtStmt, err = db.PrepareContext(ctx, passwordUpdatedAt); err != nil {
 		return nil, fmt.Errorf("error preparing query PasswordUpdatedAt: %w", err)
+	}
+	if q.pauseActiveScheduleStmt, err = db.PrepareContext(ctx, pauseActiveSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query PauseActiveSchedule: %w", err)
 	}
 	if q.queryComponentKeysWithErrorsStmt, err = db.PrepareContext(ctx, queryComponentKeysWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query QueryComponentKeysWithErrors: %w", err)
@@ -447,14 +465,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
 	}
-	if q.reorderSchedulesStmt, err = db.PrepareContext(ctx, reorderSchedules); err != nil {
-		return nil, fmt.Errorf("error preparing query ReorderSchedules: %w", err)
+	if q.resumePausedScheduleStmt, err = db.PrepareContext(ctx, resumePausedSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query ResumePausedSchedule: %w", err)
 	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
+	}
+	if q.setSchedulePrioritiesStmt, err = db.PrepareContext(ctx, setSchedulePriorities); err != nil {
+		return nil, fmt.Errorf("error preparing query SetSchedulePriorities: %w", err)
 	}
 	if q.softDeleteDeviceSetStmt, err = db.PrepareContext(ctx, softDeleteDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDeviceSet: %w", err)
@@ -551,9 +572,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateScheduleAfterRunStmt, err = db.PrepareContext(ctx, updateScheduleAfterRun); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateScheduleAfterRun: %w", err)
-	}
-	if q.updateScheduleStatusStmt, err = db.PrepareContext(ctx, updateScheduleStatus); err != nil {
-		return nil, fmt.Errorf("error preparing query UpdateScheduleStatus: %w", err)
 	}
 	if q.updateSessionActivityStmt, err = db.PrepareContext(ctx, updateSessionActivity); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSessionActivity: %w", err)
@@ -731,6 +749,11 @@ func (q *Queries) Close() error {
 	if q.deviceSetBelongsToOrgStmt != nil {
 		if cerr := q.deviceSetBelongsToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deviceSetBelongsToOrgStmt: %w", cerr)
+		}
+	}
+	if q.getActiveSchedulesStmt != nil {
+		if cerr := q.getActiveSchedulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getActiveSchedulesStmt: %w", cerr)
 		}
 	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -1103,6 +1126,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getScheduleTargetsStmt: %w", cerr)
 		}
 	}
+	if q.getScheduleTargetsByScheduleIDsStmt != nil {
+		if cerr := q.getScheduleTargetsByScheduleIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getScheduleTargetsByScheduleIDsStmt: %w", cerr)
+		}
+	}
 	if q.getSessionByIDStmt != nil {
 		if cerr := q.getSessionByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getSessionByIDStmt: %w", cerr)
@@ -1238,6 +1266,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
 		}
 	}
+	if q.listScheduleIDStatusesStmt != nil {
+		if cerr := q.listScheduleIDStatusesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listScheduleIDStatusesStmt: %w", cerr)
+		}
+	}
 	if q.listSchedulesStmt != nil {
 		if cerr := q.listSchedulesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSchedulesStmt: %w", cerr)
@@ -1246,6 +1279,11 @@ func (q *Queries) Close() error {
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockSchedulePriorityStmt != nil {
+		if cerr := q.lockSchedulePriorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockSchedulePriorityStmt: %w", cerr)
 		}
 	}
 	if q.markCommandBatchFinishedStmt != nil {
@@ -1263,9 +1301,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.negateSchedulePrioritiesStmt != nil {
+		if cerr := q.negateSchedulePrioritiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing negateSchedulePrioritiesStmt: %w", cerr)
+		}
+	}
 	if q.passwordUpdatedAtStmt != nil {
 		if cerr := q.passwordUpdatedAtStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing passwordUpdatedAtStmt: %w", cerr)
+		}
+	}
+	if q.pauseActiveScheduleStmt != nil {
+		if cerr := q.pauseActiveScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pauseActiveScheduleStmt: %w", cerr)
 		}
 	}
 	if q.queryComponentKeysWithErrorsStmt != nil {
@@ -1298,9 +1346,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
 		}
 	}
-	if q.reorderSchedulesStmt != nil {
-		if cerr := q.reorderSchedulesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing reorderSchedulesStmt: %w", cerr)
+	if q.resumePausedScheduleStmt != nil {
+		if cerr := q.resumePausedScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resumePausedScheduleStmt: %w", cerr)
 		}
 	}
 	if q.revokeSessionStmt != nil {
@@ -1311,6 +1359,11 @@ func (q *Queries) Close() error {
 	if q.setRackSlotPositionStmt != nil {
 		if cerr := q.setRackSlotPositionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setRackSlotPositionStmt: %w", cerr)
+		}
+	}
+	if q.setSchedulePrioritiesStmt != nil {
+		if cerr := q.setSchedulePrioritiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setSchedulePrioritiesStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteDeviceSetStmt != nil {
@@ -1473,11 +1526,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateScheduleAfterRunStmt: %w", cerr)
 		}
 	}
-	if q.updateScheduleStatusStmt != nil {
-		if cerr := q.updateScheduleStatusStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing updateScheduleStatusStmt: %w", cerr)
-		}
-	}
 	if q.updateSessionActivityStmt != nil {
 		if cerr := q.updateSessionActivityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateSessionActivityStmt: %w", cerr)
@@ -1600,6 +1648,7 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
+	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
 	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
@@ -1674,6 +1723,7 @@ type Queries struct {
 	getRunningPowerTargetSchedulesStmt                  *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
 	getScheduleTargetsStmt                              *sql.Stmt
+	getScheduleTargetsByScheduleIDsStmt                 *sql.Stmt
 	getSessionByIDStmt                                  *sql.Stmt
 	getTotalDevicesPendingAuthStmt                      *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
@@ -1701,21 +1751,26 @@ type Queries struct {
 	listRackTypesStmt                                   *sql.Stmt
 	listRackZonesStmt                                   *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
+	listScheduleIDStatusesStmt                          *sql.Stmt
 	listSchedulesStmt                                   *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
+	lockSchedulePriorityStmt                            *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
+	negateSchedulePrioritiesStmt                        *sql.Stmt
 	passwordUpdatedAtStmt                               *sql.Stmt
+	pauseActiveScheduleStmt                             *sql.Stmt
 	queryComponentKeysWithErrorsStmt                    *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
 	queryErrorsStmt                                     *sql.Stmt
 	reapStuckProcessingMessagesStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
-	reorderSchedulesStmt                                *sql.Stmt
+	resumePausedScheduleStmt                            *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
+	setSchedulePrioritiesStmt                           *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
@@ -1748,7 +1803,6 @@ type Queries struct {
 	updateRoleStmt                                      *sql.Stmt
 	updateScheduleStmt                                  *sql.Stmt
 	updateScheduleAfterRunStmt                          *sql.Stmt
-	updateScheduleStatusStmt                            *sql.Stmt
 	updateSessionActivityStmt                           *sql.Stmt
 	updateUserPasswordStmt                              *sql.Stmt
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
@@ -1794,6 +1848,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
+		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
@@ -1868,6 +1923,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRunningPowerTargetSchedulesStmt:                  q.getRunningPowerTargetSchedulesStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
 		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
+		getScheduleTargetsByScheduleIDsStmt:                 q.getScheduleTargetsByScheduleIDsStmt,
 		getSessionByIDStmt:                                  q.getSessionByIDStmt,
 		getTotalDevicesPendingAuthStmt:                      q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
@@ -1895,21 +1951,26 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackTypesStmt:                                   q.listRackTypesStmt,
 		listRackZonesStmt:                                   q.listRackZonesStmt,
 		listRolesStmt:                                       q.listRolesStmt,
+		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                   q.listSchedulesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
+		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
+		negateSchedulePrioritiesStmt:                        q.negateSchedulePrioritiesStmt,
 		passwordUpdatedAtStmt:                               q.passwordUpdatedAtStmt,
+		pauseActiveScheduleStmt:                             q.pauseActiveScheduleStmt,
 		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
 		queryErrorsStmt:                                     q.queryErrorsStmt,
 		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
 		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
-		reorderSchedulesStmt:                                q.reorderSchedulesStmt,
+		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
+		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
@@ -1942,7 +2003,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateRoleStmt:                                      q.updateRoleStmt,
 		updateScheduleStmt:                                  q.updateScheduleStmt,
 		updateScheduleAfterRunStmt:                          q.updateScheduleAfterRunStmt,
-		updateScheduleStatusStmt:                            q.updateScheduleStatusStmt,
 		updateSessionActivityStmt:                           q.updateSessionActivityStmt,
 		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,

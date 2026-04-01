@@ -12,7 +12,6 @@ import {
   ScheduleStatus as ProtoScheduleStatus,
   ScheduleType as ProtoScheduleType,
   RecurrenceFrequency,
-  RelativeWeek,
   type ReorderSchedulesRequest,
   ReorderSchedulesRequestSchema,
   ResumeScheduleRequestSchema,
@@ -251,15 +250,6 @@ const weekdayNames: Record<DayOfWeek, string> = {
   [DayOfWeek.SATURDAY]: "Sat",
 };
 
-const relativeWeekLabels: Record<RelativeWeek, string> = {
-  [RelativeWeek.UNSPECIFIED]: "",
-  [RelativeWeek.FIRST]: "1st",
-  [RelativeWeek.SECOND]: "2nd",
-  [RelativeWeek.THIRD]: "3rd",
-  [RelativeWeek.FOURTH]: "4th",
-  [RelativeWeek.LAST]: "Last",
-};
-
 const mapStatus = (status: ProtoScheduleStatus): ScheduleStatus => {
   switch (status) {
     case ProtoScheduleStatus.RUNNING:
@@ -339,11 +329,7 @@ const summarizeWeeklyPattern = (recurrence: NonNullable<Schedule["recurrence"]>)
 };
 
 const summarizeMonthlyPattern = (recurrence: NonNullable<Schedule["recurrence"]>) => {
-  const monthlyPattern = recurrence.dayOfMonth
-    ? `${formatOrdinal(recurrence.dayOfMonth)} day of month`
-    : recurrence.relativeWeek !== RelativeWeek.UNSPECIFIED && recurrence.relativeDay !== DayOfWeek.UNSPECIFIED
-      ? `${relativeWeekLabels[recurrence.relativeWeek]} ${weekdayNames[recurrence.relativeDay]} of month`
-      : "Every month";
+  const monthlyPattern = recurrence.dayOfMonth ? `${formatOrdinal(recurrence.dayOfMonth)} day of month` : "Every month";
 
   if (recurrence.interval <= 1) {
     return monthlyPattern;

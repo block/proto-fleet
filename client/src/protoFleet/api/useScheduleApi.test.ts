@@ -15,7 +15,6 @@ import {
   ScheduleStatus as ProtoScheduleStatus,
   ScheduleType as ProtoScheduleType,
   RecurrenceFrequency,
-  RelativeWeek,
   ReorderSchedulesResponseSchema,
   ResumeScheduleResponseSchema,
   ScheduleRecurrenceSchema,
@@ -127,8 +126,6 @@ const createScheduleMessage = ({
     interval: number;
     daysOfWeek: DayOfWeek[];
     dayOfMonth?: number;
-    relativeWeek: RelativeWeek;
-    relativeDay: DayOfWeek;
   }>;
 }) =>
   create(ScheduleSchema, {
@@ -143,8 +140,6 @@ const createScheduleMessage = ({
       frequency: RecurrenceFrequency.WEEKLY,
       interval: 1,
       daysOfWeek: [DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY],
-      relativeWeek: RelativeWeek.UNSPECIFIED,
-      relativeDay: DayOfWeek.UNSPECIFIED,
       ...recurrence,
     }),
     startDate,

@@ -117,6 +117,58 @@ func (q *Queries) DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleT
 	return err
 }
 
+const getActiveSchedules = `-- name: GetActiveSchedules :many
+SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
+FROM schedule
+WHERE status IN ('active', 'running')
+  AND deleted_at IS NULL
+ORDER BY priority, id
+`
+
+func (q *Queries) GetActiveSchedules(ctx context.Context) ([]Schedule, error) {
+	rows, err := q.query(ctx, q.getActiveSchedulesStmt, getActiveSchedules)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Schedule
+	for rows.Next() {
+		var i Schedule
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Action,
+			&i.ActionConfig,
+			&i.ScheduleType,
+			&i.Recurrence,
+			&i.StartDate,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EndDate,
+			&i.Timezone,
+			&i.Status,
+			&i.Priority,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.LastRunAt,
+			&i.NextRunAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDueSchedules = `-- name: GetDueSchedules :many
 SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
 FROM schedule
@@ -321,6 +373,84 @@ func (q *Queries) GetScheduleTargets(ctx context.Context, arg GetScheduleTargets
 	return items, nil
 }
 
+const getScheduleTargetsByScheduleIDs = `-- name: GetScheduleTargetsByScheduleIDs :many
+SELECT st.id, st.schedule_id, st.target_type, st.target_id
+FROM schedule_target st
+JOIN schedule s ON s.id = st.schedule_id
+WHERE s.org_id = $1
+  AND st.schedule_id = ANY($2::bigint[])
+  AND s.deleted_at IS NULL
+`
+
+type GetScheduleTargetsByScheduleIDsParams struct {
+	OrgID       int64
+	ScheduleIds []int64
+}
+
+func (q *Queries) GetScheduleTargetsByScheduleIDs(ctx context.Context, arg GetScheduleTargetsByScheduleIDsParams) ([]ScheduleTarget, error) {
+	rows, err := q.query(ctx, q.getScheduleTargetsByScheduleIDsStmt, getScheduleTargetsByScheduleIDs, arg.OrgID, pq.Array(arg.ScheduleIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScheduleTarget
+	for rows.Next() {
+		var i ScheduleTarget
+		if err := rows.Scan(
+			&i.ID,
+			&i.ScheduleID,
+			&i.TargetType,
+			&i.TargetID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduleIDStatuses = `-- name: ListScheduleIDStatuses :many
+SELECT id, status
+FROM schedule
+WHERE org_id = $1
+  AND deleted_at IS NULL
+ORDER BY priority, id
+`
+
+type ListScheduleIDStatusesRow struct {
+	ID     int64
+	Status string
+}
+
+func (q *Queries) ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error) {
+	rows, err := q.query(ctx, q.listScheduleIDStatusesStmt, listScheduleIDStatuses, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListScheduleIDStatusesRow
+	for rows.Next() {
+		var i ListScheduleIDStatusesRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchedules = `-- name: ListSchedules :many
 SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
 FROM schedule
@@ -381,38 +511,112 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 	return items, nil
 }
 
-const reorderSchedules = `-- name: ReorderSchedules :exec
-WITH new_order AS (
+const lockSchedulePriority = `-- name: LockSchedulePriority :exec
+SELECT pg_advisory_xact_lock(hashtextextended('schedule_priority:' || $1::text, 0))
+`
+
+func (q *Queries) LockSchedulePriority(ctx context.Context, dollar_1 string) error {
+	_, err := q.exec(ctx, q.lockSchedulePriorityStmt, lockSchedulePriority, dollar_1)
+	return err
+}
+
+const negateSchedulePriorities = `-- name: NegateSchedulePriorities :exec
+UPDATE schedule s
+SET priority = -t.new_priority
+FROM (
     SELECT id, ordinality::int AS new_priority
     FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ordinality)
-),
-clear AS (
-    UPDATE schedule s
-    SET priority = -t.new_priority
-    FROM new_order t
-    WHERE s.id = t.id
-      AND s.org_id = $1
-      AND s.deleted_at IS NULL
-)
-UPDATE schedule s
-SET priority = t.new_priority
-FROM new_order t
+) t
 WHERE s.id = t.id
   AND s.org_id = $1
   AND s.deleted_at IS NULL
 `
 
-type ReorderSchedulesParams struct {
+type NegateSchedulePrioritiesParams struct {
 	OrgID int64
 	Ids   []int64
 }
 
-func (q *Queries) ReorderSchedules(ctx context.Context, arg ReorderSchedulesParams) error {
-	_, err := q.exec(ctx, q.reorderSchedulesStmt, reorderSchedules, arg.OrgID, pq.Array(arg.Ids))
+func (q *Queries) NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error {
+	_, err := q.exec(ctx, q.negateSchedulePrioritiesStmt, negateSchedulePriorities, arg.OrgID, pq.Array(arg.Ids))
 	return err
 }
 
-const softDeleteSchedule = `-- name: SoftDeleteSchedule :exec
+const pauseActiveSchedule = `-- name: PauseActiveSchedule :execrows
+UPDATE schedule
+SET status = 'paused'
+WHERE org_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+  AND status IN ('active', 'running')
+`
+
+type PauseActiveScheduleParams struct {
+	OrgID int64
+	ID    int64
+}
+
+func (q *Queries) PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error) {
+	result, err := q.exec(ctx, q.pauseActiveScheduleStmt, pauseActiveSchedule, arg.OrgID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resumePausedSchedule = `-- name: ResumePausedSchedule :execrows
+UPDATE schedule
+SET status = $1,
+    next_run_at = $2
+WHERE org_id = $3
+  AND id = $4
+  AND deleted_at IS NULL
+  AND status = 'paused'
+`
+
+type ResumePausedScheduleParams struct {
+	Status    string
+	NextRunAt sql.NullTime
+	OrgID     int64
+	ID        int64
+}
+
+func (q *Queries) ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error) {
+	result, err := q.exec(ctx, q.resumePausedScheduleStmt, resumePausedSchedule,
+		arg.Status,
+		arg.NextRunAt,
+		arg.OrgID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setSchedulePriorities = `-- name: SetSchedulePriorities :exec
+UPDATE schedule s
+SET priority = t.new_priority
+FROM (
+    SELECT id, ordinality::int AS new_priority
+    FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ordinality)
+) t
+WHERE s.id = t.id
+  AND s.org_id = $1
+  AND s.deleted_at IS NULL
+`
+
+type SetSchedulePrioritiesParams struct {
+	OrgID int64
+	Ids   []int64
+}
+
+func (q *Queries) SetSchedulePriorities(ctx context.Context, arg SetSchedulePrioritiesParams) error {
+	_, err := q.exec(ctx, q.setSchedulePrioritiesStmt, setSchedulePriorities, arg.OrgID, pq.Array(arg.Ids))
+	return err
+}
+
+const softDeleteSchedule = `-- name: SoftDeleteSchedule :execrows
 UPDATE schedule
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = $1
@@ -425,12 +629,15 @@ type SoftDeleteScheduleParams struct {
 	ID    int64
 }
 
-func (q *Queries) SoftDeleteSchedule(ctx context.Context, arg SoftDeleteScheduleParams) error {
-	_, err := q.exec(ctx, q.softDeleteScheduleStmt, softDeleteSchedule, arg.OrgID, arg.ID)
-	return err
+func (q *Queries) SoftDeleteSchedule(ctx context.Context, arg SoftDeleteScheduleParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteScheduleStmt, softDeleteSchedule, arg.OrgID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateSchedule = `-- name: UpdateSchedule :exec
+const updateSchedule = `-- name: UpdateSchedule :execrows
 UPDATE schedule
 SET name          = $1,
     action        = $2,
@@ -442,10 +649,12 @@ SET name          = $1,
     end_time      = $8,
     end_date      = $9,
     timezone      = $10,
-    next_run_at   = $11
-WHERE org_id = $12
-  AND id = $13
+    next_run_at   = $11,
+    status        = $12
+WHERE org_id = $13
+  AND id = $14
   AND deleted_at IS NULL
+  AND status != 'running'
 `
 
 type UpdateScheduleParams struct {
@@ -460,12 +669,13 @@ type UpdateScheduleParams struct {
 	EndDate      sql.NullTime
 	Timezone     string
 	NextRunAt    sql.NullTime
+	Status       string
 	OrgID        int64
 	ID           int64
 }
 
-func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error {
-	_, err := q.exec(ctx, q.updateScheduleStmt, updateSchedule,
+func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateScheduleStmt, updateSchedule,
 		arg.Name,
 		arg.Action,
 		arg.ActionConfig,
@@ -477,10 +687,14 @@ func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) 
 		arg.EndDate,
 		arg.Timezone,
 		arg.NextRunAt,
+		arg.Status,
 		arg.OrgID,
 		arg.ID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateScheduleAfterRun = `-- name: UpdateScheduleAfterRun :exec
@@ -507,24 +721,5 @@ func (q *Queries) UpdateScheduleAfterRun(ctx context.Context, arg UpdateSchedule
 		arg.Status,
 		arg.ID,
 	)
-	return err
-}
-
-const updateScheduleStatus = `-- name: UpdateScheduleStatus :exec
-UPDATE schedule
-SET status = $1
-WHERE org_id = $2
-  AND id = $3
-  AND deleted_at IS NULL
-`
-
-type UpdateScheduleStatusParams struct {
-	Status string
-	OrgID  int64
-	ID     int64
-}
-
-func (q *Queries) UpdateScheduleStatus(ctx context.Context, arg UpdateScheduleStatusParams) error {
-	_, err := q.exec(ctx, q.updateScheduleStatusStmt, updateScheduleStatus, arg.Status, arg.OrgID, arg.ID)
 	return err
 }

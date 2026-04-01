@@ -42,6 +42,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
 	authDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
@@ -53,6 +54,7 @@ import (
 	onboardingDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/pools"
+	scheduleDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/schedule"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/scheduler"
@@ -71,6 +73,7 @@ import (
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/proto-at-block/proto-fleet/server/internal/handlers/pools"
+	scheduleHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/schedule"
 	telemetryHandler "github.com/proto-at-block/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/server"
@@ -301,6 +304,8 @@ func start(config *Config) error {
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
+	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
+	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 
@@ -351,6 +356,7 @@ func start(config *Config) error {
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
+	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

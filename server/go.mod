@@ -20,6 +20,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/lib/pq v1.12.0
 	github.com/oklog/ulid/v2 v2.1.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/sqlc-dev/pqtype v0.3.0

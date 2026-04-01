@@ -29,7 +29,7 @@ VALUES (
 )
 RETURNING id;
 
--- name: UpdateSchedule :exec
+-- name: UpdateSchedule :execrows
 UPDATE schedule
 SET name          = $1,
     action        = $2,
@@ -41,41 +41,38 @@ SET name          = $1,
     end_time      = $8,
     end_date      = $9,
     timezone      = $10,
-    next_run_at   = $11
-WHERE org_id = $12
-  AND id = $13
-  AND deleted_at IS NULL;
+    next_run_at   = $11,
+    status        = $12
+WHERE org_id = $13
+  AND id = $14
+  AND deleted_at IS NULL
+  AND status != 'running';
 
--- name: SoftDeleteSchedule :exec
+-- name: SoftDeleteSchedule :execrows
 UPDATE schedule
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = $1
   AND id = $2
   AND deleted_at IS NULL;
 
--- name: UpdateScheduleStatus :exec
-UPDATE schedule
-SET status = $1
-WHERE org_id = $2
-  AND id = $3
-  AND deleted_at IS NULL;
-
--- name: ReorderSchedules :exec
-WITH new_order AS (
+-- name: NegateSchedulePriorities :exec
+UPDATE schedule s
+SET priority = -t.new_priority
+FROM (
     SELECT id, ordinality::int AS new_priority
     FROM unnest(@ids::bigint[]) WITH ORDINALITY AS u(id, ordinality)
-),
-clear AS (
-    UPDATE schedule s
-    SET priority = -t.new_priority
-    FROM new_order t
-    WHERE s.id = t.id
-      AND s.org_id = $1
-      AND s.deleted_at IS NULL
-)
+) t
+WHERE s.id = t.id
+  AND s.org_id = $1
+  AND s.deleted_at IS NULL;
+
+-- name: SetSchedulePriorities :exec
 UPDATE schedule s
 SET priority = t.new_priority
-FROM new_order t
+FROM (
+    SELECT id, ordinality::int AS new_priority
+    FROM unnest(@ids::bigint[]) WITH ORDINALITY AS u(id, ordinality)
+) t
 WHERE s.id = t.id
   AND s.org_id = $1
   AND s.deleted_at IS NULL;
@@ -135,3 +132,45 @@ WHERE s.id = st.schedule_id
   AND s.org_id = $1
   AND st.schedule_id = $2
   AND s.deleted_at IS NULL;
+
+-- name: LockSchedulePriority :exec
+SELECT pg_advisory_xact_lock(hashtextextended('schedule_priority:' || $1::text, 0));
+
+-- name: ListScheduleIDStatuses :many
+SELECT id, status
+FROM schedule
+WHERE org_id = $1
+  AND deleted_at IS NULL
+ORDER BY priority, id;
+
+-- name: PauseActiveSchedule :execrows
+UPDATE schedule
+SET status = 'paused'
+WHERE org_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+  AND status IN ('active', 'running');
+
+-- name: ResumePausedSchedule :execrows
+UPDATE schedule
+SET status = $1,
+    next_run_at = $2
+WHERE org_id = $3
+  AND id = $4
+  AND deleted_at IS NULL
+  AND status = 'paused';
+
+-- name: GetScheduleTargetsByScheduleIDs :many
+SELECT st.*
+FROM schedule_target st
+JOIN schedule s ON s.id = st.schedule_id
+WHERE s.org_id = $1
+  AND st.schedule_id = ANY(@schedule_ids::bigint[])
+  AND s.deleted_at IS NULL;
+
+-- name: GetActiveSchedules :many
+SELECT *
+FROM schedule
+WHERE status IN ('active', 'running')
+  AND deleted_at IS NULL
+ORDER BY priority, id;

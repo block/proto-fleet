@@ -11,7 +11,6 @@ import {
   ScheduleStatus as ProtoScheduleStatus,
   ScheduleType as ProtoScheduleType,
   RecurrenceFrequency,
-  RelativeWeek,
   ScheduleRecurrenceSchema,
   ScheduleSchema,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
@@ -73,8 +72,6 @@ const createScheduleMessage = ({
       frequency: RecurrenceFrequency.WEEKLY,
       interval: 1,
       daysOfWeek: [DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY],
-      relativeWeek: RelativeWeek.UNSPECIFIED,
-      relativeDay: DayOfWeek.UNSPECIFIED,
     }),
     startDate,
     startTime,
