@@ -11,7 +11,6 @@ pub struct PluginConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct PluginSettings {
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -45,7 +44,6 @@ pub struct FirmwareConfig {
 
 impl PluginConfig {
     /// Check if a specific firmware variant is enabled for a family.
-    #[allow(dead_code)]
     pub fn is_firmware_enabled(&self, family: &str, variant: &str) -> bool {
         self.miners
             .get(family)

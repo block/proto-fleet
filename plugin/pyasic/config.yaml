@@ -3,18 +3,21 @@ plugin:
   discovery_timeout_seconds: 10
   telemetry_cache_ttl_seconds: 5
 
+# this plugin has been deprecated in favor of the asicrs plugin
+# it is kept here for backwards compatibility
+# and to serve as an example python plugin
 miners:
   whatsminer:
     stock:
-      enabled: true
+      enabled: false
 
   antminer:
     stock:
-      enabled: false  # Go plugin handles stock Antminers
+      enabled: false
     braiins:
-      enabled: true
+      enabled: false
     vnish:
-      enabled: true
+      enabled: false
 
   avalonminer:
     stock:

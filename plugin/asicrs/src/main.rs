@@ -1,5 +1,6 @@
 mod capabilities;
 mod config;
+mod device;
 mod driver;
 
 use tracing_subscriber::EnvFilter;

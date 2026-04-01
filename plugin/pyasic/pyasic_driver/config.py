@@ -66,10 +66,6 @@ def load_config(path: Path) -> PluginConfig:
     plugin_settings = _parse_plugin_settings(raw.get("plugin", {}))
     miners = _parse_miners(raw.get("miners", {}))
 
-    enabled_count = sum(1 for m in miners.values() if m.is_enabled)
-    if enabled_count == 0:
-        raise InvalidConfigError("At least one miner family must be enabled")
-
     return PluginConfig(plugin=plugin_settings, miners=miners)
 
 

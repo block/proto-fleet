@@ -62,7 +62,7 @@ class TestLoadConfig:
         assert config.plugin.discovery_timeout_seconds == 10
         assert config.miners["whatsminer"].is_enabled is True
 
-    def test_no_enabled_families_raises(self, tmp_config) -> None:
+    def test_no_enabled_families_loads_as_disabled(self, tmp_config) -> None:
         # Arrange
         path = tmp_config("""\
             miners:
@@ -71,9 +71,11 @@ class TestLoadConfig:
                   enabled: false
         """)
 
-        # Act & Assert
-        with pytest.raises(InvalidConfigError, match="At least one miner family must be enabled"):
-            load_config(path)
+        # Act
+        config = load_config(path)
+
+        # Assert — loads successfully with no enabled families
+        assert config.miners["whatsminer"].is_enabled is False
 
     def test_empty_config_raises(self, tmp_config) -> None:
         # Arrange
