@@ -55,12 +55,38 @@ extract_and_cd() {
 
 usage() {
   cat <<EOF
-Usage: $0 [VERSION]
+Usage: install.sh [VERSION]
 
-If you omit VERSION or pass "latest", installs the latest release by picking the first tarball found in the latest folder.
+If you omit VERSION or pass "latest", installs the latest GitHub release.
 You can override by doing, e.g.:
-  $0 v0.1.0-beta-5
+  install.sh v0.1.0-beta-5
 EOF
+  exit 1
+}
+
+resolve_latest_version() {
+  local latest_release_url effective_url curl_stderr
+
+  latest_release_url="https://github.com/btc-mining/proto-fleet/releases/latest"
+  echo "🛰  Determining latest version from ${latest_release_url}" >&2
+
+  curl_stderr=$(mktemp)
+  if ! effective_url=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "${latest_release_url}" 2>"${curl_stderr}"); then
+    echo "❌ Failed to query GitHub Releases." >&2
+    echo "   URL: ${latest_release_url}" >&2
+    echo "   curl error: $(cat "${curl_stderr}")" >&2
+    rm -f "${curl_stderr}"
+    exit 1
+  fi
+  rm -f "${curl_stderr}"
+
+  if [[ "${effective_url}" =~ /releases/tag/([^/?#]+)/?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  echo "❌ Failed to determine the latest version from GitHub Releases." >&2
+  echo "   Resolved URL: ${effective_url}" >&2
   exit 1
 }
 
@@ -97,21 +123,13 @@ fi
 
 check_page_size
 
-BUCKET_URL="https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet"
+GITHUB_RELEASES_URL="https://github.com/btc-mining/proto-fleet/releases"
 
-# determine directory and tarball name
+# determine version and tarball name
 if [[ -n "${1:-}" && "${1:-}" != "latest" ]]; then
   VERSION="$1"
-  DIR="$VERSION"
 else
-  DIR="latest"
-  META_URL="${BUCKET_URL}/${DIR}/version.txt"
-  echo "🛰  Determining latest version from ${META_URL}"
-  VERSION=$(curl -fsSL "${META_URL}" | awk '/^version:/ {print $2}')
-  if [[ -z "${VERSION}" ]]; then
-    echo "❌ Failed to determine the latest version — version.txt is missing or malformed."
-    exit 1
-  fi
+  VERSION=$(resolve_latest_version)
   echo "🔖 Latest version is ${VERSION}"
 fi
 
@@ -123,11 +141,11 @@ case "$(uname -m)" in
 esac
 
 TAR_NAME="proto-fleet-${VERSION}-${ARCH}.tar.gz"
-URL="${BUCKET_URL}/${VERSION}/${TAR_NAME}"
+URL="${GITHUB_RELEASES_URL}/download/${VERSION}/${TAR_NAME}"
 
 echo "🛰  Fetching proto-fleet ${VERSION} from ${URL}"
 if ! curl -fsSL "${URL}" -o "/tmp/${TAR_NAME}"; then
-  echo "❌ Failed to download ${TAR_NAME} — does that release exist?"
+  echo "❌ Failed to download ${TAR_NAME} from GitHub Releases — does that release asset exist?"
   usage
 fi
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/proto-at-block/proto-fleet" target="_blank" rel="noopener noreferrer">
+  <a href="https://github.com/btc-mining/proto-fleet" target="_blank" rel="noopener noreferrer">
     <img width="64" src="https://raw.githubusercontent.com/btc-mining/proto-fleet/main/docs/logo.svg" alt="Proto logo">
   </a>
 </p>
@@ -14,17 +14,17 @@
   Open source fleet management for bitcoin miners.
 </p>
 <p align="center">
-  <a href="https://github.com/proto-at-block/proto-fleet/blob/main/LICENSE">
+  <a href="https://github.com/btc-mining/proto-fleet/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Proto Fleet is released under the Apache 2.0 license." />
   </a>
-  <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-client-checks.yml">
-    <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
   </a>
-  <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-server-checks.yml">
-    <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
   </a>
-  <a href="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-e2e-tests.yml">
-    <img src="https://github.com/proto-at-block/proto-fleet/actions/workflows/protofleet-e2e-tests.yml/badge.svg" alt="E2E tests status." />
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml/badge.svg" alt="E2E tests status." />
   </a>
 </p>
 
@@ -73,13 +73,13 @@ just gen
 ### Latest Version
 
 ```bash
-bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh)
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh)
 ```
 
 ### Specific Version
 
 ```bash
-bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh) v0.1.0
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh) v0.1.0
 ```
 
 ## Contributing

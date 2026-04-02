@@ -5,7 +5,6 @@ on:
     types: [created]
 
 permissions:
-  id-token: write
   contents: write
   pull-requests: read
 
@@ -265,29 +264,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
-        with:
-          aws-region: "us-east-1"
-          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
-
-      - name: Upload ProtoOS bundle to S3
-        run: |
-          aws s3 cp \
-            ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz \
-            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
-            --acl public-read
-
-      - name: Upload ProtoOS .ipk to S3
-        run: |
-          aws s3 cp \
-            ./client/ \
-            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
-            --recursive \
-            --exclude "*" \
-            --include "proto-os_*.ipk" \
-            --acl public-read
-
   build-timescaledb-image:
     strategy:
       matrix:
@@ -435,67 +411,11 @@ jobs:
       - name: Upload deployment bundles to GitHub release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
-          files: /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
+          files: |
+            /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
+            ./deployment-files/install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
-        with:
-          aws-region: "us-east-1"
-          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
-
-      - name: Upload deployment bundles to S3
-        run: |
-          for bundle in /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz; do
-            aws s3 cp "$bundle" \
-              s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
-              --acl public-read
-          done
-
-      - name: Upload install script to S3
-        run: |
-          aws s3 cp \
-            deployment-files/install.sh \
-            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/install.sh \
-            --acl public-read
-
-  finalize-release:
-    runs-on: ubuntu-latest
-    needs: [publish-proto-fleet]
-    steps:
-      - name: Create version file
-        run: |
-          echo "version: ${{ github.event.release.tag_name }}" > version.txt
-          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
-          echo "commit: ${{ github.sha }}" >> version.txt
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
-        with:
-          aws-region: "us-east-1"
-          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
-
-      - name: Upload version file to S3
-        run: |
-          aws s3 cp \
-            version.txt \
-            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/version.txt \
-            --acl public-read
-
-      - name: Sync release to latest folder
-        if: github.event.release.prerelease == false
-        run: |
-          echo "Syncing to latest folder"
-          aws s3 sync \
-            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
-            s3://proto-fleet/releases/fleet/latest/ \
-            --acl public-read \
-            --delete
-
-      - name: Skip sync for pre-release
-        if: github.event.release.prerelease == true
-        run: echo "Skipping sync to latest folder - this is a pre-release"
 
   deploy-to-pi-mar:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-mar']
