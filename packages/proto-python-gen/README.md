@@ -28,6 +28,8 @@ cd packages/proto-python-gen
 just setup   # creates .venv with pinned grpcio-tools and protobuf
 ```
 
+Local repo-managed setup defaults to ignoring machine-global pip config. In CI, ambient pip config is honored unless you explicitly set `PIP_CONFIG_FILE` or `PIP_INDEX_URL`.
+
 ## Usage
 
 Add to your `buf.gen.yaml`:

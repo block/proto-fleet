@@ -126,6 +126,7 @@ jobs:
           cp bin/protoc-gen-python-grpc "${EXPECTED}/bin/"
           cp protoc_gen_python_grpc.py "${EXPECTED}/"
           cp setup.sh "${EXPECTED}/"
+          cp ../../scripts/pip-config.sh "${EXPECTED}/"
           cp requirements.txt "${EXPECTED}/"
 
           if diff -r "${COMMITTED}" "${EXPECTED}" > /dev/null 2>&1; then

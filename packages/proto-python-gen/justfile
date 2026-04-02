@@ -14,6 +14,9 @@ setup:
 
 # Install dev tools (ruff) for linting
 setup-dev: setup
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
   "{{package_root}}/.venv/bin/pip" install --quiet -r "{{package_root}}/dev-requirements.txt"
 
 # Lint Python source with ruff
@@ -153,10 +156,11 @@ package: setup test
   cp "{{package_root}}/bin/protoc-gen-python-grpc" "${STAGING}/bin/"
   cp "{{package_root}}/protoc_gen_python_grpc.py" "${STAGING}/"
   cp "{{package_root}}/setup.sh" "${STAGING}/"
+  cp "{{repo_root}}/scripts/pip-config.sh" "${STAGING}/"
   cp "{{package_root}}/requirements.txt" "${STAGING}/"
   chmod +x "${STAGING}/bin/protoc-gen-python-grpc" "${STAGING}/setup.sh"
 
-  COPYFILE_DISABLE=1 tar -czf "${TARBALL}" -C "${STAGING}" .
+  COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar --format ustar -czf "${TARBALL}" -C "${STAGING}" .
 
   echo "Package built: ${TARBALL}"
   echo "Size: $(du -h "${TARBALL}" | cut -f1)"

@@ -37,6 +37,8 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+Local repo-managed setup defaults to ignoring machine-global pip config. In CI, ambient pip config is honored unless you explicitly set `PIP_CONFIG_FILE` or `PIP_INDEX_URL`.
+
 ## Quick Start
 
 Here's a minimal plugin implementation:

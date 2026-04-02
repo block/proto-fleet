@@ -1,5 +1,8 @@
 set dotenv-load := false
 
+sdk_root := justfile_directory()
+repo_root := sdk_root / "../../../.."
+
 # List available recipes
 default:
   just --list
@@ -25,10 +28,16 @@ check: test lint
 
 # Install SDK with dev dependencies
 install:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
   .venv/bin/pip install -e ".[dev]"
 
 # Install SDK in editable mode (without dev deps)
 install-prod:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
   .venv/bin/pip install -e .
 
 # Clean build artifacts and caches
@@ -46,7 +55,8 @@ setup:
     python3 -m venv .venv
     echo "✅ Created virtual environment at .venv"
   fi
-  source .venv/bin/activate && pip install -e ".[dev]"
+  source "{{repo_root}}/scripts/pip-config.sh"
+  .venv/bin/pip install -e ".[dev]"
   echo "✅ Installed dependencies"
   echo ""
   echo "To activate the environment, run:"

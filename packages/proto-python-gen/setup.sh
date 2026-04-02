@@ -12,6 +12,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 REQUIREMENTS="${SCRIPT_DIR}/requirements.txt"
 
+configure_pip_config() {
+  if [[ -f "${SCRIPT_DIR}/pip-config.sh" ]]; then
+    # Tarball layout: pip-config.sh is a sibling of setup.sh
+    source "${SCRIPT_DIR}/pip-config.sh"
+  else
+    # Repo layout: pip-config.sh lives in scripts/ at the repo root
+    source "${SCRIPT_DIR}/../../scripts/pip-config.sh"
+  fi
+}
+
 # ── Find Python 3 ────────────────────────────────────────────────────────────
 # Search standard system paths first to avoid hermit shims, which can deadlock
 # when this script runs inside a hermit on-unpack hook (the shim tries to
@@ -58,6 +68,7 @@ fi
 
 # ── Install dependencies ─────────────────────────────────────────────────────
 echo "Installing dependencies from ${REQUIREMENTS} ..."
+configure_pip_config
 "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
 "${VENV_DIR}/bin/pip" install --quiet -r "${REQUIREMENTS}"
 
