@@ -31,15 +31,11 @@ export const primaryNavItems: NavItem[] = [
     label: "Groups",
     icon: Groups,
   },
-  ...(import.meta.env.VITE_FEATURE_RACKS === "true"
-    ? [
-        {
-          path: "/racks",
-          label: "Racks",
-          icon: Racks,
-        },
-      ]
-    : []),
+  {
+    path: "/racks",
+    label: "Racks",
+    icon: Racks,
+  },
   {
     path: "/activity",
     label: "Activity",
