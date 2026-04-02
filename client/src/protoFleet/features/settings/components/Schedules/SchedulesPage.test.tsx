@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import SchedulesPage from "./SchedulesPage";
+import type { Schedule } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 
 const mockUseScheduleApi = vi.fn();
 const mockPushToast = vi.fn();
+const mockScheduleModal = vi.fn<(props: { open: boolean }) => ReactElement | null>(() => null);
 
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: (...args: unknown[]) => mockPushToast(...args),
@@ -18,6 +20,11 @@ vi.mock("@/protoFleet/api/useScheduleApi", () => ({
   default: () => mockUseScheduleApi(),
 }));
 
+vi.mock("@/protoFleet/features/settings/components/Schedules/ScheduleModal", () => ({
+  __esModule: true,
+  default: (props: { open: boolean }) => mockScheduleModal(props),
+}));
+
 const createSchedule = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: "1",
   priority: 1,
@@ -28,6 +35,7 @@ const createSchedule = (overrides: Partial<Record<string, unknown>> = {}) => ({
   action: "sleep",
   status: "active",
   createdBy: "Negar Naghshbandi",
+  rawSchedule: {} as Schedule,
   ...overrides,
 });
 
@@ -46,6 +54,8 @@ describe("SchedulesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPushToast.mockReset();
+    mockScheduleModal.mockReset();
+    mockScheduleModal.mockImplementation(({ open }: { open: boolean }) => (open ? <div>Schedule modal</div> : null));
 
     mockUseScheduleApi.mockReturnValue({
       schedules: [],
@@ -91,8 +101,18 @@ describe("SchedulesPage", () => {
 
     await waitFor(() => expect(screen.getAllByText("Schedules")).toHaveLength(1));
     expect(screen.getByText("Configure schedules to automate actions for your miners.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Add a schedule" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add a schedule" })).toBeEnabled();
     expect(screen.queryByRole("columnheader", { name: "Name" })).not.toBeInTheDocument();
+    expect(mockScheduleModal).not.toHaveBeenCalled();
+  });
+
+  it("opens the schedule modal from the add schedule button", async () => {
+    render(<SchedulesPage />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add a schedule" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add a schedule" }));
+
+    expect(screen.getByText("Schedule modal")).toBeVisible();
   });
 
   it("renders the populated schedules table", async () => {

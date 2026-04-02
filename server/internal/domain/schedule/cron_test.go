@@ -27,6 +27,13 @@ func TestToCronExpression(t *testing.T) {
 			want:      "CRON_TZ=America/Chicago 30 14 * * *",
 		},
 		{
+			name:      "daily with seconds",
+			freq:      pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY,
+			startTime: "14:30:00",
+			timezone:  "America/Chicago",
+			want:      "CRON_TZ=America/Chicago 30 14 * * *",
+		},
+		{
 			name:      "weekly mon/wed/fri",
 			freq:      pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_WEEKLY,
 			startTime: "09:00",
@@ -253,6 +260,20 @@ func TestComputeNextRun(t *testing.T) {
 				tt.check(t, *got)
 			}
 		})
+	}
+}
+
+func TestParseScheduleTime_AcceptsSeconds(t *testing.T) {
+	chicago, _ := time.LoadLocation("America/Chicago")
+
+	got, err := ParseScheduleTime("2026-06-15", "14:30:00", "America/Chicago")
+	if err != nil {
+		t.Fatalf("ParseScheduleTime() error = %v", err)
+	}
+
+	want := time.Date(2026, 6, 15, 14, 30, 0, 0, chicago)
+	if !got.Equal(want) {
+		t.Fatalf("ParseScheduleTime() = %v, want %v", got, want)
 	}
 }
 

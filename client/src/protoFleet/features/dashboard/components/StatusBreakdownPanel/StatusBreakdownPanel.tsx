@@ -32,7 +32,6 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
     >
       {items.map((segment, idx) => (
         <div key={segment.key} className="relative flex grow flex-row items-center">
-          {/* Icon or color indicator */}
           {segment.icon ? (
             <span className="mr-3 flex" style={{ color: `var(${segment.color})` }}>
               {segment.icon}
@@ -41,14 +40,12 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
             <div className="mr-3 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: `var(${segment.color})` }} />
           )}
 
-          {/* Label and count */}
           <div className="flex flex-1 flex-col">
             <span className="text-emphasis-300 text-text-primary">{segment.label}</span>
             <span className="text-300 text-text-primary-70">{segment.percentageLabel}</span>
           </div>
 
-          {/* Button with count */}
-          {segment.showButton && segment.count > 0 && (
+          {segment.showButton && segment.count > 0 ? (
             <Button
               variant={segment.buttonVariant ? variants[segment.buttonVariant] : variants.secondary}
               size="compact"
@@ -57,9 +54,9 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
             >
               {segment.count} {segment.count === 1 ? "miner" : "miners"}
             </Button>
-          )}
+          ) : null}
 
-          {idx < items.length - 1 && <Divider className="absolute -bottom-4 left-0 w-full" />}
+          {idx < items.length - 1 ? <Divider className="absolute -bottom-4 left-0 w-full" /> : null}
         </div>
       ))}
     </div>

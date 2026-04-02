@@ -41,7 +41,7 @@ func (s *SQLScheduleStore) GetSchedule(ctx context.Context, orgID, scheduleID in
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get schedule: %v", err)
 	}
-	return convertToProtoSchedule(row)
+	return convertGetScheduleRowToProtoSchedule(row)
 }
 
 func (s *SQLScheduleStore) ListSchedules(ctx context.Context, orgID int64, status, action string) ([]*pb.Schedule, error) {
@@ -56,7 +56,7 @@ func (s *SQLScheduleStore) ListSchedules(ctx context.Context, orgID int64, statu
 
 	result := make([]*pb.Schedule, 0, len(rows))
 	for _, row := range rows {
-		sched, err := convertToProtoSchedule(row)
+		sched, err := convertListSchedulesRowToProtoSchedule(row)
 		if err != nil {
 			return nil, err
 		}
@@ -356,7 +356,7 @@ func convertToProtoSchedule(row sqlc.Schedule) (*pb.Schedule, error) {
 		Action:       stringToScheduleAction(row.Action),
 		ScheduleType: stringToScheduleType(row.ScheduleType),
 		StartDate:    row.StartDate.Format("2006-01-02"),
-		StartTime:    row.StartTime.Format("15:04"),
+		StartTime:    normalizeScheduleTimeString(row.StartTime),
 		Timezone:     row.Timezone,
 		Status:       stringToScheduleStatus(row.Status),
 		Priority:     row.Priority,
@@ -366,7 +366,7 @@ func convertToProtoSchedule(row sqlc.Schedule) (*pb.Schedule, error) {
 	}
 
 	if row.EndTime.Valid {
-		sched.EndTime = row.EndTime.Time.Format("15:04")
+		sched.EndTime = normalizeScheduleTimeString(row.EndTime.String)
 	}
 	if row.EndDate.Valid {
 		sched.EndDate = row.EndDate.Time.Format("2006-01-02")
@@ -394,6 +394,66 @@ func convertToProtoSchedule(row sqlc.Schedule) (*pb.Schedule, error) {
 		sched.Recurrence = &rec
 	}
 
+	return sched, nil
+}
+
+func convertGetScheduleRowToProtoSchedule(row sqlc.GetScheduleRow) (*pb.Schedule, error) {
+	sched, err := convertToProtoSchedule(sqlc.Schedule{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		Name:         row.Name,
+		Action:       row.Action,
+		ActionConfig: row.ActionConfig,
+		ScheduleType: row.ScheduleType,
+		Recurrence:   row.Recurrence,
+		StartDate:    row.StartDate,
+		StartTime:    row.StartTime,
+		EndTime:      row.EndTime,
+		EndDate:      row.EndDate,
+		Timezone:     row.Timezone,
+		Status:       row.Status,
+		Priority:     row.Priority,
+		CreatedBy:    row.CreatedBy,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+		DeletedAt:    row.DeletedAt,
+		LastRunAt:    row.LastRunAt,
+		NextRunAt:    row.NextRunAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sched.CreatedByUsername = row.CreatedByUsername.String
+	return sched, nil
+}
+
+func convertListSchedulesRowToProtoSchedule(row sqlc.ListSchedulesRow) (*pb.Schedule, error) {
+	sched, err := convertToProtoSchedule(sqlc.Schedule{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		Name:         row.Name,
+		Action:       row.Action,
+		ActionConfig: row.ActionConfig,
+		ScheduleType: row.ScheduleType,
+		Recurrence:   row.Recurrence,
+		StartDate:    row.StartDate,
+		StartTime:    row.StartTime,
+		EndTime:      row.EndTime,
+		EndDate:      row.EndDate,
+		Timezone:     row.Timezone,
+		Status:       row.Status,
+		Priority:     row.Priority,
+		CreatedBy:    row.CreatedBy,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+		DeletedAt:    row.DeletedAt,
+		LastRunAt:    row.LastRunAt,
+		NextRunAt:    row.NextRunAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sched.CreatedByUsername = row.CreatedByUsername.String
 	return sched, nil
 }
 
@@ -537,23 +597,25 @@ func parseScheduleDate(s string) (time.Time, error) {
 	return t, nil
 }
 
-func parseScheduleTime(s string) (time.Time, error) {
-	t, err := time.Parse("15:04", s)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid time %q: %w", s, err)
+func parseScheduleTime(s string) (string, error) {
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		t, err := time.Parse(layout, s)
+		if err == nil {
+			return t.Format("15:04"), nil
+		}
 	}
-	return t, nil
+	return "", fmt.Errorf("invalid time %q", s)
 }
 
-func parseNullTime(s string) (sql.NullTime, error) {
+func parseNullTime(s string) (sql.NullString, error) {
 	if s == "" {
-		return sql.NullTime{}, nil
+		return sql.NullString{}, nil
 	}
-	t, err := time.Parse("15:04", s)
+	parsed, err := parseScheduleTime(s)
 	if err != nil {
-		return sql.NullTime{}, fmt.Errorf("invalid time %q: %w", s, err)
+		return sql.NullString{}, err
 	}
-	return sql.NullTime{Time: t, Valid: true}, nil
+	return sql.NullString{String: parsed, Valid: true}, nil
 }
 
 func parseNullDate(s string) (sql.NullTime, error) {
@@ -572,4 +634,12 @@ func timestampToNullTime(ts *timestamppb.Timestamp) sql.NullTime {
 		return sql.NullTime{}
 	}
 	return sql.NullTime{Time: ts.AsTime(), Valid: true}
+}
+
+func normalizeScheduleTimeString(value string) string {
+	parsed, err := parseScheduleTime(value)
+	if err != nil {
+		return value
+	}
+	return parsed
 }

@@ -25,7 +25,7 @@ var protoDayToCron = map[pb.DayOfWeek]string{
 // ToCronExpression converts schedule recurrence fields into a cron expression
 // with a CRON_TZ= prefix for timezone-aware scheduling.
 func ToCronExpression(freq pb.RecurrenceFrequency, startTime, timezone string, daysOfWeek []pb.DayOfWeek, dayOfMonth *int32) (string, error) {
-	t, err := time.Parse("15:04", startTime)
+	t, err := parseClockValue(startTime)
 	if err != nil {
 		return "", fmt.Errorf("invalid start_time %q: %w", startTime, err)
 	}
@@ -142,7 +142,12 @@ func ParseScheduleTime(date, timeStr, timezone string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", timezone, err)
 	}
 
-	dt, err := time.ParseInLocation("2006-01-02 15:04", date+" "+timeStr, loc)
+	normalizedTime, err := normalizeClockValue(timeStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid date/time %q %q: %w", date, timeStr, err)
+	}
+
+	dt, err := time.ParseInLocation("2006-01-02 15:04", date+" "+normalizedTime, loc)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid date/time %q %q: %w", date, timeStr, err)
 	}
@@ -163,10 +168,29 @@ func parseDateInLocation(date, timezone string) (time.Time, error) {
 }
 
 // endOfDay returns the last second of the calendar day in the local timezone.
-// Uses time.Date normalization to handle DST transitions correctly — on a
-// 23-hour spring-forward day, this returns 22:59:59; on a 25-hour fall-back
-// day, this returns 23:59:59 (not 00:59:59 the next day).
+// Uses time.Date normalization to handle DST transitions correctly without
+// spilling into the next local day across spring-forward or fall-back changes.
 func endOfDay(t time.Time) time.Time {
 	y, m, d := t.Date()
 	return time.Date(y, m, d+1, 0, 0, 0, 0, t.Location()).Add(-time.Second)
+}
+
+func parseClockValue(value string) (time.Time, error) {
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("invalid time %q", value)
+}
+
+func normalizeClockValue(value string) (string, error) {
+	parsed, err := parseClockValue(value)
+	if err != nil {
+		return "", err
+	}
+
+	return parsed.Format("15:04"), nil
 }

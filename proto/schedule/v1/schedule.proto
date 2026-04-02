@@ -145,6 +145,7 @@ message Schedule {
     google.protobuf.Timestamp last_run_at = 20;
     google.protobuf.Timestamp next_run_at = 21;
     repeated ScheduleTarget targets = 23;
+    string created_by_username = 24;
     reserved 10, 12, 16, 22;
 }
 

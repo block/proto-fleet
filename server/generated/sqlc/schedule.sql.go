@@ -39,8 +39,8 @@ type CreateScheduleParams struct {
 	ScheduleType string
 	Recurrence   pqtype.NullRawMessage
 	StartDate    time.Time
-	StartTime    time.Time
-	EndTime      sql.NullTime
+	StartTime    string
+	EndTime      sql.NullString
 	EndDate      sql.NullTime
 	Timezone     string
 	Status       string
@@ -291,11 +291,12 @@ func (q *Queries) GetRunningPowerTargetSchedules(ctx context.Context, orgID int6
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
-FROM schedule
-WHERE org_id = $1
-  AND id = $2
-  AND deleted_at IS NULL
+SELECT s.id, s.org_id, s.name, s.action, s.action_config, s.schedule_type, s.recurrence, s.start_date, s.start_time, s.end_time, s.end_date, s.timezone, s.status, s.priority, s.created_by, s.created_at, s.updated_at, s.deleted_at, s.last_run_at, s.next_run_at, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.id = $2
+  AND s.deleted_at IS NULL
 `
 
 type GetScheduleParams struct {
@@ -303,9 +304,33 @@ type GetScheduleParams struct {
 	ID    int64
 }
 
-func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Schedule, error) {
+type GetScheduleRow struct {
+	ID                int64
+	OrgID             int64
+	Name              string
+	Action            string
+	ActionConfig      json.RawMessage
+	ScheduleType      string
+	Recurrence        pqtype.NullRawMessage
+	StartDate         time.Time
+	StartTime         string
+	EndTime           sql.NullString
+	EndDate           sql.NullTime
+	Timezone          string
+	Status            string
+	Priority          int32
+	CreatedBy         int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         sql.NullTime
+	LastRunAt         sql.NullTime
+	NextRunAt         sql.NullTime
+	CreatedByUsername sql.NullString
+}
+
+func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (GetScheduleRow, error) {
 	row := q.queryRow(ctx, q.getScheduleStmt, getSchedule, arg.OrgID, arg.ID)
-	var i Schedule
+	var i GetScheduleRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -327,6 +352,7 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Sched
 		&i.DeletedAt,
 		&i.LastRunAt,
 		&i.NextRunAt,
+		&i.CreatedByUsername,
 	)
 	return i, err
 }
@@ -452,13 +478,14 @@ func (q *Queries) ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]Li
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
-FROM schedule
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND ($2::text IS NULL OR status = $2)
-  AND ($3::text IS NULL OR action = $3)
-ORDER BY priority, id
+SELECT s.id, s.org_id, s.name, s.action, s.action_config, s.schedule_type, s.recurrence, s.start_date, s.start_time, s.end_time, s.end_date, s.timezone, s.status, s.priority, s.created_by, s.created_at, s.updated_at, s.deleted_at, s.last_run_at, s.next_run_at, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.deleted_at IS NULL
+  AND ($2::text IS NULL OR s.status = $2)
+  AND ($3::text IS NULL OR s.action = $3)
+ORDER BY s.priority, s.id
 `
 
 type ListSchedulesParams struct {
@@ -467,15 +494,39 @@ type ListSchedulesParams struct {
 	Action sql.NullString
 }
 
-func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]Schedule, error) {
+type ListSchedulesRow struct {
+	ID                int64
+	OrgID             int64
+	Name              string
+	Action            string
+	ActionConfig      json.RawMessage
+	ScheduleType      string
+	Recurrence        pqtype.NullRawMessage
+	StartDate         time.Time
+	StartTime         string
+	EndTime           sql.NullString
+	EndDate           sql.NullTime
+	Timezone          string
+	Status            string
+	Priority          int32
+	CreatedBy         int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         sql.NullTime
+	LastRunAt         sql.NullTime
+	NextRunAt         sql.NullTime
+	CreatedByUsername sql.NullString
+}
+
+func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]ListSchedulesRow, error) {
 	rows, err := q.query(ctx, q.listSchedulesStmt, listSchedules, arg.OrgID, arg.Status, arg.Action)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Schedule
+	var items []ListSchedulesRow
 	for rows.Next() {
-		var i Schedule
+		var i ListSchedulesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -497,6 +548,7 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 			&i.DeletedAt,
 			&i.LastRunAt,
 			&i.NextRunAt,
+			&i.CreatedByUsername,
 		); err != nil {
 			return nil, err
 		}
@@ -664,8 +716,8 @@ type UpdateScheduleParams struct {
 	ScheduleType string
 	Recurrence   pqtype.NullRawMessage
 	StartDate    time.Time
-	StartTime    time.Time
-	EndTime      sql.NullTime
+	StartTime    string
+	EndTime      sql.NullString
 	EndDate      sql.NullTime
 	Timezone     string
 	NextRunAt    sql.NullTime

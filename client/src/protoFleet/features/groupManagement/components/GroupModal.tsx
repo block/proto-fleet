@@ -145,6 +145,8 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
         onDismiss={onDismiss}
         open={show && !showDeleteConfirm}
         size="extraLarge"
+        className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
+        bodyClassName="flex-1 min-h-0"
         title={isEditMode ? "Edit group" : "Add group"}
         description={
           isEditMode ? "Rename your group or update its miners." : "Name your group and assign miners to it."
@@ -171,17 +173,17 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
         ]}
         divider={false}
       >
-        <div>
+        <div className="flex h-full min-h-0 flex-col">
           {errorMsg ? (
             <div
-              className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text"
+              className="mb-4 shrink-0 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text"
               data-testid="error-msg"
             >
               {errorMsg}
             </div>
           ) : null}
 
-          <div className="mb-4">
+          <div className="mb-4 shrink-0">
             <Input
               id="group-name"
               label="Group name"

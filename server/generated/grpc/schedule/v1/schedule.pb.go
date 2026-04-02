@@ -573,28 +573,29 @@ func (x *ScheduleTarget) GetTargetId() string {
 
 // Full schedule entity
 type Schedule struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Action        ScheduleAction         `protobuf:"varint,3,opt,name=action,proto3,enum=schedule.v1.ScheduleAction" json:"action,omitempty"`
-	ActionConfig  *PowerTargetConfig     `protobuf:"bytes,4,opt,name=action_config,json=actionConfig,proto3" json:"action_config,omitempty"`
-	ScheduleType  ScheduleType           `protobuf:"varint,5,opt,name=schedule_type,json=scheduleType,proto3,enum=schedule.v1.ScheduleType" json:"schedule_type,omitempty"`
-	Recurrence    *ScheduleRecurrence    `protobuf:"bytes,6,opt,name=recurrence,proto3" json:"recurrence,omitempty"`
-	StartDate     string                 `protobuf:"bytes,7,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
-	StartTime     string                 `protobuf:"bytes,8,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
-	EndTime       string                 `protobuf:"bytes,9,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
-	EndDate       string                 `protobuf:"bytes,11,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
-	Timezone      string                 `protobuf:"bytes,13,opt,name=timezone,proto3" json:"timezone,omitempty"`
-	Status        ScheduleStatus         `protobuf:"varint,14,opt,name=status,proto3,enum=schedule.v1.ScheduleStatus" json:"status,omitempty"`
-	Priority      int32                  `protobuf:"varint,15,opt,name=priority,proto3" json:"priority,omitempty"`
-	CreatedBy     int64                  `protobuf:"varint,17,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	LastRunAt     *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`
-	NextRunAt     *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`
-	Targets       []*ScheduleTarget      `protobuf:"bytes,23,rep,name=targets,proto3" json:"targets,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name              string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Action            ScheduleAction         `protobuf:"varint,3,opt,name=action,proto3,enum=schedule.v1.ScheduleAction" json:"action,omitempty"`
+	ActionConfig      *PowerTargetConfig     `protobuf:"bytes,4,opt,name=action_config,json=actionConfig,proto3" json:"action_config,omitempty"`
+	ScheduleType      ScheduleType           `protobuf:"varint,5,opt,name=schedule_type,json=scheduleType,proto3,enum=schedule.v1.ScheduleType" json:"schedule_type,omitempty"`
+	Recurrence        *ScheduleRecurrence    `protobuf:"bytes,6,opt,name=recurrence,proto3" json:"recurrence,omitempty"`
+	StartDate         string                 `protobuf:"bytes,7,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
+	StartTime         string                 `protobuf:"bytes,8,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	EndTime           string                 `protobuf:"bytes,9,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
+	EndDate           string                 `protobuf:"bytes,11,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
+	Timezone          string                 `protobuf:"bytes,13,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	Status            ScheduleStatus         `protobuf:"varint,14,opt,name=status,proto3,enum=schedule.v1.ScheduleStatus" json:"status,omitempty"`
+	Priority          int32                  `protobuf:"varint,15,opt,name=priority,proto3" json:"priority,omitempty"`
+	CreatedBy         int64                  `protobuf:"varint,17,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt         *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	LastRunAt         *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`
+	NextRunAt         *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`
+	Targets           []*ScheduleTarget      `protobuf:"bytes,23,rep,name=targets,proto3" json:"targets,omitempty"`
+	CreatedByUsername string                 `protobuf:"bytes,24,opt,name=created_by_username,json=createdByUsername,proto3" json:"created_by_username,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Schedule) Reset() {
@@ -758,6 +759,13 @@ func (x *Schedule) GetTargets() []*ScheduleTarget {
 		return x.Targets
 	}
 	return nil
+}
+
+func (x *Schedule) GetCreatedByUsername() string {
+	if x != nil {
+		return x.CreatedByUsername
+	}
+	return ""
 }
 
 type ListSchedulesRequest struct {
@@ -1599,8 +1607,8 @@ var file_schedule_v1_schedule_proto_rawDesc = string([]byte{
 	0x42, 0x0a, 0xba, 0x48, 0x07, 0x82, 0x01, 0x04, 0x10, 0x01, 0x20, 0x00, 0x52, 0x0a, 0x74, 0x61,
 	0x72, 0x67, 0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x24, 0x0a, 0x09, 0x74, 0x61, 0x72, 0x67,
 	0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x42, 0x07, 0xba, 0x48, 0x04,
-	0x72, 0x02, 0x10, 0x01, 0x52, 0x08, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x49, 0x64, 0x22, 0xe6,
-	0x06, 0x0a, 0x08, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69,
+	0x72, 0x02, 0x10, 0x01, 0x52, 0x08, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x49, 0x64, 0x22, 0x96,
+	0x07, 0x0a, 0x08, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69,
 	0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x02, 0x69, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x6e,
 	0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12,
 	0x33, 0x0a, 0x06, 0x61, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0e, 0x32,
@@ -1652,7 +1660,10 @@ var file_schedule_v1_schedule_proto_rawDesc = string([]byte{
 	0x65, 0x78, 0x74, 0x52, 0x75, 0x6e, 0x41, 0x74, 0x12, 0x35, 0x0a, 0x07, 0x74, 0x61, 0x72, 0x67,
 	0x65, 0x74, 0x73, 0x18, 0x17, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1b, 0x2e, 0x73, 0x63, 0x68, 0x65,
 	0x64, 0x75, 0x6c, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65,
-	0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x52, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x4a,
+	0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x52, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x12,
+	0x2e, 0x0a, 0x13, 0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x62, 0x79, 0x5f, 0x75, 0x73,
+	0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x18, 0x20, 0x01, 0x28, 0x09, 0x52, 0x11, 0x63, 0x72,
+	0x65, 0x61, 0x74, 0x65, 0x64, 0x42, 0x79, 0x55, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x4a,
 	0x04, 0x08, 0x0a, 0x10, 0x0b, 0x4a, 0x04, 0x08, 0x0c, 0x10, 0x0d, 0x4a, 0x04, 0x08, 0x10, 0x10,
 	0x11, 0x4a, 0x04, 0x08, 0x16, 0x10, 0x17, 0x22, 0x94, 0x01, 0x0a, 0x14, 0x4c, 0x69, 0x73, 0x74,
 	0x53, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,

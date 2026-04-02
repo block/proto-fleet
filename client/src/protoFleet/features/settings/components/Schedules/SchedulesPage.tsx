@@ -19,6 +19,7 @@ import {
 } from "@/protoFleet/features/settings/components/Schedules/constants";
 import type { ScheduleColumn } from "@/protoFleet/features/settings/components/Schedules/constants";
 import createScheduleColConfig from "@/protoFleet/features/settings/components/Schedules/scheduleColConfig";
+import ScheduleModal from "@/protoFleet/features/settings/components/Schedules/ScheduleModal";
 import { Edit, Pause, Play, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -38,12 +39,22 @@ const getErrorMessage = (error: unknown, fallbackMessage: string) =>
   error instanceof Error && error.message ? error.message : fallbackMessage;
 
 const SchedulesPage = () => {
-  const { schedules, isLoading, refreshSchedules, pauseSchedule, resumeSchedule, deleteSchedule, reorderSchedules } =
-    useScheduleApi();
+  const {
+    schedules,
+    isLoading,
+    refreshSchedules,
+    createSchedule,
+    updateSchedule,
+    pauseSchedule,
+    resumeSchedule,
+    deleteSchedule,
+    reorderSchedules,
+  } = useScheduleApi();
   const { isPhone, isTablet } = useWindowDimensions();
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(defaultActiveFilters);
   const [currentSort, setCurrentSort] = useState<{ field: ScheduleColumn; direction: SortDirection }>();
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
+  const [activeModalState, setActiveModalState] = useState<{ mode: "create" } | { mode: "edit"; scheduleId: string }>();
 
   useEffect(() => {
     let isSubscribed = true;
@@ -139,7 +150,17 @@ const SchedulesPage = () => {
     [deleteSchedule],
   );
 
-  const handleEdit = useCallback((_schedule: ScheduleListItem) => undefined, []);
+  const handleEdit = useCallback((schedule: ScheduleListItem) => {
+    setActiveModalState({ mode: "edit", scheduleId: schedule.id });
+  }, []);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setActiveModalState({ mode: "create" });
+  }, []);
+
+  const handleDismissModal = useCallback(() => {
+    setActiveModalState(undefined);
+  }, []);
 
   const rowActions = useMemo<ListAction<ScheduleListItem>[]>(
     () => [
@@ -147,7 +168,6 @@ const SchedulesPage = () => {
         title: "Edit",
         icon: <Edit />,
         actionHandler: handleEdit,
-        disabled: true,
         showDividerAfter: false,
       },
       {
@@ -165,6 +185,25 @@ const SchedulesPage = () => {
     ],
     [handleDelete, handleEdit, handlePauseResume],
   );
+
+  const activeSchedule =
+    activeModalState?.mode === "edit"
+      ? schedules.find((schedule) => schedule.id === activeModalState.scheduleId)
+      : undefined;
+  const isScheduleModalOpen =
+    activeModalState !== undefined && (activeModalState.mode === "create" || activeSchedule !== undefined);
+  const scheduleModal = isScheduleModalOpen ? (
+    <ScheduleModal
+      open
+      schedule={activeSchedule}
+      onDismiss={handleDismissModal}
+      onCreateSchedule={createSchedule}
+      onUpdateSchedule={updateSchedule}
+      onDeleteSchedule={deleteSchedule}
+      onPauseSchedule={pauseSchedule}
+      onResumeSchedule={resumeSchedule}
+    />
+  ) : null;
 
   const emptyStateRow = (
     <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
@@ -185,24 +224,32 @@ const SchedulesPage = () => {
 
   if (schedules.length === 0) {
     return (
-      <div
-        className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20", {
-          "h-full": !isPhone && !isTablet,
-          "flex-1": isPhone || isTablet,
-        })}
-      >
-        <div className="flex flex-col gap-6">
-          <Header
-            title="Schedules"
-            subtitle={SCHEDULE_EMPTY_STATE_DESCRIPTION}
-            titleSize="text-heading-400"
-            subtitleSize="text-400"
-            subtitleClassName="mt-1"
-            className="items-center"
-          />
-          <Button variant={variants.primary} className="w-fit" text="Add a schedule" disabled />
+      <>
+        <div
+          className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20", {
+            "h-full": !isPhone && !isTablet,
+            "flex-1": isPhone || isTablet,
+          })}
+        >
+          <div className="flex flex-col gap-6">
+            <Header
+              title="Schedules"
+              subtitle={SCHEDULE_EMPTY_STATE_DESCRIPTION}
+              titleSize="text-heading-400"
+              subtitleSize="text-400"
+              subtitleClassName="mt-1"
+              className="items-center"
+            />
+            <Button
+              variant={variants.primary}
+              className="w-fit"
+              text="Add a schedule"
+              onClick={handleOpenCreateModal}
+            />
+          </div>
         </div>
-      </div>
+        {scheduleModal}
+      </>
     );
   }
 
@@ -219,7 +266,7 @@ const SchedulesPage = () => {
           variant={variants.primary}
           size={sizes.base}
           text="Add a schedule"
-          disabled
+          onClick={handleOpenCreateModal}
           className="shrink-0 phone:w-full"
         />
       </div>
@@ -250,6 +297,8 @@ const SchedulesPage = () => {
         tableClassName="mb-2 w-max !table-auto"
       />
       <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div>
+
+      {scheduleModal}
     </div>
   );
 };

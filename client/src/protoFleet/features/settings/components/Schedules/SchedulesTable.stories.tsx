@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
+import type { Schedule } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import {
   activeScheduleCols,
@@ -27,8 +28,13 @@ const defaultActiveFilters: ActiveFilters = {
   dropdownFilters: {},
 };
 
+const createDemoSchedule = (schedule: Omit<ScheduleListItem, "rawSchedule">): ScheduleListItem => ({
+  ...schedule,
+  rawSchedule: {} as Schedule,
+});
+
 const demoSchedules: ScheduleListItem[] = [
-  {
+  createDemoSchedule({
     id: "weekday-ramp-up",
     priority: 1,
     name: "Weekday ramp-up",
@@ -38,8 +44,8 @@ const demoSchedules: ScheduleListItem[] = [
     action: "setPowerTarget",
     status: "running",
     createdBy: "admin@fleet.io",
-  },
-  {
+  }),
+  createDemoSchedule({
     id: "night-shift",
     priority: 2,
     name: "Night shift",
@@ -49,8 +55,8 @@ const demoSchedules: ScheduleListItem[] = [
     action: "sleep",
     status: "paused",
     createdBy: "admin@fleet.io",
-  },
-  {
+  }),
+  createDemoSchedule({
     id: "weekend-saver",
     priority: 3,
     name: "Weekend saver",
@@ -60,19 +66,19 @@ const demoSchedules: ScheduleListItem[] = [
     action: "setPowerTarget",
     status: "active",
     createdBy: "jmarr@fleet.io",
-  },
-  {
+  }),
+  createDemoSchedule({
     id: "monthly-reboot",
     priority: 4,
     name: "Monthly reboot",
     targetSummary: "Applies to all miners",
-    scheduleSummary: "1st Sun of month · 2:00 AM",
-    nextRunSummary: "Runs on Apr 5, 2026, 2:00 AM",
+    scheduleSummary: "1st day of month · 2:00 AM",
+    nextRunSummary: "Runs on Apr 1, 2026, 2:00 AM",
     action: "reboot",
     status: "active",
     createdBy: "admin@fleet.io",
-  },
-  {
+  }),
+  createDemoSchedule({
     id: "deep-sleep-window",
     priority: 5,
     name: "Deep sleep window",
@@ -82,7 +88,7 @@ const demoSchedules: ScheduleListItem[] = [
     action: "sleep",
     status: "completed",
     createdBy: "ops@fleet.io",
-  },
+  }),
 ];
 
 type SchedulesTableStoryProps = {
@@ -172,7 +178,6 @@ const SchedulesTableStory = ({ initialSchedules = demoSchedules }: SchedulesTabl
         title: "Edit",
         icon: <Edit />,
         actionHandler: handleEdit,
-        disabled: true,
         showDividerAfter: false,
       },
       {

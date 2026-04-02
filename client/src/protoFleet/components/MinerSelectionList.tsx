@@ -58,6 +58,7 @@ export interface MinerSelectionListProps {
   isRowDisabled?: (item: DeviceListItem) => boolean;
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
+  showSelectAllFooter?: boolean;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -79,7 +80,7 @@ type ModalColumn = (typeof modalCols)[keyof typeof modalCols];
 
 const modalColTitles: ColTitles<ModalColumn> = {
   name: "Name",
-  type: "Type",
+  type: "Model",
   rack: "Rack",
   ipAddress: "IP address",
   group: "Group",
@@ -148,6 +149,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       isMembersLoading = false,
       isRowDisabled,
       singleSelect = false,
+      showSelectAllFooter = true,
       onSelectionChange,
     },
     ref,
@@ -281,7 +283,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       if (showTypeFilter) {
         items.push({
           type: "dropdown",
-          title: "Type",
+          title: "Model",
           value: "type",
           options: availableModels.map((model) => ({ id: model, label: model })),
           defaultOptionIds: [],
@@ -349,79 +351,83 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     }
 
     return (
-      <>
-        <List<DeviceListItem, string, ModalColumn>
-          activeCols={activeCols}
-          colTitles={modalColTitles}
-          colConfig={modalColConfig}
-          filters={filters}
-          onServerFilter={handleServerFilter}
-          items={currentPageItems}
-          itemKey="deviceIdentifier"
-          itemSelectable
-          selectionType={singleSelect ? "radio" : "checkbox"}
-          sortableColumns={ALL_SORTABLE_COLUMNS}
-          currentSort={currentSort}
-          onSort={handleSort}
-          customSelectedItems={selectedItems}
-          customSetSelectedItems={handleSetSelectedItems}
-          preserveOffPageSelection
-          isRowDisabled={isRowDisabled}
-          total={totalMiners}
-          hideTotal
-          itemName={{ singular: "miner", plural: "miners" }}
-          containerClassName="max-h-[50vh]"
-          overflowContainer
-          stickyBgColor="bg-surface-elevated-base"
-          scrollRef={scrollRef}
-          footerContent={
-            !isLoading &&
-            totalMiners !== undefined &&
-            totalMiners > 0 && (
-              <div className="flex flex-col items-center gap-4 py-6">
-                <span className="text-300 text-text-primary">
-                  Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
-                  {totalMiners} miners
-                </span>
-                <div className="flex gap-3">
-                  <Button
-                    variant={variants.secondary}
-                    size={sizes.compact}
-                    ariaLabel="Previous page"
-                    prefixIcon={<ChevronDown className="rotate-90" />}
-                    onClick={handlePrevPage}
-                    disabled={!hasPreviousPage}
-                  />
-                  <Button
-                    variant={variants.secondary}
-                    size={sizes.compact}
-                    ariaLabel="Next page"
-                    prefixIcon={<ChevronDown className="rotate-270" />}
-                    onClick={handleNextPage}
-                    disabled={!hasMore}
-                  />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <List<DeviceListItem, string, ModalColumn>
+            activeCols={activeCols}
+            colTitles={modalColTitles}
+            colConfig={modalColConfig}
+            filters={filters}
+            onServerFilter={handleServerFilter}
+            items={currentPageItems}
+            itemKey="deviceIdentifier"
+            itemSelectable
+            selectionType={singleSelect ? "radio" : "checkbox"}
+            sortableColumns={ALL_SORTABLE_COLUMNS}
+            currentSort={currentSort}
+            onSort={handleSort}
+            customSelectedItems={selectedItems}
+            customSetSelectedItems={handleSetSelectedItems}
+            preserveOffPageSelection
+            isRowDisabled={isRowDisabled}
+            total={totalMiners}
+            hideTotal
+            itemName={{ singular: "miner", plural: "miners" }}
+            containerClassName="min-h-0"
+            overflowContainer
+            stickyBgColor="bg-surface-elevated-base"
+            scrollRef={scrollRef}
+            footerContent={
+              !isLoading &&
+              totalMiners !== undefined &&
+              totalMiners > 0 && (
+                <div className="flex flex-col items-center gap-4 py-6">
+                  <span className="text-300 text-text-primary">
+                    Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
+                    {totalMiners} miners
+                  </span>
+                  <div className="flex gap-3">
+                    <Button
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      ariaLabel="Previous page"
+                      prefixIcon={<ChevronDown className="rotate-90" />}
+                      onClick={handlePrevPage}
+                      disabled={!hasPreviousPage}
+                    />
+                    <Button
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      ariaLabel="Next page"
+                      prefixIcon={<ChevronDown className="rotate-270" />}
+                      onClick={handleNextPage}
+                      disabled={!hasMore}
+                    />
+                  </div>
                 </div>
-              </div>
-            )
-          }
-        />
-        {totalMiners !== undefined && !singleSelect && (
-          <ModalSelectAllFooter
-            label={allSelected ? `All ${totalMiners} miners selected` : `${selectedItems.length} miners selected`}
-            onSelectAll={() => {
-              setAllSelected(true);
-              const selectableItems = isRowDisabled
-                ? currentPageItems.filter((d) => !isRowDisabled(d))
-                : currentPageItems;
-              setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
-            }}
-            onSelectNone={() => {
-              setAllSelected(false);
-              setSelectedItems([]);
-            }}
+              )
+            }
           />
+        </div>
+        {showSelectAllFooter && totalMiners !== undefined && !singleSelect && (
+          <div className="shrink-0">
+            <ModalSelectAllFooter
+              label={allSelected ? `All ${totalMiners} miners selected` : `${selectedItems.length} miners selected`}
+              onSelectAll={() => {
+                setAllSelected(true);
+                const selectableItems = isRowDisabled
+                  ? currentPageItems.filter((d) => !isRowDisabled(d))
+                  : currentPageItems;
+                setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
+              }}
+              onSelectNone={() => {
+                setAllSelected(false);
+                setSelectedItems([]);
+              }}
+            />
+          </div>
         )}
-      </>
+      </div>
     );
   },
 );

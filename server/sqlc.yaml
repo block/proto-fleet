@@ -57,3 +57,10 @@ sql:
             go_type: "time.Time"
           - column: "device_status_daily.bucket"
             go_type: "time.Time"
+          # Schedule TIME columns are read back as strings by the current DB driver.
+          - column: "schedule.start_time"
+            go_type: "string"
+          - column: "schedule.end_time"
+            go_type:
+              import: "database/sql"
+              type: "NullString"

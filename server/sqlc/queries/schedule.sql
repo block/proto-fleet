@@ -1,18 +1,20 @@
 -- name: GetSchedule :one
-SELECT *
-FROM schedule
-WHERE org_id = $1
-  AND id = $2
-  AND deleted_at IS NULL;
+SELECT s.*, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.id = $2
+  AND s.deleted_at IS NULL;
 
 -- name: ListSchedules :many
-SELECT *
-FROM schedule
-WHERE org_id = $1
-  AND deleted_at IS NULL
-  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
-  AND (sqlc.narg('action')::text IS NULL OR action = sqlc.narg('action'))
-ORDER BY priority, id;
+SELECT s.*, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.deleted_at IS NULL
+  AND (sqlc.narg('status')::text IS NULL OR s.status = sqlc.narg('status'))
+  AND (sqlc.narg('action')::text IS NULL OR s.action = sqlc.narg('action'))
+ORDER BY s.priority, s.id;
 
 -- name: CreateSchedule :one
 INSERT INTO schedule (

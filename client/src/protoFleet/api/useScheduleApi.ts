@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import { authClient, scheduleClient } from "@/protoFleet/api/clients";
+import { scheduleClient } from "@/protoFleet/api/clients";
 import {
   type CreateScheduleRequest,
   DayOfWeek,
@@ -19,6 +19,12 @@ import {
   ScheduleTargetType,
   type UpdateScheduleRequest,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import {
+  addDaysToDateValue,
+  buildDateInTimeZone,
+  formatTimeZoneDateParts,
+  getTimeZoneDateTimeParts,
+} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export type ScheduleAction = "setPowerTarget" | "reboot" | "sleep";
@@ -34,6 +40,7 @@ export interface ScheduleListItem {
   action: ScheduleAction;
   status: ScheduleStatus;
   createdBy: string;
+  rawSchedule: Schedule;
 }
 
 const dayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short" });
@@ -66,164 +73,15 @@ const resequenceSchedules = (schedules: ScheduleListItem[]): ScheduleListItem[] 
 const ensureError = (error: unknown, fallbackMessage: string) =>
   error instanceof Error ? error : new Error(typeof error === "string" ? error : fallbackMessage);
 
-const parseDateParts = (value: string) => {
-  const [year, month, day] = value.split("-").map(Number);
-
-  if (!year || !month || !day) {
-    return null;
-  }
-
-  return { year, month, day };
-};
-
-const parseTimeParts = (value: string) => {
-  const [hours, minutes] = value.split(":").map(Number);
-
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-    return null;
-  }
-
-  return { hours, minutes };
-};
-
-const parseDate = (value: string) => {
-  const parts = parseDateParts(value);
-
-  if (!parts) {
-    return null;
-  }
-
-  return new Date(parts.year, parts.month - 1, parts.day);
-};
-
-const parseTime = (value: string) => {
-  const parts = parseTimeParts(value);
-
-  if (!parts) {
-    return null;
-  }
-
-  const date = new Date();
-  date.setHours(parts.hours, parts.minutes, 0, 0);
-  return date;
-};
-
-const parseDateTime = (dateValue: string, timeValue: string) => {
-  const date = parseDate(dateValue);
-  const time = parseTime(timeValue);
-
-  if (!date || !time) {
-    return null;
-  }
-
-  date.setHours(time.getHours(), time.getMinutes(), 0, 0);
-  return date;
-};
-
 const toDate = (seconds: bigint, nanos = 0) => new Date(Number(seconds) * 1000 + Math.floor(nanos / 1_000_000));
 
-const formatDateParts = (parts: { year: number; month: number; day: number }) =>
-  `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-
-const formatTimeZoneDateParts = (parts: { year: number; month: number; day: number }) =>
-  formatDateParts({
-    year: parts.year,
-    month: parts.month,
-    day: parts.day,
-  });
-
-const getTimeZoneDateTimeParts = (date: Date, timeZone: string) => {
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(date);
-    const getNumericPart = (type: Intl.DateTimeFormatPartTypes) =>
-      Number(parts.find((part) => part.type === type)?.value);
-
-    return {
-      year: getNumericPart("year"),
-      month: getNumericPart("month"),
-      day: getNumericPart("day"),
-      hours: getNumericPart("hour"),
-      minutes: getNumericPart("minute"),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const addDaysToDateValue = (dateValue: string, days: number) => {
-  const parsed = parseDate(dateValue);
-
-  if (!parsed) {
-    return dateValue;
-  }
-
-  parsed.setDate(parsed.getDate() + days);
-
-  return formatDateParts({
-    year: parsed.getFullYear(),
-    month: parsed.getMonth() + 1,
-    day: parsed.getDate(),
-  });
-};
-
-const buildDateInTimeZone = (dateValue: string, timeValue: string, timeZone: string) => {
-  const dateParts = parseDateParts(dateValue);
-  const timeParts = parseTimeParts(timeValue);
-
-  if (!dateParts || !timeParts) {
-    return null;
-  }
-
-  const desiredUtcTime = Date.UTC(
-    dateParts.year,
-    dateParts.month - 1,
-    dateParts.day,
-    timeParts.hours,
-    timeParts.minutes,
-  );
-  let candidate = new Date(desiredUtcTime);
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const candidateParts = getTimeZoneDateTimeParts(candidate, timeZone);
-
-    if (!candidateParts) {
-      return null;
-    }
-
-    const candidateUtcTime = Date.UTC(
-      candidateParts.year,
-      candidateParts.month - 1,
-      candidateParts.day,
-      candidateParts.hours,
-      candidateParts.minutes,
-    );
-    const delta = candidateUtcTime - desiredUtcTime;
-
-    if (delta === 0) {
-      return candidate;
-    }
-
-    candidate = new Date(candidate.getTime() - delta);
-  }
-
-  return candidate;
-};
-
 const formatTimeValue = (value: string, timeZone: string, dateValue: string) => {
-  const parsed = buildDateInTimeZone(dateValue, value, timeZone) ?? parseTime(value);
+  const parsed = buildDateInTimeZone(dateValue, value, timeZone);
   return parsed ? timeFormatter.format(parsed) : value;
 };
 
 const formatDateTimeValue = (dateValue: string, timeValue: string, timeZone: string) => {
-  const parsed = buildDateInTimeZone(dateValue, timeValue, timeZone) ?? parseDateTime(dateValue, timeValue);
+  const parsed = buildDateInTimeZone(dateValue, timeValue, timeZone);
   return parsed ? dateTimeFormatter.format(parsed) : `${dateValue} at ${timeValue}`;
 };
 
@@ -323,25 +181,6 @@ const summarizeWeeklyRecurrence = (daysOfWeek: DayOfWeek[]) => {
     .join(", ");
 };
 
-const summarizeWeeklyPattern = (recurrence: NonNullable<Schedule["recurrence"]>) => {
-  const weeklyPattern = summarizeWeeklyRecurrence(recurrence.daysOfWeek);
-  return recurrence.interval <= 1 ? weeklyPattern : `Every ${recurrence.interval} weeks · ${weeklyPattern}`;
-};
-
-const summarizeMonthlyPattern = (recurrence: NonNullable<Schedule["recurrence"]>) => {
-  const monthlyPattern = recurrence.dayOfMonth ? `${formatOrdinal(recurrence.dayOfMonth)} day of month` : "Every month";
-
-  if (recurrence.interval <= 1) {
-    return monthlyPattern;
-  }
-
-  if (monthlyPattern === "Every month") {
-    return `Every ${recurrence.interval} months`;
-  }
-
-  return `Every ${recurrence.interval} months on ${monthlyPattern}`;
-};
-
 const summarizeRecurringPattern = (schedule: Schedule) => {
   const recurrence = schedule.recurrence;
 
@@ -351,11 +190,11 @@ const summarizeRecurringPattern = (schedule: Schedule) => {
 
   switch (recurrence.frequency) {
     case RecurrenceFrequency.DAILY:
-      return recurrence.interval <= 1 ? "Every day" : `Every ${recurrence.interval} days`;
+      return "Every day";
     case RecurrenceFrequency.WEEKLY:
-      return summarizeWeeklyPattern(recurrence);
+      return summarizeWeeklyRecurrence(recurrence.daysOfWeek);
     case RecurrenceFrequency.MONTHLY:
-      return summarizeMonthlyPattern(recurrence);
+      return recurrence.dayOfMonth ? `${formatOrdinal(recurrence.dayOfMonth)} day of month` : "Every month";
     case RecurrenceFrequency.UNSPECIFIED:
     default:
       return "Recurring";
@@ -435,10 +274,9 @@ const summarizeNextRun = (schedule: Schedule) => {
   return `Runs on ${dateTimeFormatter.format(nextRun)}`;
 };
 
-const summarizeCreatedBy = (createdBy: bigint, usernamesById: Record<string, string>) =>
-  usernamesById[createdBy.toString()] ?? createdBy.toString();
+const summarizeCreatedBy = (schedule: Schedule) => schedule.createdByUsername || schedule.createdBy.toString();
 
-const mapSchedule = (schedule: Schedule, usernamesById: Record<string, string>): ScheduleListItem => ({
+const mapSchedule = (schedule: Schedule): ScheduleListItem => ({
   id: schedule.id.toString(),
   priority: schedule.priority,
   name: schedule.name,
@@ -447,52 +285,27 @@ const mapSchedule = (schedule: Schedule, usernamesById: Record<string, string>):
   nextRunSummary: summarizeNextRun(schedule),
   action: mapAction(schedule),
   status: mapStatus(schedule.status),
-  createdBy: summarizeCreatedBy(schedule.createdBy, usernamesById),
+  createdBy: summarizeCreatedBy(schedule),
+  rawSchedule: schedule,
 });
 
-const updateMappedSchedule = (
-  schedules: ScheduleListItem[],
-  schedule: Schedule,
-  usernamesById: Record<string, string>,
-) =>
+const updateMappedSchedule = (schedules: ScheduleListItem[], schedule: Schedule) =>
   normalizeSchedules(
-    schedules.map((current) =>
-      current.id === schedule.id.toString() ? mapSchedule(schedule, usernamesById) : current,
-    ),
+    schedules.map((current) => (current.id === schedule.id.toString() ? mapSchedule(schedule) : current)),
   );
 
 export const useScheduleApi = () => {
   const { handleAuthErrors } = useAuthErrors();
-  const [usernamesById, setUsernamesById] = useState<Record<string, string>>({});
   const [schedules, setSchedules] = useState<ScheduleListItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
-  const fetchUsernames = useCallback(async () => {
-    try {
-      const response = await authClient.listUsers({});
-
-      return response.users.reduce<Record<string, string>>((result, user) => {
-        result[user.userId] = user.username;
-        return result;
-      }, {});
-    } catch {
-      return {};
-    }
-  }, []);
 
   const listSchedules = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const [scheduleResponse, nextUsernamesById] = await Promise.all([
-        scheduleClient.listSchedules(create(ListSchedulesRequestSchema, {})),
-        fetchUsernames(),
-      ]);
-      const mappedSchedules = normalizeSchedules(
-        scheduleResponse.schedules.map((schedule) => mapSchedule(schedule, nextUsernamesById)),
-      );
+      const scheduleResponse = await scheduleClient.listSchedules(create(ListSchedulesRequestSchema, {}));
+      const mappedSchedules = normalizeSchedules(scheduleResponse.schedules.map((schedule) => mapSchedule(schedule)));
 
-      setUsernamesById(nextUsernamesById);
       setSchedules(mappedSchedules);
       return mappedSchedules;
     } catch (error) {
@@ -509,7 +322,7 @@ export const useScheduleApi = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchUsernames, handleAuthErrors]);
+  }, [handleAuthErrors]);
 
   const refreshSchedules = useCallback(async () => listSchedules(), [listSchedules]);
 
@@ -525,7 +338,7 @@ export const useScheduleApi = () => {
           throw new Error("Paused schedule response was missing a schedule.");
         }
 
-        setSchedules((current) => updateMappedSchedule(current, nextSchedule, usernamesById));
+        setSchedules((current) => updateMappedSchedule(current, nextSchedule));
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to pause schedule.");
 
@@ -539,7 +352,7 @@ export const useScheduleApi = () => {
         throw resolvedError;
       }
     },
-    [handleAuthErrors, usernamesById],
+    [handleAuthErrors],
   );
 
   const resumeSchedule = useCallback(
@@ -554,7 +367,7 @@ export const useScheduleApi = () => {
           throw new Error("Resumed schedule response was missing a schedule.");
         }
 
-        setSchedules((current) => updateMappedSchedule(current, nextSchedule, usernamesById));
+        setSchedules((current) => updateMappedSchedule(current, nextSchedule));
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to resume schedule.");
 
@@ -568,7 +381,7 @@ export const useScheduleApi = () => {
         throw resolvedError;
       }
     },
-    [handleAuthErrors, usernamesById],
+    [handleAuthErrors],
   );
 
   const deleteSchedule = useCallback(
@@ -640,7 +453,7 @@ export const useScheduleApi = () => {
           throw new Error("Created schedule response was missing a schedule.");
         }
 
-        const mappedSchedule = mapSchedule(nextSchedule, usernamesById);
+        const mappedSchedule = mapSchedule(nextSchedule);
         setSchedules((current) => normalizeSchedules([...current, mappedSchedule]));
         return mappedSchedule;
       } catch (error) {
@@ -656,7 +469,7 @@ export const useScheduleApi = () => {
         throw resolvedError;
       }
     },
-    [handleAuthErrors, usernamesById],
+    [handleAuthErrors],
   );
 
   const updateSchedule = useCallback(
@@ -669,8 +482,8 @@ export const useScheduleApi = () => {
           throw new Error("Updated schedule response was missing a schedule.");
         }
 
-        setSchedules((current) => updateMappedSchedule(current, nextSchedule, usernamesById));
-        return mapSchedule(nextSchedule, usernamesById);
+        setSchedules((current) => updateMappedSchedule(current, nextSchedule));
+        return mapSchedule(nextSchedule);
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to update schedule.");
 
@@ -684,7 +497,7 @@ export const useScheduleApi = () => {
         throw resolvedError;
       }
     },
-    [handleAuthErrors, usernamesById],
+    [handleAuthErrors],
   );
 
   return useMemo(

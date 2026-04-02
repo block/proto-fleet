@@ -5,6 +5,16 @@ import { BasePage } from "./base";
 const EMPTY_GROUP_PLACEHOLDER = "—";
 
 export class GroupsPage extends BasePage {
+  private async clickLocator(locator: Locator) {
+    try {
+      await locator.click({ timeout: 2000 });
+    } catch {
+      await locator.evaluate((node) => {
+        (node as HTMLElement).click();
+      });
+    }
+  }
+
   async waitForSavedGroupsListToLoad() {
     const rows = this.page.getByTestId("list-row");
 
@@ -22,13 +32,19 @@ export class GroupsPage extends BasePage {
     for (const optionName of optionNames) {
       const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
       if (await optionByTestId.isVisible().catch(() => false)) {
-        await optionByTestId.click();
+        await optionByTestId.evaluate((node) => {
+          node.scrollIntoView({ block: "center", inline: "nearest" });
+        });
+        await this.clickLocator(optionByTestId);
         return;
       }
 
       const optionByText = popover.getByText(optionName, { exact: true }).first();
       if (await optionByText.isVisible().catch(() => false)) {
-        await optionByText.click();
+        await optionByText.evaluate((node) => {
+          node.scrollIntoView({ block: "center", inline: "nearest" });
+        });
+        await this.clickLocator(optionByText);
         return;
       }
     }
@@ -159,12 +175,12 @@ export class GroupsPage extends BasePage {
   }
 
   async filterModalType(type: string) {
-    await this.page.getByTestId("modal").getByTestId("filter-dropdown-Type").click();
+    await this.clickLocator(this.page.getByTestId("modal").getByTestId("filter-dropdown-Model"));
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveCSS("opacity", "1");
     await this.clickDropdownFilterOption(popover, [type]);
-    await popover.getByRole("button", { name: "Apply" }).click();
+    await this.clickLocator(popover.getByRole("button", { name: "Apply" }));
     await expect(popover).toBeHidden();
   }
 

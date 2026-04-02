@@ -4,7 +4,6 @@ import { deriveStatusSegments, formatRackCardStats, mapSlotStatuses } from "./ra
 
 import {
   type DeviceSetStats,
-  RackOrderIndex,
   type RackSlotStatus,
   SlotDeviceStatus,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
@@ -83,7 +82,7 @@ describe("deriveStatusSegments", () => {
 
 describe("mapSlotStatuses", () => {
   test("returns all empty for no slot statuses", () => {
-    const result = mapSlotStatuses([], 2, 3, RackOrderIndex.TOP_LEFT);
+    const result = mapSlotStatuses([], 2, 3);
     expect(result).toEqual(["empty", "empty", "empty", "empty", "empty", "empty"]);
   });
 
@@ -94,19 +93,19 @@ describe("mapSlotStatuses", () => {
       makeSlot(1, 0, SlotDeviceStatus.NEEDS_ATTENTION),
       makeSlot(1, 1, SlotDeviceStatus.SLEEPING),
     ];
-    const result = mapSlotStatuses(slots, 2, 2, RackOrderIndex.BOTTOM_LEFT);
+    const result = mapSlotStatuses(slots, 2, 2);
     expect(result).toEqual(["healthy", "offline", "needsAttention", "sleeping"]);
   });
 
   test("handles sparse slot data (not all positions filled)", () => {
     const slots = [makeSlot(0, 2, SlotDeviceStatus.HEALTHY), makeSlot(1, 0, SlotDeviceStatus.OFFLINE)];
-    const result = mapSlotStatuses(slots, 2, 3, RackOrderIndex.TOP_LEFT);
+    const result = mapSlotStatuses(slots, 2, 3);
     expect(result).toEqual(["empty", "empty", "healthy", "offline", "empty", "empty"]);
   });
 
   test("ignores out-of-bounds slots", () => {
     const slots = [makeSlot(5, 5, SlotDeviceStatus.HEALTHY)];
-    const result = mapSlotStatuses(slots, 2, 2, RackOrderIndex.TOP_LEFT);
+    const result = mapSlotStatuses(slots, 2, 2);
     expect(result).toEqual(["empty", "empty", "empty", "empty"]);
   });
 
@@ -119,7 +118,7 @@ describe("mapSlotStatuses", () => {
       makeSlot(0, 4, SlotDeviceStatus.OFFLINE),
       makeSlot(0, 5, SlotDeviceStatus.SLEEPING),
     ];
-    const result = mapSlotStatuses(slots, 1, 6, RackOrderIndex.TOP_LEFT);
+    const result = mapSlotStatuses(slots, 1, 6);
     expect(result).toEqual(["empty", "empty", "healthy", "needsAttention", "offline", "sleeping"]);
   });
 });

@@ -1,7 +1,6 @@
 import {
   type DeviceSet,
   type DeviceSetStats,
-  RackOrderIndex,
   type RackSlotStatus,
   SlotDeviceStatus,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
@@ -35,12 +34,7 @@ export function deriveStatusSegments(stats: DeviceSetStats): StatusSegment[] {
   return segments;
 }
 
-export function mapSlotStatuses(
-  slotStatuses: RackSlotStatus[],
-  rows: number,
-  cols: number,
-  _orderIndex: RackOrderIndex,
-): SlotStatus[] {
+export function mapSlotStatuses(slotStatuses: RackSlotStatus[], rows: number, cols: number): SlotStatus[] {
   // Build a row-major array (top-to-bottom, left-to-right) matching MiniRackGrid's render order.
   // Slot statuses carry physical (row, col) positions — place them directly by index.
   const grid: SlotStatus[] = new Array(rows * cols).fill("empty");
@@ -73,7 +67,6 @@ export function mapRackToCardProps(rack: DeviceSet, stats: DeviceSetStats | unde
   const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
   const rows = rackInfo?.rows ?? 1;
   const cols = rackInfo?.columns ?? 1;
-  const orderIndex = rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT;
 
   const zone = rackInfo?.zone || undefined;
 
@@ -93,7 +86,7 @@ export function mapRackToCardProps(rack: DeviceSet, stats: DeviceSetStats | unde
   }
 
   const statusSegments = stats.deviceCount === 0 ? [] : deriveStatusSegments(stats);
-  const slots = mapSlotStatuses(stats.slotStatuses, rows, cols, orderIndex);
+  const slots = mapSlotStatuses(stats.slotStatuses, rows, cols);
   const { hashrate, efficiency, power, temperature } = formatRackCardStats(stats);
 
   return { zone, rows, cols, loading: false, statusSegments, slots, hashrate, efficiency, power, temperature };

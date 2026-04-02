@@ -59,6 +59,8 @@ export default function ManageMinersModal({
       open={show}
       title="Select miners"
       size="extraLarge"
+      className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
+      bodyClassName="flex-1 min-h-0"
       onDismiss={onDismiss}
       divider={false}
       buttons={[
@@ -70,9 +72,9 @@ export default function ManageMinersModal({
         },
       ]}
     >
-      <div>
+      <div className="flex h-full min-h-0 flex-col">
         {overflowError && (
-          <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+          <div className="mb-4 shrink-0 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
             {overflowError}
           </div>
         )}

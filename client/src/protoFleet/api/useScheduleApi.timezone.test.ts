@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import process from "node:process";
 
-import { ListUsersResponseSchema, UserInfoSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import {
   DayOfWeek,
   ListSchedulesResponseSchema,
@@ -15,15 +14,11 @@ import {
   ScheduleSchema,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 
-const { mockListSchedules, mockListUsers } = vi.hoisted(() => ({
+const { mockListSchedules } = vi.hoisted(() => ({
   mockListSchedules: vi.fn(),
-  mockListUsers: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  authClient: {
-    listUsers: mockListUsers,
-  },
   scheduleClient: {
     listSchedules: mockListSchedules,
     createSchedule: vi.fn(),
@@ -87,19 +82,6 @@ describe("useScheduleApi DST schedule summaries", () => {
     process.env.TZ = "UTC";
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T09:00:00.000Z"));
-
-    mockListUsers.mockResolvedValue(
-      create(ListUsersResponseSchema, {
-        users: [
-          create(UserInfoSchema, {
-            userId: "1",
-            username: "Negar Naghshbandi",
-            role: "SUPER_ADMIN",
-            requiresPasswordChange: false,
-          }),
-        ],
-      }),
-    );
   });
 
   afterEach(() => {
@@ -145,6 +127,39 @@ describe("useScheduleApi DST schedule summaries", () => {
     expect(result.current.schedules[0]).toMatchObject({
       name: "Weekday reboot",
       scheduleSummary: `Weekdays · ${timeFormatter.format(new Date("2026-07-10T11:00:00.000Z"))}`,
+    });
+  });
+
+  it("does not shift nonexistent DST-gap wall-clock times to a different local hour", async () => {
+    mockListSchedules.mockResolvedValue(
+      create(ListSchedulesResponseSchema, {
+        schedules: [
+          create(ScheduleSchema, {
+            id: 2n,
+            priority: 1,
+            name: "Spring-forward reboot",
+            action: ProtoScheduleAction.REBOOT,
+            status: ProtoScheduleStatus.PAUSED,
+            createdBy: 1n,
+            scheduleType: ProtoScheduleType.ONE_TIME,
+            startDate: "2026-03-08",
+            startTime: "02:30",
+            timezone: "America/New_York",
+          }),
+        ],
+      }),
+    );
+
+    const { default: useScheduleApi } = await import("./useScheduleApi");
+    const { result } = renderHook(() => useScheduleApi());
+
+    await act(async () => {
+      await result.current.listSchedules();
+    });
+
+    expect(result.current.schedules[0]).toMatchObject({
+      name: "Spring-forward reboot",
+      scheduleSummary: "2026-03-08 at 02:30",
     });
   });
 });

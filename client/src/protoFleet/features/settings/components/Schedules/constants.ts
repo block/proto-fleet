@@ -191,6 +191,21 @@ export const matchesScheduleFilters = (schedule: ScheduleListItem, filters: Acti
 export const hasActiveScheduleFilters = (filters: ActiveFilters) =>
   Object.values(filters.dropdownFilters).some((values) => values.length > 0);
 
+export const formatTimezoneLabel = (timeZone: string, date = new Date()) => {
+  const resolvedTimeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  try {
+    const shortName =
+      Intl.DateTimeFormat(undefined, { timeZone: resolvedTimeZone, timeZoneName: "short" })
+        .formatToParts(date)
+        .find((part) => part.type === "timeZoneName")?.value ?? resolvedTimeZone;
+
+    return `All times ${resolvedTimeZone} (${shortName})`;
+  } catch {
+    return `All times ${resolvedTimeZone}`;
+  }
+};
+
 export const formatClientTimezoneLabel = (date = new Date()) => {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const shortName =

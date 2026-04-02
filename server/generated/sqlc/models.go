@@ -591,8 +591,8 @@ type Schedule struct {
 	ScheduleType string
 	Recurrence   pqtype.NullRawMessage
 	StartDate    time.Time
-	StartTime    time.Time
-	EndTime      sql.NullTime
+	StartTime    string
+	EndTime      sql.NullString
 	EndDate      sql.NullTime
 	Timezone     string
 	Status       string

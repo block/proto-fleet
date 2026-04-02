@@ -4,8 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 
 import useScheduleApi from "./useScheduleApi";
-import { authClient, scheduleClient } from "@/protoFleet/api/clients";
-import { ListUsersResponseSchema, UserInfoSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import { scheduleClient } from "@/protoFleet/api/clients";
 import {
   DayOfWeek,
   DeleteScheduleResponseSchema,
@@ -24,9 +23,6 @@ import {
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  authClient: {
-    listUsers: vi.fn(),
-  },
   scheduleClient: {
     listSchedules: vi.fn(),
     createSchedule: vi.fn(),
@@ -46,7 +42,6 @@ vi.mock("@/protoFleet/store", () => ({
   }),
 }));
 
-const mockListUsers = vi.mocked(authClient.listUsers);
 const mockListSchedules = vi.mocked(scheduleClient.listSchedules);
 const mockPauseSchedule = vi.mocked(scheduleClient.pauseSchedule);
 const mockResumeSchedule = vi.mocked(scheduleClient.resumeSchedule);
@@ -103,6 +98,7 @@ const createScheduleMessage = ({
   action,
   status,
   createdBy,
+  createdByUsername,
   startDate,
   startTime,
   timezone = "America/Toronto",
@@ -116,6 +112,7 @@ const createScheduleMessage = ({
   action: ProtoScheduleAction;
   status: ProtoScheduleStatus;
   createdBy: bigint;
+  createdByUsername?: string;
   startDate: string;
   startTime: string;
   timezone?: string;
@@ -135,6 +132,7 @@ const createScheduleMessage = ({
     action,
     status,
     createdBy,
+    createdByUsername,
     scheduleType: ProtoScheduleType.RECURRING,
     recurrence: create(ScheduleRecurrenceSchema, {
       frequency: RecurrenceFrequency.WEEKLY,
@@ -155,25 +153,6 @@ describe("useScheduleApi", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-30T09:00:00-04:00"));
-
-    mockListUsers.mockResolvedValue(
-      create(ListUsersResponseSchema, {
-        users: [
-          create(UserInfoSchema, {
-            userId: "1",
-            username: "Negar Naghshbandi",
-            role: "SUPER_ADMIN",
-            requiresPasswordChange: false,
-          }),
-          create(UserInfoSchema, {
-            userId: "2",
-            username: "Rongxin Liu",
-            role: "SUPER_ADMIN",
-            requiresPasswordChange: false,
-          }),
-        ],
-      }),
-    );
   });
 
   afterEach(() => {
@@ -191,6 +170,7 @@ describe("useScheduleApi", () => {
             action: ProtoScheduleAction.SLEEP,
             status: ProtoScheduleStatus.ACTIVE,
             createdBy: 2n,
+            createdByUsername: "Rongxin Liu",
             startDate: "2026-03-30",
             startTime: "22:00",
             timezone: "America/Chicago",
@@ -203,6 +183,7 @@ describe("useScheduleApi", () => {
             action: ProtoScheduleAction.REBOOT,
             status: ProtoScheduleStatus.PAUSED,
             createdBy: 1n,
+            createdByUsername: "Negar Naghshbandi",
             startDate: "2026-03-30",
             startTime: "07:00",
             nextRunAt: "2026-03-31T11:00:00.000Z",
@@ -235,6 +216,34 @@ describe("useScheduleApi", () => {
       createdBy: "Rongxin Liu",
     });
     expect(result.current.schedules[1].nextRunSummary).toBe(formatExpectedNextRunSummary("2026-04-01T02:00:00.000Z"));
+  });
+
+  it("prefers the server-provided creator username when schedules include it", async () => {
+    mockListSchedules.mockResolvedValue(
+      create(ListSchedulesResponseSchema, {
+        schedules: [
+          createScheduleMessage({
+            id: 1n,
+            priority: 1,
+            name: "Morning reboot",
+            action: ProtoScheduleAction.REBOOT,
+            status: ProtoScheduleStatus.ACTIVE,
+            createdBy: 1n,
+            createdByUsername: "admin@example.com",
+            startDate: "2026-03-30",
+            startTime: "07:00",
+          }),
+        ],
+      }),
+    );
+
+    const { result } = renderHook(() => useScheduleApi());
+
+    await act(async () => {
+      await result.current.listSchedules();
+    });
+
+    expect(result.current.schedules[0]?.createdBy).toBe("admin@example.com");
   });
 
   it("pauses and resumes schedules via the schedule service", async () => {
@@ -344,14 +353,14 @@ describe("useScheduleApi", () => {
     ]);
   });
 
-  it("includes weekly and monthly recurrence intervals in schedule summaries", async () => {
+  it("includes weekly and monthly recurrence patterns in schedule summaries", async () => {
     mockListSchedules.mockResolvedValue(
       create(ListSchedulesResponseSchema, {
         schedules: [
           createScheduleMessage({
             id: 1n,
             priority: 1,
-            name: "Biweekly reboot",
+            name: "Midweek reboot",
             action: ProtoScheduleAction.REBOOT,
             status: ProtoScheduleStatus.ACTIVE,
             createdBy: 1n,
@@ -360,14 +369,14 @@ describe("useScheduleApi", () => {
             nextRunAt: "2026-04-01T11:00:00.000Z",
             recurrence: {
               frequency: RecurrenceFrequency.WEEKLY,
-              interval: 2,
+              interval: 1,
               daysOfWeek: [DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY],
             },
           }),
           createScheduleMessage({
             id: 2n,
             priority: 2,
-            name: "Quarterly reboot",
+            name: "Monthly reboot",
             action: ProtoScheduleAction.REBOOT,
             status: ProtoScheduleStatus.ACTIVE,
             createdBy: 2n,
@@ -376,7 +385,7 @@ describe("useScheduleApi", () => {
             nextRunAt: "2026-04-01T06:00:00.000Z",
             recurrence: {
               frequency: RecurrenceFrequency.MONTHLY,
-              interval: 3,
+              interval: 1,
               dayOfMonth: 1,
               daysOfWeek: [],
             },
@@ -392,12 +401,12 @@ describe("useScheduleApi", () => {
     });
 
     expect(result.current.schedules[0]).toMatchObject({
-      name: "Biweekly reboot",
-      scheduleSummary: `Every 2 weeks · Mon, Wed · ${timeFormatter.format(new Date("2026-04-01T11:00:00.000Z"))}`,
+      name: "Midweek reboot",
+      scheduleSummary: `Mon, Wed · ${timeFormatter.format(new Date("2026-04-01T11:00:00.000Z"))}`,
     });
     expect(result.current.schedules[1]).toMatchObject({
-      name: "Quarterly reboot",
-      scheduleSummary: `Every 3 months on 1st day of month · ${timeFormatter.format(new Date("2026-04-01T06:00:00.000Z"))}`,
+      name: "Monthly reboot",
+      scheduleSummary: `1st day of month · ${timeFormatter.format(new Date("2026-04-01T06:00:00.000Z"))}`,
     });
   });
 });

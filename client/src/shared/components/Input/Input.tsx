@@ -85,6 +85,7 @@ const Input = ({
   const [focused, setFocused] = useState(false);
   const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
+  const hasFloatingLabel = type === "date" || !!length(value) || focused;
 
   useEffect(() => {
     setValue(initValue);
@@ -158,6 +159,7 @@ const Input = ({
             { "pr-20": !compact && tooltip && type === "password" },
             { "h-6": compact },
             { "no-spinner": type === "number" },
+            { uppercase: type === "date" },
             className,
           )}
           onChange={handleChange}
@@ -202,19 +204,19 @@ const Input = ({
           className={clsx(
             "absolute text-text-primary-50",
             { "cursor-text": !disabled },
-            { "text-300": !(length(value) || focused) },
+            { "text-300": !hasFloatingLabel },
             { "left-0": compact },
             { "left-[17px]": !compact },
             {
-              "top-1/2 -translate-y-1/2": !(length(value) || focused) && !compact,
+              "top-1/2 -translate-y-1/2": !hasFloatingLabel && !compact,
             },
-            { "top-0": !(length(value) || focused) && compact },
-            { "top-[7px] text-200": length(value) || focused },
+            { "top-0": !hasFloatingLabel && compact },
+            { "top-[7px] text-200": hasFloatingLabel },
             {
               "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200": !hideLabelOnFocus,
             },
             { "peer-focus:invisible": hideLabelOnFocus },
-            { invisible: hideLabelOnFocus && (length(value) || focused) },
+            { invisible: hideLabelOnFocus && hasFloatingLabel },
           )}
         >
           {label}
