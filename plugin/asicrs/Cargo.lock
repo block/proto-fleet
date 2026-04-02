@@ -45,8 +45,8 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "asic-rs"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -72,6 +72,7 @@ dependencies = [
  "futures",
  "ipnet",
  "rand 0.10.0",
+ "rlimit",
  "serde",
  "serde_json",
  "tokio",
@@ -81,8 +82,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-core"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -102,8 +103,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-antminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -122,8 +123,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-avalonminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -139,8 +140,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-bitaxe"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -156,8 +157,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-braiins"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -175,8 +176,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-epic"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -194,8 +195,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-luxminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -210,8 +211,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-marathon"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -228,8 +229,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-nerdaxe"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -245,8 +246,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-vnish"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -262,8 +263,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-firmwares-whatsminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "aes",
  "anyhow",
@@ -287,8 +288,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-antminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -298,8 +299,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-avalon"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -309,8 +310,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-bitaxe"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -320,8 +321,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-braiins"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -331,8 +332,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-epic"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -342,8 +343,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-marathon"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -352,8 +353,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-nerdaxe"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -363,8 +364,8 @@ dependencies = [
 
 [[package]]
 name = "asic-rs-makes-whatsminer"
-version = "0.3.0"
-source = "git+https://github.com/ankitgoswami/asic-rs.git?branch=feat%2Fminer-auth#be3ad82af128883b749afecdc2bdc8a70b26b069"
+version = "0.4.0"
+source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -2021,6 +2022,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rlimit"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7043b63bd0cd1aaa628e476b80e6d4023a3b50eb32789f2728908107bd0c793a"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

@@ -86,8 +86,9 @@ jobs:
             - **Go plugin system** (`plugin/`): HashiCorp go-plugin based device drivers
               for Antminer, Proto miner, and virtual devices — each runs as a separate
               process communicating over gRPC
-            - **Python plugin** (`plugin/pyasic/`): pyasic-based ASIC miner control via
-              the Proto Fleet Python SDK
+            - **Rust ASIC plugin** (`plugin/asicrs/`): Rust-based multi-manufacturer ASIC miner
+              control via gRPC
+            - **Example Python plugin** (`plugin/example-python/`): minimal example plugin for reference
             - **Network discovery**: Nmap scanning and mDNS/Zeroconf for automatic device
               discovery on the local network
             - **Infrastructure**: Docker multi-stage builds, Docker Compose orchestration,
@@ -109,7 +110,7 @@ jobs:
             - **Reliability risks**: Unrecovered panics in handlers, unbounded memory/CPU from device telemetry floods, resource leaks (DB connections, HTTP clients, goroutines)
             - **Frontend security**: XSS via device-supplied data rendered in React, credential/token exposure in client state or localStorage, insecure API error handling
             - **Infrastructure risks**: Docker container privilege escalation, exposed ports, secrets in Docker Compose or build args, insecure Nginx config
-            - **Python plugin security**: Async hazards, unvalidated miner responses from pyasic, dependency confusion risks
+            - **Rust ASIC plugin security**: Unsafe blocks, unvalidated miner responses, dependency confusion risks
             - **Cryptostealing & pool hijacking**: Code that swaps, overrides, or silently modifies mining pool URLs, stratum addresses, wallet/payout addresses, or worker credentials — whether in backend handlers, plugin responses, miner command payloads, database migrations, frontend state, or configuration defaults. Flag any hardcoded wallet addresses, obfuscated address strings, conditional logic that redirects hashrate or payouts, or pool configuration that differs from user-supplied values. This is critical — a compromised pool address means stolen hashrate and revenue.
             - **Protocol Buffer / code generation**: Breaking wire-format changes, field type mismatches between generated Go/TypeScript/Python code
 

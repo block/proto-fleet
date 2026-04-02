@@ -25,13 +25,13 @@ gen: _server-init _client-init _lint-protos _gen-protos _gen-server _format-clie
 # --- Plugin builds ---
 
 # build plugin binaries for local development
-build-plugins: (_build-go-plugins-native "server/plugins") _pyasic-build _asicrs-build
+build-plugins: (_build-go-plugins-native "server/plugins") _asicrs-build
 
 # build plugin binaries for Docker (Linux ARM64)
-build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins") _pyasic-build-docker _asicrs-build-docker
+build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins") _asicrs-build-docker
 
 # build plugin binaries for multiple architectures (deployment)
-build-plugins-release: _build-go-plugins-multi-arch _pyasic-build-release _asicrs-build-release
+build-plugins-release: _build-go-plugins-multi-arch _asicrs-build-release
 
 # build virtual miner plugin for Docker (Linux ARM64)
 build-virtual-plugin:
@@ -243,48 +243,6 @@ _build-go-plugins-multi-arch:
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
   chmod +x deployment-files/server/*-plugin-*
-
-_pyasic-build:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Building pyasic plugin..."
-  mkdir -p server/plugins
-  docker buildx build \
-    --file plugin/pyasic/Dockerfile.build \
-    --output type=local,dest=server/plugins \
-    .
-  chmod +x server/plugins/pyasic-plugin
-  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
-
-_pyasic-build-docker:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Building pyasic plugin for Docker (Linux ARM64)..."
-  mkdir -p server/plugins
-  docker buildx build \
-    --platform linux/arm64 \
-    --file plugin/pyasic/Dockerfile.build \
-    --output type=local,dest=server/plugins \
-    .
-  chmod +x server/plugins/pyasic-plugin
-  cp plugin/pyasic/config.yaml server/plugins/pyasic-config.yaml
-
-_pyasic-build-release:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  echo "Building pyasic plugin for multiple architectures..."
-  mkdir -p deployment-files/server
-  for arch in amd64 arm64; do
-    docker buildx build \
-      --platform "linux/${arch}" \
-      --file plugin/pyasic/Dockerfile.build \
-      --output "type=local,dest=/tmp/pyasic-${arch}" \
-      .
-    cp "/tmp/pyasic-${arch}/pyasic-plugin" "deployment-files/server/pyasic-plugin-${arch}"
-    rm -rf "/tmp/pyasic-${arch}"
-  done
-  cp plugin/pyasic/config.yaml deployment-files/server/pyasic-config.yaml
-  chmod +x deployment-files/server/pyasic-plugin-*
 
 _asicrs-build:
   #!/usr/bin/env bash

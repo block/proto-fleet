@@ -56,15 +56,15 @@ run_ruff() {
   "$ruff_bin" format --force-exclude -- "${files[@]}"
 }
 
-pyasic_files=()
+example_plugin_files=()
 sdk_files=()
 generator_files=()
 other_files=()
 
 for file in "${existing_files[@]}"; do
   case "$file" in
-    plugin/pyasic/*)
-      pyasic_files+=("$file")
+    plugin/example-python/*)
+      example_plugin_files+=("$file")
       ;;
     server/sdk/v1/python/*)
       sdk_files+=("$file")
@@ -78,13 +78,13 @@ for file in "${existing_files[@]}"; do
   esac
 done
 
-if ((${#pyasic_files[@]} > 0)); then
+if ((${#example_plugin_files[@]} > 0)); then
   run_ruff \
-    "plugin/pyasic" \
-    "plugin/pyasic/.venv/bin/ruff" \
+    "plugin/example-python" \
+    "plugin/example-python/.venv/bin/ruff" \
     "true" \
-    "Install ruff in PATH, or set PROTO_FLEET_RUFF=/path/to/ruff before committing plugin/pyasic changes." \
-    "${pyasic_files[@]}"
+    "Install ruff in PATH, or set PROTO_FLEET_RUFF=/path/to/ruff before committing plugin/example-python changes." \
+    "${example_plugin_files[@]}"
 fi
 
 if ((${#sdk_files[@]} > 0)); then

@@ -113,16 +113,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Build pyasic plugin binary (${{ matrix.arch }})
+      - name: Build asicrs plugin binary (${{ matrix.arch }})
         run: |
           docker buildx build \
-            --file plugin/pyasic/Dockerfile.build \
-            --output "type=local,dest=/tmp/pyasic" \
+            --file plugin/asicrs/Dockerfile.build \
+            --output "type=local,dest=/tmp/asicrs" \
             .
-          cp "/tmp/pyasic/pyasic-plugin" "server/pyasic-plugin-${{ matrix.arch }}"
-          cp plugin/pyasic/config.yaml server/pyasic-config.yaml
-          chmod +x server/pyasic-plugin-*
-          echo "pyasic plugin built successfully for ${{ matrix.arch }}"
+          cp "/tmp/asicrs/asicrs-plugin" "server/asicrs-plugin-${{ matrix.arch }}"
+          cp "/tmp/asicrs/asicrs-config.yaml" "server/asicrs-config.yaml"
+          chmod +x server/asicrs-plugin-*
+          echo "asicrs plugin built successfully for ${{ matrix.arch }}"
 
       - name: Package server binaries (${{ matrix.arch }})
         working-directory: ./server
@@ -131,8 +131,8 @@ jobs:
             fleetd-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
-            pyasic-plugin-${{ matrix.arch }} \
-            pyasic-config.yaml \
+            asicrs-plugin-${{ matrix.arch }} \
+            asicrs-config.yaml \
             version.txt
 
       - name: Upload server artifact for job use
@@ -368,7 +368,7 @@ jobs:
           mv fleetd-${{ matrix.arch }} fleetd
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
-          mv pyasic-plugin-${{ matrix.arch }} pyasic-plugin
+          mv asicrs-plugin-${{ matrix.arch }} asicrs-plugin
           cd ../..
 
           # Extract client

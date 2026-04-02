@@ -58,16 +58,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Build pyasic plugin binary (arm64)
+      - name: Build asicrs plugin binary (arm64)
         run: |
           docker buildx build \
-            --file plugin/pyasic/Dockerfile.build \
-            --output "type=local,dest=/tmp/pyasic" \
+            --file plugin/asicrs/Dockerfile.build \
+            --output "type=local,dest=/tmp/asicrs" \
             .
-          cp "/tmp/pyasic/pyasic-plugin" "server/pyasic-plugin"
-          cp plugin/pyasic/config.yaml server/pyasic-config.yaml
-          chmod +x server/pyasic-plugin
-          echo "pyasic plugin built successfully for arm64"
+          cp "/tmp/asicrs/asicrs-plugin" "server/asicrs-plugin"
+          cp "/tmp/asicrs/asicrs-config.yaml" "server/asicrs-config.yaml"
+          chmod +x server/asicrs-plugin
+          echo "asicrs plugin built successfully for arm64"
 
       - name: Package server binaries (arm64)
         working-directory: ./server
@@ -76,8 +76,8 @@ jobs:
             fleetd \
             proto-plugin \
             antminer-plugin \
-            pyasic-plugin \
-            pyasic-config.yaml \
+            asicrs-plugin \
+            asicrs-config.yaml \
             version.txt
 
       - name: Upload server artifact

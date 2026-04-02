@@ -49,7 +49,7 @@ Python-specific tooling depends on the files you change:
 
 - `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
 - `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
-- `plugin/pyasic` and other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+- `plugin/example-python` and other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
 
 ## Git Hooks
 
@@ -67,7 +67,7 @@ The pre-commit hooks run Ruff for staged Python files. Make sure the relevant Ru
 
 - `packages/proto-python-gen`: `cd packages/proto-python-gen && just setup-dev`
 - `server/sdk/v1/python`: `cd server/sdk/v1/python && just setup`
-- `plugin/pyasic`: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
+- `plugin/example-python`: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
 - Other Python paths: install `ruff` in `PATH`, or set `PROTO_FLEET_RUFF=/path/to/ruff`
 
 ### Pre-Push Checks

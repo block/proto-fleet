@@ -185,10 +185,10 @@ func TestService_GetDefaultDiscoveryPorts_ReturnsAllAdvertisedPorts(t *testing.T
 		},
 		DiscoveryPorts: []string{"4028", "443"},
 	}
-	manager.plugins["pyasic-plugin"] = &LoadedPlugin{
-		Name: "pyasic-plugin",
+	manager.plugins["asicrs-plugin"] = &LoadedPlugin{
+		Name: "asicrs-plugin",
 		Identifier: sdk.DriverIdentifier{
-			DriverName: "pyasic",
+			DriverName: "asicrs",
 		},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,

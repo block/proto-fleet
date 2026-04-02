@@ -290,7 +290,7 @@ func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRe
 			IpAddress:    scannedIP,
 			Port:         firstPort,
 			UrlScheme:    "https",
-			DriverName:   "pyasic",
+			DriverName:   "asicrs",
 			Model:        "M60S",
 			Manufacturer: "WhatsMiner",
 		},
@@ -300,7 +300,7 @@ func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRe
 			IpAddress:    scannedIP,
 			Port:         secondPort,
 			UrlScheme:    "http",
-			DriverName:   "pyasic",
+			DriverName:   "asicrs",
 			Model:        "M60S",
 			Manufacturer: "WhatsMiner",
 		},
@@ -311,7 +311,7 @@ func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRe
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{firstPort, secondPort})
+	registerDiscoveryPortsPlugin(t, testContext, "asicrs", []string{firstPort, secondPort})
 
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
 
@@ -1751,7 +1751,7 @@ func TestDiscoveryReconciliation_SkipsPairedEndpointCollision(t *testing.T) {
 func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *testing.T) {
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-	registerDiscoveryPortsPlugin(t, testContext, "pyasic", []string{"443", "4028"})
+	registerDiscoveryPortsPlugin(t, testContext, "asicrs", []string{"443", "4028"})
 
 	scannedIP := "172.16.71.10"
 	firstPort := "443"
@@ -1765,7 +1765,7 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 			IpAddress:       scannedIP,
 			Port:            firstPort,
 			UrlScheme:       "https",
-			DriverName:      "pyasic",
+			DriverName:      "asicrs",
 			Model:           "M60S",
 			Manufacturer:    "WhatsMiner",
 			MacAddress:      "",
@@ -1778,7 +1778,7 @@ func TestDiscoveryReconciliation_ReusesUnpairedIdentifierAcrossPortsOnSameIP(t *
 			IpAddress:    scannedIP,
 			Port:         secondPort,
 			UrlScheme:    "http",
-			DriverName:   "pyasic",
+			DriverName:   "asicrs",
 			Model:        "M60S",
 			Manufacturer: "WhatsMiner",
 			MacAddress:   "",

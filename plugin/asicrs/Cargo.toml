@@ -16,9 +16,8 @@ tokio-stream = "0.1"
 prost-types = "0.13"
 
 # asic-rs miner library
-# TODO: Pin to a tag or rev once feat/miner-auth is merged to main
-asic-rs = { git = "https://github.com/ankitgoswami/asic-rs.git", branch = "feat/miner-auth" }
-asic-rs-core = { git = "https://github.com/ankitgoswami/asic-rs.git", branch = "feat/miner-auth" }
+asic-rs = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.4.0" }
+asic-rs-core = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.4.0" }
 measurements = "0.11"
 
 # config

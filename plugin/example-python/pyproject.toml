@@ -3,16 +3,14 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["pyasic_driver*"]
+include = ["example_driver*"]
 
 [project]
-name = "pyasic-plugin"
+name = "example-python-plugin"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "proto-fleet-sdk",
-    "pyasic>=0.78.0",
-    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

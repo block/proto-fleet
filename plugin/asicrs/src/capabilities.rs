@@ -295,7 +295,7 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
                 password: "admin",
             },
             DefaultCredential {
-                username: "admin",
+                username: "super",
                 password: "super",
             },
         ],

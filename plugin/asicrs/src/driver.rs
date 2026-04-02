@@ -713,10 +713,7 @@ impl Driver for DriverService {
             .map(|r| r.device_id.clone())
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
         let device = self.get_device(&device_id).await?;
-        let url = format!(
-            "{}://{}:{}",
-            device.info.url_scheme, device.info.host, device.info.port
-        );
+        let url = format!("{}://{}", device.info.url_scheme, device.info.host);
         Ok(Response::new(pb::GetDeviceWebViewUrlResponse { url }))
     }
 
