@@ -46,7 +46,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 [[package]]
 name = "asic-rs"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -83,7 +83,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-core"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -104,7 +104,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-antminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -124,7 +124,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-avalonminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -141,7 +141,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-bitaxe"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -158,7 +158,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-braiins"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -177,7 +177,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-epic"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -196,7 +196,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-luxminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -212,7 +212,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-marathon"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -230,7 +230,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-nerdaxe"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -247,7 +247,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-vnish"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "anyhow",
  "asic-rs-core",
@@ -264,7 +264,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-firmwares-whatsminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "aes",
  "anyhow",
@@ -289,7 +289,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-antminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -300,7 +300,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-avalon"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -311,7 +311,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-bitaxe"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-braiins"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -333,7 +333,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-epic"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -344,7 +344,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-marathon"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -354,7 +354,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-nerdaxe"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -365,7 +365,7 @@ dependencies = [
 [[package]]
 name = "asic-rs-makes-whatsminer"
 version = "0.4.0"
-source = "git+https://github.com/256foundation/asic-rs.git?tag=v0.4.0#458579c0fc5fde91000fb82f588cd433050030d0"
+source = "git+https://github.com/256foundation/asic-rs.git?rev=302721ca9ee11953b4c9ad593ab969c7ae07cd7a#302721ca9ee11953b4c9ad593ab969c7ae07cd7a"
 dependencies = [
  "asic-rs-core",
  "serde",
@@ -1146,7 +1146,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -1793,7 +1793,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -1831,7 +1831,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]

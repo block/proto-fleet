@@ -695,7 +695,7 @@ impl AsicRsDevice {
 
         let result = catch_panic(tokio::time::timeout(
             OP_TIMEOUT,
-            miner.set_tuning_config(config),
+            miner.set_tuning_config(config, None),
         ))
         .await?;
         let ok = result

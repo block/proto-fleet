@@ -16,8 +16,8 @@ tokio-stream = "0.1"
 prost-types = "0.13"
 
 # asic-rs miner library
-asic-rs = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.4.0" }
-asic-rs-core = { git = "https://github.com/256foundation/asic-rs.git", tag = "v0.4.0" }
+asic-rs = { git = "https://github.com/256foundation/asic-rs.git", rev = "302721ca9ee11953b4c9ad593ab969c7ae07cd7a" }
+asic-rs-core = { git = "https://github.com/256foundation/asic-rs.git", rev = "302721ca9ee11953b4c9ad593ab969c7ae07cd7a" }
 measurements = "0.11"
 
 # config
