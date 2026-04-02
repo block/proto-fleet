@@ -59,8 +59,24 @@ fn device_err_to_status(e: anyhow::Error) -> Status {
 }
 
 /// Ports that asic-rs probes during detection.
-const DISCOVERY_PORTS: &[u16] = &[80, 443, 4028];
-const HTTPS_PORT: u16 = 443;
+/// - 80: Web-based miners (VNish, Braiins, Auradine, Goldshell, etc.)
+/// - 4028: Socket-based miners (WhatsMiner CGMiner RPC)
+const DISCOVERY_PORTS: &[u16] = &[80, 4028];
+
+/// Canonical discovery port per miner family.
+/// When a miner is reachable on multiple ports, we only claim it on its
+/// canonical port to avoid duplicate discovery and connection exhaustion.
+/// - 4028: WhatsMiner (CGMiner-style RPC over raw TCP socket)
+/// - 80:   Everything else (HTTP web API)
+fn canonical_port(family: &str) -> u16 {
+    match family {
+        "whatsminer" => 4028,
+        // All web-based miners: Antminer (stock/VNish/Braiins/LuxOS),
+        // AvalonMiner, Goldshell, Auradine, BitAxe, IceRiver,
+        // Innosilicon, ePIC, Hammer, VolcMiner, Elphapex, LuckyMiner
+        _ => 80,
+    }
+}
 
 pub struct DriverService {
     config: Arc<PluginConfig>,
@@ -197,16 +213,40 @@ impl Driver for DriverService {
             }
         };
 
-        // Get device info. Try get_data() for full details (serial, MAC, firmware
-        // version), but fall back to get_device_info() if it fails (e.g. auth-protected
-        // miners that require credentials even for reads).
+        // Early reject: use trait-level device info (no network call) to check
+        // family, canonical port, and config before doing the expensive get_data().
+        let trait_info = miner.get_device_info();
+
+        let family = make_to_family(&trait_info.make).ok_or_else(|| {
+            tracing::warn!(ip = %req.ip_address, make = %trait_info.make, "Unsupported manufacturer");
+            Status::not_found(format!("Unsupported manufacturer: {}", trait_info.make))
+        })?;
+
+        if !self.config.miners.contains_key(family) {
+            tracing::warn!(ip = %req.ip_address, family, "Family not configured");
+            return Err(Status::not_found(format!("Family {family} not configured")));
+        }
+
+        // Only claim device on its canonical port to prevent duplicate discovery.
+        let expected_port = canonical_port(family);
+        if port != expected_port {
+            tracing::debug!(
+                ip = %req.ip_address, port, expected_port, family,
+                "Skipping non-canonical port for family"
+            );
+            return Err(Status::not_found(format!(
+                "Port {port} is not canonical for {family} (expected {expected_port})"
+            )));
+        }
+
+        // Full device info: try get_data() for serial, MAC, firmware version.
+        // Falls back to trait-level info if the miner requires auth for reads.
         let data = crate::device::catch_panic(tokio::time::timeout(
             Duration::from_secs(timeout_secs),
             miner.get_data(),
         ))
         .await;
 
-        let trait_info = miner.get_device_info();
         let (make, model, firmware_str, serial_number, mac_address, firmware_version) = match data {
             Ok(Ok(data)) => {
                 let make = data.device_info.make.clone();
@@ -218,8 +258,6 @@ impl Driver for DriverService {
                 (make, model, firmware, serial, mac, fw_ver)
             }
             _ => {
-                // Auth-protected or unreachable read — use trait-level device info.
-                // Serial/MAC/firmware_version will be enriched during PairDevice.
                 tracing::info!(
                     ip = %req.ip_address,
                     make = %trait_info.make,
@@ -237,25 +275,6 @@ impl Driver for DriverService {
             }
         };
 
-        tracing::info!(
-            ip = %req.ip_address,
-            make = %make,
-            model = %model,
-            firmware = %firmware_str,
-            "Discovery device info"
-        );
-
-        // Check if this family/variant is enabled in config
-        let family = make_to_family(&make).ok_or_else(|| {
-            tracing::warn!(ip = %req.ip_address, make = %make, "Unsupported manufacturer");
-            Status::not_found(format!("Unsupported manufacturer: {make}"))
-        })?;
-
-        if !self.config.miners.contains_key(family) {
-            tracing::warn!(ip = %req.ip_address, family, "Family not configured");
-            return Err(Status::not_found(format!("Family {family} not configured")));
-        }
-
         let variant = detect_variant(&make, &firmware_str);
         if !self.config.is_firmware_enabled(family, variant) {
             tracing::warn!(ip = %req.ip_address, family, variant, "Firmware variant not enabled");
@@ -268,7 +287,7 @@ impl Driver for DriverService {
             .unwrap_or(make.as_str())
             .to_string();
 
-        let url_scheme = if port == HTTPS_PORT { "https" } else { "http" };
+        let url_scheme = "http";
 
         tracing::info!(
             manufacturer = %manufacturer,

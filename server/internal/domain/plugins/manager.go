@@ -170,6 +170,7 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 		StartTimeout:     time.Duration(m.config.MaxStartupTimeSeconds) * time.Second,
 		Logger:           hclog.New(&hclog.LoggerOptions{Name: "plugin." + name, Level: hclogLevel}),
+		SyncStderr:       os.Stderr,
 	}
 
 	client := plugin.NewClient(clientConfig)

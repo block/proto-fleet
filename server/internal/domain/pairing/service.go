@@ -1161,13 +1161,14 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
 	}
 
-	// Get device info with authentication to fetch firmware version and other details
-	updatedDeviceInfo, err := pairer.GetDeviceInfo(ctx, discoveredDevice, credentials)
-	if err != nil {
+	// Get device info after pairing to fetch firmware version and other details.
+	updatedDeviceInfo, infoErr := pairer.GetDeviceInfo(ctx, discoveredDevice, credentials)
+	if infoErr != nil {
 		slog.Warn("failed to get device info after pairing, continuing without firmware version",
 			"device_identifier", discoveredDevice.DeviceIdentifier,
-			"error", err)
-	} else if updatedDeviceInfo.FirmwareVersion != "" {
+			"error", infoErr)
+	}
+	if updatedDeviceInfo != nil && updatedDeviceInfo.FirmwareVersion != "" {
 		// Preserve firmware learned during PairDevice when the follow-up describe
 		// omits firmware. The plugin path converts from sdk.DeviceInfo, where
 		// firmware is a plain string without field presence.

@@ -51,7 +51,7 @@ miners:
 		Driver:    driver,
 		Manifest:  manifest,
 		MinerIP:   mock.Host(),
-		MinerPort: fmt.Sprintf("%d", manifest.Ports["rpc"]),
+		MinerPort: fmt.Sprintf("%d", manifest.Ports["web"]),
 	}
 
 	t.Run("Discovery", func(t *testing.T) { miners.AssertDiscovery(t, tc) })
