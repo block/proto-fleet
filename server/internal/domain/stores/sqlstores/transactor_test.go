@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"testing"
 
-	poolspb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )

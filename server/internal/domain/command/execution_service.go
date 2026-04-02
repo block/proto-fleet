@@ -10,23 +10,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/workername"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/domain/workername"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	tokenDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/token"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 )
 
 const (

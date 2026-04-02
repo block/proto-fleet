@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 const (

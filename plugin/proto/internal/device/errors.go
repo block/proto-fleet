@@ -5,9 +5,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
-	sdkerrors "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
+	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
 const (

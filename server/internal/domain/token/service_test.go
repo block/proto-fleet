@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/domain/token"
 
 	"github.com/alecthomas/assert/v2"
 )

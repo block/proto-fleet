@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	db2 "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	db2 "github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -4,14 +4,14 @@ import (
 	"context"
 	"net/url"
 
-	diagnosticsModels "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
+	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner

@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"time"
 
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // MultiTypeDiscoverer discovers devices by trying all available plugins.

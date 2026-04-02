@@ -7,7 +7,7 @@ import (
 	netUrl "net/url"
 	"strings"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/sourcegraph/jsonrpc2"
 )
 

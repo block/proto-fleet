@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/networkinfo/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
+	pb "github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 )
 
 // Handler handles the Connect-RPC endpoints

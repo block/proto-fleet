@@ -3,7 +3,7 @@ package pools
 import (
 	"strings"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 const invalidPoolUsernameSeparatorMessage = "Fleet-level pool usernames can’t include periods (.). Set worker names on each miner instead."

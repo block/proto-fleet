@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/collection"
+	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/collection"
 )
 
 // Handler implements the DeviceCollectionService gRPC handler.

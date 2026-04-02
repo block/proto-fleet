@@ -1,8 +1,8 @@
 package plugins
 
 import (
-	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (

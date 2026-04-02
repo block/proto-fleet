@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

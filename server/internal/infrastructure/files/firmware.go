@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/google/uuid"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
 )
 
 // FirmwareFileInfo holds metadata about a stored firmware file.

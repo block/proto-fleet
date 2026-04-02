@@ -4,7 +4,7 @@ package errors
 import (
 	"time"
 
-	pb "github.com/proto-at-block/proto-fleet/server/sdk/v1/pb/generated"
+	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

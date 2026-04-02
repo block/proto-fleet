@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer"
+	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer"
 )
 
 // ClientFactory is a function type for creating Antminer clients

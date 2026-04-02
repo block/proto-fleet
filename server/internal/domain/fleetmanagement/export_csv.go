@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
-	diagnosticsmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 const (

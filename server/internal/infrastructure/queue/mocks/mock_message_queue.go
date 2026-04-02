@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	commandtype "github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
-	queue "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	commandtype "github.com/block/proto-fleet/server/internal/domain/commandtype"
+	queue "github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	gomock "go.uber.org/mock/gomock"
 )
 

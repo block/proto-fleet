@@ -3,7 +3,7 @@ package interfaces
 import (
 	"context"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 )
 
 type PoolStore interface {

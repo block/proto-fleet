@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 )
 
 // Handler handles the Connect-RPC endpoints

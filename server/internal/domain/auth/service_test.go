@@ -7,18 +7,18 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/crypto/bcrypt"
 
-	authv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1"
+	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 )
 
 type mockUserStoreForVerify struct {

@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 )
 
 // TelemetryUpdate represents a streaming update from the telemetry system

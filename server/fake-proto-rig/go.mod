@@ -1,4 +1,4 @@
-module github.com/proto-at-block/proto-fleet/server/fake-proto-rig
+module github.com/block/proto-fleet/server/fake-proto-rig
 
 go 1.25.4
 

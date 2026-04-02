@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	diagnosticsmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

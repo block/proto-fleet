@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/golang-jwt/jwt/v5"
 )

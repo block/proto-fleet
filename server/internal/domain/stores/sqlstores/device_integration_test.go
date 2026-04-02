@@ -9,11 +9,11 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	minermodels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 // TestGetOfflineDevices_DatabaseIntegration tests the GetOfflineDevices query

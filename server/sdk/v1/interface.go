@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
+	"github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
 // DriverIdentifier contains driver identification information

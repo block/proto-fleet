@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 
-	authv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1"
-	onboardingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1"
+	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 func TestAuthServer_Authenticate(t *testing.T) {

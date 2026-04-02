@@ -1,4 +1,4 @@
-module github.com/proto-at-block/proto-fleet/plugin/proto
+module github.com/block/proto-fleet/plugin/proto
 
 go 1.25.4
 
@@ -6,12 +6,12 @@ require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hashicorp/go-plugin v1.7.0
-	github.com/proto-at-block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
+	github.com/block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 )
 
-replace github.com/proto-at-block/proto-fleet/server => ../../server
+replace github.com/block/proto-fleet/server => ../../server
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

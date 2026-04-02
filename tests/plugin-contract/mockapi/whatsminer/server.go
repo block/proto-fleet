@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/GehirnInc/crypt/md5_crypt"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi"
+	"github.com/block/proto-fleet/tests/plugin-contract/mockapi"
 )
 
 

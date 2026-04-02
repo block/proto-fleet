@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const externalIPForGatewayDetection = "8.8.8.8"

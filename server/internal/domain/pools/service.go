@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pools/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
-	stratumv1 "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/stratum/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
+	stratumv1 "github.com/block/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
 
 type PoolStatus string

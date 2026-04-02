@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
+	pb "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/auth"
 )
 
 // Handler handles authentication requests

@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (

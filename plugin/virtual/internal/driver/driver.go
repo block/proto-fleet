@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/proto-at-block/proto-fleet/plugin/virtual/internal/config"
-	"github.com/proto-at-block/proto-fleet/plugin/virtual/internal/device"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/virtual/internal/config"
+	"github.com/block/proto-fleet/plugin/virtual/internal/device"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi"
+	"github.com/block/proto-fleet/tests/plugin-contract/mockapi"
 )
 
 const mockToken = "mock-vnish-token"

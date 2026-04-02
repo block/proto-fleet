@@ -5,8 +5,8 @@ package telemetry
 import (
 	"context"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
-	minerInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 )
 
 // ErrorPoller polls device errors alongside telemetry collection.

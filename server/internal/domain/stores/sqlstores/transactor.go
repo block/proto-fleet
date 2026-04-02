@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // withTx returns a new context that carries the given *sqlc.Queries

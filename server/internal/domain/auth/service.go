@@ -13,21 +13,21 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 
 	"connectrpc.com/connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	id "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	authv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/auth/v1"
-	onboardingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
+	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/token"
 	"golang.org/x/crypto/bcrypt"
 )
 

@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	errorsv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	storesMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 const (

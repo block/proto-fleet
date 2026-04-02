@@ -3,8 +3,8 @@ package fleetmanagement_test
 import (
 	"testing"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

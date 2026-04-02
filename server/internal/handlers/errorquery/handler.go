@@ -8,12 +8,12 @@ import (
 
 	"connectrpc.com/connect"
 
-	errorsv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 // Ensure Handler implements the service interface.

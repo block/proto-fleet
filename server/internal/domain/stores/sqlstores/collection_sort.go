@@ -6,8 +6,8 @@ import (
 
 	"github.com/lib/pq"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const (

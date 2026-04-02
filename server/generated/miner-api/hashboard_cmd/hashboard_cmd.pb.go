@@ -11,9 +11,9 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
-	hashboard "github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard"
-	hashboard_cmd_debug "github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd_debug"
-	hashboard_cmd_mfgtest "github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard_cmd_mfgtest"
+	hashboard "github.com/block/proto-fleet/server/generated/miner-api/hashboard"
+	hashboard_cmd_debug "github.com/block/proto-fleet/server/generated/miner-api/hashboard_cmd_debug"
+	hashboard_cmd_mfgtest "github.com/block/proto-fleet/server/generated/miner-api/hashboard_cmd_mfgtest"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )

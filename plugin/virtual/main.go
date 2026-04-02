@@ -14,9 +14,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/block/proto-fleet/plugin/virtual/internal/driver"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/hashicorp/go-plugin"
-	"github.com/proto-at-block/proto-fleet/plugin/virtual/internal/driver"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 func main() {

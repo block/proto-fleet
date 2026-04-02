@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 type Service struct {

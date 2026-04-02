@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	networking "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/networking"
-	rpc "github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
+	networking "github.com/block/proto-fleet/plugin/antminer/pkg/antminer/networking"
+	rpc "github.com/block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
 	gomock "go.uber.org/mock/gomock"
 )
 

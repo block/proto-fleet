@@ -11,7 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
-	hashboard "github.com/proto-at-block/proto-fleet/server/generated/miner-api/hashboard"
+	hashboard "github.com/block/proto-fleet/server/generated/miner-api/hashboard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )

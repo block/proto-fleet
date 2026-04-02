@@ -3,9 +3,9 @@ package pairing
 import (
 	"context"
 
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
 // pairing statuses

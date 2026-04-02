@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	pairingpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	minermodels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 )
 
 func newTestPluginManager() *plugins.Manager {

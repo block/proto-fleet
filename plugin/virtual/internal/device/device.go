@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/plugin/virtual/internal/config"
-	"github.com/proto-at-block/proto-fleet/plugin/virtual/pkg/virtual"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/virtual/internal/config"
+	"github.com/block/proto-fleet/plugin/virtual/pkg/virtual"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // Compile-time check that *Device implements sdk.Device interface.

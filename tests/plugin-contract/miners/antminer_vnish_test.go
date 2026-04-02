@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/harness"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/miners"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi/vnish"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/tests/plugin-contract/harness"
+	"github.com/block/proto-fleet/tests/plugin-contract/miners"
+	"github.com/block/proto-fleet/tests/plugin-contract/mockapi/vnish"
 )
 
 const antminerVNishTestdataDir = "../testdata/antminer-vnish"

@@ -11,11 +11,11 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	telemetryv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // activeStream tracks an active streaming goroutine with its cancel function and unique ID.

@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/deviceresolver"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	storemocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 func int32Ptr(v int32) *int32 { return &v }

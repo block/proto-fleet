@@ -1,4 +1,4 @@
-module github.com/proto-at-block/proto-fleet/server/fake-antminer
+module github.com/block/proto-fleet/server/fake-antminer
 
 go 1.25.4
 

@@ -9,12 +9,12 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const statusCompleted = "completed"

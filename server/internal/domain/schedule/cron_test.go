@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"google.golang.org/protobuf/proto"
 )
 

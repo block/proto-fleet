@@ -1,10 +1,10 @@
-module github.com/proto-at-block/proto-fleet/plugin/virtual
+module github.com/block/proto-fleet/plugin/virtual
 
 go 1.25.4
 
 require (
 	github.com/hashicorp/go-plugin v1.7.0
-	github.com/proto-at-block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
+	github.com/block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
 )
 
 require (
@@ -23,4 +23,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/proto-at-block/proto-fleet/server => ../../server
+replace github.com/block/proto-fleet/server => ../../server

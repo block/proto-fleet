@@ -78,7 +78,7 @@ linters:
       min-complexity: 20
     wrapcheck:
       ignore-package-globs:
-        - github.com/proto-at-block/proto-fleet/*
+        - github.com/block/proto-fleet/*
   exclusions:
     generated: lax
     rules:

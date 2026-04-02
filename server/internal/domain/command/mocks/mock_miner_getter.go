@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
+	interfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	gomock "go.uber.org/mock/gomock"
 )
 

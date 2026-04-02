@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const defaultAsicrsConfig = `plugin:

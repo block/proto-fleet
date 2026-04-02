@@ -2,9 +2,9 @@
 package errorquery
 
 import (
-	errorsv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/errors/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

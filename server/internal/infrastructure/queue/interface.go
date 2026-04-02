@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 )
 
 // ErrStale is returned when a MarkSuccess/MarkFailed/MarkPermanentlyFailed update

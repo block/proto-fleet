@@ -8,11 +8,11 @@ import (
 	"sort"
 	"sync"
 
-	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
-	pairingpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // Service provides high-level plugin integration services

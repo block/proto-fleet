@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	telemetryv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 const (

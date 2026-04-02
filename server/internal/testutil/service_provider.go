@@ -6,26 +6,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/command"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleetmanagement"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/plugins"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"go.uber.org/mock/gomock"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/onboarding"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/onboarding"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
+	"github.com/block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 
-	pairingMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/pairing/mocks"
+	pairingMocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 )
 
 const (

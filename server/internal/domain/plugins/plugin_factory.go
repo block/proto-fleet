@@ -5,14 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // PluginDriverGetter defines the interface for getting SDK drivers

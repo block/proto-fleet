@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/tests/plugin-contract/mockapi"
 )
 
 type TestContext struct {

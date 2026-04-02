@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
-	"github.com/proto-at-block/proto-fleet/server/sdk/v1/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"

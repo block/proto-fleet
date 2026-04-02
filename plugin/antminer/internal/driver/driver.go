@@ -22,9 +22,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/device"
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/types"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/antminer/internal/device"
+	"github.com/block/proto-fleet/plugin/antminer/internal/types"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (

@@ -3,11 +3,11 @@ package main
 import (
 	"log"
 
+	"github.com/block/proto-fleet/plugin/antminer/internal/driver"
+	"github.com/block/proto-fleet/plugin/antminer/internal/types"
+	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer"
+	"github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/hashicorp/go-plugin"
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/driver"
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/internal/types"
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer"
-	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 func main() {

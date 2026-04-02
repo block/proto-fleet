@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/harness"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/miners"
-	"github.com/proto-at-block/proto-fleet/tests/plugin-contract/mockapi/whatsminer"
+	"github.com/block/proto-fleet/tests/plugin-contract/harness"
+	"github.com/block/proto-fleet/tests/plugin-contract/miners"
+	"github.com/block/proto-fleet/tests/plugin-contract/mockapi/whatsminer"
 )
 
 const whatsminerTestdataDir = "../testdata/whatsminer-stock"

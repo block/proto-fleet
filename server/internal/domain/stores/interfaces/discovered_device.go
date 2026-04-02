@@ -3,7 +3,7 @@ package interfaces
 import (
 	"context"
 
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=discovered_device.go -destination=mocks/mock_discovered_device_store.go -package=mocks DiscoveredDeviceStore

@@ -1,8 +1,8 @@
 package dto
 
 import (
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
 type CoolingModePayload struct {

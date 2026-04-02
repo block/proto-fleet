@@ -79,13 +79,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 const (

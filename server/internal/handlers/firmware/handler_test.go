@@ -17,11 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	sessionMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/session/mocks"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	storeMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	sessionMocks "github.com/block/proto-fleet/server/internal/domain/session/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
 const testMaxUploadBytes int64 = 10 * 1024 * 1024 // 10 MB for tests

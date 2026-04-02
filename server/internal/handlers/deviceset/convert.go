@@ -1,8 +1,8 @@
 package deviceset
 
 import (
-	collectionpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	dspb "github.com/proto-at-block/proto-fleet/server/generated/grpc/device_set/v1"
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 )
 
 // --- DeviceSetType <-> CollectionType ---

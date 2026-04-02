@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

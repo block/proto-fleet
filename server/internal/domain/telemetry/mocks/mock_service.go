@@ -14,9 +14,9 @@ import (
 	reflect "reflect"
 	time "time"
 
-	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	models "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	models0 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	interfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	models "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	models0 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	gomock "go.uber.org/mock/gomock"
 )
 

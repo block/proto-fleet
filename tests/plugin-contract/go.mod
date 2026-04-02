@@ -1,17 +1,17 @@
-module github.com/proto-at-block/proto-fleet/tests/plugin-contract
+module github.com/block/proto-fleet/tests/plugin-contract
 
 go 1.25.4
 
 require (
+	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
+	github.com/block/proto-fleet/server v0.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
-	github.com/proto-at-block/proto-fleet/server v0.0.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.3
 )
 
 require (
-	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -30,4 +30,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/proto-at-block/proto-fleet/server => ../../server
+replace github.com/block/proto-fleet/server => ../../server

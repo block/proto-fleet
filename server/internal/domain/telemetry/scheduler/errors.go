@@ -1,8 +1,8 @@
 package scheduler
 
 import (
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // DeviceNotManagedErr is returned when a device is not managed by the scheduler.

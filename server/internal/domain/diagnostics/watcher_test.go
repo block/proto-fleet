@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	storeMocks "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // ============================================================================

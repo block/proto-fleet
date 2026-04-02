@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"math"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 const (

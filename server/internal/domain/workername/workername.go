@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func FromPoolUsername(username string) string {

@@ -1,8 +1,8 @@
 package web
 
 import (
-	"github.com/proto-at-block/proto-fleet/plugin/antminer/pkg/antminer/networking"
-	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer/networking"
+	"github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type AntminerConnectionInfo struct {

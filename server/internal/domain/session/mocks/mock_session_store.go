@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	session "github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	session "github.com/block/proto-fleet/server/internal/domain/session"
 	gomock "go.uber.org/mock/gomock"
 )
 

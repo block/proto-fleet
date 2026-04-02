@@ -10,11 +10,11 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
 const (

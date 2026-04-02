@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 var _ interfaces.ActivityStore = &SQLActivityStore{}

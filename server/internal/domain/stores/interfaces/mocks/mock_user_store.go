@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	interfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	gomock "go.uber.org/mock/gomock"
 )
 

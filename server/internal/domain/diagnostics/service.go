@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	minerInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/interfaces"
-	minerModels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	storeInterfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	storeInterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // PollResult contains the outcome of a PollErrors operation.

@@ -13,10 +13,10 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device"
-	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/driver"
-	"github.com/proto-at-block/proto-fleet/plugin/proto/tests/testutils"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/proto/internal/device"
+	"github.com/block/proto-fleet/plugin/proto/internal/driver"
+	"github.com/block/proto-fleet/plugin/proto/tests/testutils"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 func TestProtoPluginIntegration(t *testing.T) {

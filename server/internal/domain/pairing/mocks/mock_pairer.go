@@ -8,8 +8,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	pairingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	models0 "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	models0 "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -17,14 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/activity/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	"github.com/proto-at-block/proto-fleet/server/internal/handlers/interceptors"
+	pb "github.com/block/proto-fleet/server/generated/grpc/activity/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
 
 const testOrgID = int64(42)

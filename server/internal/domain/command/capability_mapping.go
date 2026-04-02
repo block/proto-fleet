@@ -1,8 +1,8 @@
 package command
 
 import (
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // commandTypeCapabilityMap maps proto CommandType to required SDK capability constants.

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"io"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
-	pingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/ping/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
+	pingv1 "github.com/block/proto-fleet/server/generated/grpc/ping/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 )
 
 // Handler stub implementation intended for testing

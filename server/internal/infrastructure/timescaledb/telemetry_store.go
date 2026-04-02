@@ -9,10 +9,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	modelsV2 "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 const (

@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

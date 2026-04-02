@@ -3,8 +3,8 @@ package fleetmanagement
 import (
 	"testing"
 
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/stretchr/testify/assert"
 )
 

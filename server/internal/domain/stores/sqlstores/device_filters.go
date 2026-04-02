@@ -7,9 +7,9 @@ import (
 
 	"github.com/lib/pq"
 
-	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	minermodels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // minerFilterParams holds the parsed filter parameters for miner queries.

@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	gomock "go.uber.org/mock/gomock"
 )
 

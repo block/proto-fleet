@@ -5,7 +5,7 @@ package interfaces
 import (
 	"context"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
 )
 
 type ActivityStore interface {

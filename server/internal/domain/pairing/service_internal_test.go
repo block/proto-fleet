@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )

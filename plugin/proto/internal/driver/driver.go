@@ -21,9 +21,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/device"
-	"github.com/proto-at-block/proto-fleet/plugin/proto/pkg/proto"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/plugin/proto/internal/device"
+	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (

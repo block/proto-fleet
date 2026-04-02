@@ -89,7 +89,7 @@ type Device interface {
 package main
 
 import (
-    "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+    "github.com/block/proto-fleet/server/sdk/v1"
     "github.com/hashicorp/go-plugin"
 )
 

@@ -7,7 +7,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 )
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)

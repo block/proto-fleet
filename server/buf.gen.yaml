@@ -2,12 +2,12 @@ version: v2
 plugins:
   - local: protoc-gen-go
     out: sdk/v1/pb/generated
-    opt: module=github.com/proto-at-block/proto-fleet/server/sdk/v1/pb
+    opt: module=github.com/block/proto-fleet/server/sdk/v1/pb
     types:
       - sdk.v1
   - local: protoc-gen-go-grpc
     out: sdk/v1/pb/generated
-    opt: module=github.com/proto-at-block/proto-fleet/server/sdk/v1/pb
+    opt: module=github.com/block/proto-fleet/server/sdk/v1/pb
     types:
       - sdk.v1
   - protoc_builtin: python

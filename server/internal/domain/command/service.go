@@ -12,25 +12,25 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/activity"
-	activitymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/activity/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/commandtype"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	tmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
-	id "github.com/proto-at-block/proto-fleet/server/internal/infrastructure/id"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
 // TelemetryListener provides interface for telemetry registration/unregistration

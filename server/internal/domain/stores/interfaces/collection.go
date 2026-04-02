@@ -3,7 +3,7 @@ package interfaces
 import (
 	"context"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore

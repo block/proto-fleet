@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

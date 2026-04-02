@@ -3,13 +3,13 @@ package onboarding
 import (
 	"context"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/auth"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/onboarding"
+	"github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/onboarding"
 
 	"connectrpc.com/connect"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/onboarding/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 // Handler handles authentication requests

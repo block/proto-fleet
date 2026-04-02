@@ -5,9 +5,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
-	scheduleDomain "github.com/proto-at-block/proto-fleet/server/internal/domain/schedule"
+	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
+	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 )
 
 type Handler struct {

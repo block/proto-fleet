@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"connectrpc.com/authn"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 // MockAuthContextForTesting creates a context with session info for testing.

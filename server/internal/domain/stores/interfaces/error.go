@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=error.go -destination=mocks/mock_error_store.go -package=mocks ErrorStore

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 // WatchKind represents the state of an error in a watch update.

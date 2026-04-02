@@ -13,18 +13,18 @@ import (
 
 	"github.com/lib/pq"
 
-	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	tm "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	minermodels "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 const (

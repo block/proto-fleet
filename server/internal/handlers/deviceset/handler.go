@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	collectionpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	dspb "github.com/proto-at-block/proto-fleet/server/generated/grpc/device_set/v1"
-	"github.com/proto-at-block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/collection"
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/collection"
 )
 
 // Handler implements the DeviceSetService gRPC handler.

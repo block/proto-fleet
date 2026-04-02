@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 var _ session.Store = &SQLSessionStore{}

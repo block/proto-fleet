@@ -1,7 +1,7 @@
 package models
 
 import (
-	commonpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/common/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

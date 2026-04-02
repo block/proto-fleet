@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	capabilitiespb "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/minercommand/v1"
-	pairingpb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 )
 

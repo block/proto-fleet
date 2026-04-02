@@ -1,9 +1,9 @@
 package mappers
 
 import (
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	sdkv1 "github.com/proto-at-block/proto-fleet/server/sdk/v1"
-	sdkv1models "github.com/proto-at-block/proto-fleet/server/sdk/v1/errors"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	sdkv1 "github.com/block/proto-fleet/server/sdk/v1"
+	sdkv1models "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
 const (

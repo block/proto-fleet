@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	collectionv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/collection/v1"
-	interfaces "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	collectionv1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	interfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	gomock "go.uber.org/mock/gomock"
 )
 

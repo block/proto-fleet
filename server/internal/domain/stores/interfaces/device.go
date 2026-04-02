@@ -3,17 +3,17 @@ package interfaces
 import (
 	"context"
 
-	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
+	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 
-	fm "github.com/proto-at-block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	tm "github.com/proto-at-block/proto-fleet/server/generated/grpc/telemetry/v1"
-	diagnosticsmodels "github.com/proto-at-block/proto-fleet/server/internal/domain/diagnostics/models"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore

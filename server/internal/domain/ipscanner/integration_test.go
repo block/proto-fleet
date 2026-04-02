@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/ipscanner"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/ipscanner/mocks"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
+	"github.com/block/proto-fleet/server/internal/domain/ipscanner/mocks"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 // mockDiscoverer implements minerdiscovery.Discoverer for testing

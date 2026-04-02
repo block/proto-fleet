@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	capabilitiesv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/capabilities/v1"
-	pairingv1 "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	models "github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	capabilitiesv1 "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	models "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	gomock "go.uber.org/mock/gomock"
 )
 

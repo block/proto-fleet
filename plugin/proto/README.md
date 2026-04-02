@@ -300,7 +300,7 @@ just lint
 
 Core dependencies for the plugin:
 
-- `github.com/proto-at-block/proto-fleet/server` - Fleet server SDK
+- `github.com/block/proto-fleet/server` - Fleet server SDK
 - `connectrpc.com/connect` - Connect-RPC client library for API communication
 - `github.com/hashicorp/go-plugin` - Go plugin framework
 - `github.com/golang-jwt/jwt/v5` - JWT authentication and token management

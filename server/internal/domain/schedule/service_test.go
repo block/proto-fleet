@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/schedule/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/testutil"
+	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"google.golang.org/protobuf/proto"
 )
 

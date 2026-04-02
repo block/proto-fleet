@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	stores "github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // sortedCursor holds pagination state for sorted queries.

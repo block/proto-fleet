@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery"
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=scanner.go -destination=mocks/mock_scanner.go -package=mocks DeviceIdentityCheckService

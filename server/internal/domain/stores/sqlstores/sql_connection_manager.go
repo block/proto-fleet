@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/proto-at-block/proto-fleet/server/generated/sqlc"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // txContextKey is the key type for storing *sqlc.Queries in context

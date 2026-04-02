@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	mm "github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/telemetry/models"
+	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // Subscription represents a subscriber to telemetry updates

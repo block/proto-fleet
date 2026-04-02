@@ -15,9 +15,9 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/block/proto-fleet/plugin/proto/internal/driver"
+	"github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/hashicorp/go-plugin"
-	"github.com/proto-at-block/proto-fleet/plugin/proto/internal/driver"
-	"github.com/proto-at-block/proto-fleet/server/sdk/v1"
 )
 
 const (

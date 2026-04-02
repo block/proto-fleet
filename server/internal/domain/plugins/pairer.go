@@ -12,19 +12,19 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	discoverymodels "github.com/proto-at-block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
-	pb "github.com/proto-at-block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/pairing"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/token"
-	"github.com/proto-at-block/proto-fleet/server/internal/domain/workername"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/networking"
-	"github.com/proto-at-block/proto-fleet/server/internal/infrastructure/secrets"
-	sdk "github.com/proto-at-block/proto-fleet/server/sdk/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/domain/workername"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 var _ pairing.Pairer = &Pairer{}
