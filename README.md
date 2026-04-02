@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/btc-mining/proto-fleet" target="_blank" rel="noopener noreferrer">
-    <img width="64" src="https://raw.githubusercontent.com/btc-mining/proto-fleet/main/docs/logo.svg" alt="Proto logo">
+    <img width="64" src="docs/logo.svg" alt="Proto logo">
   </a>
 </p>
 <h1 align="center">
@@ -14,7 +14,7 @@
   Open source fleet management for bitcoin miners.
 </p>
 <p align="center">
-  <a href="https://github.com/btc-mining/proto-fleet/blob/main/LICENSE">
+  <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Proto Fleet is released under the Apache 2.0 license." />
   </a>
   <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml">
