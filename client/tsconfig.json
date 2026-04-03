@@ -22,15 +22,13 @@
     "noFallthroughCasesInSwitch": true,
     "strictNullChecks": true,
 
-    /* Alias */
-    "baseUrl": "./",
     "paths": {
-      "@/*": ["src/*"],
-      "api": ["src/protoOS/api/index.ts"],
-      "apiTypes": ["src/protoOS/api/types.ts"],
-      "apiResponseTypes": ["src/protoOS/api/apiResponseTypes.ts"],
-      "icons": ["src/shared/assets/icons"],
-      "icons/*": ["src/shared/assets/icons/*"]
+      "@/*": ["./src/*"],
+      "api": ["./src/protoOS/api/index.ts"],
+      "apiTypes": ["./src/protoOS/api/types.ts"],
+      "apiResponseTypes": ["./src/protoOS/api/apiResponseTypes.ts"],
+      "icons": ["./src/shared/assets/icons"],
+      "icons/*": ["./src/shared/assets/icons/*"]
     },
 
     "types": ["jest-dom"],

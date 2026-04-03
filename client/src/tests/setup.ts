@@ -22,6 +22,7 @@ global.MutationObserver = class MutationObserver {
 global.IntersectionObserver = class IntersectionObserver {
   root = null;
   rootMargin = "";
+  scrollMargin = "";
   thresholds = [];
   disconnect = vi.fn();
   observe = vi.fn();
