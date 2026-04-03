@@ -8,7 +8,7 @@ export { computeSha256 } from "@/protoFleet/utils/crypto";
 const API_BASE = `${API_PROXY_BASE}/api/v1/firmware`;
 
 const DEFAULT_MAX_FILE_SIZE = 500 * 1024 * 1024;
-const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
+const DEFAULT_CHUNK_SIZE = 1 * 1024 * 1024;
 
 export interface FirmwareConfig {
   allowedExtensions: string[];

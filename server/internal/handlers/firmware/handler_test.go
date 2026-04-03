@@ -140,7 +140,7 @@ func (e *testEnv) configHandler() *configHandler {
 		filesService:   e.fileSvc,
 		sessionService: e.sessionSvc,
 		userStore:      e.userStoreMock,
-		cfg:            files.Config{ChunkSizeBytes: 5 * 1024 * 1024},
+		cfg:            files.Config{ChunkSizeBytes: 1 * 1024 * 1024},
 	}
 }
 
@@ -468,7 +468,7 @@ func TestConfigHandler_ReturnsConfigOnSuccess(t *testing.T) {
 
 	assert.Equal(t, []string{".swu", ".tar.gz", ".zip"}, resp.AllowedExtensions)
 	assert.Equal(t, int64(500*1024*1024), resp.MaxFileSizeBytes)
-	assert.Equal(t, int64(5*1024*1024), resp.ChunkSizeBytes)
+	assert.Equal(t, int64(1*1024*1024), resp.ChunkSizeBytes)
 }
 
 func TestConfigHandler_DefaultsChunkSizeWhenZero(t *testing.T) {
@@ -490,7 +490,7 @@ func TestConfigHandler_DefaultsChunkSizeWhenZero(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	assert.Equal(t, int64(5*1024*1024), resp.ChunkSizeBytes)
+	assert.Equal(t, int64(1*1024*1024), resp.ChunkSizeBytes)
 }
 
 // --- List files handler tests ---

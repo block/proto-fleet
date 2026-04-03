@@ -193,7 +193,7 @@ describe("useFirmwareApi", () => {
           Promise.resolve({
             allowed_extensions: [".swu"],
             max_file_size_bytes: 500 * 1024 * 1024,
-            chunk_size_bytes: 5 * 1024 * 1024,
+            chunk_size_bytes: 1 * 1024 * 1024,
           }),
       });
       vi.stubGlobal("fetch", configFetch);
@@ -256,7 +256,7 @@ describe("useFirmwareApi", () => {
             Promise.resolve({
               allowed_extensions: [".swu"],
               max_file_size_bytes: 500 * 1024 * 1024,
-              chunk_size_bytes: 5 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
             }),
         }),
       );
@@ -280,7 +280,7 @@ describe("useFirmwareApi", () => {
             Promise.resolve({
               allowed_extensions: [".swu"],
               max_file_size_bytes: 500 * 1024 * 1024,
-              chunk_size_bytes: 5 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
             }),
         }),
       );
