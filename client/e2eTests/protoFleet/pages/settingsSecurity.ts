@@ -27,7 +27,7 @@ export class SettingsSecurityPage extends BasePage {
   }
 
   async validateUsernameChangeToast() {
-    await expect(this.page.getByText(`Your username has been updated`)).toBeVisible();
+    await expect(this.page.getByText(`Username updated`)).toBeVisible();
   }
 
   async validateUsername(username: string) {
@@ -47,6 +47,6 @@ export class SettingsSecurityPage extends BasePage {
   }
 
   async validatePasswordChangeToast() {
-    await expect(this.page.getByText(`Your password has been updated`)).toBeVisible();
+    await expect(this.page.getByText(`Password updated`)).toBeVisible();
   }
 }

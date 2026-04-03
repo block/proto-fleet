@@ -44,7 +44,7 @@ const AuthenticationSettings = () => {
               onSuccess: () => {
                 setIsSubmitting(false);
                 updateToast(toast, {
-                  message: "Your password has been updated",
+                  message: "Password updated",
                   status: TOAST_STATUSES.success,
                   ttl: 2000,
                 });

@@ -132,7 +132,7 @@ describe("AuthenticationSettings", () => {
         fireEvent.click(updateButton);
       }
 
-      expect(getByText("Authenticate")).toBeInTheDocument();
+      expect(getByText("Account password required")).toBeInTheDocument();
     });
   });
 });

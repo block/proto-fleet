@@ -48,7 +48,7 @@ const UpdatePassword = () => {
           setTemporaryPassword(null);
           setIsSuccess(true);
           pushToast({
-            message: "Your password has been updated",
+            message: "Password updated",
             status: TOAST_STATUSES.success,
           });
         },

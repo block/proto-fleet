@@ -15,11 +15,7 @@ export const UpdatePasswordSuccess = ({ onLogin }: UpdatePasswordSuccessProps) =
           <div className="flex flex-col gap-10">
             <Logo width="w-[86px]" />
             <div className="flex flex-col gap-6">
-              <Header
-                title="Password saved"
-                titleSize="text-heading-300"
-                description="Your password has been updated."
-              />
+              <Header title="Password saved" titleSize="text-heading-300" description="Password updated." />
               <Button onClick={onLogin} variant="primary">
                 Login
               </Button>

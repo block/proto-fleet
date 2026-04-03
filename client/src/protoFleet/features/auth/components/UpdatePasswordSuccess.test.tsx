@@ -13,7 +13,7 @@ describe("UpdatePasswordSuccess", () => {
     const { getByText } = render(<UpdatePasswordSuccess onLogin={mockOnLogin} />);
 
     expect(getByText("Password saved")).toBeInTheDocument();
-    expect(getByText("Your password has been updated.")).toBeInTheDocument();
+    expect(getByText("Password updated.")).toBeInTheDocument();
   });
 
   it("renders Login button", () => {
@@ -79,7 +79,7 @@ describe("UpdatePasswordSuccess", () => {
   it("renders description text with correct styling", () => {
     const { getByText } = render(<UpdatePasswordSuccess onLogin={mockOnLogin} />);
 
-    const description = getByText("Your password has been updated.");
+    const description = getByText("Password updated.");
     expect(description.className).toContain("text-300");
   });
 });

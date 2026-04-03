@@ -18,7 +18,7 @@ const AuthenticateForm = ({ onChange, apiError }: { onChange: (value: string) =>
   return (
     <div className="flex flex-col gap-6">
       <Header
-        title="Authenticate"
+        title="Account password required"
         titleSize="text-heading-300"
         description="For account protection, your current Fleet account password is required to save changes to your settings."
       />
@@ -184,7 +184,7 @@ const AuthenticationSettings = () => {
             }),
             onSuccess: () => {
               pushToast({
-                message: "Your password has been updated",
+                message: "Password updated",
                 status: TOAST_STATUSES.success,
               });
               setShowModal(false);
@@ -221,7 +221,7 @@ const AuthenticationSettings = () => {
       username: newUsername,
       onSuccess: () => {
         pushToast({
-          message: "Your username has been updated",
+          message: "Username updated",
           status: TOAST_STATUSES.success,
         });
         setShowModal(false);
