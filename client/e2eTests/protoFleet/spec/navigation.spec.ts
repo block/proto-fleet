@@ -21,37 +21,13 @@ test.describe("Navigation", () => {
       await homePage.validateHomePageOpened();
     });
 
-    await test.step("Navigate to fan issues", async () => {
-      await homePage.clickFansLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("Fan issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-
-    await test.step("Navigate to hashboard issues", async () => {
-      await homePage.clickHashboardsLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("Hash board issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-
-    await test.step("Navigate to power supply issues", async () => {
-      await homePage.clickPowerSuppliesLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("PSU issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
+    await test.step("Validate no-issue overview cards are rendered but not clickable", async () => {
+      await homePage.validateOverviewIssueCard("Fans", "No issues");
+      await homePage.validateOverviewIssueCardIsNotClickable("Fans");
+      await homePage.validateOverviewIssueCard("Hashboards", "No issues");
+      await homePage.validateOverviewIssueCardIsNotClickable("Hashboards");
+      await homePage.validateOverviewIssueCard("Power supplies", "No issues");
+      await homePage.validateOverviewIssueCardIsNotClickable("Power supplies");
     });
   });
 

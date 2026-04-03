@@ -16,36 +16,29 @@ test.describe("Proto Fleet - Security Settings", () => {
     const context = await browser.newContext({ baseURL: testConfig.baseUrl });
     try {
       const page = await context.newPage();
-      await page.goto("/");
-
       const authPage = new AuthPage(page, isMobile);
       const settingsPage = new SettingsPage(page, isMobile);
       const settingsSecurityPage = new SettingsSecurityPage(page, isMobile);
 
-      await authPage.inputUsername(username);
-      await authPage.inputPassword(password);
-      await authPage.clickLogin();
-
-      let loggedIn: boolean;
-      try {
-        await authPage.validateLoggedIn(3000);
-        loggedIn = true;
-      } catch {
-        loggedIn = false;
-      }
-
-      if (!loggedIn) {
-        // Default credentials failed
-        await authPage.inputUsername(newUsername);
-        await authPage.inputPassword(password);
+      const tryLogin = async (candidateUsername: string, candidatePassword: string) => {
+        await page.goto("/auth");
+        await authPage.inputUsername(candidateUsername);
+        await authPage.inputPassword(candidatePassword);
         await authPage.clickLogin();
 
         try {
           await authPage.validateLoggedIn(3000);
-          loggedIn = true;
+          return true;
         } catch {
-          loggedIn = false;
+          return false;
         }
+      };
+
+      let loggedIn = await tryLogin(username, password);
+
+      if (!loggedIn) {
+        // Default credentials failed
+        loggedIn = await tryLogin(newUsername, password);
 
         if (loggedIn) {
           // Only username needs to be reverted
@@ -58,10 +51,10 @@ test.describe("Proto Fleet - Security Settings", () => {
           await settingsSecurityPage.validateUsernameChangeToast();
         } else {
           // Both username and password need to be reverted
-          await authPage.inputUsername(newUsername);
-          await authPage.inputPassword(newPassword);
-          await authPage.clickLogin();
-          await authPage.validateLoggedIn();
+          loggedIn = await tryLogin(newUsername, newPassword);
+          if (!loggedIn) {
+            throw new Error("Unable to log in with updated admin credentials during cleanup.");
+          }
 
           await settingsPage.navigateToSecuritySettings();
           await settingsSecurityPage.clickUpdatePassword();
