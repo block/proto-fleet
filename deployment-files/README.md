@@ -1,6 +1,6 @@
-# Proto-Fleet Installation
+# Proto Fleet Installation
 
-This document provides instructions for installing Proto-Fleet.
+This document provides instructions for installing Proto Fleet.
 
 ## Prerequisites
 
@@ -11,15 +11,15 @@ Before running the install script:
    - Go to Settings -> Resources -> Network
    - Check "Enable host networking"
 
-## Installing Proto-Fleet
+## Installing Proto Fleet
 
 ```bash
 bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh)
 ```
 
-The `install.sh` script sets up the Proto-Fleet server components.
+The `install.sh` script sets up the Proto Fleet server components.
 
-### Proto-Fleet Installation Options
+### Proto Fleet Installation Options
 
 ```bash
 Usage: install.sh [VERSION]
@@ -46,6 +46,18 @@ The script will:
 - Preserve existing configuration files if present
 - Run the deployment script automatically
 
+## Uninstalling Proto Fleet
+
+```bash
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh)
+```
+
+If Proto Fleet was installed in a non-default location, pass it explicitly:
+
+```bash
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh) --deployment-path /path/to/install/root
+```
+
 ### SSL/TLS Configuration
 
 During installation, you'll be prompted to choose a protocol mode:
@@ -71,4 +83,3 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Certificate file: `ssl/cert.pem` (PEM format)
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
-

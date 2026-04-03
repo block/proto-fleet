@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Proto Fleet - Linux Uninstaller
+# Proto Fleet Uninstaller
 # Removes Proto Fleet containers, images, systemd units, and deployment files.
 # Always performs a clean uninstall (including data volumes).
 
@@ -30,7 +30,7 @@ usage() {
   cat <<EOF
 Usage: $0 [OPTIONS]
 
-Proto Fleet Linux Uninstaller
+Proto Fleet Uninstaller
 
 Options:
   --deployment-path PATH Explicit path to deployment or install root directory
@@ -70,6 +70,16 @@ done
 # Safety Checks
 # =====================================================================
 
+canonicalize_existing_dir() {
+  local path="$1"
+
+  if [[ ! -d "$path" ]]; then
+    return 1
+  fi
+
+  (cd "$path" 2>/dev/null && pwd -P)
+}
+
 assert_safe_removal_path() {
   local path="$1"
 
@@ -79,7 +89,10 @@ assert_safe_removal_path() {
   fi
 
   local resolved
-  resolved="$(realpath -m "$path" 2>/dev/null || echo "$path")"
+  if ! resolved="$(canonicalize_existing_dir "$path")"; then
+    print_error "Refusing to remove unresolved path: $path"
+    exit 1
+  fi
   resolved="${resolved%/}"
 
   local blocked_paths=("/" "/home" "/usr" "/etc" "/var" "/opt" "/root" "/tmp" "/bin" "/sbin" "/lib" "/sys" "/dev" "/proc" "/boot" "/run" "/mnt" "/srv" "/media")
@@ -91,7 +104,7 @@ assert_safe_removal_path() {
   done
 
   local home_resolved
-  home_resolved="$(realpath -m "$HOME" 2>/dev/null || echo "$HOME")"
+  home_resolved="$(canonicalize_existing_dir "$HOME")"
   if [[ "$resolved" == "$home_resolved" ]]; then
     print_error "Refusing to remove home directory: $resolved"
     exit 1
@@ -104,6 +117,17 @@ validate_deployment_path() {
   [[ -d "$path/server" ]] &&
   [[ -d "$path/client" ]] &&
   grep -q "fleet-api" "$path/docker-compose.yaml" 2>/dev/null
+}
+
+get_default_install_dir() {
+  local os_type
+  os_type=$(uname -s)
+
+  if [[ "$os_type" == "Darwin" ]]; then
+    echo "$HOME/Applications/ProtoFleet"
+  else
+    echo "$HOME/proto-fleet"
+  fi
 }
 
 # =====================================================================
@@ -176,7 +200,8 @@ resolve_deployment_path() {
 
   # 4) Fallback to default location
   if [[ -z "$resolved" ]]; then
-    local default_path="$HOME/proto-fleet/${DEPLOYMENT_DIR}"
+    local default_path
+    default_path="$(get_default_install_dir)/${DEPLOYMENT_DIR}"
     if validate_deployment_path "$default_path"; then
       resolved="$default_path"
     fi
@@ -188,7 +213,10 @@ resolve_deployment_path() {
     exit 1
   fi
 
-  DEPLOYMENT_PATH="$(realpath -m "$resolved" 2>/dev/null || echo "$resolved")"
+  if ! DEPLOYMENT_PATH="$(canonicalize_existing_dir "$resolved")"; then
+    print_error "Could not resolve deployment path: $resolved"
+    exit 1
+  fi
 
   # Derive install root (parent of deployment/)
   if [[ "$(basename "$DEPLOYMENT_PATH")" == "$DEPLOYMENT_DIR" ]]; then

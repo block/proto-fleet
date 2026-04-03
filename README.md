@@ -82,6 +82,18 @@ bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/down
 bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh) v0.1.0
 ```
 
+### Uninstall
+
+```bash
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh)
+```
+
+If Proto Fleet was installed in a non-default location, pass it explicitly:
+
+```bash
+bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh) --deployment-path /path/to/install/root
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflows and contribution guidelines. Project standards and community expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [GOVERNANCE.md](GOVERNANCE.md), and [SECURITY.md](SECURITY.md).

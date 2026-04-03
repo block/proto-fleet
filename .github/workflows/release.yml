@@ -414,6 +414,7 @@ jobs:
           files: |
             /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
             ./deployment-files/install.sh
+            ./deployment-files/uninstall.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
