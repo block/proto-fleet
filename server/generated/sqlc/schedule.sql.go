@@ -169,59 +169,6 @@ func (q *Queries) GetActiveSchedules(ctx context.Context) ([]Schedule, error) {
 	return items, nil
 }
 
-const getDueSchedules = `-- name: GetDueSchedules :many
-SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
-FROM schedule
-WHERE next_run_at <= NOW()
-  AND status = 'active'
-  AND deleted_at IS NULL
-ORDER BY priority, id
-`
-
-func (q *Queries) GetDueSchedules(ctx context.Context) ([]Schedule, error) {
-	rows, err := q.query(ctx, q.getDueSchedulesStmt, getDueSchedules)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Schedule
-	for rows.Next() {
-		var i Schedule
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.Name,
-			&i.Action,
-			&i.ActionConfig,
-			&i.ScheduleType,
-			&i.Recurrence,
-			&i.StartDate,
-			&i.StartTime,
-			&i.EndTime,
-			&i.EndDate,
-			&i.Timezone,
-			&i.Status,
-			&i.Priority,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.LastRunAt,
-			&i.NextRunAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getMaxPriority = `-- name: GetMaxPriority :one
 SELECT COALESCE(MAX(priority), 0)::int AS max_priority
 FROM schedule
@@ -353,6 +300,38 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (GetSc
 		&i.LastRunAt,
 		&i.NextRunAt,
 		&i.CreatedByUsername,
+	)
+	return i, err
+}
+
+const getScheduleByIDForProcessor = `-- name: GetScheduleByIDForProcessor :one
+SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at FROM schedule WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetScheduleByIDForProcessor(ctx context.Context, id int64) (Schedule, error) {
+	row := q.queryRow(ctx, q.getScheduleByIDForProcessorStmt, getScheduleByIDForProcessor, id)
+	var i Schedule
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Action,
+		&i.ActionConfig,
+		&i.ScheduleType,
+		&i.Recurrence,
+		&i.StartDate,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EndDate,
+		&i.Timezone,
+		&i.Status,
+		&i.Priority,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.LastRunAt,
+		&i.NextRunAt,
 	)
 	return i, err
 }
@@ -646,6 +625,15 @@ func (q *Queries) ResumePausedSchedule(ctx context.Context, arg ResumePausedSche
 	return result.RowsAffected()
 }
 
+const revertScheduleToActive = `-- name: RevertScheduleToActive :exec
+UPDATE schedule SET status = 'active' WHERE id = $1 AND deleted_at IS NULL AND status = 'running'
+`
+
+func (q *Queries) RevertScheduleToActive(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.revertScheduleToActiveStmt, revertScheduleToActive, id)
+	return err
+}
+
 const setSchedulePriorities = `-- name: SetSchedulePriorities :exec
 UPDATE schedule s
 SET priority = t.new_priority
@@ -666,6 +654,22 @@ type SetSchedulePrioritiesParams struct {
 func (q *Queries) SetSchedulePriorities(ctx context.Context, arg SetSchedulePrioritiesParams) error {
 	_, err := q.exec(ctx, q.setSchedulePrioritiesStmt, setSchedulePriorities, arg.OrgID, pq.Array(arg.Ids))
 	return err
+}
+
+const setScheduleRunning = `-- name: SetScheduleRunning :execrows
+UPDATE schedule
+SET status = 'running'
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND status = 'active'
+`
+
+func (q *Queries) SetScheduleRunning(ctx context.Context, id int64) (int64, error) {
+	result, err := q.exec(ctx, q.setScheduleRunningStmt, setScheduleRunning, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const softDeleteSchedule = `-- name: SoftDeleteSchedule :execrows

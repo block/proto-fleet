@@ -270,6 +270,44 @@ func (q *Queries) GetDeviceDeviceSetsByType(ctx context.Context, arg GetDeviceDe
 	return items, nil
 }
 
+const getDeviceIdentifiersByDeviceSetID = `-- name: GetDeviceIdentifiersByDeviceSetID :many
+SELECT dsm.device_identifier
+FROM device_set_membership dsm
+JOIN device_set ds ON dsm.device_set_id = ds.id
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND ds.org_id = $2
+  AND ds.deleted_at IS NULL
+`
+
+type GetDeviceIdentifiersByDeviceSetIDParams struct {
+	DeviceSetID int64
+	OrgID       int64
+}
+
+func (q *Queries) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, arg GetDeviceIdentifiersByDeviceSetIDParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getDeviceIdentifiersByDeviceSetIDStmt, getDeviceIdentifiersByDeviceSetID, arg.DeviceSetID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceSet = `-- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
        COUNT(dsm.id)::int AS device_count

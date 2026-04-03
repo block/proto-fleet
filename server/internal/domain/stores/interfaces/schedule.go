@@ -11,6 +11,14 @@ type ScheduleIDStatus struct {
 	Status string
 }
 
+// ScheduleWithOrg pairs a proto Schedule with its org_id for cross-org processor queries.
+// The proto Schedule message is org-agnostic (all CRUD is org-scoped via session),
+// but the processor operates across orgs and needs the org_id for command dispatch.
+type ScheduleWithOrg struct {
+	Schedule *pb.Schedule
+	OrgID    int64
+}
+
 // ScheduleStore handles schedule CRUD and status transitions.
 type ScheduleStore interface {
 	GetSchedule(ctx context.Context, orgID, scheduleID int64) (*pb.Schedule, error)
@@ -39,11 +47,16 @@ type SchedulePriorityStore interface {
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ScheduleIDStatus, error)
 }
 
+//go:generate go run go.uber.org/mock/mockgen -source=schedule.go -destination=mocks/mock_schedule_store.go -package=mocks ScheduleProcessorStore ScheduleTargetStore
+
 // ScheduleProcessorStore defines store methods used exclusively by the schedule processor (BE-3).
-// SQLScheduleStore implements ScheduleStore, ScheduleTargetStore, SchedulePriorityStore, and ScheduleProcessorStore.
+// Cross-org queries return ScheduleWithOrg to provide the org_id that the proto
+// Schedule message omits. Org-scoped queries return plain *pb.Schedule.
 type ScheduleProcessorStore interface {
-	GetDueSchedules(ctx context.Context) ([]*pb.Schedule, error)
-	GetActiveSchedules(ctx context.Context) ([]*pb.Schedule, error)
+	GetActiveSchedules(ctx context.Context) ([]ScheduleWithOrg, error)
 	GetRunningPowerTargetSchedules(ctx context.Context, orgID int64) ([]*pb.Schedule, error)
 	UpdateScheduleAfterRun(ctx context.Context, scheduleID int64, lastRunAt, nextRunAt *int64, status string) error
+	SetScheduleRunning(ctx context.Context, scheduleID int64) (int64, error)
+	GetScheduleByID(ctx context.Context, scheduleID int64) (*ScheduleWithOrg, error)
+	RevertScheduleToActive(ctx context.Context, scheduleID int64) error
 }

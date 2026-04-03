@@ -202,3 +202,12 @@ JOIN device_set ds ON dsr.device_set_id = ds.id
 WHERE ds.org_id = $1 AND ds.deleted_at IS NULL
 GROUP BY dsr.rows, dsr.columns
 ORDER BY MAX(ds.created_at) DESC;
+
+-- name: GetDeviceIdentifiersByDeviceSetID :many
+SELECT dsm.device_identifier
+FROM device_set_membership dsm
+JOIN device_set ds ON dsm.device_set_id = ds.id
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND ds.org_id = $2
+  AND ds.deleted_at IS NULL;

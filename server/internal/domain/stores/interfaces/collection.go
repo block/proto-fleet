@@ -99,4 +99,7 @@ type CollectionStore interface {
 
 	// ListRackTypes returns all distinct rack types (row/column combinations) for an organization.
 	ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error)
+
+	// GetDeviceIdentifiersByDeviceSetID returns all device identifiers belonging to a device set (rack or group).
+	GetDeviceIdentifiersByDeviceSetID(ctx context.Context, deviceSetID, orgID int64) ([]string, error)
 }

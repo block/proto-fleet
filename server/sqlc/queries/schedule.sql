@@ -79,14 +79,6 @@ WHERE s.id = t.id
   AND s.org_id = $1
   AND s.deleted_at IS NULL;
 
--- name: GetDueSchedules :many
-SELECT *
-FROM schedule
-WHERE next_run_at <= NOW()
-  AND status = 'active'
-  AND deleted_at IS NULL
-ORDER BY priority, id;
-
 -- name: UpdateScheduleAfterRun :exec
 UPDATE schedule
 SET last_run_at = $1,
@@ -170,9 +162,23 @@ WHERE s.org_id = $1
   AND st.schedule_id = ANY(@schedule_ids::bigint[])
   AND s.deleted_at IS NULL;
 
+-- name: SetScheduleRunning :execrows
+UPDATE schedule
+SET status = 'running'
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND status = 'active';
+
+-- name: GetScheduleByIDForProcessor :one
+SELECT * FROM schedule WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: RevertScheduleToActive :exec
+UPDATE schedule SET status = 'active' WHERE id = $1 AND deleted_at IS NULL AND status = 'running';
+
 -- name: GetActiveSchedules :many
 SELECT *
 FROM schedule
 WHERE status IN ('active', 'running')
   AND deleted_at IS NULL
 ORDER BY priority, id;
+

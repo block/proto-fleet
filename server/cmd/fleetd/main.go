@@ -307,6 +307,17 @@ func start(config *Config) error {
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
+
+	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
+	if err := scheduleProcessor.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start schedule processor: %w", err)
+	}
+	defer func() {
+		if err := scheduleProcessor.Stop(); err != nil {
+			slog.Error("failed to stop schedule processor", "error", err)
+		}
+	}()
+
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 

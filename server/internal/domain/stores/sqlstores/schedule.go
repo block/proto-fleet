@@ -283,34 +283,18 @@ func (s *SQLScheduleStore) ResumePausedSchedule(ctx context.Context, orgID, sche
 	return rows, nil
 }
 
-func (s *SQLScheduleStore) GetDueSchedules(ctx context.Context) ([]*pb.Schedule, error) {
-	rows, err := s.GetQueries(ctx).GetDueSchedules(ctx)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get due schedules: %v", err)
-	}
-	result := make([]*pb.Schedule, 0, len(rows))
-	for _, row := range rows {
-		sched, err := convertToProtoSchedule(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, sched)
-	}
-	return result, nil
-}
-
-func (s *SQLScheduleStore) GetActiveSchedules(ctx context.Context) ([]*pb.Schedule, error) {
+func (s *SQLScheduleStore) GetActiveSchedules(ctx context.Context) ([]interfaces.ScheduleWithOrg, error) {
 	rows, err := s.GetQueries(ctx).GetActiveSchedules(ctx)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get active schedules: %v", err)
 	}
-	result := make([]*pb.Schedule, 0, len(rows))
+	result := make([]interfaces.ScheduleWithOrg, 0, len(rows))
 	for _, row := range rows {
 		sched, err := convertToProtoSchedule(row)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, sched)
+		result = append(result, interfaces.ScheduleWithOrg{Schedule: sched, OrgID: row.OrgID})
 	}
 	return result, nil
 }
@@ -345,6 +329,33 @@ func (s *SQLScheduleStore) UpdateScheduleAfterRun(ctx context.Context, scheduleI
 		Status:    status,
 		ID:        scheduleID,
 	})
+}
+
+func (s *SQLScheduleStore) SetScheduleRunning(ctx context.Context, scheduleID int64) (int64, error) {
+	rows, err := s.GetQueries(ctx).SetScheduleRunning(ctx, scheduleID)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to set schedule running: %v", err)
+	}
+	return rows, nil
+}
+
+func (s *SQLScheduleStore) GetScheduleByID(ctx context.Context, scheduleID int64) (*interfaces.ScheduleWithOrg, error) {
+	row, err := s.GetQueries(ctx).GetScheduleByIDForProcessor(ctx, scheduleID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get schedule by ID: %v", err)
+	}
+	sched, err := convertToProtoSchedule(row)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.ScheduleWithOrg{Schedule: sched, OrgID: row.OrgID}, nil
+}
+
+func (s *SQLScheduleStore) RevertScheduleToActive(ctx context.Context, scheduleID int64) error {
+	if err := s.GetQueries(ctx).RevertScheduleToActive(ctx, scheduleID); err != nil {
+		return fleeterror.NewInternalErrorf("failed to revert schedule %d to active: %v", scheduleID, err)
+	}
+	return nil
 }
 
 // --- Conversion helpers ---

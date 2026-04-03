@@ -171,6 +171,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIdentifierByIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifierByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifierByID: %w", err)
 	}
+	if q.getDeviceIdentifiersByDeviceSetIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByDeviceSetID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByDeviceSetID: %w", err)
+	}
 	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
 	}
@@ -239,9 +242,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
-	}
-	if q.getDueSchedulesStmt, err = db.PrepareContext(ctx, getDueSchedules); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDueSchedules: %w", err)
 	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
@@ -329,6 +329,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getScheduleStmt, err = db.PrepareContext(ctx, getSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSchedule: %w", err)
+	}
+	if q.getScheduleByIDForProcessorStmt, err = db.PrepareContext(ctx, getScheduleByIDForProcessor); err != nil {
+		return nil, fmt.Errorf("error preparing query GetScheduleByIDForProcessor: %w", err)
 	}
 	if q.getScheduleTargetsStmt, err = db.PrepareContext(ctx, getScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetScheduleTargets: %w", err)
@@ -468,6 +471,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.resumePausedScheduleStmt, err = db.PrepareContext(ctx, resumePausedSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumePausedSchedule: %w", err)
 	}
+	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
+		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
@@ -476,6 +482,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setSchedulePrioritiesStmt, err = db.PrepareContext(ctx, setSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSchedulePriorities: %w", err)
+	}
+	if q.setScheduleRunningStmt, err = db.PrepareContext(ctx, setScheduleRunning); err != nil {
+		return nil, fmt.Errorf("error preparing query SetScheduleRunning: %w", err)
 	}
 	if q.softDeleteDeviceSetStmt, err = db.PrepareContext(ctx, softDeleteDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDeviceSet: %w", err)
@@ -856,6 +865,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceIdentifierByIDStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceIdentifiersByDeviceSetIDStmt != nil {
+		if cerr := q.getDeviceIdentifiersByDeviceSetIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIdentifiersByDeviceSetIDStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceInfoForCapabilityCheckStmt != nil {
 		if cerr := q.getDeviceInfoForCapabilityCheckStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceInfoForCapabilityCheckStmt: %w", cerr)
@@ -969,11 +983,6 @@ func (q *Queries) Close() error {
 	if q.getDistinctScopeTypesStmt != nil {
 		if cerr := q.getDistinctScopeTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
-		}
-	}
-	if q.getDueSchedulesStmt != nil {
-		if cerr := q.getDueSchedulesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDueSchedulesStmt: %w", cerr)
 		}
 	}
 	if q.getErrorByErrorIDStmt != nil {
@@ -1119,6 +1128,11 @@ func (q *Queries) Close() error {
 	if q.getScheduleStmt != nil {
 		if cerr := q.getScheduleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getScheduleStmt: %w", cerr)
+		}
+	}
+	if q.getScheduleByIDForProcessorStmt != nil {
+		if cerr := q.getScheduleByIDForProcessorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getScheduleByIDForProcessorStmt: %w", cerr)
 		}
 	}
 	if q.getScheduleTargetsStmt != nil {
@@ -1351,6 +1365,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing resumePausedScheduleStmt: %w", cerr)
 		}
 	}
+	if q.revertScheduleToActiveStmt != nil {
+		if cerr := q.revertScheduleToActiveStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revertScheduleToActiveStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
@@ -1364,6 +1383,11 @@ func (q *Queries) Close() error {
 	if q.setSchedulePrioritiesStmt != nil {
 		if cerr := q.setSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setSchedulePrioritiesStmt: %w", cerr)
+		}
+	}
+	if q.setScheduleRunningStmt != nil {
+		if cerr := q.setScheduleRunningStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setScheduleRunningStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteDeviceSetStmt != nil {
@@ -1669,6 +1693,7 @@ type Queries struct {
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
+	getDeviceIdentifiersByDeviceSetIDStmt               *sql.Stmt
 	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
 	getDeviceMetricsDailyAggregatesStmt                 *sql.Stmt
 	getDeviceMetricsHourlyAggregatesStmt                *sql.Stmt
@@ -1692,7 +1717,6 @@ type Queries struct {
 	getDistinctActivityUsersStmt                        *sql.Stmt
 	getDistinctEventTypesStmt                           *sql.Stmt
 	getDistinctScopeTypesStmt                           *sql.Stmt
-	getDueSchedulesStmt                                 *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
@@ -1722,6 +1746,7 @@ type Queries struct {
 	getRoleByNameStmt                                   *sql.Stmt
 	getRunningPowerTargetSchedulesStmt                  *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
+	getScheduleByIDForProcessorStmt                     *sql.Stmt
 	getScheduleTargetsStmt                              *sql.Stmt
 	getScheduleTargetsByScheduleIDsStmt                 *sql.Stmt
 	getSessionByIDStmt                                  *sql.Stmt
@@ -1768,9 +1793,11 @@ type Queries struct {
 	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
 	resumePausedScheduleStmt                            *sql.Stmt
+	revertScheduleToActiveStmt                          *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
+	setScheduleRunningStmt                              *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
@@ -1869,6 +1896,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
+		getDeviceIdentifiersByDeviceSetIDStmt:               q.getDeviceIdentifiersByDeviceSetIDStmt,
 		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
 		getDeviceMetricsDailyAggregatesStmt:                 q.getDeviceMetricsDailyAggregatesStmt,
 		getDeviceMetricsHourlyAggregatesStmt:                q.getDeviceMetricsHourlyAggregatesStmt,
@@ -1892,7 +1920,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
 		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
-		getDueSchedulesStmt:                                 q.getDueSchedulesStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
@@ -1922,6 +1949,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
 		getRunningPowerTargetSchedulesStmt:                  q.getRunningPowerTargetSchedulesStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
+		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,
 		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
 		getScheduleTargetsByScheduleIDsStmt:                 q.getScheduleTargetsByScheduleIDsStmt,
 		getSessionByIDStmt:                                  q.getSessionByIDStmt,
@@ -1968,9 +1996,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
 		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
+		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
+		setScheduleRunningStmt:                              q.setScheduleRunningStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,

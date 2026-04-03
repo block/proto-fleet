@@ -17,7 +17,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-const statusCompleted = "completed"
+const (
+	statusActive    = "active"
+	statusRunning   = "running"
+	statusCompleted = "completed"
+)
+
 const maxScheduleNameLength = 100
 
 type Service struct {
@@ -312,7 +317,7 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64) (*pb.Sch
 			return nil, fleeterror.NewInternalErrorf("cannot compute next run: %v", err)
 		}
 
-		newStatus := "active"
+		newStatus := statusActive
 		var nextRunUnix *int64
 		if nextRun != nil {
 			u := nextRun.Unix()

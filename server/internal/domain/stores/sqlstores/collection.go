@@ -740,3 +740,14 @@ func newDeviceCollection(id int64, ct sqlc.DeviceSetType, label string, descript
 		UpdatedAt:   timestamppb.New(updatedAt),
 	}
 }
+
+func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, deviceSetID, orgID int64) ([]string, error) {
+	ids, err := s.GetQueries(ctx).GetDeviceIdentifiersByDeviceSetID(ctx, sqlc.GetDeviceIdentifiersByDeviceSetIDParams{
+		DeviceSetID: deviceSetID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get device identifiers by device set ID: %v", err)
+	}
+	return ids, nil
+}
