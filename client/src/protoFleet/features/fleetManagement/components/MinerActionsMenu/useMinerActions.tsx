@@ -75,7 +75,7 @@ import {
   Reboot,
   Speedometer,
   Terminal,
-  Trash,
+  Unpair,
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -92,7 +92,7 @@ interface UseMinerActionsParams {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
-  /** Active UI filter — forwarded as device_filter when deleting in "all" mode */
+  /** Active UI filter — forwarded as device_filter when unpairing in "all" mode */
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
@@ -101,7 +101,7 @@ interface UseMinerActionsParams {
 /**
  * Metadata for actions that require capability checking.
  * Contains both the description for the unsupported miners modal and the proto CommandType.
- * Actions not in this map don't require capability checking (e.g., delete).
+ * Actions not in this map don't require capability checking (e.g., unpair).
  */
 const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: string; commandType: CommandType }>> = {
   [deviceActions.shutdown]: { description: "Sleep mode changes", commandType: CommandType.STOP_MINING },
@@ -163,7 +163,7 @@ const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStat
   deviceStatus !== DeviceStatus.OFFLINE && pairingStatus === PairingStatus.PAIRED;
 
 /**
- * Builds a contextual confirmation subtitle for the delete action based on the
+ * Builds a contextual confirmation subtitle for the unpair action based on the
  * miner types and statuses in the selection (per RFC Option C).
  *
  * @param miners - the fleet miners record, passed explicitly for testability
@@ -172,7 +172,7 @@ const hasActiveFilter = (filter?: MinerListFilter): boolean =>
   filter !== undefined &&
   (filter.deviceStatus.length > 0 || filter.errorComponentTypes.length > 0 || filter.models.length > 0);
 
-const buildDeleteConfirmationSubtitle = (
+const buildUnpairConfirmationSubtitle = (
   selectedMiners: MinerSelection[],
   selectionMode: SelectionMode,
   displayCount: number,
@@ -295,7 +295,7 @@ export const useMinerActions = ({
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
-  // Read miners from store reactively so delete confirmation subtitle updates
+  // Read miners from store reactively so unpair confirmation subtitle updates
   const fleetMiners = useFleetStore((s) => s.fleet.miners);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
@@ -309,9 +309,9 @@ export const useMinerActions = ({
   // Extract device identifiers for API calls
   const deviceIdentifiers = useMemo(() => selectedMiners.map((m) => m.deviceIdentifier), [selectedMiners]);
 
-  // Contextual subtitle for delete confirmation dialog (per RFC Option C)
-  const deleteConfirmationSubtitle = useMemo(
-    () => buildDeleteConfirmationSubtitle(selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter),
+  // Contextual subtitle for unpair confirmation dialog (per RFC Option C)
+  const unpairConfirmationSubtitle = useMemo(
+    () => buildUnpairConfirmationSubtitle(selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter),
     [selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter],
   );
 
@@ -957,7 +957,7 @@ export const useMinerActions = ({
           });
           break;
         }
-        case deviceActions.delete: {
+        case deviceActions.unpair: {
           const deleteRequest = create(DeleteMinersRequestSchema, {
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
@@ -973,7 +973,7 @@ export const useMinerActions = ({
             deleteMinersRequest: deleteRequest,
             onSuccess: (value: DeleteMinersResponse) => {
               updateToast(id, {
-                message: `${successMessages[deviceActions.delete]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
+                message: `${successMessages[deviceActions.unpair]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
                 status: TOAST_STATUSES.success,
               });
               useFleetStore.getState().fleet.refetchMiners?.();
@@ -1208,8 +1208,8 @@ export const useMinerActions = ({
       }
     };
 
-    const handleDelete = () => {
-      setCurrentAction(deviceActions.delete);
+    const handleUnpair = () => {
+      setCurrentAction(deviceActions.unpair);
       onActionStart?.();
     };
 
@@ -1463,19 +1463,19 @@ export const useMinerActions = ({
         requiresConfirmation: false,
       },
       {
-        action: deviceActions.delete,
-        title: "Delete",
-        icon: <Trash />,
-        actionHandler: handleDelete,
+        action: deviceActions.unpair,
+        title: "Unpair",
+        icon: <Unpair />,
+        actionHandler: handleUnpair,
         requiresConfirmation: true,
         confirmation: {
-          title: `Delete ${displayCount} ${displayCount === 1 ? "miner" : "miners"}?`,
-          subtitle: deleteConfirmationSubtitle,
+          title: `Unpair ${displayCount} ${displayCount === 1 ? "miner" : "miners"}?`,
+          subtitle: unpairConfirmationSubtitle,
           confirmAction: {
-            title: "Delete",
+            title: "Unpair",
             variant: variants.secondaryDanger,
           },
-          testId: "delete-confirm-button",
+          testId: "unpair-confirm-button",
         },
       },
     ] as BulkAction<SupportedAction>[];
@@ -1499,7 +1499,7 @@ export const useMinerActions = ({
     selectionMode,
     selectedMiners,
     fetchCoolingMode,
-    deleteConfirmationSubtitle,
+    unpairConfirmationSubtitle,
     startManageSecurity,
     startAuthentication,
   ]);

@@ -170,7 +170,6 @@ const DeviceSetActionsMenuInner = ({
   // Customize actions for group context:
   // 1. Filter out "Add to group" (already in a group)
   // 2. Insert "Edit group" after the cooling mode divider
-  // 3. Rename "Delete" to "Unpair"
   const groupPopoverActions = useMemo(() => {
     const filtered = popoverActions.filter((a) => a.action !== groupActions.addToGroup);
 
@@ -188,33 +187,14 @@ const DeviceSetActionsMenuInner = ({
 
     // Insert "Edit group" where the organization section was (after cooling mode's divider)
     const coolingModeIndex = filtered.findIndex((a) => a.action === settingsActions.coolingMode);
-    const result =
-      coolingModeIndex !== -1
-        ? [
-            ...filtered.slice(0, coolingModeIndex),
-            filtered[coolingModeIndex],
-            editGroupAction,
-            ...filtered.slice(coolingModeIndex + 1),
-          ]
-        : [editGroupAction, ...filtered];
-
-    // Rename "Delete" to "Unpair" and update confirmation copy
-    return result.map((a) =>
-      a.action === deviceActions.delete
-        ? {
-            ...a,
-            title: "Unpair",
-            ...(a.confirmation && {
-              confirmation: {
-                ...a.confirmation,
-                title: a.confirmation.title.replace("Delete", "Unpair"),
-                subtitle: a.confirmation.subtitle?.replace(/delet/gi, (m) => (m[0] === "D" ? "Unpair" : "unpair")),
-                confirmAction: { ...a.confirmation.confirmAction, title: "Unpair" },
-              },
-            }),
-          }
-        : a,
-    );
+    return coolingModeIndex !== -1
+      ? [
+          ...filtered.slice(0, coolingModeIndex),
+          filtered[coolingModeIndex],
+          editGroupAction,
+          ...filtered.slice(coolingModeIndex + 1),
+        ]
+      : [editGroupAction, ...filtered];
   }, [popoverActions, onEdit, editLabel]);
 
   const poolMiners = useMemo(() => {

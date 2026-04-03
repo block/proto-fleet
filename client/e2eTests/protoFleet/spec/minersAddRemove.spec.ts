@@ -7,7 +7,7 @@ import { AuthPage } from "../pages/auth";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
 
-test.describe("Miners DELETE - ADD actions", () => {
+test.describe("Miners UNPAIR - ADD actions", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
@@ -78,22 +78,22 @@ test.describe("Miners DELETE - ADD actions", () => {
     }
   });
 
-  test("DELETE - ADD a single miner", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD a single miner", async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
     let minerCount: number;
     let minerIp: string;
 
-    await test.step("Select a miner and delete it", async () => {
+    await test.step("Select a miner and unpair it", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
       await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.clickDeleteButton();
-      await minersPage.clickDeleteConfirm();
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
     });
 
-    await test.step("Validate miner was deleted", async () => {
+    await test.step("Validate miner was unpaired", async () => {
       await minersPage.validateMinerNotPresent(minerIp);
       await minersPage.validateAmountOfMiners(minerCount - 1);
     });
@@ -112,7 +112,7 @@ test.describe("Miners DELETE - ADD actions", () => {
     });
   });
 
-  test("DELETE - ADD multiple miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD multiple miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -121,7 +121,7 @@ test.describe("Miners DELETE - ADD actions", () => {
     let minerIp2: string;
     let minerIp3: string;
 
-    await test.step("Select multiple miners and delete them", async () => {
+    await test.step("Select multiple miners and unpair them", async () => {
       minerCount = await minersPage.getMinersCount();
       minerIp1 = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
       minerIp2 = await minersPage.getAuthenticatedMinerIpAddressByIndex(1);
@@ -133,11 +133,11 @@ test.describe("Miners DELETE - ADD actions", () => {
       await minersPage.clickMinerCheckbox(minerIp3);
       await minersPage.validateActionBarMinerCount(3);
       await minersPage.clickActionsMenuButton();
-      await minersPage.clickDeleteButton();
-      await minersPage.clickDeleteConfirm();
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
     });
 
-    await test.step("Validate miners were deleted", async () => {
+    await test.step("Validate miners were unpaired", async () => {
       await minersPage.validateMinerNotPresent(minerIp1);
       await minersPage.validateMinerNotPresent(minerIp2);
       await minersPage.validateMinerNotPresent(minerIp3);
@@ -166,7 +166,7 @@ test.describe("Miners DELETE - ADD actions", () => {
     });
   });
 
-  test("DELETE - ADD all miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD all miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -185,13 +185,13 @@ test.describe("Miners DELETE - ADD actions", () => {
       await minersPage.validateActionBarMinerCount(originalMinerCount);
     });
 
-    await test.step("Delete all miners", async () => {
+    await test.step("Unpair all miners", async () => {
       await minersPage.clickActionsMenuButton();
-      await minersPage.clickDeleteButton();
-      await minersPage.clickDeleteConfirm();
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
     });
 
-    await test.step("Validate all miners were deleted", async () => {
+    await test.step("Validate all miners were unpaired", async () => {
       for (const minerIp of allMinerIps) {
         await minersPage.validateMinerNotPresent(minerIp);
       }

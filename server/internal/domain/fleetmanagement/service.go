@@ -798,8 +798,8 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	count := int(deletedCount)
 	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
-		Type:           "delete_miners",
-		Description:    "Delete miners",
+		Type:           "unpair_miners",
+		Description:    "Unpaired miners",
 		ScopeCount:     &count,
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,

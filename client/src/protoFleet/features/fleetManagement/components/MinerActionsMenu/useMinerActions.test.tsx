@@ -202,7 +202,7 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.blinkLEDs);
       expect(actions).toContain(deviceActions.reboot);
       expect(actions).toContain(deviceActions.shutdown);
-      expect(actions).toContain(deviceActions.delete);
+      expect(actions).toContain(deviceActions.unpair);
       expect(actions).toContain(deviceActions.firmwareUpdate);
       expect(actions).toContain(performanceActions.managePower);
       expect(actions).toContain(settingsActions.miningPool);
@@ -340,7 +340,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should set currentAction when delete action handler is called", () => {
+    it("should set currentAction when unpair action handler is called", () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -351,13 +351,13 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
 
       act(() => {
         deleteAction?.actionHandler();
       });
 
-      expect(result.current.currentAction).toBe(deviceActions.delete);
+      expect(result.current.currentAction).toBe(deviceActions.unpair);
       expect(onActionStart).toHaveBeenCalled();
     });
 
@@ -768,7 +768,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
 
       act(() => {
         deleteAction?.actionHandler();
@@ -786,7 +786,7 @@ describe("useMinerActions", () => {
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
         expect.objectContaining({
-          message: "Deleted 1 miner",
+          message: "Unpaired 1 miner",
           status: "success",
         }),
       );
@@ -813,7 +813,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
 
       act(() => {
         deleteAction?.actionHandler();
@@ -831,7 +831,7 @@ describe("useMinerActions", () => {
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
         expect.objectContaining({
-          message: "Deleted 10 miners",
+          message: "Unpaired 10 miners",
           status: "success",
         }),
       );
@@ -853,7 +853,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
 
       act(() => {
         deleteAction?.actionHandler();
@@ -887,7 +887,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
 
       act(() => {
         deleteAction?.actionHandler();
@@ -1522,7 +1522,7 @@ describe("useMinerActions", () => {
     });
   });
 
-  describe("Delete confirmation contextual subtitles", () => {
+  describe("Unpair confirmation contextual subtitles", () => {
     const setStoreMiners = (
       miners: Array<{ id: string; driverName: string; deviceStatus: number; pairingStatus: number }>,
     ) => {
@@ -1560,7 +1560,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "This miner will be removed from your fleet and its auth key will be cleared.",
       );
@@ -1583,7 +1583,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
       );
@@ -1606,7 +1606,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.",
       );
@@ -1629,7 +1629,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "This miner will be removed from your fleet and will stop sending telemetry data.",
       );
@@ -1651,7 +1651,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
         "These miners will be removed from your fleet and their auth keys will be cleared.",
       );
@@ -1685,7 +1685,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toContain("3 miners will be removed");
       expect(deleteAction?.confirmation?.subtitle).toContain("1 Proto miner is unreachable");
       expect(deleteAction?.confirmation?.subtitle).toContain("factory reset");
@@ -1700,7 +1700,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toContain("All 50 miners");
       expect(deleteAction?.confirmation?.subtitle).toContain("removed from your fleet");
     });
@@ -1719,7 +1719,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toContain("12 matching miners");
       expect(deleteAction?.confirmation?.subtitle).toContain("removed from your fleet");
       expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
@@ -1758,7 +1758,7 @@ describe("useMinerActions", () => {
         }),
       );
 
-      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.delete);
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toContain("2 Proto miners are unreachable");
     });
   });

@@ -25,7 +25,7 @@ interface MinerActionsMenuProps {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
-  /** Active UI filter — forwarded for "all" mode delete */
+  /** Active UI filter — forwarded for "all" mode unpair */
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;

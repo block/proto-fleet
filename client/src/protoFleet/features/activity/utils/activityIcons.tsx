@@ -45,7 +45,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   firmware_update: FirmwareUpdate,
   unpair: Unpair,
 
-  delete_miners: Trash,
+  unpair_miners: Unpair,
   rename_miners: Edit,
 
   create_collection: Groups,
