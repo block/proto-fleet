@@ -6,6 +6,7 @@ import {
   RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -109,6 +110,19 @@ const Input = ({
       clearTimeout(timeoutId);
     };
   }, [error]);
+
+  // When a password input gains focus, React's re-render (from setFocused)
+  // re-applies the controlled `value` prop, which resets the browser's cursor
+  // position to 0. Restore it to the end so users can continue typing.
+  useLayoutEffect(() => {
+    if (focused && inputType === "password") {
+      const input = (inputRef ?? fallbackRef).current;
+      if (input) {
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      }
+    }
+  }, [focused, inputType, inputRef, fallbackRef]);
 
   const handleChange = useCallback(
     (event?: ChangeEvent<HTMLInputElement>) => {
