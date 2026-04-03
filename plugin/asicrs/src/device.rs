@@ -29,6 +29,14 @@ const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(15);
 const OP_TIMEOUT: Duration = Duration::from_secs(20);
 /// Timeout for write validation probe.
 const WRITE_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Shorter timeout for the MiningMode attempt in set_power_target. asic-rs internally
+/// uses ~5s per RPC, and the V3→V2 fallback chain makes two calls, so 12s is enough
+/// for miners that support it while keeping the fallback path fast on those that don't.
+const MODE_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
+/// Fallback power floor (watts) — low enough that any miner clamps to its real minimum.
+const POWER_FLOOR_WATTS: f64 = 100.0;
+/// Fallback power ceiling (watts) — high enough that any miner clamps to its real maximum.
+const POWER_CEILING_WATTS: f64 = 50_000.0;
 
 /// Wraps an asic-rs miner instance and provides fleet SDK operations.
 pub struct AsicRsDevice {
@@ -684,8 +692,6 @@ impl AsicRsDevice {
             other => return Err(anyhow::anyhow!("Unsupported performance mode: {:?}", other)),
         };
 
-        let config = TuningConfig::new(TuningTarget::MiningMode(mining_mode));
-
         tracing::info!(
             device_id = %self.id,
             mining_mode = %mining_mode,
@@ -693,19 +699,54 @@ impl AsicRsDevice {
             "set_power_target"
         );
 
-        let result = catch_panic(tokio::time::timeout(
-            OP_TIMEOUT,
-            miner.set_tuning_config(config, None),
-        ))
-        .await?;
-        let ok = result
-            .map_err(|_| anyhow::anyhow!("set_tuning_config timed out"))?
-            .map_err(|e| anyhow::anyhow!("set_tuning_config failed: {e}"))?;
-        if !ok {
-            return Err(anyhow::anyhow!("set_tuning_config command returned false"));
-        }
+        catch_panic(async {
+            // Try MiningMode first (works on V2 and some V3 firmware).
+            let config = TuningConfig::new(TuningTarget::MiningMode(mining_mode));
+            let mode_result =
+                tokio::time::timeout(MODE_ATTEMPT_TIMEOUT, miner.set_tuning_config(config, None))
+                    .await;
 
-        Ok(())
+            match mode_result {
+                Ok(Ok(true)) => Ok(()),
+                Ok(Ok(false)) => Err(anyhow::anyhow!("set_tuning_config returned false")),
+                // Timeout from fire-and-forget mining mode commands is expected
+                Err(_) => Ok(()),
+                Ok(Err(mode_err)) => {
+                    // MiningMode failed — some V3 firmware doesn't support set.miner.mode
+                    // and the V2 fallback may fail due to credential mismatch. Fall back to
+                    // an explicit power limit via set.miner.power_limit (V3 auth).
+                    // Use extreme values so the miner clamps to its actual min/max.
+                    let target_watts = match mining_mode {
+                        MiningMode::Low => POWER_FLOOR_WATTS,
+                        MiningMode::High => POWER_CEILING_WATTS,
+                        _ => return Err(mode_err),
+                    };
+
+                    tracing::warn!(
+                        device_id = %self.id,
+                        error = %mode_err,
+                        target_watts,
+                        "MiningMode failed, falling back to power limit"
+                    );
+
+                    let power_config = TuningConfig::new(TuningTarget::Power(
+                        measurements::Power::from_watts(target_watts),
+                    ));
+                    let ok = tokio::time::timeout(
+                        OP_TIMEOUT,
+                        miner.set_tuning_config(power_config, None),
+                    )
+                    .await
+                    .map_err(|_| anyhow::anyhow!("power limit fallback timed out"))?
+                    .map_err(|e| anyhow::anyhow!("power limit fallback failed: {e}"))?;
+                    if !ok {
+                        return Err(anyhow::anyhow!("power limit fallback returned false"));
+                    }
+                    Ok(())
+                }
+            }
+        })
+        .await?
     }
 
     pub async fn close(&self) {
