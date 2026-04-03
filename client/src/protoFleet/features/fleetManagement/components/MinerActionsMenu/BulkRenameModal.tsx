@@ -48,6 +48,7 @@ import {
   type MinerListFilter,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useRenameMiners from "@/protoFleet/api/useRenameMiners";
+import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
@@ -58,11 +59,8 @@ import {
   useFleetStore,
   useSetBulkRenamePreferences,
 } from "@/protoFleet/store";
-import { DismissCircleDark } from "@/shared/assets/icons";
-import { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
+import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import PageOverlay from "@/shared/components/PageOverlay";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
@@ -560,67 +558,42 @@ const BulkRenameModal = ({
 
   return (
     <>
-      <PageOverlay open={open}>
-        <div className="h-full w-full overflow-auto bg-surface-base">
-          <div className="flex min-h-full w-full flex-col pb-6 lg:px-6">
-            <div className="sticky top-0 z-10 bg-surface-base px-6 pt-4 pb-4 lg:px-0 lg:pb-0">
-              <Header
-                title="Rename miners"
-                titleSize="text-heading-100"
-                stackButtonsOnPhone={false}
-                icon={
-                  <DismissCircleDark
-                    width="w-6"
-                    className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"}
-                  />
-                }
-                iconOnClick={() => {
-                  if (!isBusy) {
-                    onDismiss();
-                  }
-                }}
-                iconButtonClassName="!p-0"
-                iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
-                iconVariant={variants.textOnly}
-                inline
-                buttonSize={sizes.base}
-                buttons={[
-                  {
-                    text: selectionCount === 1 ? "Apply to 1 miner" : `Apply to ${selectionCount} miners`,
-                    variant: variants.primary,
-                    onClick: () => void handleSubmit(),
-                    disabled: isBusy || isLoadingPreview,
-                    testId: "bulk-rename-save-button",
-                  },
-                ]}
-              />
-            </div>
-
-            <div className="mx-auto flex w-full max-w-[1280px] flex-1">
-              <div className="flex min-h-[calc(100dvh-104px)] w-full flex-1 flex-col lg:grid lg:grid-cols-2">
-                <BulkRenamePreviewPanel
-                  isLoadingPreview={isLoadingPreview}
-                  previewRows={previewRows}
-                  showPreviewEllipsis={showPreviewEllipsis}
-                />
-
-                <BulkRenamePropertyForm
-                  preferences={bulkRenamePreferences}
-                  onDragEnd={handleDragEnd}
-                  onOpenOptions={setActiveOptionsPropertyId}
-                  onToggleEnabled={handleToggleEnabled}
-                  onChangeSeparator={(separator) =>
-                    setBulkRenamePreferences({
-                      ...bulkRenamePreferences,
-                      separator,
-                    })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </PageOverlay>
+      <FullScreenTwoPaneModal
+        open={open}
+        title="Rename miners"
+        onDismiss={onDismiss}
+        isBusy={isBusy}
+        buttons={[
+          {
+            text: selectionCount === 1 ? "Apply to 1 miner" : `Apply to ${selectionCount} miners`,
+            variant: variants.primary,
+            onClick: () => void handleSubmit(),
+            disabled: isBusy || isLoadingPreview,
+            testId: "bulk-rename-save-button",
+          },
+        ]}
+        primaryPane={
+          <BulkRenamePreviewPanel
+            isLoadingPreview={isLoadingPreview}
+            previewRows={previewRows}
+            showPreviewEllipsis={showPreviewEllipsis}
+          />
+        }
+        secondaryPane={
+          <BulkRenamePropertyForm
+            preferences={bulkRenamePreferences}
+            onDragEnd={handleDragEnd}
+            onOpenOptions={setActiveOptionsPropertyId}
+            onToggleEnabled={handleToggleEnabled}
+            onChangeSeparator={(separator) =>
+              setBulkRenamePreferences({
+                ...bulkRenamePreferences,
+                separator,
+              })
+            }
+          />
+        }
+      />
 
       <BulkRenameDialogs
         open={open}

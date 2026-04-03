@@ -14,6 +14,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
+import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
 import { slotNumberToRowCol } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
 
@@ -21,7 +22,6 @@ import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
-import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -454,14 +454,11 @@ export default function AssignMinersModal({
 
   return (
     <>
-      <Modal
+      <FullScreenTwoPaneModal
         open={show}
         title={rackSettings.label}
-        size="fullscreen"
-        className="!flex !flex-col !overflow-hidden"
-        bodyClassName="!flex-1 !min-h-0"
-        divider={false}
         onDismiss={hasSubModalOpen ? undefined : onDismiss}
+        isBusy={isSaving}
         buttons={[
           ...(onDelete
             ? [
@@ -469,7 +466,6 @@ export default function AssignMinersModal({
                   text: "Delete Rack",
                   variant: variants.secondaryDanger,
                   onClick: () => setShowDeleteConfirm(true),
-                  dismissModalOnClick: false,
                 },
               ]
             : []),
@@ -489,72 +485,74 @@ export default function AssignMinersModal({
             disabled: isSaving || isLoading || loadFailed,
             loading: isSaving,
             onClick: handleSave,
-            dismissModalOnClick: false,
           },
         ]}
-      >
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <ProgressCircular indeterminate />
-          </div>
-        ) : (
-          <div className="flex h-full min-h-0 flex-col">
-            {errorMsg && (
-              <div className="shrink-0 px-2 pb-4">
-                <Callout
-                  intent="danger"
-                  prefixIcon={<DismissCircle />}
-                  title={errorMsg}
-                  dismissible
-                  onDismiss={() => setErrorMsg("")}
-                />
-              </div>
-            )}
-            <div className="flex min-h-0 flex-1 gap-6 phone:flex-col phone:overflow-y-auto tablet:flex-col tablet:overflow-y-auto">
-              <div className="flex w-1/2 flex-col overflow-y-auto phone:order-2 phone:w-full phone:shrink-0 tablet:order-2 tablet:w-full tablet:shrink-0">
-                <MinersPane
-                  rackMiners={rackMiners}
-                  miners={allMiners}
-                  slotAssignments={activeAssignments}
-                  assignmentMode={assignmentMode}
-                  selectedMinerId={selectedMinerId}
-                  selectedSlot={selectedSlot}
-                  rows={rackSettings.rows}
-                  cols={rackSettings.columns}
-                  numberingOrigin={numberingOrigin}
-                  onModeChange={handleModeChange}
-                  onSelectMiner={handleSelectMiner}
-                  onRemoveMiner={handleRemoveMiner}
-                  onUnassignMiner={handleUnassignMiner}
-                  onClearAssignments={handleClearAssignments}
-                  hoveredMinerId={hoveredMinerId}
-                  onOpenManageMiners={() => setShowManageMiners(true)}
-                />
-              </div>
-              <div className="flex w-1/2 flex-col overflow-y-auto rounded-xl bg-surface-5 p-4 phone:order-1 phone:max-h-[70vh] phone:w-full phone:shrink-0 tablet:order-1 tablet:max-h-[70vh] tablet:w-full tablet:shrink-0">
-                <RackPane
-                  rows={rackSettings.rows}
-                  cols={rackSettings.columns}
-                  numberingOrigin={numberingOrigin}
-                  slotAssignments={activeAssignments}
-                  assignmentMode={assignmentMode}
-                  assignedCount={assignedCount}
-                  totalSlots={totalSlots}
-                  originLabel={originLabel(numberingOrigin)}
-                  selectedSlotKey={selectedSlot?.key ?? null}
-                  showPopover={showSlotPopover}
-                  hasMiners={rackMiners.length > 0}
-                  onCellClick={handleCellClick}
-                  onSelectFromList={handleSelectFromList}
-                  onSearchMiners={handleSearchMiners}
-                  onPopoverDismiss={handlePopoverDismiss}
-                  onHoverMiner={setHoveredMinerId}
-                />
-              </div>
+        abovePanes={
+          errorMsg ? (
+            <div className="shrink-0 px-2 pb-4">
+              <Callout
+                intent="danger"
+                prefixIcon={<DismissCircle />}
+                title={errorMsg}
+                dismissible
+                onDismiss={() => setErrorMsg("")}
+              />
             </div>
+          ) : undefined
+        }
+        loadingState={
+          isLoading ? (
+            <div className="flex flex-1 items-center justify-center">
+              <ProgressCircular indeterminate />
+            </div>
+          ) : undefined
+        }
+        paneContainerClassName="flex min-h-0 flex-1 gap-6 phone:flex-col phone:overflow-y-auto tablet:flex-col tablet:overflow-y-auto"
+        primaryPane={
+          <div className="flex w-1/2 flex-col overflow-y-auto phone:order-2 phone:w-full phone:shrink-0 tablet:order-2 tablet:w-full tablet:shrink-0">
+            <MinersPane
+              rackMiners={rackMiners}
+              miners={allMiners}
+              slotAssignments={activeAssignments}
+              assignmentMode={assignmentMode}
+              selectedMinerId={selectedMinerId}
+              selectedSlot={selectedSlot}
+              rows={rackSettings.rows}
+              cols={rackSettings.columns}
+              numberingOrigin={numberingOrigin}
+              onModeChange={handleModeChange}
+              onSelectMiner={handleSelectMiner}
+              onRemoveMiner={handleRemoveMiner}
+              onUnassignMiner={handleUnassignMiner}
+              onClearAssignments={handleClearAssignments}
+              hoveredMinerId={hoveredMinerId}
+              onOpenManageMiners={() => setShowManageMiners(true)}
+            />
           </div>
-        )}
-      </Modal>
+        }
+        secondaryPane={
+          <div className="flex w-1/2 flex-col overflow-y-auto rounded-xl bg-surface-5 p-4 phone:order-1 phone:max-h-[70vh] phone:w-full phone:shrink-0 tablet:order-1 tablet:max-h-[70vh] tablet:w-full tablet:shrink-0">
+            <RackPane
+              rows={rackSettings.rows}
+              cols={rackSettings.columns}
+              numberingOrigin={numberingOrigin}
+              slotAssignments={activeAssignments}
+              assignmentMode={assignmentMode}
+              assignedCount={assignedCount}
+              totalSlots={totalSlots}
+              originLabel={originLabel(numberingOrigin)}
+              selectedSlotKey={selectedSlot?.key ?? null}
+              showPopover={showSlotPopover}
+              hasMiners={rackMiners.length > 0}
+              onCellClick={handleCellClick}
+              onSelectFromList={handleSelectFromList}
+              onSearchMiners={handleSearchMiners}
+              onPopoverDismiss={handlePopoverDismiss}
+              onHoverMiner={setHoveredMinerId}
+            />
+          </div>
+        }
+      />
 
       {showRackSettings && (
         <RackSettingsModal

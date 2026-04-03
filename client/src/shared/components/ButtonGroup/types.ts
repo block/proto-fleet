@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { type ButtonVariant } from "@/shared/components/Button";
 
 export interface ButtonProps {
+  ariaLabel?: string;
   className?: string;
   disabled?: boolean;
   loading?: boolean;

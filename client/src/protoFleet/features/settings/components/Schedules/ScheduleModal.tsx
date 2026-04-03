@@ -10,6 +10,7 @@ import {
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
+import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -32,12 +33,10 @@ import {
   timeOptions,
   validateSchedule,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
-import { ChevronDown, DismissCircleDark } from "@/shared/assets/icons";
-import { sizes, variants } from "@/shared/components/Button";
+import { ChevronDown } from "@/shared/assets/icons";
+import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import PageOverlay from "@/shared/components/PageOverlay";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants";
 import Select from "@/shared/components/Select";
@@ -555,261 +554,234 @@ const ScheduleModal = ({
 
   return (
     <>
-      <PageOverlay open={open}>
-        <div className="h-full w-full overflow-auto bg-surface-base">
-          <div className="flex min-h-full w-full flex-col pb-6 lg:px-6">
-            <div className="sticky top-0 z-10 bg-surface-base px-6 pt-4 pb-4 lg:px-0 lg:pb-0">
-              <Header
-                title={isEditMode ? "Edit schedule" : "Add a schedule"}
-                titleSize="text-heading-100"
-                stackButtonsOnPhone={false}
-                inline
-                icon={
-                  <DismissCircleDark
-                    width="w-6"
-                    className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"}
-                  />
-                }
-                iconOnClick={() => {
-                  if (!isBusy) {
-                    onDismiss();
+      <FullScreenTwoPaneModal
+        open={open}
+        title={isEditMode ? "Edit schedule" : "Add a schedule"}
+        onDismiss={onDismiss}
+        isBusy={isBusy}
+        buttons={[
+          ...(isEditMode
+            ? [
+                {
+                  text: "Delete",
+                  variant: variants.secondaryDanger,
+                  onClick: () => void handleDelete(),
+                  disabled: isBusy,
+                },
+                ...(schedule?.status !== "completed"
+                  ? [
+                      {
+                        text: schedule?.status === "paused" ? "Resume" : "Pause",
+                        variant: variants.secondary,
+                        onClick: () => void handlePauseResume(),
+                        disabled: isBusy,
+                      },
+                    ]
+                  : []),
+              ]
+            : []),
+          {
+            text: "Save",
+            variant: variants.primary,
+            onClick: () => void handleSave(),
+            disabled: !canSave,
+            loading: isSaving,
+          },
+        ]}
+        primaryPane={
+          <section className="order-2 flex flex-col gap-10 p-6 pt-0 lg:order-1 lg:p-10 lg:pt-0">
+            <div className={sectionBodyClassName}>
+              <div className={sectionTitleClassName}>Schedule details</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input
+                  id="schedule-name"
+                  label="Schedule name"
+                  initValue={values.name}
+                  maxLength={100}
+                  onChange={(value) => setNextValues((current) => ({ ...current, name: value }))}
+                  onChangeBlur={() => handleBlur("name")}
+                  error={getVisibleError("name")}
+                  autoFocus
+                />
+                <Select
+                  id="schedule-action"
+                  label="Action type"
+                  options={actionOptions}
+                  value={values.action}
+                  onChange={handleActionChange}
+                />
+              </div>
+              {showPowerTargetFields ? (
+                <Select
+                  id="power-target-mode"
+                  label="Power target"
+                  options={powerTargetModeOptions}
+                  value={values.powerTargetMode}
+                  onChange={(value) =>
+                    setNextValues((current) => ({
+                      ...current,
+                      powerTargetMode: value as ScheduleFormValues["powerTargetMode"],
+                    }))
                   }
-                }}
-                iconButtonClassName="!p-0"
-                iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
-                iconVariant={variants.textOnly}
-                buttonSize={sizes.base}
-                buttons={[
-                  ...(isEditMode
-                    ? [
-                        {
-                          text: "Delete",
-                          variant: variants.secondaryDanger,
-                          onClick: () => void handleDelete(),
-                          disabled: isBusy,
-                        },
-                        ...(schedule?.status !== "completed"
-                          ? [
-                              {
-                                text: schedule?.status === "paused" ? "Resume" : "Pause",
-                                variant: variants.secondary,
-                                onClick: () => void handlePauseResume(),
-                                disabled: isBusy,
-                              },
-                            ]
-                          : []),
-                      ]
-                    : []),
-                  {
-                    text: "Save",
-                    variant: variants.primary,
-                    onClick: () => void handleSave(),
-                    disabled: !canSave,
-                    loading: isSaving,
-                  },
-                ]}
-              />
+                />
+              ) : null}
             </div>
 
-            <div className="mx-auto flex w-full max-w-[1280px] flex-1">
-              <div className="flex min-h-[calc(100dvh-104px)] w-full flex-1 flex-col lg:grid lg:grid-cols-2">
-                <section className="order-2 flex flex-col gap-10 p-6 lg:order-1 lg:p-10">
-                  <div className={sectionBodyClassName}>
-                    <div className={sectionTitleClassName}>Schedule details</div>
-                    <div className="grid gap-4 md:grid-cols-2">
+            <div className={sectionBodyClassName}>
+              <div className={sectionTitleClassName}>{showRecurringFields ? "Schedule" : "Date and time"}</div>
+              <Select
+                id="schedule-type"
+                label="Type"
+                options={scheduleTypeOptions}
+                value={values.scheduleType}
+                onChange={handleScheduleTypeChange}
+              />
+
+              {showRecurringFields ? (
+                <>
+                  <div
+                    className={clsx("grid gap-4", {
+                      "md:grid-cols-2": values.frequency === "weekly" || values.frequency === "monthly",
+                    })}
+                  >
+                    <Select
+                      id="schedule-frequency"
+                      label="Frequency"
+                      options={frequencyOptions}
+                      value={values.frequency}
+                      onChange={(value) =>
+                        setNextValues((current) => ({
+                          ...current,
+                          frequency: value as ScheduleFormValues["frequency"],
+                        }))
+                      }
+                    />
+                    {values.frequency === "weekly" ? (
+                      <WeekdaySelect
+                        id="schedule-days-of-week"
+                        value={values.daysOfWeek}
+                        onChange={(daysOfWeek) => setNextValues((current) => ({ ...current, daysOfWeek }))}
+                        error={getVisibleError("daysOfWeek")}
+                      />
+                    ) : null}
+                    {values.frequency === "monthly" ? (
                       <Input
-                        id="schedule-name"
-                        label="Schedule name"
-                        initValue={values.name}
-                        maxLength={100}
-                        onChange={(value) => setNextValues((current) => ({ ...current, name: value }))}
-                        onChangeBlur={() => handleBlur("name")}
-                        error={getVisibleError("name")}
-                        autoFocus
-                      />
-                      <Select
-                        id="schedule-action"
-                        label="Action type"
-                        options={actionOptions}
-                        value={values.action}
-                        onChange={handleActionChange}
-                      />
-                    </div>
-                    {showPowerTargetFields ? (
-                      <Select
-                        id="power-target-mode"
-                        label="Power target"
-                        options={powerTargetModeOptions}
-                        value={values.powerTargetMode}
-                        onChange={(value) =>
-                          setNextValues((current) => ({
-                            ...current,
-                            powerTargetMode: value as ScheduleFormValues["powerTargetMode"],
-                          }))
-                        }
+                        id="schedule-day-of-month"
+                        label="Day of month"
+                        type="number"
+                        initValue={values.dayOfMonth}
+                        onChange={(value) => setNextValues((current) => ({ ...current, dayOfMonth: value }))}
+                        onChangeBlur={() => handleBlur("dayOfMonth")}
+                        error={getVisibleError("dayOfMonth")}
                       />
                     ) : null}
                   </div>
 
-                  <div className={sectionBodyClassName}>
-                    <div className={sectionTitleClassName}>{showRecurringFields ? "Schedule" : "Date and time"}</div>
+                  <div className={clsx("grid gap-4", { "md:grid-cols-2": showPowerTargetWindow })}>
                     <Select
-                      id="schedule-type"
-                      label="Type"
-                      options={scheduleTypeOptions}
-                      value={values.scheduleType}
-                      onChange={handleScheduleTypeChange}
+                      id="schedule-start-time"
+                      label="Start time"
+                      options={timeOptions}
+                      value={values.startTime}
+                      onChange={(value) => setNextValues((current) => ({ ...current, startTime: value }))}
+                      error={getVisibleError("startTime")}
                     />
-
-                    {showRecurringFields ? (
-                      <>
-                        <div
-                          className={clsx("grid gap-4", {
-                            "md:grid-cols-2": values.frequency === "weekly" || values.frequency === "monthly",
-                          })}
-                        >
-                          <Select
-                            id="schedule-frequency"
-                            label="Frequency"
-                            options={frequencyOptions}
-                            value={values.frequency}
-                            onChange={(value) =>
-                              setNextValues((current) => ({
-                                ...current,
-                                frequency: value as ScheduleFormValues["frequency"],
-                              }))
-                            }
-                          />
-                          {values.frequency === "weekly" ? (
-                            <WeekdaySelect
-                              id="schedule-days-of-week"
-                              value={values.daysOfWeek}
-                              onChange={(daysOfWeek) => setNextValues((current) => ({ ...current, daysOfWeek }))}
-                              error={getVisibleError("daysOfWeek")}
-                            />
-                          ) : null}
-                          {values.frequency === "monthly" ? (
-                            <Input
-                              id="schedule-day-of-month"
-                              label="Day of month"
-                              type="number"
-                              initValue={values.dayOfMonth}
-                              onChange={(value) => setNextValues((current) => ({ ...current, dayOfMonth: value }))}
-                              onChangeBlur={() => handleBlur("dayOfMonth")}
-                              error={getVisibleError("dayOfMonth")}
-                            />
-                          ) : null}
-                        </div>
-
-                        <div className={clsx("grid gap-4", { "md:grid-cols-2": showPowerTargetWindow })}>
-                          <Select
-                            id="schedule-start-time"
-                            label="Start time"
-                            options={timeOptions}
-                            value={values.startTime}
-                            onChange={(value) => setNextValues((current) => ({ ...current, startTime: value }))}
-                            error={getVisibleError("startTime")}
-                          />
-                          {showPowerTargetWindow ? (
-                            <Select
-                              id="schedule-end-time"
-                              label="End time"
-                              options={timeOptions}
-                              value={values.endTime}
-                              onChange={(value) => setNextValues((current) => ({ ...current, endTime: value }))}
-                              error={getVisibleError("endTime")}
-                            />
-                          ) : null}
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <Input
-                            id="schedule-start-date"
-                            label="Start date"
-                            type="date"
-                            initValue={values.startDate}
-                            onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
-                            onChangeBlur={() => handleBlur("startDate")}
-                            error={getVisibleError("startDate")}
-                          />
-                          <Select
-                            id="schedule-end-behavior"
-                            label="End behavior"
-                            options={endBehaviorOptions}
-                            value={values.endBehavior}
-                            onChange={(value) =>
-                              setNextValues((current) => ({
-                                ...current,
-                                endBehavior: value as ScheduleFormValues["endBehavior"],
-                              }))
-                            }
-                          />
-                        </div>
-
-                        {values.endBehavior === "endDate" ? (
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <Input
-                              id="schedule-end-date"
-                              label="End date"
-                              type="date"
-                              initValue={values.endDate}
-                              onChange={(value) => setNextValues((current) => ({ ...current, endDate: value }))}
-                              onChangeBlur={() => handleBlur("endDate")}
-                              error={getVisibleError("endDate")}
-                            />
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <Input
-                          id="schedule-start-date"
-                          label="Start date"
-                          type="date"
-                          initValue={values.startDate}
-                          onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
-                          onChangeBlur={() => handleBlur("startDate")}
-                          error={getVisibleError("startDate")}
-                        />
-                        <Select
-                          id="schedule-start-time"
-                          label="Time"
-                          options={timeOptions}
-                          value={values.startTime}
-                          onChange={(value) => setNextValues((current) => ({ ...current, startTime: value }))}
-                          error={getVisibleError("startTime")}
-                        />
-                      </div>
-                    )}
-
-                    <div className="text-200 text-text-primary-70">
-                      {isEditMode ? formatTimezoneLabel(values.timezone) : formatClientTimezoneLabel()}
-                    </div>
+                    {showPowerTargetWindow ? (
+                      <Select
+                        id="schedule-end-time"
+                        label="End time"
+                        options={timeOptions}
+                        value={values.endTime}
+                        onChange={(value) => setNextValues((current) => ({ ...current, endTime: value }))}
+                        error={getVisibleError("endTime")}
+                      />
+                    ) : null}
                   </div>
 
-                  <div className={sectionBodyClassName}>
-                    <div className={sectionTitleClassName}>Apply to</div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Input
+                      id="schedule-start-date"
+                      label="Start date"
+                      type="date"
+                      initValue={values.startDate}
+                      onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
+                      onChangeBlur={() => handleBlur("startDate")}
+                      error={getVisibleError("startDate")}
+                    />
+                    <Select
+                      id="schedule-end-behavior"
+                      label="End behavior"
+                      options={endBehaviorOptions}
+                      value={values.endBehavior}
+                      onChange={(value) =>
+                        setNextValues((current) => ({
+                          ...current,
+                          endBehavior: value as ScheduleFormValues["endBehavior"],
+                        }))
+                      }
+                    />
+                  </div>
+
+                  {values.endBehavior === "endDate" ? (
                     <div className="grid gap-4 md:grid-cols-2">
-                      <TargetSelectButton
-                        label="Racks"
-                        value={getTargetButtonLabel(validRackTargetCount, "rack")}
-                        onClick={() => setShowRackSelectionModal(true)}
-                      />
-                      <TargetSelectButton
-                        label="Miners"
-                        value={getTargetButtonLabel(validMinerTargetCount, "miner")}
-                        onClick={() => setShowMinerSelectionModal(true)}
+                      <Input
+                        id="schedule-end-date"
+                        label="End date"
+                        type="date"
+                        initValue={values.endDate}
+                        onChange={(value) => setNextValues((current) => ({ ...current, endDate: value }))}
+                        onChangeBlur={() => handleBlur("endDate")}
+                        error={getVisibleError("endDate")}
                       />
                     </div>
-                  </div>
-                </section>
+                  ) : null}
+                </>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    id="schedule-start-date"
+                    label="Start date"
+                    type="date"
+                    initValue={values.startDate}
+                    onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
+                    onChangeBlur={() => handleBlur("startDate")}
+                    error={getVisibleError("startDate")}
+                  />
+                  <Select
+                    id="schedule-start-time"
+                    label="Time"
+                    options={timeOptions}
+                    value={values.startTime}
+                    onChange={(value) => setNextValues((current) => ({ ...current, startTime: value }))}
+                    error={getVisibleError("startTime")}
+                  />
+                </div>
+              )}
 
-                <SchedulePreview values={values} isEditMode={isEditMode} />
+              <div className="text-200 text-text-primary-70">
+                {isEditMode ? formatTimezoneLabel(values.timezone) : formatClientTimezoneLabel()}
               </div>
             </div>
-          </div>
-        </div>
-      </PageOverlay>
+
+            <div className={sectionBodyClassName}>
+              <div className={sectionTitleClassName}>Apply to</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TargetSelectButton
+                  label="Racks"
+                  value={getTargetButtonLabel(validRackTargetCount, "rack")}
+                  onClick={() => setShowRackSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label="Miners"
+                  value={getTargetButtonLabel(validMinerTargetCount, "miner")}
+                  onClick={() => setShowMinerSelectionModal(true)}
+                />
+              </div>
+            </div>
+          </section>
+        }
+        secondaryPane={<SchedulePreview values={values} isEditMode={isEditMode} />}
+      />
 
       {showRackSelectionModal ? (
         <RackSelectionModal

@@ -111,7 +111,7 @@ const BulkRenamePropertyForm = ({
   );
 
   return (
-    <section className="order-2 flex flex-col gap-10 p-6 lg:order-1 lg:p-10">
+    <section className="order-2 flex flex-col gap-10 p-6 pt-0 lg:order-1 lg:p-10 lg:pt-0">
       <div className="flex flex-col gap-3">
         <h2 className="text-emphasis-300 text-text-primary">Name properties</h2>
 

@@ -211,7 +211,7 @@ const SchedulePreview = ({ values, isEditMode = false }: SchedulePreviewProps) =
         )}
       </section>
 
-      <section className="hidden self-stretch px-6 pt-6 lg:order-2 lg:flex">
+      <section className="hidden self-stretch px-6 lg:order-2 lg:flex">
         <div className="flex h-full w-full flex-col justify-center rounded-3xl bg-surface-5 px-16 pt-6 pb-4">
           {!isReady ? (
             <div className="max-w-[420px] text-300 text-text-primary-70">

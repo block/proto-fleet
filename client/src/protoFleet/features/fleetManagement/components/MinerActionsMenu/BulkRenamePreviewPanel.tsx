@@ -40,7 +40,7 @@ const BulkRenamePreviewPanel = ({
         )}
       </section>
 
-      <section className="hidden self-stretch px-6 pt-6 lg:order-2 lg:flex" data-testid="bulk-rename-desktop-preview">
+      <section className="hidden self-stretch px-6 lg:order-2 lg:flex" data-testid="bulk-rename-desktop-preview">
         <div className="flex h-full w-full flex-col items-center justify-center gap-6 rounded-3xl bg-surface-5 px-16 pt-6 pb-4">
           {isLoadingPreview ? (
             <div className="flex w-full items-center justify-center">

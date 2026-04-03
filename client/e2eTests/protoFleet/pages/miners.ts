@@ -484,9 +484,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickBulkRenameSave() {
-    const saveButton = this.page.locator('[data-testid="bulk-rename-save-button"]:visible');
-    await expect(saveButton).toHaveCount(1);
-    await saveButton.click();
+    await this.page.getByTestId("bulk-rename-save-button").filter({ visible: true }).click();
   }
 
   async selectBulkRenameSeparator(separatorId: string) {
