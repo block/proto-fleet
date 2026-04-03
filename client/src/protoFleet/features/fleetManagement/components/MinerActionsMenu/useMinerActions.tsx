@@ -958,6 +958,13 @@ export const useMinerActions = ({
           break;
         }
         case deviceActions.unpair: {
+          const unpairBatchId = crypto.randomUUID();
+          startBatchOperation({
+            batchIdentifier: unpairBatchId,
+            action: deviceActions.unpair,
+            deviceIdentifiers: deviceIdsToUse,
+          });
+
           const deleteRequest = create(DeleteMinersRequestSchema, {
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
@@ -972,6 +979,7 @@ export const useMinerActions = ({
           deleteMiners({
             deleteMinersRequest: deleteRequest,
             onSuccess: (value: DeleteMinersResponse) => {
+              completeBatchOperation(unpairBatchId);
               updateToast(id, {
                 message: `${successMessages[deviceActions.unpair]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
                 status: TOAST_STATUSES.success,
@@ -980,6 +988,7 @@ export const useMinerActions = ({
               onActionComplete?.();
             },
             onError: (error) => {
+              completeBatchOperation(unpairBatchId);
               handleError(id, error);
               onActionComplete?.();
             },
@@ -1025,6 +1034,7 @@ export const useMinerActions = ({
       handleSuccess,
       handleError,
       startBatchOperation,
+      completeBatchOperation,
       deviceIdentifiers,
       currentFilter,
     ],

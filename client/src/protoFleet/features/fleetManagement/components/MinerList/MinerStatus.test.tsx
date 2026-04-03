@@ -147,6 +147,34 @@ describe("MinerStatus", () => {
       expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
     });
 
+    it("should show unpairing loading state during unpair batch operation", async () => {
+      const { useMinerActiveBatches } = await import("@/protoFleet/store");
+      const { useMiner, useMinerDeviceStatus } = await import("@/protoFleet/store");
+
+      vi.mocked(useMiner).mockReturnValue({
+        pairingStatus: PairingStatus.PAIRED,
+      } as any);
+
+      vi.mocked(useMinerDeviceStatus).mockReturnValue(DeviceStatus.ONLINE);
+
+      vi.mocked(useMinerActiveBatches).mockReturnValue([
+        {
+          batchIdentifier: "batch-unpair",
+          action: deviceActions.unpair,
+          deviceIdentifiers: ["device-unpair"],
+          startedAt: Date.now(),
+          status: "in_progress",
+        },
+      ]);
+
+      const { container } = render(<MinerStatus deviceIdentifier="device-unpair" />);
+
+      expect(screen.getByText("Unpairing")).toBeInTheDocument();
+      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
+      const progressCircular = container.querySelector("svg");
+      expect(progressCircular).toBeInTheDocument();
+    });
+
     it("should show first batch when device has multiple active batches", async () => {
       const { useMinerActiveBatches } = await import("@/protoFleet/store");
       const { useMiner, useMinerDeviceStatus } = await import("@/protoFleet/store");

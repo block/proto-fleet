@@ -778,11 +778,18 @@ describe("useMinerActions", () => {
         await result.current.handleConfirmation();
       });
 
+      expect(mockStartBatchOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: deviceActions.unpair,
+          deviceIdentifiers: ["device-1"],
+        }),
+      );
       expect(mockDeleteMiners).toHaveBeenCalled();
       const calledWith = mockDeleteMiners.mock.calls[0][0];
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("includeDevices");
       expect(selector.selectionType.value.deviceIdentifiers).toEqual(["device-1"]);
+      expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
         expect.objectContaining({
@@ -790,6 +797,37 @@ describe("useMinerActions", () => {
           status: "success",
         }),
       );
+    });
+
+    it("should complete batch operation on deleteMiners error", async () => {
+      mockDeleteMiners.mockImplementation(({ onError }: any) => {
+        onError("delete failed");
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+
+      act(() => {
+        deleteAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockStartBatchOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: deviceActions.unpair,
+          deviceIdentifiers: ["device-1"],
+        }),
+      );
+      expect(mockCompleteBatchOperation).toHaveBeenCalled();
     });
 
     it("should call deleteMiners API with allDevices selector and filter in 'all' mode", async () => {
@@ -823,11 +861,18 @@ describe("useMinerActions", () => {
         await result.current.handleConfirmation();
       });
 
+      expect(mockStartBatchOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: deviceActions.unpair,
+          deviceIdentifiers: ["device-1", "device-2"],
+        }),
+      );
       expect(mockDeleteMiners).toHaveBeenCalled();
       const calledWith = mockDeleteMiners.mock.calls[0][0];
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
         expect.objectContaining({
