@@ -180,6 +180,10 @@ func (s *Service) Logout(ctx context.Context) (*http.Cookie, error) {
 		return nil, err
 	}
 
+	if info.AuthMethod == session.AuthMethodAPIKey {
+		return nil, fleeterror.NewPlainError("logout is not supported for API key authentication; revoke the key instead", connect.CodeFailedPrecondition)
+	}
+
 	if err := s.sessionSvc.Revoke(ctx, info.SessionID); err != nil {
 		// Truncate session ID in logs to avoid leaking full identifier
 		truncatedID := info.SessionID

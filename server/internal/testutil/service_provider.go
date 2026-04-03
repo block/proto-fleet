@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
@@ -48,6 +49,7 @@ type ServiceProvider struct {
 	TokenService           *token.Service
 	SessionService         *session.Service
 	AuthService            *auth.Service
+	ApiKeyService          *apikey.Service
 	PairingService         *pairing.Service
 	OnboardingService      *onboarding.Service
 	CommandService         *command.Service
@@ -95,6 +97,10 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	// userStore implements both UserStore and UserManagementStore interfaces
 	activityStore := sqlstores.NewSQLActivityStore(db)
 	activitySvc := activity.NewService(activityStore)
+
+	apiKeyStore := sqlstores.NewSQLApiKeyStore(db)
+	apiKeySvc := apikey.NewService(apiKeyStore, activitySvc)
+
 	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService, activitySvc)
 
 	ctrl := gomock.NewController(t)
@@ -160,6 +166,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		TokenService:           tokenService,
 		SessionService:         sessionService,
 		AuthService:            authService,
+		ApiKeyService:          apiKeySvc,
 		PairingService:         pairingService,
 		OnboardingService:      onboardingService,
 		CommandService:         commandService,

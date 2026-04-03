@@ -297,6 +297,20 @@ type ActivityLog struct {
 	CreatedAt      time.Time
 }
 
+type ApiKey struct {
+	ID             int64
+	KeyID          string
+	Name           string
+	Prefix         string
+	KeyHash        string
+	UserID         int64
+	OrganizationID int64
+	CreatedAt      time.Time
+	ExpiresAt      sql.NullTime
+	RevokedAt      sql.NullTime
+	LastUsedAt     sql.NullTime
+}
+
 type CommandBatchLog struct {
 	ID           int64
 	Uuid         string

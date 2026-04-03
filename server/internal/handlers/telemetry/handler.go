@@ -3,9 +3,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,29 +15,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
-// activeStream tracks an active streaming goroutine with its cancel function and unique ID.
-type activeStream struct {
-	cancel func()
-	id     uint64
-}
-
-// telemetryStreamIDCounter generates unique IDs for active streams.
-var telemetryStreamIDCounter uint64
-
 type Handler struct {
 	telemetryService *telemetry.TelemetryService
-
-	// Stream deduplication: ensures only one active stream per session per endpoint.
-	// When a new stream request arrives for a session that already has an active stream,
-	// the previous stream is cancelled to prevent connection exhaustion from rapid scrolling.
-	activeCombinedStreams   map[string]*activeStream
-	activeCombinedStreamsMu sync.Mutex
 }
 
 func NewHandler(telemetryService *telemetry.TelemetryService) *Handler {
 	return &Handler{
-		telemetryService:      telemetryService,
-		activeCombinedStreams: make(map[string]*activeStream),
+		telemetryService: telemetryService,
 	}
 }
 
@@ -76,38 +57,6 @@ func (h *Handler) StreamCombinedMetricUpdates(
 		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get session info: %w", err))
 	}
 
-	// Build deduplication key from session ID and connection ID
-	// This allows multiple tabs (different connection IDs) to have independent streams
-	dedupeKey := info.SessionID
-	if req.Msg.ConnectionId != "" {
-		dedupeKey = info.SessionID + ":" + req.Msg.ConnectionId
-	}
-
-	// Cancel any existing stream for this session+connection to prevent connection exhaustion
-	h.activeCombinedStreamsMu.Lock()
-	if existing, exists := h.activeCombinedStreams[dedupeKey]; exists {
-		existing.cancel()
-		slog.Debug("cancelled existing combined metrics stream", "dedupeKey", dedupeKey)
-	}
-	streamCtx, cancelStream := context.WithCancel(ctx)
-	streamID := atomic.AddUint64(&telemetryStreamIDCounter, 1)
-	h.activeCombinedStreams[dedupeKey] = &activeStream{
-		cancel: cancelStream,
-		id:     streamID,
-	}
-	h.activeCombinedStreamsMu.Unlock()
-
-	// Clean up on exit
-	defer func() {
-		cancelStream()
-		h.activeCombinedStreamsMu.Lock()
-		if existing, exists := h.activeCombinedStreams[dedupeKey]; exists && existing.id == streamID {
-			delete(h.activeCombinedStreams, dedupeKey)
-			slog.Debug("cleaned up combined metrics stream", "dedupeKey", dedupeKey, "streamID", streamID)
-		}
-		h.activeCombinedStreamsMu.Unlock()
-	}()
-
 	query, err := toStreamCombinedMetricsQuery(req.Msg)
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
@@ -116,14 +65,14 @@ func (h *Handler) StreamCombinedMetricUpdates(
 	// Pass organization ID to enable miner state counts in stream
 	query.OrganizationID = info.OrganizationID
 
-	updateChan, err := h.telemetryService.StreamCombinedMetrics(streamCtx, query)
+	updateChan, err := h.telemetryService.StreamCombinedMetrics(ctx, query)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start combined metrics stream: %w", err))
 	}
 
 	for {
 		select {
-		case <-streamCtx.Done():
+		case <-ctx.Done():
 			return fleeterror.NewCanceledError()
 		case combinedMetrics, ok := <-updateChan:
 			if !ok {

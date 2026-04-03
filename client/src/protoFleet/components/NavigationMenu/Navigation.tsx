@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { useRole } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
@@ -22,6 +23,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogoutAction();
+  const currentRole = useRole();
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const [showSettingsHover, setShowSettingsHover] = useState(false);
 
@@ -186,8 +188,9 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                     >
                       {secondaryNavItems
                         .filter((nav) => nav.parent === "/settings")
-                        .map((nav, idx) => (
-                          <li key={`secondary-${idx}`} className="w-full">
+                        .filter((nav) => !nav.allowedRoles || nav.allowedRoles.includes(currentRole))
+                        .map((nav) => (
+                          <li key={nav.path} className="w-full">
                             <Link
                               to={nav.path}
                               onClick={() => closeMenu?.()}

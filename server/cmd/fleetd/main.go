@@ -33,6 +33,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -46,6 +47,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
+	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
@@ -61,6 +63,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
+	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
@@ -123,6 +126,9 @@ func start(config *Config) error {
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 
 	activitySvc := activityDomain.NewService(activityStore)
+
+	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
+	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -330,8 +336,8 @@ func start(config *Config) error {
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
-		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, interceptors.UnauthenticatedProcedures),
+		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures),
 		validateInterceptor,
 	)
 
@@ -374,6 +380,7 @@ func start(config *Config) error {
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
+	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {

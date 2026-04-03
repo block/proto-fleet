@@ -108,7 +108,7 @@ func TestAuthInterceptor(t *testing.T) {
 
 		// Assert
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-		assert.Contains(t, err.Error(), "session cookie required")
+		assert.Contains(t, err.Error(), "authentication required")
 	})
 
 	t.Run("should fail auth check when session is invalid", func(t *testing.T) {
@@ -167,6 +167,229 @@ func TestAuthInterceptor(t *testing.T) {
 		assert.Error(t, err, "FK constraint should prevent creating orphaned sessions")
 	})
 
+	t.Run("should authenticate with valid API key", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		// Create an API key
+		fullKey, _, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "Bearer "+fullKey)
+
+		resp, err := infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello", resp.Msg.Text)
+
+		keys, err := serviceProvider.ApiKeyService.List(t.Context(), testUser.OrganizationID)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(keys))
+		assert.True(t, keys[0].LastUsedAt != nil, "successful API key auth should update last_used_at")
+	})
+
+	t.Run("should authenticate with lowercase bearer scheme", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		fullKey, _, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "bearer "+fullKey)
+
+		resp, err := infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello", resp.Msg.Text)
+	})
+
+	t.Run("should fail with invalid API key", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "Bearer fleet_deadbeef_notarealkey")
+
+		_, err := infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("should not update last_used_at when role lookup fails after validation", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		fullKey, _, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		_, err = databaseService.DB.ExecContext(
+			t.Context(),
+			"UPDATE user_organization SET deleted_at = NOW() WHERE user_id = $1 AND organization_id = $2",
+			testUser.DatabaseID,
+			testUser.OrganizationID,
+		)
+		assert.NoError(t, err)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "Bearer "+fullKey)
+
+		_, err = infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+		keys, err := serviceProvider.ApiKeyService.List(t.Context(), testUser.OrganizationID)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(keys))
+		assert.True(t, keys[0].LastUsedAt == nil, "rejected API key auth should not update last_used_at")
+	})
+
+	t.Run("should reject ambiguous auth with both cookie and API key", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		// Create session
+		sess, err := serviceProvider.SessionService.Create(t.Context(), testUser.DatabaseID, testUser.OrganizationID, "test-agent", "127.0.0.1")
+		assert.NoError(t, err)
+
+		// Create API key
+		fullKey, _, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		// Send both
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		cookie := serviceProvider.SessionService.CreateCookie(sess.SessionID)
+		req.Header().Set("Cookie", cookie.String())
+		req.Header().Set("Authorization", "Bearer "+fullKey)
+
+		_, err = infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "ambiguous")
+	})
+
+	t.Run("should not fall back to session cookie when API key is invalid", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		// Create a valid session
+		sess, err := serviceProvider.SessionService.Create(t.Context(), testUser.DatabaseID, testUser.OrganizationID, "test-agent", "127.0.0.1")
+		assert.NoError(t, err)
+
+		// Send an invalid API key alongside a valid session cookie. This must not
+		// silently authenticate via the cookie.
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		cookie := serviceProvider.SessionService.CreateCookie(sess.SessionID)
+		req.Header().Set("Cookie", cookie.String())
+		req.Header().Set("Authorization", "Bearer fleet_deadbeef_notarealkey")
+
+		_, err = infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "ambiguous")
+	})
+
+	t.Run("should fail with revoked API key", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		// Create and then revoke an API key
+		fullKey, apiKey, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		err = serviceProvider.ApiKeyService.Revoke(
+			t.Context(), apiKey.KeyID, testUser.OrganizationID,
+			"ext-id", testUser.Username,
+		)
+		assert.NoError(t, err)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "Bearer "+fullKey)
+
+		_, err = infrastructureProvider.PingClient.Ping(t.Context(), req)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("should populate API key info in session context", func(t *testing.T) {
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+
+		testUser := databaseService.CreateSuperAdminUser()
+
+		fullKey, apiKey, err := serviceProvider.ApiKeyService.Create(
+			t.Context(), testUser.DatabaseID, testUser.OrganizationID,
+			"ext-id", testUser.Username, "test-key", nil,
+		)
+		assert.NoError(t, err)
+
+		var capturedInfo *session.Info
+		capturer := &sessionInfoCapturer{onCapture: func(info *session.Info) {
+			capturedInfo = info
+		}}
+
+		interceptorsOption := connect.WithInterceptors(
+			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, allowList, nil),
+			capturer,
+		)
+
+		mux := http.NewServeMux()
+		mux.Handle(pingv1connect.NewPingServiceHandler(ping.Handler{}, interceptorsOption))
+		server := httptest.NewServer(mux)
+		t.Cleanup(server.Close)
+
+		client := pingv1connect.NewPingServiceClient(http.DefaultClient, server.URL)
+
+		req := connect.NewRequest(&pingv1.PingRequest{Text: "Hello"})
+		req.Header().Set("Authorization", "Bearer "+fullKey)
+
+		resp, err := client.Ping(t.Context(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello", resp.Msg.Text)
+
+		assert.NotZero(t, capturedInfo, "session info should have been captured")
+		assert.Equal(t, session.AuthMethodAPIKey, capturedInfo.AuthMethod)
+		assert.Equal(t, apiKey.KeyID, capturedInfo.APIKeyID)
+		assert.Equal(t, "", capturedInfo.SessionID)
+		assert.Equal(t, testUser.Username, capturedInfo.Username)
+		assert.Equal(t, testUser.DatabaseID, capturedInfo.UserID)
+		assert.Equal(t, testUser.OrganizationID, capturedInfo.OrganizationID)
+		assert.Equal(t, "SUPER_ADMIN", capturedInfo.Role)
+	})
+
 	t.Run("should populate ExternalUserID and Username in session info", func(t *testing.T) {
 		databaseService := testutil.NewDatabaseService(t, testConfig)
 		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
@@ -182,7 +405,7 @@ func TestAuthInterceptor(t *testing.T) {
 		}}
 
 		interceptorsOption := connect.WithInterceptors(
-			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, allowList),
+			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, allowList, nil),
 			capturer,
 		)
 
@@ -202,10 +425,13 @@ func TestAuthInterceptor(t *testing.T) {
 		assert.Equal(t, "Hello", resp.Msg.Text)
 
 		assert.NotZero(t, capturedInfo, "session info should have been captured")
+		assert.Equal(t, session.AuthMethodSession, capturedInfo.AuthMethod)
 		assert.Equal(t, testUser.Username, capturedInfo.Username)
 		assert.NotEqual(t, "", capturedInfo.ExternalUserID)
 		assert.Equal(t, testUser.DatabaseID, capturedInfo.UserID)
 		assert.Equal(t, testUser.OrganizationID, capturedInfo.OrganizationID)
+		assert.NotEqual(t, "", capturedInfo.Role)
+		assert.Equal(t, "", capturedInfo.APIKeyID)
 	})
 }
 

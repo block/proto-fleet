@@ -143,7 +143,7 @@ describe("AddTeamMemberModal", () => {
       onSuccess("user-123", "testuser", "TempPass123!@#");
     });
 
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText, getByText, getByTestId } = render(
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
@@ -156,6 +156,7 @@ describe("AddTeamMemberModal", () => {
     await waitFor(() => {
       expect(getByText("Member added")).toBeInTheDocument();
       expect(getByText("TempPass123!@#")).toBeInTheDocument();
+      expect(getByTestId("modal")).toBeInTheDocument();
     });
   });
 

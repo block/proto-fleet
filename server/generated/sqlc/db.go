@@ -60,6 +60,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
+	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
+	}
 	if q.createCommandBatchLogStmt, err = db.PrepareContext(ctx, createCommandBatchLog); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateCommandBatchLog: %w", err)
 	}
@@ -134,6 +137,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
+	}
+	if q.getApiKeyByHashStmt, err = db.PrepareContext(ctx, getApiKeyByHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetApiKeyByHash: %w", err)
 	}
 	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
@@ -396,6 +402,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
 	}
+	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
+	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
 	}
@@ -474,6 +483,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
 		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
 	}
+	if q.revokeApiKeyStmt, err = db.PrepareContext(ctx, revokeApiKey); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeApiKey: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
@@ -521,6 +533,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.undeleteRoleStmt, err = db.PrepareContext(ctx, undeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UndeleteRole: %w", err)
+	}
+	if q.updateApiKeyLastUsedStmt, err = db.PrepareContext(ctx, updateApiKeyLastUsed); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateApiKeyLastUsed: %w", err)
 	}
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
@@ -680,6 +695,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
 		}
 	}
+	if q.createApiKeyStmt != nil {
+		if cerr := q.createApiKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createApiKeyStmt: %w", cerr)
+		}
+	}
 	if q.createCommandBatchLogStmt != nil {
 		if cerr := q.createCommandBatchLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createCommandBatchLogStmt: %w", cerr)
@@ -803,6 +823,11 @@ func (q *Queries) Close() error {
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.getApiKeyByHashStmt != nil {
+		if cerr := q.getApiKeyByHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getApiKeyByHashStmt: %w", cerr)
 		}
 	}
 	if q.getAvailableModelsStmt != nil {
@@ -1240,6 +1265,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
 		}
 	}
+	if q.listApiKeysByOrganizationStmt != nil {
+		if cerr := q.listApiKeysByOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listApiKeysByOrganizationStmt: %w", cerr)
+		}
+	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
 		if cerr := q.listDeviceSetMembersPaginatedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedStmt: %w", cerr)
@@ -1370,6 +1400,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revertScheduleToActiveStmt: %w", cerr)
 		}
 	}
+	if q.revokeApiKeyStmt != nil {
+		if cerr := q.revokeApiKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeApiKeyStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
@@ -1448,6 +1483,11 @@ func (q *Queries) Close() error {
 	if q.undeleteRoleStmt != nil {
 		if cerr := q.undeleteRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing undeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.updateApiKeyLastUsedStmt != nil {
+		if cerr := q.updateApiKeyLastUsedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateApiKeyLastUsedStmt: %w", cerr)
 		}
 	}
 	if q.updateDeviceIPAssignmentStmt != nil {
@@ -1656,6 +1696,7 @@ type Queries struct {
 	countDevicesWithErrorsStmt                          *sql.Stmt
 	countErrorsStmt                                     *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
+	createApiKeyStmt                                    *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createDeviceSetStmt                                 *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
@@ -1681,6 +1722,7 @@ type Queries struct {
 	getAllDeviceStatusDailyAggregatesStmt               *sql.Stmt
 	getAllDeviceStatusHourlyAggregatesStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
+	getApiKeyByHashStmt                                 *sql.Stmt
 	getAvailableModelsStmt                              *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
@@ -1768,6 +1810,7 @@ type Queries struct {
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
+	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
@@ -1794,6 +1837,7 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
 	resumePausedScheduleStmt                            *sql.Stmt
 	revertScheduleToActiveStmt                          *sql.Stmt
+	revokeApiKeyStmt                                    *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
@@ -1810,6 +1854,7 @@ type Queries struct {
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
 	undeleteOrganizationStmt                            *sql.Stmt
 	undeleteRoleStmt                                    *sql.Stmt
+	updateApiKeyLastUsedStmt                            *sql.Stmt
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
 	updateDeviceInfoStmt                                *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
@@ -1859,6 +1904,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                     q.countErrorsStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
+		createApiKeyStmt:                                    q.createApiKeyStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createDeviceSetStmt:                                 q.createDeviceSetStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
@@ -1884,6 +1930,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllDeviceStatusDailyAggregatesStmt:               q.getAllDeviceStatusDailyAggregatesStmt,
 		getAllDeviceStatusHourlyAggregatesStmt:              q.getAllDeviceStatusHourlyAggregatesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
+		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
 		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
@@ -1971,6 +2018,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
+		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
@@ -1997,6 +2045,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
 		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
+		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
@@ -2013,6 +2062,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
 		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
+		updateApiKeyLastUsedStmt:                            q.updateApiKeyLastUsedStmt,
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
 		updateDeviceInfoStmt:                                q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,

@@ -13,6 +13,7 @@ import { GroupOverviewPage, GroupsPage } from "@/protoFleet/features/groupManage
 import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFleet/features/onboarding";
 import { RackOverviewPage, RacksPage } from "@/protoFleet/features/rackManagement";
 import {
+  ApiKeys,
   Authentication as AuthSettings,
   Firmware,
   General,
@@ -157,6 +158,12 @@ const router = createBrowserRouter([
     "/settings/schedules",
     <SettingsLayout>
       <Schedules />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/api-keys",
+    <SettingsLayout>
+      <ApiKeys />
     </SettingsLayout>,
   ),
 

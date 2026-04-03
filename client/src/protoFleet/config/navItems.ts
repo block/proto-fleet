@@ -12,6 +12,7 @@ export interface SecondaryNavItem {
   path: string;
   label: string;
   parent: string;
+  allowedRoles?: string[];
 }
 
 // Primary navigation items (shown in main nav menu)
@@ -79,5 +80,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",
+  },
+  {
+    path: "/settings/api-keys",
+    label: "API Keys",
+    parent: "/settings",
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
 ];

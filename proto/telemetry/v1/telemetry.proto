@@ -261,9 +261,6 @@ message StreamCombinedMetricUpdatesRequest {
     // default update interval is granularity
     google.protobuf.Duration update_interval = 5;
 
-    // Unique identifier for this browser tab/connection.
-    // Used for stream deduplication to allow multiple tabs to maintain independent streams.
-    string connection_id = 6;
 }
 
 message StreamCombinedMetricUpdatesResponse {
@@ -279,4 +276,3 @@ message StreamCombinedMetricUpdatesResponse {
     // Real-time miner state counts (hashing, broken, offline, sleeping)
     MinerStateCounts miner_state_counts = 5;
 }
-

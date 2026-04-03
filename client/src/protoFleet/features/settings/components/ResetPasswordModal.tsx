@@ -50,7 +50,7 @@ const ResetPasswordModal = ({
         titleSize="text-heading-300"
         onDismiss={onDismiss}
         icon={
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-elevated-base">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
             <Lock />
           </div>
         }
@@ -80,7 +80,7 @@ const ResetPasswordModal = ({
     <Modal open={open} onDismiss={onDismiss} size="small" showHeader={false}>
       <div className="flex flex-col gap-6 py-6">
         <div className="flex items-start">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-intent-success-10">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5 text-intent-success-fill">
             <Success />
           </div>
         </div>

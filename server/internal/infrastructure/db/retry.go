@@ -55,6 +55,12 @@ func IsRetryablePostgresError(err error) bool {
 	return false
 }
 
+// IsUniqueViolationError returns true if the error is a PostgreSQL unique constraint violation.
+func IsUniqueViolationError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == PGUniqueViolation
+}
+
 // RetryDB wraps a *sql.DB and automatically retries database operations on retryable errors.
 // This provides transparent retry handling for SQL operations without requiring
 // explicit retry logic at each call site.

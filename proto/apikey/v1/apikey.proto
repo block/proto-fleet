@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package apikey.v1;
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+// ApiKeyService provides management of API keys for programmatic gRPC access
+service ApiKeyService {
+    // CreateApiKey creates a new API key for the authenticated user's organization.
+    // The full key is returned once in the response and cannot be retrieved again.
+    rpc CreateApiKey(CreateApiKeyRequest) returns (CreateApiKeyResponse);
+
+    // ListApiKeys returns all active (non-revoked) API keys for the organization.
+    rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
+
+    // RevokeApiKey permanently revokes an API key. The key cannot be used after revocation.
+    rpc RevokeApiKey(RevokeApiKeyRequest) returns (RevokeApiKeyResponse);
+}
+
+message CreateApiKeyRequest {
+    // Human-readable name for the API key
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+
+    // Optional expiration timestamp. If not set, the key never expires.
+    google.protobuf.Timestamp expires_at = 2;
+}
+
+message CreateApiKeyResponse {
+    // The full API key. This is shown ONCE and cannot be retrieved again.
+    string api_key = 1;
+
+    // API key metadata
+    ApiKeyInfo info = 2;
+}
+
+message ListApiKeysRequest {}
+
+message ListApiKeysResponse {
+    repeated ApiKeyInfo api_keys = 1;
+}
+
+message ApiKeyInfo {
+    // Unique identifier for this API key
+    string key_id = 1;
+
+    // Human-readable name
+    string name = 2;
+
+    // Key prefix for identification (e.g., "fleet_ab3f1e09...")
+    string prefix = 3;
+
+    // Timestamp when the key was created
+    google.protobuf.Timestamp created_at = 4;
+
+    // Optional expiration timestamp
+    google.protobuf.Timestamp expires_at = 5;
+
+    // Timestamp when the key was last used for authentication
+    google.protobuf.Timestamp last_used_at = 6;
+
+    // Username of the user who created the key
+    string created_by = 7;
+}
+
+message RevokeApiKeyRequest {
+    // ID of the API key to revoke
+    string key_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message RevokeApiKeyResponse {}

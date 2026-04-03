@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
 import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { useRole } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
@@ -12,15 +13,18 @@ type SecondaryNavigationProps = {
 const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
+  const currentRole = useRole();
 
   // Hide on mobile and tablet since secondary nav items are shown in main menu
   if (isPhone || isTablet) return null;
 
-  // Filter items to only show those whose parent matches the current path
+  // Filter items to only show those whose parent matches the current path and whose role matches
   const visibleItems = items.filter((item) => {
     const _pathname = stripLeadingSlash(pathname);
     const _parent = stripLeadingSlash(item.parent);
-    return _pathname === _parent || _pathname.startsWith(`${_parent}/`);
+    const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
+    const roleMatch = !item.allowedRoles || item.allowedRoles.includes(currentRole);
+    return pathMatch && roleMatch;
   });
 
   const isCurrentPath = (path: string) => {
@@ -38,9 +42,9 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
       data-testid="secondary-nav"
       className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-3 px-3 pt-3 text-text-primary-70"
     >
-      {visibleItems.map((item, idx) => {
+      {visibleItems.map((item) => {
         return (
-          <li key={idx}>
+          <li key={item.path}>
             <Link
               to={"/" + stripLeadingSlash(item.path)}
               className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {

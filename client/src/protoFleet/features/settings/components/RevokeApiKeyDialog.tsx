@@ -2,19 +2,19 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
-interface DeactivateUserDialogProps {
+interface RevokeApiKeyDialogProps {
   open?: boolean;
-  username: string;
+  keyName: string;
   onConfirm: () => void;
   onDismiss: () => void;
   isSubmitting: boolean;
 }
 
-const DeactivateUserDialog = ({ open, username, onConfirm, onDismiss, isSubmitting }: DeactivateUserDialogProps) => {
+const RevokeApiKeyDialog = ({ open, keyName, onConfirm, onDismiss, isSubmitting }: RevokeApiKeyDialogProps) => {
   return (
     <Dialog
       open={open}
-      title="Deactivate member?"
+      title="Revoke API key?"
       titleSize="text-heading-300"
       onDismiss={onDismiss}
       icon={
@@ -29,7 +29,7 @@ const DeactivateUserDialog = ({ open, username, onConfirm, onDismiss, isSubmitti
           variant: variants.secondary,
         },
         {
-          text: "Confirm deactivation",
+          text: "Revoke key",
           onClick: onConfirm,
           variant: variants.danger,
           loading: isSubmitting,
@@ -37,11 +37,11 @@ const DeactivateUserDialog = ({ open, username, onConfirm, onDismiss, isSubmitti
       ]}
     >
       <div className="text-300 text-text-primary-70">
-        Are you sure you want to deactivate this member ({username})? They will be hidden and removed from your account.
-        This action cannot be undone.
+        Are you sure you want to revoke the API key "{keyName}"? Any applications or scripts using this key will
+        immediately lose access. This action cannot be undone.
       </div>
     </Dialog>
   );
 };
 
-export default DeactivateUserDialog;
+export default RevokeApiKeyDialog;

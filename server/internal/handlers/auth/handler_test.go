@@ -169,6 +169,72 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 	})
 }
 
+func TestAuthServer_SessionOnlyEndpoints(t *testing.T) {
+	t.Run("should reject API key auth for user audit and list users", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		fullKey, _, err := testContext.ServiceProvider.ApiKeyService.Create(
+			t.Context(),
+			testUser.DatabaseID,
+			testUser.OrganizationID,
+			"ext-id",
+			testUser.Username,
+			"test-key",
+			nil,
+		)
+		assert.NoError(t, err)
+
+		auditReq := connect.NewRequest(&authv1.GetUserAuditInfoRequest{})
+		auditReq.Header().Set("Authorization", "Bearer "+fullKey)
+
+		_, err = testContext.InfrastructureProvider.AuthClient.GetUserAuditInfo(t.Context(), auditReq)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+		listReq := connect.NewRequest(&authv1.ListUsersRequest{})
+		listReq.Header().Set("Authorization", "Bearer "+fullKey)
+
+		_, err = testContext.InfrastructureProvider.AuthClient.ListUsers(t.Context(), listReq)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
+	t.Run("should reject ambiguous auth before session-only enforcement", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		fullKey, _, err := testContext.ServiceProvider.ApiKeyService.Create(
+			t.Context(),
+			testUser.DatabaseID,
+			testUser.OrganizationID,
+			"ext-id",
+			testUser.Username,
+			"test-key",
+			nil,
+		)
+		assert.NoError(t, err)
+
+		sess, err := testContext.ServiceProvider.SessionService.Create(
+			t.Context(),
+			testUser.DatabaseID,
+			testUser.OrganizationID,
+			"test-agent",
+			"127.0.0.1",
+		)
+		assert.NoError(t, err)
+
+		auditReq := connect.NewRequest(&authv1.GetUserAuditInfoRequest{})
+		auditReq.Header().Set("Authorization", "Bearer "+fullKey)
+		auditReq.Header().Set("Cookie", testContext.ServiceProvider.SessionService.CreateCookie(sess.SessionID).String())
+
+		_, err = testContext.InfrastructureProvider.AuthClient.GetUserAuditInfo(t.Context(), auditReq)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "ambiguous")
+	})
+}
+
 func setupAuthClientFor(
 	t *testing.T,
 	infrastructureProvider *testutil.InfrastructureProvider,

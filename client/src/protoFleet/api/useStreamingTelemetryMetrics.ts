@@ -10,7 +10,6 @@ import {
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors } from "@/protoFleet/store";
-import { getConnectionId } from "@/protoFleet/utils/connectionId";
 import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 interface StreamingOptions {
@@ -75,7 +74,6 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
           metrics: stableOptions.measurementTypes || [MeasurementType.HASHRATE],
           aggregations: stableOptions.aggregations || [AggregationType.AVERAGE],
           granularity: { seconds: BigInt(20), nanos: 0 }, // 20 seconds
-          connectionId: getConnectionId(),
         });
 
         for await (const response of telemetryClient.streamCombinedMetricUpdates(request, {

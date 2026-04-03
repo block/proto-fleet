@@ -10,12 +10,14 @@ import (
 	"github.com/alecthomas/assert/v2"
 
 	"connectrpc.com/connect"
+	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	apikeyHandlerPkg "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -27,6 +29,7 @@ import (
 type InfrastructureProvider struct {
 	serviceProvider  *ServiceProvider
 	AuthClient       authv1connect.AuthServiceClient
+	ApiKeyClient     apikeyv1connect.ApiKeyServiceClient
 	PairingClient    pairingv1connect.PairingServiceClient
 	OnboardingClient onboardingv1connect.OnboardingServiceClient
 	PingClient       pingv1connect.PingServiceClient
@@ -44,7 +47,7 @@ type TestContext struct {
 }
 
 func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, authInterceptorAllowList []string) *InfrastructureProvider {
-	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, authInterceptorAllowList))
+	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, authInterceptorAllowList, interceptors.SessionOnlyProcedures))
 
 	mux := http.NewServeMux()
 
@@ -63,9 +66,13 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	commandHandler := command.NewHandler(serviceProvider.CommandService)
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(commandHandler, interceptorsOption))
 
+	apiKeyHandler := apikeyHandlerPkg.NewHandler(serviceProvider.ApiKeyService)
+	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apiKeyHandler, interceptorsOption))
+
 	testServer := httptest.NewServer(mux)
 
 	authClient := authv1connect.NewAuthServiceClient(http.DefaultClient, testServer.URL)
+	apiKeyClient := apikeyv1connect.NewApiKeyServiceClient(http.DefaultClient, testServer.URL)
 	pairingClient := pairingv1connect.NewPairingServiceClient(http.DefaultClient, testServer.URL)
 	onboardingClient := onboardingv1connect.NewOnboardingServiceClient(http.DefaultClient, testServer.URL)
 	pingClient := pingv1connect.NewPingServiceClient(http.DefaultClient, testServer.URL)
@@ -74,6 +81,7 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	provider := InfrastructureProvider{
 		serviceProvider:  serviceProvider,
 		AuthClient:       authClient,
+		ApiKeyClient:     apiKeyClient,
 		PairingClient:    pairingClient,
 		OnboardingClient: onboardingClient,
 		PingClient:       pingClient,

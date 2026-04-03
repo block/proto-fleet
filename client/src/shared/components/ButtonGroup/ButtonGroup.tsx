@@ -51,7 +51,7 @@ const ButtonGroup = ({ buttons, className, size, sortButtons = true, variant }: 
   }
 
   if (rightAligned) {
-    parentClasses.push(horizontalGap);
+    parentClasses.push(...["justify-end", horizontalGap]);
     if (sortButtons) {
       sortedButtons = sortPrimaryButtonLast(buttons);
     }

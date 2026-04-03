@@ -13,15 +13,27 @@ import (
 )
 
 type RequestLoggingInterceptor struct {
-	logLevel      slog.Level
-	nextRequestID atomic.Int64
+	logLevel              slog.Level
+	nextRequestID         atomic.Int64
+	redactRequestForProc  map[string]struct{}
+	redactResponseForProc map[string]struct{}
 }
 
 var _ connect.Interceptor = &RequestLoggingInterceptor{}
 
-func NewRequestLoggingInterceptor(level slog.Level) *RequestLoggingInterceptor {
+func NewRequestLoggingInterceptor(level slog.Level, redactRequestProcedures, redactResponseProcedures []string) *RequestLoggingInterceptor {
+	reqSet := make(map[string]struct{}, len(redactRequestProcedures))
+	for _, p := range redactRequestProcedures {
+		reqSet[p] = struct{}{}
+	}
+	respSet := make(map[string]struct{}, len(redactResponseProcedures))
+	for _, p := range redactResponseProcedures {
+		respSet[p] = struct{}{}
+	}
 	return &RequestLoggingInterceptor{
-		logLevel: level,
+		logLevel:              level,
+		redactRequestForProc:  reqSet,
+		redactResponseForProc: respSet,
 	}
 }
 
@@ -44,13 +56,20 @@ func (e *RequestLoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.Un
 
 func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, duration time.Duration, result connect.AnyResponse, err error) {
 	procedure := request.Spec().Procedure
+	_, redactRequest := e.redactRequestForProc[procedure]
+	_, redactResponse := e.redactResponseForProc[procedure]
+
+	reqBody := any("[REDACTED]")
+	if !redactRequest {
+		reqBody = request.Any()
+	}
 
 	if err != nil {
 		if e.logLevel <= slog.LevelDebug {
 			slog.Error("incoming unary request failed",
 				"procedure", procedure,
 				"took", duration,
-				"request", request.Any(),
+				"request", reqBody,
 				"error", err,
 			)
 		} else {
@@ -58,11 +77,15 @@ func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, 
 		}
 	} else {
 		if e.logLevel <= slog.LevelDebug {
+			respBody := any("[REDACTED]")
+			if !redactResponse {
+				respBody = result.Any()
+			}
 			slog.Debug("incoming unary request",
 				"procedure", procedure,
 				"took", duration,
-				"request", request.Any(),
-				"result", result.Any(),
+				"request", reqBody,
+				"result", respBody,
 			)
 		} else {
 			slog.Debug("incoming unary request", "procedure", procedure, "took", duration)
