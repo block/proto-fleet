@@ -64,8 +64,10 @@ func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, 
 		reqBody = request.Any()
 	}
 
+	logBody := e.logLevel <= slog.LevelDebug && !SensitiveBodyProcedures[procedure]
+
 	if err != nil {
-		if e.logLevel <= slog.LevelDebug {
+		if logBody {
 			slog.Error("incoming unary request failed",
 				"procedure", procedure,
 				"took", duration,
@@ -76,7 +78,7 @@ func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, 
 			slog.Error("incoming unary request failed", "procedure", procedure, "took", duration, "error", err)
 		}
 	} else {
-		if e.logLevel <= slog.LevelDebug {
+		if logBody {
 			respBody := any("[REDACTED]")
 			if !redactResponse {
 				respBody = result.Any()

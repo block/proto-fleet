@@ -578,6 +578,26 @@ WHERE d.mac_address = sqlc.arg('normalized_mac')
 ORDER BY d.id
 LIMIT 2;
 
+-- name: GetPairedDevicesByMACAddresses :many
+-- Batch lookup of paired devices by MAC addresses for a given organization.
+-- Returns one row per matched MAC (most recently created device wins if duplicates exist).
+-- Used by Foreman import to resolve Foreman miner IDs to Fleet device identifiers in a single query.
+SELECT DISTINCT ON (d.mac_address)
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.mac_address = ANY(sqlc.arg('mac_addresses')::text[])
+  AND d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY d.mac_address, d.id DESC;
+
 -- name: GetPairedDeviceBySerialNumber :one
 -- Finds an existing paired device by serial number for a given organization.
 -- Used as fallback reconciliation when MAC address is not available during re-pairing.

@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -55,4 +56,12 @@ var UnauthenticatedProcedures = []string{
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
+}
+
+// SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
+// logged, even at debug level, because they contain secrets (e.g., API keys).
+var SensitiveBodyProcedures = map[string]bool{
+	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure: true,
+	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:    true,
+	authv1connect.AuthServiceAuthenticateProcedure:                        true,
 }

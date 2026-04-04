@@ -39,6 +39,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -54,6 +55,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -71,6 +73,7 @@ import (
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
+	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
@@ -326,6 +329,7 @@ func start(config *Config) error {
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
+	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -379,6 +383,7 @@ func start(config *Config) error {
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
+	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 

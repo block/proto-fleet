@@ -273,6 +273,21 @@ func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceBySerialNumber(ctx, serial
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceBySerialNumber", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceBySerialNumber), ctx, serialNumber, orgID)
 }
 
+// GetPairedDevicesByMACAddresses mocks base method.
+func (m *MockDeviceStore) GetPairedDevicesByMACAddresses(ctx context.Context, macAddresses []string, orgID int64) (map[string]*interfaces.PairedDeviceInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPairedDevicesByMACAddresses", ctx, macAddresses, orgID)
+	ret0, _ := ret[0].(map[string]*interfaces.PairedDeviceInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPairedDevicesByMACAddresses indicates an expected call of GetPairedDevicesByMACAddresses.
+func (mr *MockDeviceStoreMockRecorder) GetPairedDevicesByMACAddresses(ctx, macAddresses, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDevicesByMACAddresses", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDevicesByMACAddresses), ctx, macAddresses, orgID)
+}
+
 // GetTotalDevicesPendingAuth mocks base method.
 func (m *MockDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()

@@ -10,6 +10,7 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { useForemanImport } from "@/protoFleet/api/useForemanImport";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -44,11 +45,13 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const { data: networkInfo } = useNetworkInfo();
 
   const { discover, pairingPending, pair } = useMinerPairing();
+  const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [ipListDiscoveryPending, setIpListDiscoveryPending] = useState(false);
   const discoveryAbortController = useRef<AbortController>(new AbortController());
   const longPairingToastShown = useRef(false);
   const loadingToastIds = useRef<number[]>([]);
+  const foremanCredsRef = useRef<{ apiKey: string; clientId: string } | null>(null);
 
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
   const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
@@ -130,6 +133,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const handleNmapDiscovery = useCallback(() => {
     if (!networkInfo) return;
 
+    foremanCredsRef.current = null;
     setFoundMiners([]);
     setScanDiscoveryPending(true);
     setLastDiscoveryMode(minerDiscoveryModes.scan);
@@ -151,6 +155,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   }, [handleDiscover, networkInfo]);
 
   const cancelNetworkScan = useCallback(() => {
+    foremanCredsRef.current = null;
     setScanDiscoveryPending(false);
     setIpListDiscoveryPending(false);
     setLastDiscoveryMode(minerDiscoveryModes.scan);
@@ -242,8 +247,14 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const handleRescan = useCallback(() => {
     if (scanDiscoveryPending || ipListDiscoveryPending) return;
 
-    if (lastDiscoveryMode === minerDiscoveryModes.ipList && lastManualTargets) {
+    const wasForeman = lastDiscoveryMode === minerDiscoveryModes.foreman;
+
+    if ((lastDiscoveryMode === minerDiscoveryModes.ipList || wasForeman) && lastManualTargets) {
       handleManualDiscovery(lastManualTargets);
+      // Preserve foreman mode so completeImport still fires after pairing
+      if (wasForeman) {
+        setLastDiscoveryMode(minerDiscoveryModes.foreman);
+      }
     } else {
       handleNmapDiscovery();
     }
@@ -318,6 +329,30 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
           notifyPairingCompletedFn();
         }
 
+        // If this was a Foreman import, create pools/groups/racks and assign devices before refreshing
+        if (lastDiscoveryMode === minerDiscoveryModes.foreman && foremanCredsRef.current) {
+          const creds = foremanCredsRef.current;
+          foremanCredsRef.current = null;
+          if (successCount > 0) {
+            await completeImport({
+              apiKey: creds.apiKey,
+              clientId: creds.clientId,
+              importPools: true,
+              importGroups: true,
+              importRacks: true,
+              pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedDeviceIds.includes(id)),
+              onSuccess: () => {},
+              onError: (error) => {
+                console.error("Foreman complete import failed:", error);
+                pushToast({
+                  message: "Miners added but failed to import pools/groups/racks from Foreman.",
+                  status: TOAST_STATUSES.error,
+                });
+              },
+            });
+          }
+        }
+
         // Wait for fleet data to refresh with updated firmware versions before navigating
         await refetch();
         refetchFleet();
@@ -331,6 +366,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       },
       onError: (error) => {
         console.error("Pairing error:", error);
+        foremanCredsRef.current = null;
 
         // Clear loading toasts before showing error
         clearLoadingToasts();
@@ -341,6 +377,39 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       },
     });
   }
+
+  const handleForemanImport = useCallback(
+    (apiKey: string, clientId: string) => {
+      foremanCredsRef.current = { apiKey, clientId };
+      importFromForeman({
+        apiKey,
+        clientId,
+        onSuccess: (response) => {
+          const ips = response.miners.map((m) => m.ipAddress).filter((ip) => ip !== "");
+
+          if (ips.length > 0) {
+            handleManualDiscovery({ ipAddresses: ips, subnets: [], ipRanges: [] });
+            // Override the ipList mode that handleManualDiscovery just set
+            setLastDiscoveryMode(minerDiscoveryModes.foreman);
+          } else {
+            foremanCredsRef.current = null;
+            pushToast({
+              message: "No miners with IP addresses found in your Foreman account.",
+              status: TOAST_STATUSES.error,
+            });
+          }
+        },
+        onError: (error) => {
+          foremanCredsRef.current = null;
+          pushToast({
+            message: `Foreman import failed: ${error}`,
+            status: TOAST_STATUSES.error,
+          });
+        },
+      });
+    },
+    [importFromForeman, handleManualDiscovery],
+  );
 
   return (
     <Miners
@@ -353,6 +422,8 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}
       onRescan={handleRescan}
+      onForemanImport={handleForemanImport}
+      foremanImportPending={foremanImportPending}
       mode={mode}
     />
   );

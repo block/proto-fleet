@@ -1299,6 +1299,44 @@ func (s *SQLDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAdd
 	}, nil
 }
 
+func (s *SQLDeviceStore) GetPairedDevicesByMACAddresses(ctx context.Context, macAddresses []string, orgID int64) (map[string]*stores.PairedDeviceInfo, error) {
+	if len(macAddresses) == 0 {
+		return nil, nil
+	}
+
+	// Normalize all MACs before querying
+	normalized := make([]string, 0, len(macAddresses))
+	for _, mac := range macAddresses {
+		n := networking.NormalizeMAC(mac)
+		if len(n) == 17 { // AA:BB:CC:DD:EE:FF
+			normalized = append(normalized, n)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.getQueries(ctx).GetPairedDevicesByMACAddresses(ctx, sqlc.GetPairedDevicesByMACAddressesParams{
+		MacAddresses: normalized,
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to batch query paired devices by MAC addresses: %v", err)
+	}
+
+	result := make(map[string]*stores.PairedDeviceInfo, len(rows))
+	for _, row := range rows {
+		result[row.MacAddress] = &stores.PairedDeviceInfo{
+			DeviceIdentifier:           row.DeviceIdentifier,
+			MacAddress:                 row.MacAddress,
+			SerialNumber:               row.SerialNumber.String,
+			DiscoveredDeviceIdentifier: row.DiscoveredDeviceIdentifier,
+			DiscoveredDeviceID:         row.DiscoveredDeviceID,
+		}
+	}
+	return result, nil
+}
+
 func (s *SQLDeviceStore) GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*stores.PairedDeviceInfo, error) {
 	row, err := s.getQueries(ctx).GetPairedDeviceBySerialNumber(ctx, sqlc.GetPairedDeviceBySerialNumberParams{
 		SerialNumber: sql.NullString{String: serialNumber, Valid: serialNumber != ""},

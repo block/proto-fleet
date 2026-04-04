@@ -306,6 +306,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPairedDeviceBySerialNumberStmt, err = db.PrepareContext(ctx, getPairedDeviceBySerialNumber); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDeviceBySerialNumber: %w", err)
 	}
+	if q.getPairedDevicesByMACAddressesStmt, err = db.PrepareContext(ctx, getPairedDevicesByMACAddresses); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedDevicesByMACAddresses: %w", err)
+	}
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
@@ -1105,6 +1108,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPairedDeviceBySerialNumberStmt: %w", cerr)
 		}
 	}
+	if q.getPairedDevicesByMACAddressesStmt != nil {
+		if cerr := q.getPairedDevicesByMACAddressesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedDevicesByMACAddressesStmt: %w", cerr)
+		}
+	}
 	if q.getPairedDevicesIdsStmt != nil {
 		if cerr := q.getPairedDevicesIdsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
@@ -1778,6 +1786,7 @@ type Queries struct {
 	getOrganizationsForUserStmt                         *sql.Stmt
 	getPairedDeviceByMACAddressStmt                     *sql.Stmt
 	getPairedDeviceBySerialNumberStmt                   *sql.Stmt
+	getPairedDevicesByMACAddressesStmt                  *sql.Stmt
 	getPairedDevicesIdsStmt                             *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
@@ -1986,6 +1995,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
 		getPairedDeviceByMACAddressStmt:                     q.getPairedDeviceByMACAddressStmt,
 		getPairedDeviceBySerialNumberStmt:                   q.getPairedDeviceBySerialNumberStmt,
+		getPairedDevicesByMACAddressesStmt:                  q.getPairedDevicesByMACAddressesStmt,
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,

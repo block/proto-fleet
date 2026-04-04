@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package foremanimport.v1;
+
+service ForemanImportService {
+  // Validates Foreman credentials and returns miner IPs for discovery+pairing.
+  // Does NOT create pools/groups/racks — call CompleteImport after pairing.
+  rpc ImportFromForeman(ImportFromForemanRequest) returns (ImportFromForemanResponse);
+
+  // Creates pools/groups/racks and assigns paired devices to their collections.
+  // Call this after miners from ImportFromForeman have been discovered and paired.
+  rpc CompleteImport(CompleteImportRequest) returns (CompleteImportResponse);
+}
+
+message ForemanCredentials {
+  string api_key = 1;
+  string client_id = 2;
+}
+
+// ── Import (fetches miner IPs) ──────────────────────────────
+
+message ImportFromForemanRequest {
+  ForemanCredentials credentials = 1;
+}
+
+message ForemanMiner {
+  string ip_address = 1;
+  string mac_address = 2;
+  string name = 3;
+  string model = 4;
+}
+
+message ImportFromForemanResponse {
+  repeated ForemanMiner miners = 1;
+}
+
+// ── Complete import (creates entities + assigns devices) ────
+
+message CompleteImportRequest {
+  ForemanCredentials credentials = 1;
+
+  // Toggle which entity types to import.
+  bool import_pools = 2;
+  bool import_groups = 3;
+  bool import_racks = 4;
+
+  // Only process Foreman miners whose IPs were paired as these device identifiers.
+  // If empty, all Foreman miners are processed (backward compatible).
+  repeated string paired_device_identifiers = 5;
+}
+
+message CompleteImportResponse {
+  int32 pools_created = 1;
+  int32 groups_created = 2;
+  int32 racks_created = 3;
+  int32 devices_assigned = 4;
+  int32 worker_names_set = 5;
+  int32 miner_names_set = 6;
+}

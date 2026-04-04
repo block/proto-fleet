@@ -1040,6 +1040,69 @@ func (q *Queries) GetPairedDeviceBySerialNumber(ctx context.Context, arg GetPair
 	return i, err
 }
 
+const getPairedDevicesByMACAddresses = `-- name: GetPairedDevicesByMACAddresses :many
+SELECT DISTINCT ON (d.mac_address)
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    dd.device_identifier AS discovered_device_identifier,
+    dd.id AS discovered_device_id
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.mac_address = ANY($1::text[])
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY d.mac_address, d.id DESC
+`
+
+type GetPairedDevicesByMACAddressesParams struct {
+	MacAddresses []string
+	OrgID        int64
+}
+
+type GetPairedDevicesByMACAddressesRow struct {
+	DeviceIdentifier           string
+	MacAddress                 string
+	SerialNumber               sql.NullString
+	DiscoveredDeviceIdentifier string
+	DiscoveredDeviceID         int64
+}
+
+// Batch lookup of paired devices by MAC addresses for a given organization.
+// Returns one row per matched MAC (most recently created device wins if duplicates exist).
+// Used by Foreman import to resolve Foreman miner IDs to Fleet device identifiers in a single query.
+func (q *Queries) GetPairedDevicesByMACAddresses(ctx context.Context, arg GetPairedDevicesByMACAddressesParams) ([]GetPairedDevicesByMACAddressesRow, error) {
+	rows, err := q.query(ctx, q.getPairedDevicesByMACAddressesStmt, getPairedDevicesByMACAddresses, pq.Array(arg.MacAddresses), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPairedDevicesByMACAddressesRow
+	for rows.Next() {
+		var i GetPairedDevicesByMACAddressesRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.DiscoveredDeviceIdentifier,
+			&i.DiscoveredDeviceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPairedDevicesIds = `-- name: GetPairedDevicesIds :many
 SELECT
     d.id as device_id

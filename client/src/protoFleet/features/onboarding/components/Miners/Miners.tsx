@@ -9,6 +9,8 @@ import { Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
+import Input from "@/shared/components/Input";
+import Modal from "@/shared/components/Modal";
 import PageOverlay from "@/shared/components/PageOverlay";
 import Textarea from "@/shared/components/Textarea";
 import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
@@ -23,6 +25,8 @@ interface MinersProps {
   onManualDiscover: (targets: ManualDiscoveryTargets) => void;
   onContinue: (selectedMinerIdentifiers: string[]) => void;
   onRescan: () => void;
+  onForemanImport?: (apiKey: string, clientId: string) => void;
+  foremanImportPending?: boolean;
   mode?: MinerDiscoveryMode;
 }
 
@@ -39,6 +43,8 @@ const Miners = ({
   onManualDiscover,
   onContinue,
   onRescan,
+  onForemanImport,
+  foremanImportPending = false,
   mode = "onboarding",
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
@@ -52,6 +58,9 @@ const Miners = ({
   const [showValidationErrorDialog, setShowValidationErrorDialog] = useState(false);
   const [categorizedInvalidEntries, setCategorizedInvalidEntries] = useState<CategorizedInvalidEntries | null>(null);
   const [pendingValidTargets, setPendingValidTargets] = useState<ManualDiscoveryTargets | null>(null);
+  const [showForemanModal, setShowForemanModal] = useState(false);
+  const [foremanApiKey, setForemanApiKey] = useState("");
+  const [foremanClientId, setForemanClientId] = useState("");
 
   const discoveryPending = scanDiscoveryPending || ipListDiscoveryPending;
   const showLoadingSkeleton = showScanLoading || discoveryPending;
@@ -270,37 +279,55 @@ const Miners = ({
                 inline
               />
 
-              <div
-                className="my-6 flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
-                data-testid="section-scan-network"
-              >
-                <Header
-                  inline
-                  title="Scan your network"
-                  titleSize="text-heading-200"
-                  description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
-                />
-                <div>
-                  <Button
-                    variant={variants.primary}
-                    onClick={() => {
-                      setDeselectedMiners([]);
-                      setActiveStep("pairing");
-                      onRescan();
-                    }}
-                    size={sizes.base}
-                    loading={scanDiscoveryPending || !networkInfoReady}
-                    disabled={!networkInfoReady}
-                  >
-                    Find miners
-                  </Button>
+              <div className={clsx("my-6 grid gap-4", onForemanImport ? "grid-cols-2" : "grid-cols-1")}>
+                <div
+                  className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6"
+                  data-testid="section-scan-network"
+                >
+                  <Header
+                    inline
+                    title="Scan your network"
+                    titleSize="text-heading-200"
+                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
+                  />
+                  <div>
+                    <Button
+                      variant={variants.primary}
+                      onClick={() => {
+                        setDeselectedMiners([]);
+                        setActiveStep("pairing");
+                        onRescan();
+                      }}
+                      size={sizes.base}
+                      loading={scanDiscoveryPending || !networkInfoReady}
+                      disabled={!networkInfoReady}
+                    >
+                      Find miners
+                    </Button>
+                  </div>
                 </div>
+
+                {onForemanImport && (
+                  <div
+                    className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6"
+                    data-testid="section-import-foreman"
+                  >
+                    <Header
+                      inline
+                      title="Import from Foreman"
+                      titleSize="text-heading-200"
+                      description="Connect your Foreman account to import your existing miners, including pool configuration and group assignments."
+                    />
+                    <div>
+                      <Button variant={variants.primary} size={sizes.base} onClick={() => setShowForemanModal(true)}>
+                        Connect Foreman
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div
-                className="flex flex-col gap-4 rounded-3xl border-1 border-core-primary-5 p-6"
-                data-testid="section-search-by-ip"
-              >
+              <div className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6" data-testid="section-search-by-ip">
                 <Header
                   inline
                   title="Enter network info manually"
@@ -378,6 +405,48 @@ const Miners = ({
           )}
         </div>
       </PageOverlay>
+
+      <Modal
+        open={showForemanModal}
+        title="Import from Foreman"
+        description="Connect your Foreman account to import miners"
+        onDismiss={() => setShowForemanModal(false)}
+        size="small"
+        buttons={[
+          {
+            text: foremanImportPending ? "Importing..." : "Import",
+            variant: variants.primary,
+            onClick: () => {
+              if (onForemanImport && foremanApiKey && foremanClientId) {
+                onForemanImport(foremanApiKey, foremanClientId);
+                setForemanApiKey("");
+                setForemanClientId("");
+                setShowForemanModal(false);
+                setActiveStep("pairing");
+                setShowModal(true);
+              }
+            },
+            disabled: !foremanApiKey || !foremanClientId || foremanImportPending,
+            loading: foremanImportPending,
+          },
+        ]}
+      >
+        <div className="flex flex-col gap-4 p-4">
+          <Input
+            id="foremanApiKey"
+            label="API key"
+            type="password"
+            initValue={foremanApiKey}
+            onChange={(value) => setForemanApiKey(value)}
+          />
+          <Input
+            id="foremanClientId"
+            label="Client ID"
+            initValue={foremanClientId}
+            onChange={(value) => setForemanClientId(value)}
+          />
+        </div>
+      </Modal>
 
       <ValidationErrorDialog
         open={showValidationErrorDialog && !!categorizedInvalidEntries}
