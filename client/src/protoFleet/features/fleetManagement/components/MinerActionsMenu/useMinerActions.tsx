@@ -65,7 +65,6 @@ import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
-  FirmwareUpdate,
   Groups,
   LEDIndicator,
   Lock,
@@ -73,6 +72,7 @@ import {
   Play,
   Power,
   Reboot,
+  Settings,
   Speedometer,
   Terminal,
   Unpair,
@@ -1418,7 +1418,7 @@ export const useMinerActions = ({
       {
         action: deviceActions.firmwareUpdate,
         title: "Update firmware",
-        icon: <FirmwareUpdate />,
+        icon: <Settings />,
         actionHandler: handleFirmwareUpdate,
         requiresConfirmation: false,
       },

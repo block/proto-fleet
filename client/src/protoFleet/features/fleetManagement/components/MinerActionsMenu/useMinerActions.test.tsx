@@ -17,6 +17,7 @@ import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
 import { createFleetSlice } from "@/protoFleet/store/slices/fleetSlice";
 import type { UISlice } from "@/protoFleet/store/slices/uiSlice";
 import { createUISlice } from "@/protoFleet/store/slices/uiSlice";
+import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
 
 type TestStore = { fleet: FleetSlice; ui: UISlice };
@@ -3075,6 +3076,19 @@ describe("useMinerActions", () => {
   });
 
   describe("Firmware update mixed model guard", () => {
+    it("uses the canonical settings icon for the firmware action", () => {
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+
+      expect(fwAction).toEqual(expect.objectContaining({ icon: expect.objectContaining({ type: Settings }) }));
+    });
+
     it("should show error toast and not open modal when selected miners have mixed models", async () => {
       store
         .getState()
