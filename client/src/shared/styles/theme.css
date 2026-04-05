@@ -5,10 +5,11 @@
   --base_gray_80: 32 32 32; /* #202020 */
   --base_gray_70: 48 48 48; /* #303030 */
   --base_gray_60: 80 80 80; /* #505050 */
+  --base_gray_50: 96 96 96; /* #606060 */
   --base_gray_20: 192 192 192; /* #C0C0C0 */
   --base_gray_10: 224 224 224; /* #E0E0E0 */
-  --base_gray_5: 250 250 250; /* #FAFAFA */
-  --base_gray_2: 250 250 250; /* #F2F2F2 */
+  --base_gray_5: 242 242 242; /* #F2F2F2 */
+  --base_gray_2: 250 250 250; /* #FAFAFA */
   --base_green_100: 56 166 0; /* #38A600 */
   --base_light_green_100: 157 211 26; /* #9DD31A */
   --base_indigo_100: 120 62 237; /* #783EED */
@@ -341,6 +342,7 @@ WOuld be best to switch over to mobile first stying  */
     --color-surface-20: rgb(var(--base_gray_80));
     --color-surface-base: rgb(var(--base_gray_90));
     --color-surface-elevated-base: rgb(var(--base_gray_80));
+    --color-surface-overlay: rgb(var(--base_white_100) / 5%);
     --color-border-5: rgb(var(--base_white_100) / 5%);
     --color-border-10: rgb(var(--base_white_100) / 10%);
     --color-border-20: rgb(var(--base_white_100) / 20%);
