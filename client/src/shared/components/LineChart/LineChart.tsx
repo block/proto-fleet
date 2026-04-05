@@ -1,4 +1,4 @@
-import { ComponentType, useCallback, useMemo, useState } from "react";
+import { ComponentType, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -9,10 +9,11 @@ import {
   YAxis,
   type YAxisTickContentProps,
 } from "recharts";
+import type { MouseHandlerDataParam } from "recharts/types/synchronisation/types";
 
 import { lineProps } from "./constants";
 
-import ChartTooltip, { type TooltipData } from "./Tooltip";
+import ChartTooltip from "./Tooltip";
 
 import { type ChartData } from "./types";
 import { ChartWrapper, LineCursor, TimeXAxisTick, xAxisProps } from "@/shared/components/Chart";
@@ -53,7 +54,7 @@ const X_AXIS_LINE_STYLE = {
   strokeWidth: 1,
   strokeOpacity: 0, // hide the line because bottom tickline serves as axis line
 };
-const TOOLTIP_WRAPPER_STYLE = { outline: "none" };
+const TOOLTIP_WRAPPER_STYLE: CSSProperties = { outline: "none", pointerEvents: "none" };
 const LINE_CURSOR = <LineCursor />;
 
 interface CustomYAxisTickProps extends YAxisTickContentProps {
@@ -150,11 +151,10 @@ const LineChart = ({
   referenceLines,
 }: LineChartProps) => {
   const [chartRef, _, chartBoundingRect] = useMeasure<HTMLDivElement>();
-  const [tooltipData, setTooltipData] = useState<TooltipData>({
-    x: 0,
-    y: 0,
-    payload: [],
-  });
+  const [tooltipDatetime, setTooltipDatetime] = useState<number | undefined>(undefined);
+  const tooltipDatetimeRef = useRef<number | undefined>(undefined);
+  const queuedTooltipDatetimeRef = useRef<number | undefined>(undefined);
+  const tooltipAnimationFrameRef = useRef<number | null>(null);
 
   const corePrimary10 = useCssVariable("--color-core-primary-10");
 
@@ -303,40 +303,45 @@ const LineChart = ({
     return isPhone ? TOOLTIP_WIDTH_PHONE : TOOLTIP_WIDTH;
   }, [isPhone]);
 
-  const toolTipPositionX = useMemo(() => {
-    // Position tooltip to the right of cursor by default
-    const tooltipRightPosition = tooltipData.x + tooltipXOffset;
+  const tooltipKeysToShow = useMemo(() => {
+    const preferredTooltipKeys = tooltipKeys ?? activeKeys ?? [];
+    return preferredTooltipKeys.length > 0 ? preferredTooltipKeys : aggregateKey ? [aggregateKey] : [];
+  }, [tooltipKeys, activeKeys, aggregateKey]);
 
-    // Check if tooltip would overflow the right edge
-    const wouldOverflowRight = tooltipRightPosition + toolTipWidth > chartBoundingRect.width;
+  const scheduleTooltipDatetime = useCallback((nextTooltipDatetime: number | undefined) => {
+    queuedTooltipDatetimeRef.current = nextTooltipDatetime;
 
-    if (wouldOverflowRight) {
-      // Position tooltip to the left of cursor
-      return Math.max(tooltipXOffset, tooltipData.x - toolTipWidth - tooltipXOffset);
-    } else {
-      // Position tooltip to the right of cursor
-      return tooltipRightPosition;
+    if (tooltipAnimationFrameRef.current !== null || tooltipDatetimeRef.current === nextTooltipDatetime) {
+      return;
     }
-  }, [tooltipData.x, chartBoundingRect.width, toolTipWidth, tooltipXOffset]);
+
+    tooltipAnimationFrameRef.current = requestAnimationFrame(() => {
+      tooltipAnimationFrameRef.current = null;
+      const queuedTooltipDatetime = queuedTooltipDatetimeRef.current;
+      tooltipDatetimeRef.current = queuedTooltipDatetime;
+      setTooltipDatetime((currentTooltipDatetime) =>
+        currentTooltipDatetime === queuedTooltipDatetime ? currentTooltipDatetime : queuedTooltipDatetime,
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    tooltipDatetimeRef.current = tooltipDatetime;
+  }, [tooltipDatetime]);
+
+  useEffect(() => {
+    return () => {
+      if (tooltipAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(tooltipAnimationFrameRef.current);
+      }
+    };
+  }, []);
 
   // Calculate max X position for timestamp labels dynamically based on chart width
   const maxXPosition = useMemo(() => {
     if (!chartBoundingRect.width) return undefined;
     return chartBoundingRect.width - MAX_TIMESTAMP_X_POSITION;
   }, [chartBoundingRect.width]);
-
-  // Extract just the datetime primitive from tooltip payload to avoid unnecessary re-renders
-  // The payload array is a new reference on every hover update, which would invalidate the
-  // xAxisTick memo even when hovering over the same point. By extracting the primitive value,
-  // the memo only invalidates when the datetime actually changes (hovering to a different point).
-  const tooltipDatetime = useMemo(() => {
-    if (!tooltipData.payload || tooltipData.payload.length === 0) {
-      return undefined;
-    }
-
-    const datetime = tooltipData.payload[0]?.payload?.datetime;
-    return typeof datetime === "number" ? datetime : undefined;
-  }, [tooltipData.payload]);
 
   // Generate evenly-spaced tick timestamps across the full domain so labels
   // are distributed across the chart instead of clustering where data exists
@@ -431,24 +436,72 @@ const LineChart = ({
 
   const yAxisLineStyle = useMemo(() => ({ stroke: corePrimary10 }), [corePrimary10]);
 
-  const tooltipPosition = useMemo(() => ({ y: TOOLTIP_OFFSET, x: toolTipPositionX }), [toolTipPositionX]);
+  const getTooltipDatetimeFromState = useCallback(
+    (state: MouseHandlerDataParam) => {
+      const rawTooltipIndex = state.activeTooltipIndex;
+      const tooltipIndex =
+        typeof rawTooltipIndex === "number"
+          ? rawTooltipIndex
+          : typeof rawTooltipIndex === "string" && rawTooltipIndex !== ""
+            ? Number(rawTooltipIndex)
+            : NaN;
+
+      if (!state.isTooltipActive || !Number.isInteger(tooltipIndex) || tooltipIndex < 0) {
+        return undefined;
+      }
+
+      const hoveredDatum = chartData?.[tooltipIndex];
+      if (!hoveredDatum) {
+        return undefined;
+      }
+
+      const hasDisplayableTooltipValue = tooltipKeysToShow.some((key) => {
+        const value = hoveredDatum[key];
+        return value !== null && value !== undefined;
+      });
+      return hasDisplayableTooltipValue ? hoveredDatum.datetime : undefined;
+    },
+    [chartData, tooltipKeysToShow],
+  );
+
+  const handleChartTooltipMove = useCallback(
+    (state: MouseHandlerDataParam) => {
+      scheduleTooltipDatetime(getTooltipDatetimeFromState(state));
+    },
+    [getTooltipDatetimeFromState, scheduleTooltipDatetime],
+  );
+
+  const clearTooltipDatetime = useCallback(() => {
+    scheduleTooltipDatetime(undefined);
+  }, [scheduleTooltipDatetime]);
 
   const tooltipContent = useMemo(
     () => (
       <ChartTooltip
         aggregateKey={aggregateKey}
         aggregateLabel="Summary"
-        onHover={setTooltipData}
-        tooltipData={tooltipData}
-        activeKeys={tooltipKeys ?? activeKeys}
+        activeKeys={tooltipKeysToShow}
+        chartWidth={chartBoundingRect.width}
         units={units}
         segmentsLabel={segmentsLabel}
         colorMap={colorMap}
-        tooltipWidth={isPhone ? TOOLTIP_WIDTH_PHONE : TOOLTIP_WIDTH}
+        tooltipWidth={toolTipWidth}
+        tooltipXOffset={tooltipXOffset}
+        tooltipYOffset={TOOLTIP_OFFSET}
         toolTipItemIcon={toolTipItemIcon}
       />
     ),
-    [aggregateKey, tooltipData, tooltipKeys, activeKeys, units, segmentsLabel, colorMap, isPhone, toolTipItemIcon],
+    [
+      aggregateKey,
+      tooltipKeysToShow,
+      chartBoundingRect.width,
+      units,
+      segmentsLabel,
+      colorMap,
+      toolTipWidth,
+      tooltipXOffset,
+      toolTipItemIcon,
+    ],
   );
 
   return (
@@ -463,6 +516,10 @@ const LineChart = ({
               left: -1 * Y_AXIS_TICK_WIDTH,
               bottom: 5,
             }}
+            onMouseMove={handleChartTooltipMove}
+            onMouseLeave={clearTooltipDatetime}
+            onTouchMove={handleChartTooltipMove}
+            onTouchEnd={clearTooltipDatetime}
           >
             <CartesianGrid vertical={false} stroke={corePrimary10} syncWithTicks={true} />
 
@@ -480,7 +537,8 @@ const LineChart = ({
             />
 
             <Tooltip
-              position={tooltipPosition}
+              offset={0}
+              allowEscapeViewBox={{ x: true, y: true }}
               wrapperStyle={TOOLTIP_WRAPPER_STYLE}
               content={tooltipContent}
               cursor={LINE_CURSOR}
