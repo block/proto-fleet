@@ -8,7 +8,7 @@ export const DEFAULT_BAR_HEIGHT = 8;
 /**
  * Default gap between segments (Tailwind gap value)
  */
-export const DEFAULT_GAP = 2;
+export const DEFAULT_GAP = 1;
 
 /**
  * Map of gap values to Tailwind class names
