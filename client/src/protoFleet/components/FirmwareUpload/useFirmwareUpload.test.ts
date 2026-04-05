@@ -19,7 +19,7 @@ vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
 const defaultConfig = {
   allowedExtensions: [".swu", ".tar.gz", ".zip"],
   maxFileSizeBytes: 500 * 1024 * 1024,
-  chunkSizeBytes: 1 * 1024 * 1024,
+  chunkSizeBytes: 32 * 1024 * 1024,
 };
 
 beforeEach(() => {

@@ -71,7 +71,7 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	chunkSize := h.cfg.ChunkSizeBytes
 	if chunkSize <= 0 {
-		chunkSize = 1 * 1024 * 1024
+		chunkSize = 32 * 1024 * 1024
 	}
 
 	resp := configResponse{
