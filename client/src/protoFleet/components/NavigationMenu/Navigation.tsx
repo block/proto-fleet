@@ -85,7 +85,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
               {isPhone || isTablet ? (
                 <Logo className="h-10 text-text-primary hover:cursor-pointer" />
               ) : (
-                <LogoAlt className="text-text-primary-30 hover:cursor-pointer" />
+                <LogoAlt className="text-text-primary hover:cursor-pointer" />
               )}
             </Link>
           </div>
@@ -108,7 +108,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                   to={item.path}
                   onClick={() => closeMenu?.()}
                   className={clsx(
-                    "group flex items-center justify-start rounded-lg px-2 py-1 laptop:justify-center desktop:justify-center",
+                    "group flex items-center justify-start rounded-lg px-2 py-1 laptop:aspect-square laptop:justify-center laptop:p-2 desktop:aspect-square desktop:justify-center desktop:p-2",
                     "hover:cursor-pointer hover:bg-core-primary-5",
                     isCurrentPath(item.path) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
                     {

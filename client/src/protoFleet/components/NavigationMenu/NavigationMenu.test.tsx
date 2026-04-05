@@ -1,8 +1,16 @@
 import { MemoryRouter } from "react-router-dom";
 import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import NavigationMenu from "./NavigationMenu";
 import { NavItem } from "@/protoFleet/config/navItems";
+
+const { mockUseWindowDimensions } = vi.hoisted(() => ({
+  mockUseWindowDimensions: vi.fn(),
+}));
+
+vi.mock("@/shared/hooks/useWindowDimensions", () => ({
+  useWindowDimensions: mockUseWindowDimensions,
+}));
 
 describe("Navigation Menu", () => {
   const items: NavItem[] = [
@@ -15,6 +23,14 @@ describe("Navigation Menu", () => {
       label: "Bar",
     },
   ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+  });
 
   it("should render the correct number nav items", () => {
     const { getByTestId } = render(
