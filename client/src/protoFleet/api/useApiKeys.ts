@@ -40,9 +40,10 @@ function toApiKeyItem(info: ApiKeyInfo): ApiKeyItem {
     keyId: info.keyId,
     name: info.name,
     prefix: info.prefix,
-    createdAt: info.createdAt ? new Date(Number(info.createdAt.seconds) * 1000) : null,
-    expiresAt: info.expiresAt ? new Date(Number(info.expiresAt.seconds) * 1000) : null,
-    lastUsedAt: info.lastUsedAt ? new Date(Number(info.lastUsedAt.seconds) * 1000) : null,
+    createdAt: info.createdAt && info.createdAt.seconds > 0 ? new Date(Number(info.createdAt.seconds) * 1000) : null,
+    expiresAt: info.expiresAt && info.expiresAt.seconds > 0 ? new Date(Number(info.expiresAt.seconds) * 1000) : null,
+    lastUsedAt:
+      info.lastUsedAt && info.lastUsedAt.seconds > 0 ? new Date(Number(info.lastUsedAt.seconds) * 1000) : null,
     createdBy: info.createdBy,
   };
 }

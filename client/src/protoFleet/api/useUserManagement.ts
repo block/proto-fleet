@@ -77,8 +77,14 @@ const useUserManagement = () => {
           const users = response.users.map((user) => ({
             userId: user.userId,
             username: user.username,
-            passwordUpdatedAt: user.passwordUpdatedAt ? new Date(Number(user.passwordUpdatedAt.seconds) * 1000) : null,
-            lastLoginAt: user.lastLoginAt ? new Date(Number(user.lastLoginAt.seconds) * 1000) : null,
+            passwordUpdatedAt:
+              user.passwordUpdatedAt && user.passwordUpdatedAt.seconds > 0
+                ? new Date(Number(user.passwordUpdatedAt.seconds) * 1000)
+                : null,
+            lastLoginAt:
+              user.lastLoginAt && user.lastLoginAt.seconds > 0
+                ? new Date(Number(user.lastLoginAt.seconds) * 1000)
+                : null,
             role: user.role,
             requiresPasswordChange: user.requiresPasswordChange,
           }));
