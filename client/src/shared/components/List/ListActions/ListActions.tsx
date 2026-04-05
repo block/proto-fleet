@@ -66,7 +66,7 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
                 key={`${title}-${index}`}
                 className={clsx(
                   "text-emphasis-300",
-                  variant === "destructive" && "text-intent-critical-text",
+                  variant === "destructive" && "text-intent-critical-fill",
                   actionDisabled && "text-text-primary-50",
                 )}
                 prefixIcon={icon}

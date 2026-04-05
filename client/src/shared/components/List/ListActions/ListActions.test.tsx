@@ -203,6 +203,26 @@ describe("List actions", () => {
     expect(dynamicActions[0].actionHandler).toHaveBeenCalledWith(item);
   });
 
+  test("uses the critical fill token for destructive menu actions", () => {
+    const destructiveActions = [
+      {
+        title: "Deactivate",
+        variant: "destructive" as const,
+        actionHandler: vi.fn(),
+      },
+    ];
+
+    render(
+      <PopoverProvider>
+        <ListActions item={item} actions={destructiveActions} />
+      </PopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("list-actions-trigger"));
+
+    expect(screen.getByText("Deactivate")).toHaveClass("text-intent-critical-fill");
+  });
+
   test("allows actions to suppress the divider after a specific row", () => {
     const dividerActions = [
       {
