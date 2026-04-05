@@ -490,6 +490,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuthMethods(h.handleUpdate, http.MethodPost, http.MethodPut))
 	mux.HandleFunc("/api/v1/system/update/check", h.handleUpdateCheck)
 	mux.HandleFunc("/api/v1/system/ssh", h.requireBearerAuthMethods(h.handleSSH, http.MethodPut))
+	mux.HandleFunc("/api/v1/system/secure", h.handleSecureStatus)
 	mux.HandleFunc("/api/v1/system/unlock", h.requireBearerAuthMethods(h.handleUnlock, http.MethodPut))
 	mux.HandleFunc("/api/v1/system/tag", h.requireBearerAuthMethods(h.handleTag, http.MethodPut, http.MethodDelete))
 	mux.HandleFunc("/api/v1/system/telemetry", h.handleTelemetryConfig)
@@ -1301,10 +1302,18 @@ func (h *RESTApiHandler) handleSSH(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *RESTApiHandler) handleSecureStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]bool{"secure": false})
+}
+
 func (h *RESTApiHandler) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		h.writeJSON(w, http.StatusOK, map[string]bool{"unlocked": true})
+		h.writeJSON(w, http.StatusOK, map[string]string{"lock-status": "UNLOCKED"})
 	case http.MethodPut:
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "System unlock status updated"})
 	default:
@@ -1889,7 +1898,7 @@ func (h *RESTApiHandler) handlePowerSuppliesUpdate(w http.ResponseWriter, r *htt
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "PSU firmware update started"})
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "PSU firmware update started"})
 }
 
 // Cooling handlers

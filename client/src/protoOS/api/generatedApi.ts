@@ -1321,7 +1321,7 @@ export interface PoolsList {
 
 export interface PostUpdatePsuParams {
   /**
-   * Force update even if already scheduled and bypass version checks during execution
+   * Force update and bypass version checks
    * @default false
    */
   force?: boolean;
@@ -1360,6 +1360,21 @@ export enum PsuFieldType {
   HotspotTemp = "hotspotTemp",
   AmbientTemp = "ambientTemp",
   AverageTemp = "averageTemp",
+}
+
+/** Per-PSU firmware update progress */
+export interface PsuFwupProgress {
+  /** Optional status message (firmware name on start, error on failure) */
+  message?: string;
+  /**
+   * Upload progress percentage (0-100)
+   * @format float
+   */
+  progress_percent: number;
+  /** The physical slot where the PSU is inserted in the system. (1-3) */
+  psu_slot: number;
+  /** Current firmware update state */
+  state: "idle" | "uploading" | "verifying" | "complete" | "failed";
 }
 
 /** Power supply unit information and status */
@@ -1482,29 +1497,14 @@ export interface PsuTemperature {
   unit: MetricUnit;
 }
 
-/** Status of PSU firmware update */
-export enum PsuUpdateResultStatus {
-  Scheduled = "scheduled",
-  Success = "success",
-  Timeout = "timeout",
-  Failed = "failed",
-  Unknown = "unknown",
-}
-
 /**
  * PSU firmware update status information
- * @example {"available_firmware":[{"filename":"chicony-s24-1.18.22.bin","firmware_version":"1.18.22","size_bytes":1048576,"sha256":"b5f8a2f4e5c19ac7e2e4d0a87f3a1a6b6e0c8b991f2e99a4f5cd5e512a5f4d1e3","model":"S24"}],"last_update":"2025-11-10T12:42:19Z","status":"success"}
+ * @example {"available_firmware":[{"filename":"chicony-s24-1.18.22.bin","firmware_version":"1.18.22","size_bytes":1048576,"sha256":"b5f8a2f4e5c19ac7e2e4d0a87f3a1a6b6e0c8b991f2e99a4f5cd5e512a5f4d1e3","model":"S24"}],"psu_fw_status":[{"psu_slot":1,"state":"uploading","progress_percent":45.2,"message":"chicony-s24-1.18.22.bin"}]}
  */
 export interface PsuUpdateStatus {
   available_firmware?: AvailablePsuFirmware[];
-  /**
-   * Timestamp of the last PSU firmware update
-   * @format date-time
-   * @example "2025-11-10T12:42:19Z"
-   */
-  last_update?: string;
-  /** Status of PSU firmware update */
-  status: PsuUpdateResultStatus;
+  /** Per-PSU firmware update progress (only present for PSUs that have received progress messages) */
+  psu_fw_status?: PsuFwupProgress[];
 }
 
 /** Information about all power supply units in the mining device */
@@ -1536,6 +1536,15 @@ export interface SWInfo {
   name?: string;
   /** @example "1.0" */
   version?: string;
+}
+
+/** Response indicating whether the system is in a secure state */
+export interface SecureResponse {
+  /**
+   * True if the device is locked and the device certificate is valid
+   * @example true
+   */
+  secure: boolean;
 }
 
 /** Request to set the authentication public key */
@@ -1932,7 +1941,7 @@ export interface UnlockConfig {
 
 /** Response containing device lock status */
 export interface UnlockResponse {
-  /** @example "unlocked" */
+  /** @example "UNLOCKED" */
   "lock-status"?: string;
 }
 
@@ -2255,7 +2264,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @name GetPool
      * @request GET:/api/v1/pools/{id}
      */
-    getPool: ({ id, ...query }: GetPoolParams, params: RequestParams = {}) =>
+    getPool: ({ id }: GetPoolParams, params: RequestParams = {}) =>
       this.request<PoolResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "GET",
@@ -2271,7 +2280,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: ({ id, ...query }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
+    editPool: ({ id }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
@@ -2290,7 +2299,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/pools/{id}
      * @secure
      */
-    deletePool: ({ id, ...query }: DeletePoolParams, params: RequestParams = {}) =>
+    deletePool: ({ id }: DeletePoolParams, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "DELETE",
@@ -2683,6 +2692,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns whether the system is in a secure state. A system is secure when the device is locked (CLOSED) and the device certificate is valid.
+     *
+     * @tags System
+     * @name GetSecureStatus
+     * @request GET:/api/v1/system/secure
+     */
+    getSecureStatus: (params: RequestParams = {}) =>
+      this.request<SecureResponse, MessageResponse>({
+        path: `/api/v1/system/secure`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description The get UNLOCK endpoint returns current lock status of the control board.
      *
      * @tags System
@@ -2738,7 +2762,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @name GetHashboardStatus
      * @request GET:/api/v1/hashboards/{hb_sn}
      */
-    getHashboardStatus: ({ hbSn, ...query }: GetHashboardStatusParams, params: RequestParams = {}) =>
+    getHashboardStatus: ({ hbSn }: GetHashboardStatusParams, params: RequestParams = {}) =>
       this.request<HashboardStats, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
@@ -2753,7 +2777,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @name GetAsicStatus
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      */
-    getAsicStatus: ({ hbSn, asicId, ...query }: GetAsicStatusParams, params: RequestParams = {}) =>
+    getAsicStatus: ({ hbSn, asicId }: GetAsicStatusParams, params: RequestParams = {}) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
@@ -2919,7 +2943,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Schedules a PSU firmware update. This command enables the PSU update service so that the update will automatically run on the next reboot of the miner. Use the `force` parameter to bypass scheduling checks and allow re-flashing the same firmware version.
+     * @description Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` parameter to allow re-flashing the same firmware version.
      *
      * @tags PSUs
      * @name PostUpdatePsu

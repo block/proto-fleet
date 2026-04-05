@@ -1179,6 +1179,30 @@
         ]
       }
     },
+    "/api/v1/system/secure": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "description": "Returns whether the system is in a secure state. A system is secure when the device is locked (CLOSED) and the device certificate is valid.",
+        "operationId": "GetSecureStatus",
+        "responses": {
+          "200": {
+            "description": "The secure status was successfully returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/api/v1/system/unlock": {
       "get": {
         "tags": [
@@ -1702,13 +1726,13 @@
         "tags": [
           "PSUs"
         ],
-        "description": "Schedules a PSU firmware update. This command enables the PSU update service so that the update will automatically run on the next reboot of the miner. Use the `force` parameter to bypass scheduling checks and allow re-flashing the same firmware version.",
+        "description": "Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` parameter to allow re-flashing the same firmware version.",
         "operationId": "PostUpdatePsu",
         "parameters": [
           {
             "name": "force",
             "in": "query",
-            "description": "Force update even if already scheduled and bypass version checks during execution",
+            "description": "Force update and bypass version checks",
             "required": false,
             "schema": {
               "type": "boolean",
@@ -1718,7 +1742,7 @@
         ],
         "responses": {
           "202": {
-            "description": "The PSU update has been successfully scheduled to run on next reboot.",
+            "description": "The PSU firmware update has been requested.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1735,9 +1759,6 @@
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
-          },
-          "409": {
-            "$ref": "#/components/responses/UpdateAlreadyInProgress"
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
@@ -2466,7 +2487,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "\u00b0C"
+                          "unit": "°C"
                         },
                         "power": {
                           "value": 3250,
@@ -2490,7 +2511,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "\u00b0C"
+                          "unit": "°C"
                         },
                         "power": {
                           "value": 3250,
@@ -2510,7 +2531,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2540,7 +2561,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "inlet": 44.8,
                             "outlet": 67.9,
                             "average": 56.35
@@ -2570,7 +2591,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "inlet": 45.5,
                             "outlet": 69.1,
                             "average": 57.3
@@ -2613,7 +2634,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -2633,7 +2654,7 @@
                         },
                         "temperature": {
                           "value": 65.5,
-                          "unit": "\u00b0C"
+                          "unit": "°C"
                         },
                         "power": {
                           "value": 3250,
@@ -2653,7 +2674,7 @@
                             "unit": "TH/s"
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "inlet": 45.2,
                             "outlet": 68.5,
                             "average": 56.85
@@ -2683,7 +2704,7 @@
                               ]
                             },
                             "temperature": {
-                              "unit": "\u00b0C",
+                              "unit": "°C",
                               "values": [
                                 72.5,
                                 73.0
@@ -2718,7 +2739,7 @@
                             "output": 3250
                           },
                           "temperature": {
-                            "unit": "\u00b0C",
+                            "unit": "°C",
                             "hotspot": 65.5,
                             "ambient": 45.2,
                             "average": 55.4
@@ -4132,30 +4153,44 @@
           }
         }
       },
-      "PsuUpdateResultStatus": {
-        "description": "Status of PSU firmware update",
-        "type": "string",
-        "enum": [
-          "scheduled",
-          "success",
-          "timeout",
-          "failed",
-          "unknown"
+      "PsuFwupProgress": {
+        "description": "Per-PSU firmware update progress",
+        "type": "object",
+        "required": [
+          "psu_slot",
+          "state",
+          "progress_percent"
         ],
-        "x-enum-descriptions": {
-          "scheduled": "Update is scheduled to run on next reboot",
-          "success": "Last update completed successfully",
-          "timeout": "Last update timed out",
-          "failed": "Last update failed",
-          "unknown": "Status unknown (service never ran)"
+        "properties": {
+          "psu_slot": {
+            "type": "integer",
+            "description": "The physical slot where the PSU is inserted in the system. (1-3)"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "uploading",
+              "verifying",
+              "complete",
+              "failed"
+            ],
+            "description": "Current firmware update state"
+          },
+          "progress_percent": {
+            "type": "number",
+            "format": "float",
+            "description": "Upload progress percentage (0-100)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Optional status message (firmware name on start, error on failure)"
+          }
         }
       },
       "PsuUpdateStatus": {
         "description": "PSU firmware update status information",
         "type": "object",
-        "required": [
-          "status"
-        ],
         "properties": {
           "available_firmware": {
             "type": "array",
@@ -4163,14 +4198,12 @@
               "$ref": "#/components/schemas/AvailablePsuFirmware"
             }
           },
-          "last_update": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Timestamp of the last PSU firmware update",
-            "example": "2025-11-10T12:42:19Z"
-          },
-          "status": {
-            "$ref": "#/components/schemas/PsuUpdateResultStatus"
+          "psu_fw_status": {
+            "type": "array",
+            "description": "Per-PSU firmware update progress (only present for PSUs that have received progress messages)",
+            "items": {
+              "$ref": "#/components/schemas/PsuFwupProgress"
+            }
           }
         },
         "example": {
@@ -4183,8 +4216,14 @@
               "model": "S24"
             }
           ],
-          "last_update": "2025-11-10T12:42:19Z",
-          "status": "success"
+          "psu_fw_status": [
+            {
+              "psu_slot": 1,
+              "state": "uploading",
+              "progress_percent": 45.2,
+              "message": "chicony-s24-1.18.22.bin"
+            }
+          ]
         }
       },
       "AvailablePsuFirmware": {
@@ -4515,13 +4554,27 @@
           }
         }
       },
+      "SecureResponse": {
+        "type": "object",
+        "description": "Response indicating whether the system is in a secure state",
+        "properties": {
+          "secure": {
+            "type": "boolean",
+            "description": "True if the device is locked and the device certificate is valid",
+            "example": true
+          }
+        },
+        "required": [
+          "secure"
+        ]
+      },
       "UnlockResponse": {
         "type": "object",
         "description": "Response containing device lock status",
         "properties": {
           "lock-status": {
             "type": "string",
-            "example": "unlocked"
+            "example": "UNLOCKED"
           }
         }
       },
@@ -5231,7 +5284,7 @@
                   "unit": "TH/s"
                 },
                 "temperature": {
-                  "unit": "\u00b0C",
+                  "unit": "°C",
                   "inlet": 45.2,
                   "outlet": 68.5,
                   "average": 56.85
@@ -5261,7 +5314,7 @@
                     ]
                   },
                   "temperature": {
-                    "unit": "\u00b0C",
+                    "unit": "°C",
                     "values": [
                       72.5,
                       73.0
@@ -5297,7 +5350,7 @@
                   "output": 3250
                 },
                 "temperature": {
-                  "unit": "\u00b0C",
+                  "unit": "°C",
                   "hotspot": 65.5,
                   "ambient": 45.2,
                   "average": 55.4
@@ -5340,7 +5393,7 @@
           },
           "temperature": {
             "value": 65.5,
-            "unit": "\u00b0C"
+            "unit": "°C"
           },
           "power": {
             "value": 3250,
@@ -5525,7 +5578,7 @@
         "type": "string",
         "enum": [
           "TH/s",
-          "\u00b0C",
+          "°C",
           "W",
           "J/TH",
           "V",

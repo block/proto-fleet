@@ -1,0 +1,147 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: mfgtool_test_commands.proto
+// Description: Protobuf definitions for the mfgtoolctl and mfgtoold
+// applications.
+//              This file is used to define messages for inter-application
+//              communication. The API provides messages for sharing application
+//              information.
+
+syntax = "proto3";
+
+package mfgtool_test_commands;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+import "miner_debug_api.proto";
+import "miner_ui_api.proto";
+import "miner_psu_api.proto";
+
+enum ButtonState {
+    UNPRESSED = 0;
+    PRESSED = 1;
+}
+
+// Service definition for communication between mfgtoolctl and mfgtoold.
+service MfgToolTestCommandsApi {
+    rpc FanSet(FanSetRequest) returns (miner_common_api.ApiResultResponse);
+    rpc FanGet(FanGetRequest) returns (FanGetResponse);
+    rpc LedSet(LedSetRequest) returns (miner_common_api.ApiResultResponse);
+    rpc LedsSet(LedsSetRequest) returns (miner_common_api.ApiResultResponse);
+    rpc LedSequenceSet(LedSequenceSetRequest) returns (miner_common_api.ApiResultResponse);
+    rpc PsuSet(PsuSetRequest) returns (miner_common_api.ApiResultResponse);
+    rpc PsuGet(miner_debug_api.PsuRequest) returns (PsuGetResponse);
+    rpc PsuClearFaults(miner_debug_api.PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetButtonState(GetButtonStateRequest) returns (GetButtonStateResponse);
+    rpc GetConnectedUSBDevices(miner_common_api.EmptyRequest) returns (GetConnectedUSBDevicesResponse);
+    rpc PingTest(PingTestRequest) returns (PingTestResponse);
+    rpc GetI2CDevices(I2CDevicesRequest) returns (I2CDevicesResponse);
+}
+
+message ConnectedUSBDevice {
+    uint32 bus = 1;
+    uint32 device = 2;
+    uint32 port = 3;
+    uint32 vid = 4;
+    uint32 pid = 5;
+    optional string mfg_string = 6;
+    optional string product_string = 7;
+}
+
+message GetConnectedUSBDevicesResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated ConnectedUSBDevice connected_usb_devices = 2;
+}
+
+message GetButtonStateResponse {
+    miner_common_api.ApiResult result = 1;
+    string button_name = 2;
+    uint32 button_state_hold_count = 3;
+    uint32 button_state_release_count = 4;
+    uint32 button_state_press_count = 5;
+}
+
+message GetButtonStateRequest {
+    string button_name = 1;
+    uint64 sample_time_ms = 2;
+}
+
+message LedSetRequest {
+    miner_ui_api.LedState led = 2;
+}
+
+message LedsSetRequest {
+    repeated miner_ui_api.LedState leds = 2;
+}
+
+message LedSequenceSetRequest {
+    miner_ui_api.LedSeqName led_sequence = 1;
+    bool repeat = 2;
+}
+
+message FanSetRequest {
+    uint32 fan_number = 1;
+    uint32 fan_percent = 2;
+}
+
+message FanGetRequest {
+    uint32 fan_number = 1;
+}
+
+message FanGetResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 fan_number = 2;
+    uint32 fan_tach_rpm = 3;
+    uint32 fan_percent = 4;
+}
+
+message PsuSetRequest {
+    uint32 psu_id = 1;
+    bool enable = 2;
+    optional uint32 output_voltage_mv = 3;
+}
+
+message PsuGetResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    miner_psu_api.PsuState state = 3;
+    repeated miner_psu_api.PsuMeasurement measurements = 4;
+    repeated miner_psu_api.PsuMeasurement temperatures_c = 5;
+    repeated miner_psu_api.PsuFanStatus fan_speeds = 6;
+    repeated miner_psu_api.PsuFault faults = 7;
+}
+
+message PingTestRequest {
+    string target_ip = 1;
+    uint64 duration_ms = 2;
+}
+
+message PingTestResponse {
+    message PingStats {
+        uint32 packets_tx = 1;
+        uint32 packets_rx = 2;
+        float packet_loss_pct = 3;
+        float rtt_min_ms = 4;
+        float rtt_max_ms = 5;
+        float rtt_avg_ms = 6;
+        float rtt_stddev_ms = 7;
+    }
+    miner_common_api.ApiResult result = 1;
+    PingStats ping_stats = 2;
+}
+
+message I2CDevice {
+    uint32 bus = 1;
+    uint32 address = 2;
+}
+
+message I2CDevicesRequest {
+    uint32 bus = 1;
+}
+
+message I2CDevicesResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 bus = 2;
+    repeated I2CDevice devices = 3;
+}

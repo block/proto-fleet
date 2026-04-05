@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package miner_system_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+
+// ---------------------------------
+// Miner System API service definition
+// ---------------------------------
+
+service MinerSystemApi {
+    // Endpoint for getting network information
+    rpc GetNetwork(miner_common_api.EmptyRequest) returns (GetNetworkResponse);
+    // Endpoint for setting network configuration
+    rpc SetNetwork(SetNetworkRequest) returns (SetNetworkResponse);
+    // Endpoint for rebooting the miner
+    rpc Reboot(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    // Endpoint for getting logs from various sources on the miner
+    rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+    // Endpoint for updating the system - downloads and installs updates based on current status
+    rpc Update(miner_common_api.EmptyRequest) returns (UpdateResponse);
+    // Endpoint for uploading update files and installing them
+    rpc Upload(stream UploadRequest) returns (UploadResponse);
+    // Endpoint for triggering PSU firmware update via NATS to psu-service
+    rpc SchedulePsuFirmwareUpdate(SchedulePsuFirmwareUpdateRequest) returns (SchedulePsuFirmwareUpdateResponse);
+    // Endpoint for factory resetting the miner, clearing user data and rolling back to recovery image
+    rpc FactoryReset(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    // Endpoint for clearing user settings and restoring defaults for the current version
+    rpc ClearUserSettings(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+}
+
+// ----------------------------------------------
+// Miner Pairing API service definition
+// ----------------------------------------------
+// Note: Anything in this service is not subject to authentication
+service MinerPairingApi {
+    // Endpoint for setting auth key (ed25519 public key)
+    rpc SetAuthKey(SetAuthKeyRequest) returns (SetAuthKeyResponse);
+    // Endpoint for clearing auth key
+    rpc ClearAuthKey(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    // Endpoint for getting pairing info during discovery (mac address, control board serial number)
+    rpc GetPairingInfo(miner_common_api.EmptyRequest) returns (GetPairingInfoResponse);
+}
+
+// ----------------------------------------------
+// Message structures used by the Miner System & Pairing APIs
+// ----------------------------------------------
+
+message SetAuthKeyRequest {
+    string public_key = 1;
+}
+
+message SetAuthKeyResponse {
+    string message = 1;
+}
+
+message GetPairingInfoResponse {
+    string mac = 1;
+    string cb_sn = 2;
+}
+
+message GetNetworkResponse {
+    string mac = 1;
+    bool dhcp = 2;
+    string ip = 3;
+    string netmask = 4;
+    string gateway = 5;
+    string hostname = 6;
+}
+
+message SetNetworkRequest {
+    oneof network_config {
+        DhcpConfig dhcp_config = 1;
+        StaticConfig static_config = 2;
+    }
+
+    optional string hostname = 3;
+
+    message DhcpConfig {}
+
+    message StaticConfig {
+        string ip = 1;
+        string netmask = 2;
+        string gateway = 3;
+    }
+}
+
+message SetNetworkResponse {}
+
+enum LogSource {
+    LOG_SOURCE_MINER_SW = 0;
+    LOG_SOURCE_OS = 1;
+    LOG_SOURCE_POOL_SW = 2;
+    LOG_SOURCE_MINER_WEB_SERVER = 3;
+}
+
+message GetLogsRequest {
+    optional uint32 lines = 1;
+    LogSource source = 2;
+}
+
+message GetLogsResponse {
+    LogSource source = 1;
+    uint32 lines = 2;
+    repeated string content = 3;
+}
+
+message UpdateResponse {
+    string message = 1;
+}
+
+message UploadRequest {
+    oneof data {
+        // Metadata must be sent first, data in subsequent requests
+        UploadMetadata metadata = 1;
+        bytes chunk = 2;
+    }
+}
+
+message UploadMetadata {
+    string file_name = 1;
+}
+
+message UploadResponse {
+    string message = 1;
+}
+
+message SchedulePsuFirmwareUpdateRequest {
+    bool force = 1;
+}
+
+message SchedulePsuFirmwareUpdateResponse {
+    miner_common_api.ApiResult result = 1;
+    string message = 2;
+}
