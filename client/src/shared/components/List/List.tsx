@@ -358,7 +358,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       {itemSelectable && (
         <td className={clsx(tdClassList, firstStickyClasses, "w-9")} style={paddingCssVariables} data-testid="checkbox">
           <div
-            className={clsx("w-9 truncate overflow-hidden py-4", {
+            className={clsx("w-9 truncate overflow-hidden py-3", {
               "opacity-50": rowDisabled,
             })}
           >
@@ -531,7 +531,7 @@ const rowClassList = "border-b border-border-5";
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
 const baseStickyClassList = "tablet:sticky laptop:sticky desktop:sticky z-1";
 const tdClassList = "text-left text-300";
-const tdPaddingClassList = "px-2 py-4";
+const tdPaddingClassList = "px-2 py-3";
 // use after element for shadow (hidden on phone since column isn't sticky)
 // after pseudo-element is always present with opacity-0, transitions to visible when stuck
 const columnShadowBaseClassList =
