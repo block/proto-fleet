@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useSetTemperatureUnit, useSetTheme, useTemperatureUnit, useTheme } from "@/protoFleet/store";
+import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -42,27 +43,25 @@ const General = () => {
             <div>
               <Row className="flex justify-between" divider>
                 <div className="text-300">Theme</div>
-                <button
-                  type="button"
+                <Button
+                  variant="textOnly"
                   onClick={() => setShowThemeSwitcher(true)}
-                  className="text-300 text-intent-warning-fill hover:underline"
-                >
-                  {convertToSentenceCase(theme)}
-                </button>
+                  textColor="text-intent-warning-fill"
+                  text={convertToSentenceCase(theme)}
+                />
                 {showThemeSwitcher && (
                   <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
                 )}
               </Row>
               <Row className="flex justify-between" divider={false}>
                 <div className="text-300">Temperature</div>
-                <button
-                  type="button"
-                  data-testid="temperature-button"
+                <Button
+                  variant="textOnly"
+                  testId="temperature-button"
                   onClick={() => setShowTemperatureUnitsSwitcher(true)}
-                  className="text-300 text-intent-warning-fill hover:underline"
-                >
-                  {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
-                </button>
+                  textColor="text-intent-warning-fill"
+                  text={temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
+                />
                 {showTemperatureUnitsSwitcher && (
                   <TemperatureUnitsSwitcher
                     onClickDone={() => setShowTemperatureUnitsSwitcher(false)}

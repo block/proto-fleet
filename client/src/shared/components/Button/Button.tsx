@@ -37,7 +37,7 @@ const Button = ({
   loading,
   onClick,
   prefixIcon,
-  size = "base",
+  size: sizeProp,
   suffixIcon,
   testId,
   text,
@@ -45,6 +45,7 @@ const Button = ({
   textOnlyUnderlineOnHover = true,
   variant,
 }: ButtonProps) => {
+  const size = sizeProp ?? (variant === "textOnly" ? "textOnly" : "base");
   const primary = variant === variants.primary;
   const accent = variant === variants.accent;
   const secondary = variant === variants.secondary;

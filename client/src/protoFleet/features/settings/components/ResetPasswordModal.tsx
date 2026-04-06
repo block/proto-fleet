@@ -100,13 +100,7 @@ const ResetPasswordModal = ({
           >
             {temporaryPassword}
           </div>
-          <button
-            onClick={handleCopyPassword}
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-10 bg-surface-base text-text-primary hover:bg-surface-elevated-base"
-            aria-label="Copy password"
-          >
-            <Copy />
-          </button>
+          <Button variant="ghost" onClick={handleCopyPassword} ariaLabel="Copy password" prefixIcon={<Copy />} />
         </div>
 
         <div className="flex justify-end">

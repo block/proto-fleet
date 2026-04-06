@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import { Copy, Success } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
@@ -158,9 +158,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         <div className="font-mono text-300 break-all text-text-primary" data-testid="temporary-password">
           {temporaryPassword}
         </div>
-        <button onClick={handleCopyPassword} className="text-text-primary" aria-label="Copy password">
-          <Copy />
-        </button>
+        <Button variant="ghost" onClick={handleCopyPassword} ariaLabel="Copy password" prefixIcon={<Copy />} />
       </div>
     </Dialog>
   );

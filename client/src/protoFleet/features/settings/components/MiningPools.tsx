@@ -97,14 +97,15 @@ const PoolRowMenu = ({
   onDelete,
 }: PoolRowMenuProps) => (
   <div className="relative" ref={triggerRef}>
-    <button
-      type="button"
-      aria-label="Options menu"
-      className="flex cursor-pointer items-center justify-center border-none bg-transparent p-0"
+    <Button
+      variant="ghost"
+      size="compact"
       onClick={() => setShowMenu(!showMenu)}
-    >
-      <Ellipsis />
-    </button>
+      ariaLabel="Options menu"
+      ariaHasPopup="menu"
+      ariaExpanded={showMenu}
+      prefixIcon={<Ellipsis />}
+    />
     {showMenu && (
       <Popover
         position={positions["top left"]}
