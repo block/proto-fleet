@@ -51,7 +51,7 @@ const DropdownFilterPopover = ({
               },
               {
                 text: "Apply",
-                variant: variants.accent,
+                variant: variants.primary,
                 onClick: handleApply,
               },
             ]

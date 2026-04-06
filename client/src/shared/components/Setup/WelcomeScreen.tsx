@@ -107,7 +107,7 @@ const WelcomeFlow = ({
                   className="col-start-1 row-start-1 flex flex-col items-center gap-6"
                 >
                   <p className="text-5xl font-medium">Miner setup</p>
-                  <Button onClick={handleSearch} variant="accent" size="base">
+                  <Button onClick={handleSearch} variant="primary" size="base">
                     Get started
                   </Button>
                 </motion.div>

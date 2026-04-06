@@ -121,7 +121,7 @@ const Onboarding = () => {
         <Button
           onClick={() => onContinue()}
           size={sizes.compact}
-          variant={variants.accent}
+          variant={variants.primary}
           testId="finish-setup-button"
           text="Finish setup"
         />

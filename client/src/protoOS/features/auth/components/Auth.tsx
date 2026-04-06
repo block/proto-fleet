@@ -156,7 +156,7 @@ const Auth = () => {
         />
 
         <Button
-          variant={variants.accent}
+          variant={variants.primary}
           size={sizes.base}
           className="w-full py-3"
           disabled={disableContinue}

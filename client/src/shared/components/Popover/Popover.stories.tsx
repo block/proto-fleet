@@ -39,7 +39,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
                 ...(numberOfButtons === 2 && {
                   text: "Apply",
                   onClick: () => setShowPopover(false),
-                  variant: variants.accent,
+                  variant: variants.primary,
                 }),
               },
             ].filter((button) => !!button.text) as ButtonProps[]

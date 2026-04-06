@@ -47,7 +47,7 @@ const OnboardingSettingUp = ({
       <ConfiguringMiningPool status={poolStatus} onClickRetry={onClickRetry} onClickReconfigure={onClickReconfigure} />
       <div className="flex justify-end">
         <Button
-          variant={variants.accent}
+          variant={variants.primary}
           size={sizes.base}
           text={"Continue"}
           className={clsx(

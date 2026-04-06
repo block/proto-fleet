@@ -122,7 +122,7 @@ const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onD
       buttons={[
         {
           text: hasSelection ? "Update cooling mode" : "Done",
-          variant: hasSelection ? variants.accent : variants.primary,
+          variant: variants.primary,
           onClick: hasSelection ? handleConfirm : handleDismiss,
         },
       ]}
