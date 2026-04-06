@@ -15,7 +15,7 @@ import {
   type SupportedAction,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 
-type DeviceSetActionType = SupportedAction | "edit-group";
+type DeviceSetActionType = SupportedAction | "edit-group" | "view-group";
 import CoolingModeModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/CoolingModeModal";
 import ManagePowerModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManagePowerModal";
 import {
@@ -23,7 +23,7 @@ import {
   UpdateMinerPasswordModal,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManageSecurity";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
-import { Edit, Ellipsis } from "@/shared/assets/icons";
+import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -38,6 +38,10 @@ interface DeviceSetActionsMenuProps {
   onEdit: () => void;
   /** Label for the edit action in the popover menu (e.g., "Edit group", "Edit rack"). */
   editLabel?: string;
+  /** Optional callback to navigate to the detail view. When provided, a "View" action is shown. */
+  onView?: () => void;
+  /** Label for the view action in the popover menu (e.g., "View group", "View rack"). */
+  viewLabel?: string;
   onActionComplete?: () => void;
   popoverClassName?: string;
   buttonVariant?: ButtonVariant;
@@ -60,6 +64,8 @@ const DeviceSetActionsMenuInner = ({
   deviceSetId,
   onEdit,
   editLabel = "Edit group",
+  onView,
+  viewLabel = "View group",
   onActionComplete,
   popoverClassName,
   buttonVariant = variants.secondary,
@@ -185,17 +191,34 @@ const DeviceSetActionsMenuInner = ({
       showGroupDivider: true,
     };
 
+    const viewGroupAction: BulkAction<DeviceSetActionType> | null = onView
+      ? {
+          action: "view-group",
+          title: viewLabel,
+          icon: <Eye />,
+          actionHandler: () => {
+            setIsOpen(false);
+            onView();
+          },
+          requiresConfirmation: false,
+          showGroupDivider: false,
+        }
+      : null;
+
     // Insert "Edit group" where the organization section was (after cooling mode's divider)
     const coolingModeIndex = filtered.findIndex((a) => a.action === settingsActions.coolingMode);
-    return coolingModeIndex !== -1
-      ? [
-          ...filtered.slice(0, coolingModeIndex),
-          filtered[coolingModeIndex],
-          editGroupAction,
-          ...filtered.slice(coolingModeIndex + 1),
-        ]
-      : [editGroupAction, ...filtered];
-  }, [popoverActions, onEdit, editLabel]);
+    const withEdit =
+      coolingModeIndex !== -1
+        ? [
+            ...filtered.slice(0, coolingModeIndex),
+            filtered[coolingModeIndex],
+            editGroupAction,
+            ...filtered.slice(coolingModeIndex + 1),
+          ]
+        : [editGroupAction, ...filtered];
+
+    return viewGroupAction ? [viewGroupAction, ...withEdit] : withEdit;
+  }, [popoverActions, onEdit, editLabel, onView, viewLabel]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {

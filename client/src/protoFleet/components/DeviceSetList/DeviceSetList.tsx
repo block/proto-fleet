@@ -43,6 +43,7 @@ type DeviceSetListProps = {
   hasNextPage?: boolean;
   onNextPage?: () => void;
   onPrevPage?: () => void;
+  onRowClick?: (item: DeviceSetListItem, index: number) => void;
 };
 
 const DeviceSetList = ({
@@ -62,6 +63,7 @@ const DeviceSetList = ({
   hasNextPage = false,
   onNextPage,
   onPrevPage,
+  onRowClick,
 }: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -101,6 +103,7 @@ const DeviceSetList = ({
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
+        onRowClick={onRowClick}
       />
 
       {shouldRenderPagination && (

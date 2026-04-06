@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -22,6 +22,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 const GROUPS_PAGE_SIZE = 50;
 
 const GroupsPage = () => {
+  const navigate = useNavigate();
   const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<DeviceSet | null>(null);
@@ -81,12 +82,20 @@ const GroupsPage = () => {
     [resetAndFetch],
   );
 
+  const handleRowClick = useCallback(
+    (item: DeviceSetListItem) => {
+      navigate(`/groups/${encodeURIComponent(item.deviceSet.label)}`);
+    },
+    [navigate],
+  );
+
   const renderMiners = useCallback(
     (item: DeviceSetListItem) => (
       <Link
         to={`/miners?group=${item.deviceSet.id}`}
         className="hover:underline"
         aria-label={`View miners in ${item.deviceSet.label}`}
+        onClick={(e) => e.stopPropagation()}
       >
         {item.deviceSet.deviceCount}
       </Link>
@@ -192,6 +201,7 @@ const GroupsPage = () => {
               hasNextPage={hasNextPage}
               onNextPage={handleNextPage}
               onPrevPage={handlePrevPage}
+              onRowClick={handleRowClick}
             />
           </div>
         </>
