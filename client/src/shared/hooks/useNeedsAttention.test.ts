@@ -87,6 +87,23 @@ describe("useNeedsAttention", () => {
     });
   });
 
+  describe("firmware status flag", () => {
+    it("should return true when hasFirmwareStatus is true", () => {
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], false, true));
+      expect(result.current).toBe(true);
+    });
+
+    it("should return false when hasFirmwareStatus is false and no other issues", () => {
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], false, false));
+      expect(result.current).toBe(false);
+    });
+
+    it("should default hasFirmwareStatus to false when not provided", () => {
+      const { result } = renderHook(() => useNeedsAttention(false, false, [], false));
+      expect(result.current).toBe(false);
+    });
+  });
+
   describe("combined flags", () => {
     it("should return true when needsAuthentication and needsMiningPool are both true", () => {
       const { result } = renderHook(() => useNeedsAttention(true, true, []));

@@ -152,6 +152,8 @@ const (
 	DeviceStatusEnumERROR           DeviceStatusEnum = "ERROR"
 	DeviceStatusEnumUNKNOWN         DeviceStatusEnum = "UNKNOWN"
 	DeviceStatusEnumNEEDSMININGPOOL DeviceStatusEnum = "NEEDS_MINING_POOL"
+	DeviceStatusEnumUPDATING        DeviceStatusEnum = "UPDATING"
+	DeviceStatusEnumREBOOTREQUIRED  DeviceStatusEnum = "REBOOT_REQUIRED"
 )
 
 func (e *DeviceStatusEnum) Scan(src interface{}) error {

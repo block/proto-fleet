@@ -729,6 +729,16 @@ class UpdateFirmwareRequest(_message.Message):
     firmware: FirmwareFileInfo
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., firmware: _Optional[_Union[FirmwareFileInfo, _Mapping]] = ...) -> None: ...
 
+class GetFirmwareUpdateStatusResponse(_message.Message):
+    __slots__ = ("state", "progress", "error")
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    state: str
+    progress: int
+    error: str
+    def __init__(self, state: _Optional[str] = ..., progress: _Optional[int] = ..., error: _Optional[str] = ...) -> None: ...
+
 class DeviceError(_message.Message):
     __slots__ = ("miner_error", "cause_summary", "recommended_action", "severity", "first_seen_at", "last_seen_at", "closed_at", "vendor_attributes", "device_id", "component_id", "impact", "summary", "component_type")
     class VendorAttributesEntry(_message.Message):

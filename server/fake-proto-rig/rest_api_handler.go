@@ -124,9 +124,10 @@ type OSInfo struct {
 
 // UpdateStatus contains software update status
 type UpdateStatus struct {
-	State            string `json:"state"`
-	AvailableVersion string `json:"available_version,omitempty"`
-	CurrentVersion   string `json:"current_version"`
+	Status           string  `json:"status"`
+	AvailableVersion string  `json:"available_version,omitempty"`
+	CurrentVersion   string  `json:"current_version,omitempty"`
+	Error            *string `json:"error,omitempty"`
 }
 
 // SystemStatuses contains system onboarding status
@@ -564,6 +565,22 @@ func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		h.state.mu.RLock()
+		rebooting := h.state.Rebooting
+		h.state.mu.RUnlock()
+		if rebooting {
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					conn.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
 		if len(protectedMethods) > 0 {
 			if _, ok := protectedMethods[r.Method]; !ok {
 				next(w, r)
@@ -1118,7 +1135,30 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.state.mu.RLock()
+	rebooting := h.state.Rebooting
+	h.state.mu.RUnlock()
+	if rebooting {
+		hj, ok := w.(http.Hijacker)
+		if ok {
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				conn.Close()
+				return
+			}
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
 	uptime := int64(time.Since(h.state.StartTime).Seconds())
+
+	h.state.mu.RLock()
+	fwStatus := h.state.FWUpdateStatus
+	h.state.mu.RUnlock()
+	if fwStatus == "" {
+		fwStatus = "current"
+	}
 
 	h.writeJSON(w, http.StatusOK, SystemInfo{
 		SystemInfo: SystemInfoInner{
@@ -1135,7 +1175,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 				Hostname: h.state.Hostname,
 			},
 			SWUpdateState: UpdateStatus{
-				State:          "idle",
+				Status:         fwStatus,
 				CurrentVersion: defaultFirmwareVersion,
 			},
 			MiningDriverSW: &SWInfo{
@@ -1181,6 +1221,24 @@ func (h *RESTApiHandler) handleReboot(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	h.state.mu.Lock()
+	h.state.FWUpdateStatus = "current"
+	h.state.Rebooting = true
+	h.state.mu.Unlock()
+
+	log.Printf("[FAKE-RIG] Reboot initiated, going offline for 10 seconds")
+
+	// Simulate offline period during reboot
+	go func() {
+		time.Sleep(10 * time.Second)
+		h.state.mu.Lock()
+		h.state.Rebooting = false
+		h.state.StartTime = time.Now()
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Reboot complete, back online")
+	}()
+
 	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Reboot initiated"})
 }
 
@@ -1266,14 +1324,54 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		h.state.mu.Lock()
+		if h.state.FWUpdateStatus == "downloaded" || h.state.FWUpdateStatus == "installing" {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
+			return
+		}
+		h.state.FWUpdateStatus = "downloaded"
+		h.state.mu.Unlock()
+
 		file, header, err := r.FormFile("file")
 		if err != nil {
+			h.state.mu.Lock()
+			h.state.FWUpdateStatus = ""
+			h.state.mu.Unlock()
 			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
 			return
 		}
 		defer file.Close()
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
+
+		// Simulate async install lifecycle: installing → installed
+		// Timings are longer than Fleet's 10s poll interval so each phase is observable.
+		// Each step checks Rebooting to abort if a reboot arrived mid-install.
+		go func() {
+			time.Sleep(5 * time.Second)
+
+			h.state.mu.Lock()
+			if h.state.Rebooting {
+				h.state.mu.Unlock()
+				return
+			}
+			h.state.FWUpdateStatus = "installing"
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update status: installing (will take ~55s)")
+
+			time.Sleep(55 * time.Second)
+
+			h.state.mu.Lock()
+			if h.state.Rebooting {
+				h.state.mu.Unlock()
+				return
+			}
+			h.state.FWUpdateStatus = "installed"
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+		}()
+
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
@@ -1286,7 +1384,7 @@ func (h *RESTApiHandler) handleUpdateCheck(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.writeJSON(w, http.StatusOK, UpdateStatus{
-		State:          "idle",
+		Status:         "current",
 		CurrentVersion: defaultFirmwareVersion,
 	})
 }

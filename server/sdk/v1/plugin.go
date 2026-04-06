@@ -564,6 +564,41 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 	return &emptypb.Empty{}, nil
 }
 
+func (s *DriverGRPCServer) GetFirmwareUpdateStatus(ctx context.Context, req *pb.DeviceRef) (*pb.GetFirmwareUpdateStatusResponse, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+
+	provider, ok := device.(FirmwareUpdateStatusProvider)
+	if !ok {
+		return nil, status.Errorf(codes.Unimplemented, "device does not support firmware update status")
+	}
+
+	fwStatus, err := provider.GetFirmwareUpdateStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if fwStatus == nil {
+		return &pb.GetFirmwareUpdateStatusResponse{}, nil
+	}
+
+	resp := &pb.GetFirmwareUpdateStatusResponse{
+		State: fwStatus.State,
+	}
+	if fwStatus.Progress != nil {
+		p := safeIntToInt32(*fwStatus.Progress)
+		resp.Progress = &p
+	}
+	if fwStatus.Error != nil {
+		resp.Error = fwStatus.Error
+	}
+	return resp, nil
+}
+
 func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.DeviceId]
@@ -896,6 +931,8 @@ type DeviceGRPCClient struct {
 	deviceID string
 }
 
+var _ FirmwareUpdateStatusProvider = (*DeviceGRPCClient)(nil)
+
 func (d *DeviceGRPCClient) ID() string {
 	return d.deviceID
 }
@@ -1067,6 +1104,30 @@ func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware Firmware
 		},
 	})
 	return err
+}
+
+func (d *DeviceGRPCClient) GetFirmwareUpdateStatus(ctx context.Context) (*FirmwareUpdateStatus, error) {
+	resp, err := d.client.GetFirmwareUpdateStatus(ctx, &pb.DeviceRef{DeviceId: d.deviceID})
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if resp.State == "" {
+		return nil, nil
+	}
+	result := &FirmwareUpdateStatus{
+		State: resp.State,
+	}
+	if resp.Progress != nil {
+		p := int(*resp.Progress)
+		result.Progress = &p
+	}
+	if resp.Error != nil {
+		result.Error = resp.Error
+	}
+	return result, nil
 }
 
 func (d *DeviceGRPCClient) Unpair(ctx context.Context) error {

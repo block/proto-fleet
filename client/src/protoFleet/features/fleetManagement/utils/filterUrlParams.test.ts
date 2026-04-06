@@ -8,7 +8,12 @@ describe("filterUrlParams", () => {
   describe("encodeFilterToURL", () => {
     it("should not create duplicate status values when encoding needs-attention filter", () => {
       const filter = create(MinerListFilterSchema, {
-        deviceStatus: [DeviceStatus.ERROR, DeviceStatus.NEEDS_MINING_POOL],
+        deviceStatus: [
+          DeviceStatus.ERROR,
+          DeviceStatus.NEEDS_MINING_POOL,
+          DeviceStatus.UPDATING,
+          DeviceStatus.REBOOT_REQUIRED,
+        ],
       });
 
       const params = encodeFilterToURL(filter);
@@ -145,6 +150,20 @@ describe("filterUrlParams", () => {
       const filter = parseFilterFromURL(params);
 
       expect(filter).toBeUndefined();
+    });
+  });
+
+  describe("parseFilterFromURL - needs attention", () => {
+    it("should expand needs-attention URL state to all attention statuses", () => {
+      const params = new URLSearchParams("status=needs-attention");
+      const filter = parseFilterFromURL(params);
+
+      expect(filter?.deviceStatus).toEqual([
+        DeviceStatus.ERROR,
+        DeviceStatus.NEEDS_MINING_POOL,
+        DeviceStatus.UPDATING,
+        DeviceStatus.REBOOT_REQUIRED,
+      ]);
     });
   });
 

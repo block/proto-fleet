@@ -174,6 +174,12 @@ type MinerState struct {
 
 	// Locate sequence active
 	LocateActive bool
+
+	// Firmware update simulation
+	FWUpdateStatus string // "current", "downloaded", "installing", "installed"
+
+	// Reboot simulation
+	Rebooting bool
 }
 
 // ErrorConfig holds configuration for simulating various error conditions.

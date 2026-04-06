@@ -35,8 +35,16 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     !needsAuthentication;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
+  const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
+  const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
 
-  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, hasDeviceError);
+  const needsAttention = useNeedsAttention(
+    needsAuthentication,
+    needsMiningPool,
+    errors,
+    hasDeviceError,
+    isUpdating || isRebootRequired,
+  );
 
   // Compute status (Hashing, Offline, Sleeping, or Needs attention)
   const status = useMinerStatus(isOffline, isSleeping, needsAttention);
@@ -79,6 +87,32 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
         <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
         <ProgressCircular size={14} indeterminate />
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
+      </div>
+    );
+  }
+
+  // Firmware update states — show dedicated indicators
+  if (isUpdating) {
+    return (
+      <div
+        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
+        onClick={isClickable ? onClick : undefined}
+      >
+        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
+        <ProgressCircular size={14} indeterminate />
+        Updating firmware
+      </div>
+    );
+  }
+
+  if (isRebootRequired) {
+    return (
+      <div
+        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
+        onClick={isClickable ? onClick : undefined}
+      >
+        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
+        Reboot required
       </div>
     );
   }

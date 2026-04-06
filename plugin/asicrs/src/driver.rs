@@ -687,6 +687,15 @@ impl Driver for DriverService {
         Err(Status::unimplemented("update_firmware not yet supported"))
     }
 
+    async fn get_firmware_update_status(
+        &self,
+        _req: Request<pb::DeviceRef>,
+    ) -> Result<Response<pb::GetFirmwareUpdateStatusResponse>, Status> {
+        Err(Status::unimplemented(
+            "get_firmware_update_status not supported",
+        ))
+    }
+
     async fn unpair(&self, _req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
         // No-op
         Ok(Response::new(()))

@@ -10,4 +10,6 @@ type Config struct {
 	DequeueRetries                   int           `help:"Number of retries to dequeue messages from the queue." default:"10" env:"DEQUEUE_RETRIES"`
 	StuckMessageTimeout              time.Duration `help:"How long a PROCESSING message can be idle before the reaper marks it FAILED." default:"5m" env:"STUCK_MESSAGE_TIMEOUT"`
 	ReaperInterval                   time.Duration `help:"How often the stuck message reaper runs." default:"30s" env:"REAPER_INTERVAL"`
+	FirmwareUpdateTimeout            time.Duration `help:"Timeout for firmware update workers including install polling." default:"15m" env:"FIRMWARE_UPDATE_TIMEOUT"`
+	FirmwareUpdateStuckTimeout       time.Duration `help:"How long a firmware update PROCESSING message can be idle before the reaper marks it FAILED." default:"20m" env:"FIRMWARE_UPDATE_STUCK_TIMEOUT"`
 }

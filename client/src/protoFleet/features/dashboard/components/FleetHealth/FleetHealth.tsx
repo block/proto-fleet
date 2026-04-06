@@ -93,7 +93,12 @@ const FleetHealth = ({
         status: "CRITICAL" as Segment["status"],
         count: needsAttentionMiners,
         filter: create(MinerListFilterSchema, {
-          deviceStatus: [DeviceStatus.ERROR, DeviceStatus.NEEDS_MINING_POOL],
+          deviceStatus: [
+            DeviceStatus.ERROR,
+            DeviceStatus.NEEDS_MINING_POOL,
+            DeviceStatus.UPDATING,
+            DeviceStatus.REBOOT_REQUIRED,
+          ],
         }),
         clickable: true,
       },

@@ -560,13 +560,38 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			return
 		}
 
-		// Convert map to slice for batch DB write
+		// Check current DB statuses to avoid overwriting firmware update states
+		// (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
+		// REBOOT_REQUIRED persists until the user triggers a reboot command from Fleet.
+		deviceIDs := make([]models.DeviceIdentifier, 0, len(pendingUpdates))
+		for deviceID := range pendingUpdates {
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+		currentStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(flushCtx, deviceIDs)
+		if err != nil {
+			slog.Warn("failed to check current device statuses for firmware update guard, skipping flush", "error", err)
+			return
+		}
+
 		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
 		for deviceID, status := range pendingUpdates {
+			if currentStatuses != nil {
+				if currentStatus, ok := currentStatuses[deviceID]; ok {
+					if currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired {
+						delete(pendingUpdates, deviceID)
+						continue
+					}
+				}
+			}
 			statusUpdates = append(statusUpdates, stores.DeviceStatusUpdate{
 				DeviceIdentifier: deviceID,
 				Status:           status,
 			})
+		}
+
+		if len(statusUpdates) == 0 {
+			clear(pendingUpdates)
+			return
 		}
 
 		// Write new statuses to DB in a single bulk INSERT.

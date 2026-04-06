@@ -65,6 +65,12 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 	if config.ReaperInterval <= 0 {
 		config.ReaperInterval = 30 * time.Second
 	}
+	if config.FirmwareUpdateTimeout <= 0 {
+		config.FirmwareUpdateTimeout = 15 * time.Minute
+	}
+	if config.FirmwareUpdateStuckTimeout <= 0 {
+		config.FirmwareUpdateStuckTimeout = 20 * time.Minute
+	}
 	return &ExecutionService{
 		config:                config,
 		conn:                  conn,
@@ -135,7 +141,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
-			count, err := es.reapStuckMessages(reapCtx)
+			count, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
@@ -144,15 +150,22 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			if count > 0 {
 				slog.Warn("stuck message reaper moved messages to FAILED", "count", count)
 			}
+			for _, deviceID := range fwDeviceIDs {
+				es.clearFirmwareUpdateStatus(ctx, deviceID)
+			}
 		}
 	}
 }
 
 // reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
 // writes the corresponding audit log entries in a single transaction.
-func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, error) {
+// Firmware update messages use a longer cutoff since they include install polling.
+// Returns the total count of reaped messages and the device IDs from reaped
+// firmware update messages (so callers can clean up stuck device statuses).
+func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64, error) {
 	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
 	var count int
+	var fwDeviceIDs []int64
 	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
 		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
 			Cutoff:    cutoff,
@@ -161,7 +174,17 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, error) 
 		if err != nil {
 			return err
 		}
-		count = len(reaped)
+
+		fwCutoff := time.Now().Add(-es.config.FirmwareUpdateStuckTimeout)
+		fwReaped, err := q.ReapStuckFirmwareUpdateMessages(ctx, sqlc.ReapStuckFirmwareUpdateMessagesParams{
+			Cutoff:    fwCutoff,
+			ReapLimit: 100,
+		})
+		if err != nil {
+			return err
+		}
+
+		count = len(reaped) + len(fwReaped)
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -172,9 +195,20 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, error) 
 				return err
 			}
 		}
+		for _, msg := range fwReaped {
+			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid:      msg.CommandBatchLogUuid,
+				DeviceID:  msg.DeviceID,
+				Status:    sqlc.DeviceCommandStatusEnumFAILED,
+				UpdatedAt: time.Now(),
+			}); err != nil {
+				return err
+			}
+			fwDeviceIDs = append(fwDeviceIDs, msg.DeviceID)
+		}
 		return nil
 	})
-	return count, err
+	return count, fwDeviceIDs, err
 }
 
 func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
@@ -231,7 +265,11 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 				go func(msg queue.Message) {
 					defer func() { <-es.workerSemaphore }()
 
-					workerCtx, cancel := context.WithTimeout(ctx, es.config.WorkerExecutionTimeout)
+					timeout := es.config.WorkerExecutionTimeout
+					if msg.CommandType == commandtype.FirmwareUpdate {
+						timeout = es.config.FirmwareUpdateTimeout
+					}
+					workerCtx, cancel := context.WithTimeout(ctx, timeout)
 					defer cancel()
 
 					es.workerProcessCommand(workerCtx, msg)
@@ -328,6 +366,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	switch commandType {
 	case commandtype.Reboot:
 		err = minerInfo.Reboot(ctx)
+		if err == nil {
+			es.clearFirmwareUpdateStatus(ctx, message.DeviceID)
+		}
 	case commandtype.StartMining:
 		err = minerInfo.StartMining(ctx)
 	case commandtype.StopMining:
@@ -384,6 +425,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			Size:     size,
 			FilePath: filePath,
 		})
+		if err != nil {
+			break
+		}
+		err = es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
 		if err == nil {
@@ -610,6 +655,175 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 	}
 
 	return nil
+}
+
+const (
+	firmwareInstallPollInterval = 10 * time.Second
+	firmwareInstallGraceWindow  = 60 * time.Second
+)
+
+var errPollComplete = errors.New("polling complete")
+
+// clearFirmwareUpdateStatus resets the device status from REBOOT_REQUIRED back to ACTIVE
+// after a successful reboot command, allowing telemetry to take over status management.
+func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
+	if es.conn == nil {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
+	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(cleanupCtx, deviceID)
+	})
+	if err != nil {
+		slog.Warn("failed to resolve device identifier for firmware status cleanup", "device_id", deviceID, "error", err)
+		return
+	}
+	devID := tmodels.DeviceIdentifier(deviceIdentifier)
+
+	currentStatuses, err := es.deviceStore.GetDeviceStatusForDeviceIdentifiers(cleanupCtx, []tmodels.DeviceIdentifier{devID})
+	if err != nil {
+		slog.Warn("failed to read current device status for firmware status cleanup", "device_id", deviceID, "error", err)
+		return
+	}
+	currentStatus, ok := currentStatuses[devID]
+	if !ok || (currentStatus != models.MinerStatusRebootRequired && currentStatus != models.MinerStatusUpdating) {
+		return
+	}
+
+	var upsertErr error
+	for attempt := range 3 {
+		upsertErr = es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusActive, "")
+		if upsertErr == nil {
+			slog.Info("cleared firmware update status after reboot", "device_id", deviceID, "previous_status", currentStatus)
+			return
+		}
+		slog.Warn("failed to clear firmware update status after reboot, retrying",
+			"device_id", deviceID, "attempt", attempt+1, "error", upsertErr)
+		select {
+		case <-cleanupCtx.Done():
+			return
+		case <-time.After(1 * time.Second):
+		}
+	}
+	slog.Error("permanently failed to clear firmware update status after reboot",
+		"device_id", deviceID, "error", upsertErr)
+}
+
+// pollFirmwareInstallStatus polls the rig's install status after a successful firmware
+// upload until installation completes or fails. The device status is set to UPDATING
+// only after the probe confirms the device supports install status reporting, then
+// transitions to REBOOT_REQUIRED on success.
+// Returns nil on successful install, or an error if installation fails or times out.
+// For miners that don't support install status polling, returns nil immediately.
+func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
+	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
+	if !canPoll {
+		return nil
+	}
+
+	probeStatus, probeErr := provider.GetFirmwareUpdateStatus(ctx)
+	if probeErr == nil && probeStatus == nil {
+		slog.Info("firmware update status provider does not report install status, skipping polling", "device_id", deviceID)
+		return nil
+	}
+
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, deviceID)
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to resolve device identifier for firmware status polling: %v", err)
+	}
+
+	devID := tmodels.DeviceIdentifier(deviceIdentifier)
+
+	pollResult := es.doPollFirmwareInstall(ctx, provider, devID, deviceID, probeStatus, probeErr)
+
+	if pollResult != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if upsertErr := es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusActive, ""); upsertErr != nil {
+			slog.Warn("failed to clear firmware update status after polling failure", "device_id", deviceID, "error", upsertErr)
+		}
+	}
+	return pollResult
+}
+
+func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) error {
+	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusUpdating, ""); upsertErr != nil {
+		slog.Warn("failed to set device status to UPDATING", "device_id", deviceID, "error", upsertErr)
+	}
+
+	ticker := time.NewTicker(firmwareInstallPollInterval)
+	defer ticker.Stop()
+	uploadCompletedAt := time.Now()
+
+	handleStatus := func(status *sdk.FirmwareUpdateStatus, pollErr error) error {
+		if pollErr != nil {
+			slog.Warn("firmware install status poll failed", "device_id", deviceID, "error", pollErr)
+			return nil
+		}
+		if status == nil {
+			return nil
+		}
+
+		switch status.State {
+		case "installed", "success", "confirming":
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+			defer cancel()
+			if upsertErr := es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusRebootRequired, ""); upsertErr != nil {
+				slog.Error("firmware install completed but failed to persist REBOOT_REQUIRED, treating as success to avoid re-upload", "device_id", deviceID, "error", upsertErr)
+			}
+			slog.Info("firmware install completed, reboot required", "device_id", deviceID)
+			return errPollComplete
+
+		case "installing", "downloaded":
+			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
+
+		case "current":
+			if status.Error != nil && *status.Error != "" {
+				return fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, *status.Error)
+			}
+			if time.Since(uploadCompletedAt) > firmwareInstallGraceWindow {
+				return fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d (install may have failed silently)", deviceID)
+			}
+			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID)
+
+		case "error":
+			errMsg := "unknown error"
+			if status.Error != nil && *status.Error != "" {
+				errMsg = *status.Error
+			}
+			return fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
+
+		default:
+			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)
+		}
+		return nil
+	}
+
+	if result := handleStatus(probeStatus, probeErr); result != nil {
+		if errors.Is(result, errPollComplete) {
+			return nil
+		}
+		return result
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fleeterror.NewInternalErrorf("firmware install polling timed out for device %d", deviceID)
+		case <-ticker.C:
+			status, pollErr := provider.GetFirmwareUpdateStatus(ctx)
+			if result := handleStatus(status, pollErr); result != nil {
+				if errors.Is(result, errPollComplete) {
+					return nil
+				}
+				return result
+			}
+		}
+	}
 }
 
 // updateMinerPasswordInDB encrypts and stores the miner password in the database

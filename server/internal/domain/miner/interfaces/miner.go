@@ -62,6 +62,13 @@ type Miner interface {
 	GetMiningPools(ctx context.Context) ([]MinerConfiguredPool, error)
 }
 
+// FirmwareUpdateStatusProvider is an optional interface that miners can implement
+// to report firmware installation progress. Used by the execution service to poll
+// install status after uploading firmware to a device.
+type FirmwareUpdateStatusProvider interface {
+	GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error)
+}
+
 // MinerConfiguredPool represents a pool currently configured on a miner device
 type MinerConfiguredPool struct {
 	Priority int32

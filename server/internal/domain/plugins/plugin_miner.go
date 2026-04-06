@@ -427,6 +427,19 @@ func (p *PluginMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareF
 	return nil
 }
 
+// GetFirmwareUpdateStatus implements the optional FirmwareUpdateStatusProvider interface.
+// Returns the firmware installation status from the device if the plugin supports it.
+func (p *PluginMiner) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	if provider, ok := p.sdkDevice.(sdk.FirmwareUpdateStatusProvider); ok {
+		status, err := provider.GetFirmwareUpdateStatus(ctx)
+		if err != nil {
+			return nil, wrapPluginError(err, "failed to get firmware update status")
+		}
+		return status, nil
+	}
+	return nil, nil
+}
+
 // Unpair implements interfaces.Miner
 func (p *PluginMiner) Unpair(ctx context.Context) error {
 	if err := p.sdkDevice.Unpair(ctx); err != nil {

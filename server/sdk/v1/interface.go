@@ -395,6 +395,20 @@ type DeviceMaintenance interface {
 	Unpair(ctx context.Context) error
 }
 
+// FirmwareUpdateStatus represents the current firmware installation state on a device.
+type FirmwareUpdateStatus struct {
+	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error"
+	Progress *int
+	Error    *string
+}
+
+// FirmwareUpdateStatusProvider is an optional interface that devices can implement
+// to report firmware installation progress after a file has been uploaded.
+// Plugins that do not support install status polling should not implement this.
+type FirmwareUpdateStatusProvider interface {
+	GetFirmwareUpdateStatus(ctx context.Context) (*FirmwareUpdateStatus, error)
+}
+
 // DeviceErrorReporting represents device error reporting operations
 type DeviceErrorReporting interface {
 	// CoreV1 - Error System (required)

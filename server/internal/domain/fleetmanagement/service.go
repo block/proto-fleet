@@ -577,6 +577,10 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 				statusFilters = append(statusFilters, mm.MinerStatusInactive)
 			case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 				statusFilters = append(statusFilters, mm.MinerStatusNeedsMiningPool)
+			case pb.DeviceStatus_DEVICE_STATUS_UPDATING:
+				statusFilters = append(statusFilters, mm.MinerStatusUpdating)
+			case pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+				statusFilters = append(statusFilters, mm.MinerStatusRebootRequired)
 			default:
 				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
 			}
@@ -633,6 +637,10 @@ func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
 		return pb.DeviceStatus_DEVICE_STATUS_INACTIVE
 	case "NEEDS_MINING_POOL":
 		return pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
+	case "UPDATING":
+		return pb.DeviceStatus_DEVICE_STATUS_UPDATING
+	case "REBOOT_REQUIRED":
+		return pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED
 	default:
 		return pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
 	}

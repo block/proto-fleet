@@ -617,7 +617,7 @@ SELECT ap.device_set_id, ap.row_num AS row, ap.col_num AS col,
         WHEN sd.device_identifier IS NULL THEN 1
         WHEN sd.device_status = 'OFFLINE' OR sd.device_status IS NULL THEN 4
         WHEN sd.device_status IN ('MAINTENANCE', 'INACTIVE') THEN 5
-        WHEN sd.device_status IN ('ERROR', 'NEEDS_MINING_POOL')
+        WHEN sd.device_status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
              OR sd.pairing_status = 'AUTHENTICATION_NEEDED'
              OR sd.has_errors THEN 3
         ELSE 2

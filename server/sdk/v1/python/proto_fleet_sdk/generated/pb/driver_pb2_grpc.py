@@ -141,6 +141,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.UpdateFirmwareRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.GetFirmwareUpdateStatus = channel.unary_unary(
+                '/sdk.v1.Driver/GetFirmwareUpdateStatus',
+                request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.GetFirmwareUpdateStatusResponse.FromString,
+                _registered_method=True)
         self.Unpair = channel.unary_unary(
                 '/sdk.v1.Driver/Unpair',
                 request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
@@ -321,6 +326,12 @@ class DriverServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetFirmwareUpdateStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Unpair(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -481,6 +492,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.UpdateFirmware,
                     request_deserializer=pb_dot_driver__pb2.UpdateFirmwareRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'GetFirmwareUpdateStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFirmwareUpdateStatus,
+                    request_deserializer=pb_dot_driver__pb2.DeviceRef.FromString,
+                    response_serializer=pb_dot_driver__pb2.GetFirmwareUpdateStatusResponse.SerializeToString,
             ),
             'Unpair': grpc.unary_unary_rpc_method_handler(
                     servicer.Unpair,
@@ -1091,6 +1107,33 @@ class Driver(object):
             '/sdk.v1.Driver/UpdateFirmware',
             pb_dot_driver__pb2.UpdateFirmwareRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFirmwareUpdateStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/GetFirmwareUpdateStatus',
+            pb_dot_driver__pb2.DeviceRef.SerializeToString,
+            pb_dot_driver__pb2.GetFirmwareUpdateStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

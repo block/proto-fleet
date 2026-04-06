@@ -185,13 +185,20 @@ type systemInfoResponse struct {
 }
 
 type systemInfoInner struct {
-	ProductName     string  `json:"product_name"`
-	CBSN            string  `json:"cb_sn"`
-	OS              *swInfo `json:"os,omitempty"`
-	MiningDriverSW  *swInfo `json:"mining_driver_sw,omitempty"`
-	WebServer       *swInfo `json:"web_server,omitempty"`
-	WebDashboard    *swInfo `json:"web_dashboard,omitempty"`
-	PoolInterfaceSW *swInfo `json:"pool_interface_sw,omitempty"`
+	ProductName     string          `json:"product_name"`
+	CBSN            string          `json:"cb_sn"`
+	OS              *swInfo         `json:"os,omitempty"`
+	MiningDriverSW  *swInfo         `json:"mining_driver_sw,omitempty"`
+	WebServer       *swInfo         `json:"web_server,omitempty"`
+	WebDashboard    *swInfo         `json:"web_dashboard,omitempty"`
+	PoolInterfaceSW *swInfo         `json:"pool_interface_sw,omitempty"`
+	SwUpdateStatus  *swUpdateStatus `json:"sw_update_status,omitempty"`
+}
+
+type swUpdateStatus struct {
+	Status   string  `json:"status"`
+	Progress *int    `json:"progress,omitempty"`
+	Error    *string `json:"error,omitempty"`
 }
 
 type swInfo struct {
@@ -527,6 +534,18 @@ func (c *Client) GetSoftwareInfo(ctx context.Context) (string, error) {
 // GetFirmwareVersion retrieves the firmware (OS) version string from the miner.
 func (c *Client) GetFirmwareVersion(ctx context.Context) (string, error) {
 	return c.GetSoftwareInfo(ctx)
+}
+
+// GetUpdateStatus retrieves the firmware update installation status from the miner.
+// The status field tracks the swupdate lifecycle: "current", "downloading",
+// "downloaded", "installing", "installed", "confirming", "success".
+// On failure, the rig sets status back to "current" with the error field populated.
+func (c *Client) GetUpdateStatus(ctx context.Context) (*swUpdateStatus, error) {
+	var resp systemInfoResponse
+	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
+		return nil, fmt.Errorf("failed to get system info: %w", err)
+	}
+	return resp.SystemInfo.SwUpdateStatus, nil
 }
 
 // GetDeviceInfo retrieves basic device information via the pairing info endpoint.

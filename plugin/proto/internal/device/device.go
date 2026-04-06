@@ -644,6 +644,24 @@ func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) 
 	return nil
 }
 
+// GetFirmwareUpdateStatus implements sdk.FirmwareUpdateStatusProvider.
+//
+// Returns the current firmware installation status from the rig's sw_update_status.
+func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	status, err := d.client.GetUpdateStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get update status: %w", err)
+	}
+	if status == nil {
+		return nil, nil
+	}
+	return &sdk.FirmwareUpdateStatus{
+		State:    status.Status,
+		Progress: status.Progress,
+		Error:    status.Error,
+	}, nil
+}
+
 // Unpair implements the SDK Device interface.
 //
 // This method clears the authentication key from the device during fleet unpairing.

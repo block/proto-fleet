@@ -198,12 +198,12 @@ SELECT
         ELSE 0
     END), 0)::bigint as sleeping_count,
 
-    -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR status OR auth needed OR actionable errors
+    -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR OR UPDATING OR REBOOT_REQUIRED status OR auth needed OR actionable errors
     -- Only if not offline or sleeping
     COALESCE(SUM(CASE
         WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
              AND ds.status IS NOT NULL
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL')
+             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
         THEN 1

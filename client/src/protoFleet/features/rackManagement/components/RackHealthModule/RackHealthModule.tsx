@@ -99,7 +99,13 @@ export const RackHealthModule = ({
         count: needsAttention,
         showButton: true,
         buttonVariant: "secondary",
-        onClick: () => navigate(buildFilterUrl([DeviceStatus.ERROR, DeviceStatus.NEEDS_MINING_POOL], rackFilterParam)),
+        onClick: () =>
+          navigate(
+            buildFilterUrl(
+              [DeviceStatus.ERROR, DeviceStatus.NEEDS_MINING_POOL, DeviceStatus.UPDATING, DeviceStatus.REBOOT_REQUIRED],
+              rackFilterParam,
+            ),
+          ),
       },
       {
         key: "offline",

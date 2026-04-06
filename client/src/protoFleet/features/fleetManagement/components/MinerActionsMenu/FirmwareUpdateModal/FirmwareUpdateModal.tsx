@@ -9,7 +9,7 @@ import {
   FileReadyStatus,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
@@ -38,6 +38,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
 
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
+  const [showUploadZone, setShowUploadZone] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -72,6 +73,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
   const handleUploadFileSelect = useCallback(
     (file: File) => {
       setSelectedExistingFileId(null);
+      setShowUploadZone(true);
       processFile(file);
     },
     [processFile],
@@ -86,6 +88,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
       reset();
       setSelectedExistingFileId(null);
       setExistingFiles(null);
+      setShowUploadZone(false);
     }
   }, [effectiveFirmwareFileId, onConfirm, reset]);
 
@@ -93,6 +96,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     reset();
     setSelectedExistingFileId(null);
     setExistingFiles(null);
+    setShowUploadZone(false);
     onDismiss();
   }, [onDismiss, reset]);
 
@@ -101,19 +105,18 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
   const hasExistingFiles = existingFiles != null && existingFiles.length > 0;
   const showLoadingSpinner = configLoading && !hasExistingFiles;
 
-  const buttons = isReady
-    ? [{ text: "Update firmware", variant: variants.primary, onClick: handleConfirm }]
-    : undefined;
+  const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
   return (
     <Modal
       open={open}
-      contentHeader="Update firmware"
+      contentHeader="Add firmware payload"
       onDismiss={handleDismiss}
       buttons={buttons}
-      size="small"
+      size="large"
       divider={false}
     >
+      <div className="text-text-secondary mt-2 text-300">Upload the firmware payload file to update your miners.</div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner && (
           <div className="flex items-center justify-center p-8">
@@ -166,7 +169,12 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
             {serverConfig && (
               <div className="flex items-center gap-3 py-2">
                 <div className="h-px flex-1 bg-border-5" />
-                <span className="text-text-secondary text-200">or upload a new file</span>
+                <Button
+                  variant={variants.secondary}
+                  size={buttonSizes.compact}
+                  text={showUploadZone ? "Hide upload" : "Upload new file"}
+                  onClick={() => setShowUploadZone((prev) => !prev)}
+                />
                 <div className="h-px flex-1 bg-border-5" />
               </div>
             )}
@@ -175,7 +183,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
 
         {uploadState === "error" && errorMessage && <FileErrorStatus message={errorMessage} onRetry={retry} />}
 
-        {uploadState === "idle" && serverConfig && (
+        {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) && (
           <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={handleUploadFileSelect} />
         )}
 

@@ -359,6 +359,45 @@ func (mr *MockDeviceMaintenanceMockRecorder) Unpair(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockDeviceMaintenance)(nil).Unpair), ctx)
 }
 
+// MockFirmwareUpdateStatusProvider is a mock of FirmwareUpdateStatusProvider interface.
+type MockFirmwareUpdateStatusProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockFirmwareUpdateStatusProviderMockRecorder
+	isgomock struct{}
+}
+
+// MockFirmwareUpdateStatusProviderMockRecorder is the mock recorder for MockFirmwareUpdateStatusProvider.
+type MockFirmwareUpdateStatusProviderMockRecorder struct {
+	mock *MockFirmwareUpdateStatusProvider
+}
+
+// NewMockFirmwareUpdateStatusProvider creates a new mock instance.
+func NewMockFirmwareUpdateStatusProvider(ctrl *gomock.Controller) *MockFirmwareUpdateStatusProvider {
+	mock := &MockFirmwareUpdateStatusProvider{ctrl: ctrl}
+	mock.recorder = &MockFirmwareUpdateStatusProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockFirmwareUpdateStatusProvider) EXPECT() *MockFirmwareUpdateStatusProviderMockRecorder {
+	return m.recorder
+}
+
+// GetFirmwareUpdateStatus mocks base method.
+func (m *MockFirmwareUpdateStatusProvider) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirmwareUpdateStatus", ctx)
+	ret0, _ := ret[0].(*sdk.FirmwareUpdateStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFirmwareUpdateStatus indicates an expected call of GetFirmwareUpdateStatus.
+func (mr *MockFirmwareUpdateStatusProviderMockRecorder) GetFirmwareUpdateStatus(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwareUpdateStatus", reflect.TypeOf((*MockFirmwareUpdateStatusProvider)(nil).GetFirmwareUpdateStatus), ctx)
+}
+
 // MockDeviceErrorReporting is a mock of DeviceErrorReporting interface.
 type MockDeviceErrorReporting struct {
 	ctrl     *gomock.Controller

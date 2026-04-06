@@ -33,12 +33,20 @@ const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
   // Compute issue flags
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
+  const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
+  const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
 
   // Transform errors to shared format using existing utility
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
-  // Compute issues summary (authentication, pool, and hardware errors)
-  const { summary, hasIssues } = useMinerIssues(needsAuthentication, needsMiningPool, sharedErrors);
+  // Compute issues summary (authentication, pool, firmware status, and hardware errors)
+  const { summary, hasIssues } = useMinerIssues(
+    needsAuthentication,
+    needsMiningPool,
+    sharedErrors,
+    isUpdating,
+    isRebootRequired,
+  );
 
   // Determine icon to show based on issue type
   // Note: Auth and pool issues don't have icons (per Figma design)
@@ -62,7 +70,7 @@ const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
   }, [needsAuthentication, needsMiningPool, sharedErrors]);
 
   // While errors haven't loaded, show shimmer for devices that could have issues
-  if (!errorsLoaded && !needsAuthentication && !needsMiningPool) {
+  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired) {
     return <SkeletonBar className="w-24" />;
   }
 

@@ -155,11 +155,64 @@ func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid str
 	return is_processing, err
 }
 
+const reapStuckFirmwareUpdateMessages = `-- name: ReapStuckFirmwareUpdateMessages :many
+WITH stuck AS (
+    SELECT m.id FROM queue_message m
+    WHERE m.status = 'PROCESSING'
+      AND m.updated_at < $1
+      AND m.command_type = 'FirmwareUpdate'
+    LIMIT $2
+)
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
+    updated_at = CURRENT_TIMESTAMP
+FROM stuck
+WHERE queue_message.id = stuck.id
+  AND queue_message.status = 'PROCESSING'
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid
+`
+
+type ReapStuckFirmwareUpdateMessagesParams struct {
+	Cutoff    time.Time
+	ReapLimit int32
+}
+
+type ReapStuckFirmwareUpdateMessagesRow struct {
+	ID                  int64
+	DeviceID            int64
+	CommandBatchLogUuid string
+}
+
+func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error) {
+	rows, err := q.query(ctx, q.reapStuckFirmwareUpdateMessagesStmt, reapStuckFirmwareUpdateMessages, arg.Cutoff, arg.ReapLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReapStuckFirmwareUpdateMessagesRow
+	for rows.Next() {
+		var i ReapStuckFirmwareUpdateMessagesRow
+		if err := rows.Scan(&i.ID, &i.DeviceID, &i.CommandBatchLogUuid); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reapStuckProcessingMessages = `-- name: ReapStuckProcessingMessages :many
 WITH stuck AS (
     SELECT m.id FROM queue_message m
     WHERE m.status = 'PROCESSING'
       AND m.updated_at < $1
+      AND m.command_type != 'FirmwareUpdate'
     LIMIT $2
 )
 UPDATE queue_message

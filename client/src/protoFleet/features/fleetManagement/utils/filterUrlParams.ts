@@ -55,6 +55,8 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
           break;
         case DeviceStatus.ERROR:
         case DeviceStatus.NEEDS_MINING_POOL:
+        case DeviceStatus.UPDATING:
+        case DeviceStatus.REBOOT_REQUIRED:
           statusValues.add("needs-attention");
           break;
         case DeviceStatus.OFFLINE:
@@ -142,6 +144,8 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
         case "needs-attention":
           filter.deviceStatus.push(DeviceStatus.ERROR);
           filter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
+          filter.deviceStatus.push(DeviceStatus.UPDATING);
+          filter.deviceStatus.push(DeviceStatus.REBOOT_REQUIRED);
           break;
         case "offline":
           filter.deviceStatus.push(DeviceStatus.OFFLINE);

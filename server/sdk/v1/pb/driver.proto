@@ -448,6 +448,13 @@ message UpdateFirmwareRequest {
   FirmwareFileInfo firmware = 2;
 }
 
+// Response containing the current firmware installation status on a device.
+message GetFirmwareUpdateStatusResponse {
+  string state = 1;            // "current", "downloaded", "installing", "installed"
+  optional int32 progress = 2; // Install progress percentage (0-100)
+  optional string error = 3;   // Error message if installation failed
+}
+
 // ============================================================================
 // Error System - Miner Error Taxonomy
 // ============================================================================
@@ -616,6 +623,7 @@ service Driver {
   rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(UpdateFirmwareRequest) returns (google.protobuf.Empty);
+  rpc GetFirmwareUpdateStatus(DeviceRef) returns (GetFirmwareUpdateStatusResponse);
   rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
   rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (google.protobuf.Empty);
 

@@ -437,6 +437,48 @@ describe("useMinerIssues", () => {
     });
   });
 
+  describe("firmware status", () => {
+    it('should return "Updating firmware" when isUpdating is true', () => {
+      const { result } = renderHook(() => useMinerIssues(false, false, emptyErrors, true, false));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Updating firmware");
+    });
+
+    it('should return "Reboot required" when isRebootRequired is true', () => {
+      const { result } = renderHook(() => useMinerIssues(false, false, emptyErrors, false, true));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Reboot required");
+    });
+
+    it("should prioritize auth over firmware status", () => {
+      const { result } = renderHook(() => useMinerIssues(true, false, emptyErrors, true, false));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Authentication required");
+    });
+
+    it("should prioritize pool over firmware status", () => {
+      const { result } = renderHook(() => useMinerIssues(false, true, emptyErrors, false, true));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Pool required");
+    });
+
+    it("should prioritize updating over reboot required", () => {
+      const { result } = renderHook(() => useMinerIssues(false, false, emptyErrors, true, true));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Updating firmware");
+    });
+
+    it("should prioritize firmware status over hardware errors", () => {
+      const errors: GroupedStatusErrors = {
+        ...emptyErrors,
+        hashboard: [{ componentType: "hashboard", slot: 1 }],
+      };
+      const { result } = renderHook(() => useMinerIssues(false, false, errors, false, true));
+      expect(result.current.hasIssues).toBe(true);
+      expect(result.current.summary).toBe("Reboot required");
+    });
+  });
+
   describe("hardware errors only", () => {
     it("should return specific component failure for single error", () => {
       const errors: GroupedStatusErrors = {

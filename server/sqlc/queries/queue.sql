@@ -69,11 +69,29 @@ WITH stuck AS (
     SELECT m.id FROM queue_message m
     WHERE m.status = 'PROCESSING'
       AND m.updated_at < @cutoff
+      AND m.command_type != 'FirmwareUpdate'
     LIMIT @reap_limit
 )
 UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: stuck in PROCESSING beyond timeout',
+    updated_at = CURRENT_TIMESTAMP
+FROM stuck
+WHERE queue_message.id = stuck.id
+  AND queue_message.status = 'PROCESSING'
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid;
+
+-- name: ReapStuckFirmwareUpdateMessages :many
+WITH stuck AS (
+    SELECT m.id FROM queue_message m
+    WHERE m.status = 'PROCESSING'
+      AND m.updated_at < @cutoff
+      AND m.command_type = 'FirmwareUpdate'
+    LIMIT @reap_limit
+)
+UPDATE queue_message
+SET status = 'FAILED'::queue_status_enum,
+    error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
 FROM stuck
 WHERE queue_message.id = stuck.id

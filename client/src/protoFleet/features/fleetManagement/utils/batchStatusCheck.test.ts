@@ -91,6 +91,24 @@ describe("hasReachedExpectedStatus", () => {
     });
   });
 
+  describe("firmware update action", () => {
+    it("returns true when status is REBOOT_REQUIRED", () => {
+      expect(hasReachedExpectedStatus(deviceActions.firmwareUpdate, DeviceStatus.REBOOT_REQUIRED)).toBe(true);
+    });
+
+    it("returns false when status is UPDATING", () => {
+      expect(hasReachedExpectedStatus(deviceActions.firmwareUpdate, DeviceStatus.UPDATING)).toBe(false);
+    });
+
+    it("returns false when status is ONLINE", () => {
+      expect(hasReachedExpectedStatus(deviceActions.firmwareUpdate, DeviceStatus.ONLINE)).toBe(false);
+    });
+
+    it("returns false when status is undefined", () => {
+      expect(hasReachedExpectedStatus(deviceActions.firmwareUpdate, undefined)).toBe(false);
+    });
+  });
+
   describe("unknown action", () => {
     it("returns false for unknown actions", () => {
       expect(hasReachedExpectedStatus("unknown-action", DeviceStatus.ONLINE)).toBe(false);

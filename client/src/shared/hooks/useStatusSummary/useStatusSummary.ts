@@ -71,6 +71,8 @@ export function useMinerIssues(
   needsAuthentication: boolean,
   needsMiningPool: boolean,
   groupedErrors: GroupedStatusErrors,
+  isUpdating: boolean = false,
+  isRebootRequired: boolean = false,
 ): MinerIssues {
   return useMemo(() => {
     // Prioritize authentication over everything else
@@ -83,6 +85,14 @@ export function useMinerIssues(
       return { summary: "Pool required", hasIssues: true };
     }
 
+    // Firmware update states
+    if (isUpdating) {
+      return { summary: "Updating firmware", hasIssues: true };
+    }
+    if (isRebootRequired) {
+      return { summary: "Reboot required", hasIssues: true };
+    }
+
     // Finally, check for hardware errors
     const { componentTypesWithErrors } = analyzeErrors(groupedErrors);
     if (componentTypesWithErrors.length > 0) {
@@ -92,7 +102,7 @@ export function useMinerIssues(
 
     // No issues
     return { summary: null, hasIssues: false };
-  }, [needsAuthentication, needsMiningPool, groupedErrors]);
+  }, [needsAuthentication, needsMiningPool, groupedErrors, isUpdating, isRebootRequired]);
 }
 
 /**

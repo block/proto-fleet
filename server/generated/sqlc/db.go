@@ -471,6 +471,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.queryErrorsStmt, err = db.PrepareContext(ctx, queryErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query QueryErrors: %w", err)
 	}
+	if q.reapStuckFirmwareUpdateMessagesStmt, err = db.PrepareContext(ctx, reapStuckFirmwareUpdateMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ReapStuckFirmwareUpdateMessages: %w", err)
+	}
 	if q.reapStuckProcessingMessagesStmt, err = db.PrepareContext(ctx, reapStuckProcessingMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ReapStuckProcessingMessages: %w", err)
 	}
@@ -1383,6 +1386,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing queryErrorsStmt: %w", cerr)
 		}
 	}
+	if q.reapStuckFirmwareUpdateMessagesStmt != nil {
+		if cerr := q.reapStuckFirmwareUpdateMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reapStuckFirmwareUpdateMessagesStmt: %w", cerr)
+		}
+	}
 	if q.reapStuckProcessingMessagesStmt != nil {
 		if cerr := q.reapStuckProcessingMessagesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reapStuckProcessingMessagesStmt: %w", cerr)
@@ -1841,6 +1849,7 @@ type Queries struct {
 	queryComponentKeysWithErrorsStmt                    *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
 	queryErrorsStmt                                     *sql.Stmt
+	reapStuckFirmwareUpdateMessagesStmt                 *sql.Stmt
 	reapStuckProcessingMessagesStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
@@ -2050,6 +2059,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
 		queryErrorsStmt:                                     q.queryErrorsStmt,
+		reapStuckFirmwareUpdateMessagesStmt:                 q.reapStuckFirmwareUpdateMessagesStmt,
 		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
 		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,

@@ -37,6 +37,8 @@ export function hasReachedExpectedStatus(
 
     // After 15s, complete when device is no longer OFFLINE
     return deviceStatus !== DeviceStatus.OFFLINE;
+  } else if (action === deviceActions.firmwareUpdate) {
+    return deviceStatus === DeviceStatus.REBOOT_REQUIRED;
   }
 
   return false;

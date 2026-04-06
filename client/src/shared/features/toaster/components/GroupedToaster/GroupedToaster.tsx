@@ -56,11 +56,13 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
       }
     };
 
-    if (toasts.length === 0 || isExpanded || hasErrors) {
+    const hasPersistentToast = toasts.some((t) => t.ttl === false);
+
+    if (toasts.length === 0 || isExpanded || hasErrors || hasPersistentToast) {
       clearTimeoutWithCheck();
     }
 
-    if (toasts.length !== 0 && !isExpanded && !hasErrors) {
+    if (toasts.length !== 0 && !isExpanded && !hasErrors && !hasPersistentToast) {
       clearTimeoutWithCheck();
 
       timeoutId.current = setTimeout(

@@ -1,0 +1,2 @@
+-- Postgres does not support removing values from an enum type.
+-- These values are safe to leave in place; they will simply go unused after rollback.

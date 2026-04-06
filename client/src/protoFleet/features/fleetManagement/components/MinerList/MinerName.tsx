@@ -21,7 +21,8 @@ const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
 
   const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
-  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors);
+  const hasFirmwareStatus = deviceStatus === DeviceStatus.UPDATING || deviceStatus === DeviceStatus.REBOOT_REQUIRED;
+  const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, false, hasFirmwareStatus);
 
   const handleNameClick = (e: React.MouseEvent) => {
     const row = (e.currentTarget as HTMLElement).closest("tr");

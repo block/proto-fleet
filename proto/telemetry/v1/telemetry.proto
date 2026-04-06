@@ -113,6 +113,12 @@ enum DeviceStatus {
 
   // Miner is online but needs a mining pool configured to start mining
   DEVICE_STATUS_NEEDS_MINING_POOL = 6;
+
+  // Miner is receiving a firmware update (install in progress on device)
+  DEVICE_STATUS_UPDATING = 7;
+
+  // Miner firmware has been installed but requires a reboot to activate
+  DEVICE_STATUS_REBOOT_REQUIRED = 8;
 }
 
 enum UpdateType {

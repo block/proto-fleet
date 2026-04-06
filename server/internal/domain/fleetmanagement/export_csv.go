@@ -214,6 +214,10 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 		return "Sleeping"
 	case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL, pb.DeviceStatus_DEVICE_STATUS_ERROR:
 		return csvStatusNeedsAttention
+	case pb.DeviceStatus_DEVICE_STATUS_UPDATING:
+		return csvStatusNeedsAttention
+	case pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return csvStatusNeedsAttention
 	case pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED, pb.DeviceStatus_DEVICE_STATUS_ONLINE:
 		// fall through to error/hashing check below
 	}
@@ -291,6 +295,8 @@ func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.Csv
 		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return ""
+	case pb.DeviceStatus_DEVICE_STATUS_UPDATING, pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED, pb.DeviceStatus_DEVICE_STATUS_ONLINE, pb.DeviceStatus_DEVICE_STATUS_ERROR:
 		// fall through to measurement lookup below
 	}
@@ -318,6 +324,8 @@ func measurementCSVValue(snapshot *pb.MinerStateSnapshot, measurements []*common
 		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return ""
+	case pb.DeviceStatus_DEVICE_STATUS_UPDATING, pb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return "-"
 	case pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED, pb.DeviceStatus_DEVICE_STATUS_ONLINE, pb.DeviceStatus_DEVICE_STATUS_ERROR:
 		// fall through to measurement lookup below
 	}

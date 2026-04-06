@@ -1,7 +1,7 @@
 import type { ChangeEvent, DragEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowUp, Checkmark } from "@/shared/assets/icons";
+import { Checkmark } from "@/shared/assets/icons";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 
@@ -71,15 +71,18 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
     [onFileSelect],
   );
 
+  const formattedExtensions =
+    extensions.length <= 1
+      ? extensions.join(", ")
+      : `${extensions.slice(0, -1).join(", ")}, and ${extensions[extensions.length - 1]}`;
+
   return (
-    <>
-      <button
-        type="button"
-        disabled={disabled}
+    <div className="flex flex-col gap-3">
+      <div
         className={clsx(
-          "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 transition-colors",
+          "flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl bg-grayscale-gray-5 p-12 transition-colors",
           disabled && "pointer-events-none opacity-50",
-          isDragActive ? "border-border-focus bg-surface-elevated-base" : "border-border-5 hover:border-border-20",
+          isDragActive && "ring-border-focus ring-2",
         )}
         onClick={handleClick}
         onDragEnter={handleDragEnter}
@@ -87,13 +90,24 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         data-testid="firmware-drop-zone"
+        role="button"
+        tabIndex={0}
       >
-        <ArrowUp className="text-text-secondary" />
-        <div className="text-center">
-          <div className="text-300 text-text-primary">Drag and drop a firmware file here, or click to browse</div>
-          <div className="text-text-secondary mt-1 text-200">Accepted formats: {extensions.join(", ")}</div>
-        </div>
-      </button>
+        <div className="text-300 text-text-primary">Drag update files here</div>
+        <div className="text-text-secondary text-200">or</div>
+        <button
+          type="button"
+          disabled={disabled}
+          className="hover:bg-surface-secondary rounded-full border border-border-20 bg-surface-elevated-base px-5 py-2 text-300 text-text-primary transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleClick();
+          }}
+        >
+          Choose file
+        </button>
+      </div>
+      <div className="text-text-secondary text-200">Supported file types: {formattedExtensions}</div>
       <input
         ref={fileInputRef}
         type="file"
@@ -102,7 +116,7 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         className="hidden"
         data-testid="firmware-file-input"
       />
-    </>
+    </div>
   );
 }
 

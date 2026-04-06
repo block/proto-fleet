@@ -1255,6 +1255,11 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 	deviceID := models.DeviceIdentifier("test-device-1")
 
 	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		AnyTimes()
+
+	mockDeviceStore.EXPECT().
 		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
 			require.Len(t, updates, 1)
@@ -1302,6 +1307,11 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 	deviceID := models.DeviceIdentifier("test-device-1")
 
 	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		AnyTimes()
+
+	mockDeviceStore.EXPECT().
 		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
@@ -1345,6 +1355,11 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	deviceID := models.DeviceIdentifier("test-device-1")
+
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		AnyTimes()
 
 	mockDeviceStore.EXPECT().
 		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).

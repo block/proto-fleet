@@ -527,6 +527,8 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 //     requiring DELETE+INSERT which is slower and not atomic.
 //
 // A single bulk INSERT with ON CONFLICT DO UPDATE is both fast (1 round-trip) and atomic.
+// The WHERE clause prevents telemetry status writes from overwriting firmware update
+// states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
 	var b strings.Builder
 	paramNum := 1
@@ -543,7 +545,8 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 			"ON CONFLICT (device_id) DO UPDATE SET "+
 			"status = EXCLUDED.status, "+
 			"status_timestamp = EXCLUDED.status_timestamp, "+
-			"status_details = EXCLUDED.status_details",
+			"status_details = EXCLUDED.status_details "+
+			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED')",
 		b.String(),
 	)
 }
@@ -563,6 +566,10 @@ func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusEnum {
 		return sqlc.DeviceStatusEnumERROR
 	case minermodels.MinerStatusNeedsMiningPool:
 		return sqlc.DeviceStatusEnumNEEDSMININGPOOL
+	case minermodels.MinerStatusUpdating:
+		return sqlc.DeviceStatusEnumUPDATING
+	case minermodels.MinerStatusRebootRequired:
+		return sqlc.DeviceStatusEnumREBOOTREQUIRED
 	default:
 		return sqlc.DeviceStatusEnumUNKNOWN
 	}
@@ -583,6 +590,10 @@ func toMinerStatus(status sqlc.DeviceStatusEnum) minermodels.MinerStatus {
 		return minermodels.MinerStatusError
 	case sqlc.DeviceStatusEnumNEEDSMININGPOOL:
 		return minermodels.MinerStatusNeedsMiningPool
+	case sqlc.DeviceStatusEnumUPDATING:
+		return minermodels.MinerStatusUpdating
+	case sqlc.DeviceStatusEnumREBOOTREQUIRED:
+		return minermodels.MinerStatusRebootRequired
 	default:
 		return minermodels.MinerStatusUnknown
 	}
@@ -606,6 +617,10 @@ func ProtoDeviceStatusToSQL(status fm.DeviceStatus) sqlc.DeviceStatusEnum {
 		return sqlc.DeviceStatusEnumINACTIVE
 	case fm.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return sqlc.DeviceStatusEnumNEEDSMININGPOOL
+	case fm.DeviceStatus_DEVICE_STATUS_UPDATING:
+		return sqlc.DeviceStatusEnumUPDATING
+	case fm.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return sqlc.DeviceStatusEnumREBOOTREQUIRED
 	default:
 		return sqlc.DeviceStatusEnumUNKNOWN
 	}
@@ -984,7 +999,7 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     COALESCE(SUM(CASE
         WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
              AND ds.status IS NOT NULL
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL')
+             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0

@@ -654,6 +654,42 @@ export const useMinerActions = ({
           let successCount = 0;
           let totalCount = 0;
           let failureIds: string[] = [];
+          let successIds: string[] = [];
+          let completionHandled = false;
+
+          const handleCompletion = () => {
+            if (completionHandled) return;
+            completionHandled = true;
+
+            const successDeviceIds = successIds;
+
+            if (successCount > 0) {
+              updateToast(toastId, {
+                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage} — reboot required`,
+                status: TOAST_STATUSES.success,
+                progress: undefined,
+                longRunning: true,
+                ttl: false,
+              });
+            } else {
+              removeToast(toastId);
+            }
+
+            if (failureIds.length > 0) {
+              removeDevicesFromBatch(value.batchIdentifier, failureIds);
+            }
+
+            useFleetStore.setState((state) => {
+              successDeviceIds.forEach((id) => {
+                if (state.fleet.miners[id]) {
+                  state.fleet.miners[id].deviceStatus = DeviceStatus.REBOOT_REQUIRED;
+                }
+              });
+            });
+
+            completeBatchOperation(value.batchIdentifier);
+            onActionComplete?.();
+          };
 
           streamCommandBatchUpdates({
             streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
@@ -665,6 +701,7 @@ export const useMinerActions = ({
               successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
               const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
               failureIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
+              successIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
               const completed = successCount + failureCount;
               const progress = totalCount > 0 ? Math.round((completed / totalCount) * 100) : 0;
 
@@ -679,43 +716,30 @@ export const useMinerActions = ({
               if (failureCount > 0) {
                 if (!errorToastId) {
                   errorToastId = pushToast({
-                    message: `Firmware upload failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                    message: `Firmware update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
                     status: TOAST_STATUSES.error,
                     longRunning: true,
                   });
                 } else {
                   updateToast(errorToastId, {
-                    message: `Firmware upload failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                    message: `Firmware update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
                     status: TOAST_STATUSES.error,
                   });
                 }
               }
 
               if (completed === totalCount && totalCount > 0) {
+                handleCompletion();
                 streamAbortController.abort();
               }
             },
           }).finally(() => {
-            if (successCount > 0) {
-              updateToast(toastId, {
-                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}`,
-                status: TOAST_STATUSES.success,
-                progress: undefined,
-              });
-            } else {
-              removeToast(toastId);
-            }
-
-            completeBatchOperation(value.batchIdentifier);
-            if (failureIds.length > 0) {
-              removeDevicesFromBatch(value.batchIdentifier, failureIds);
-            }
-            onActionComplete?.();
+            handleCompletion();
           });
         },
         onError: (error) => {
           updateToast(toastId, {
-            message: `Firmware upload failed: ${error}`,
+            message: `Firmware update failed: ${error}`,
             status: TOAST_STATUSES.error,
             progress: undefined,
           });
