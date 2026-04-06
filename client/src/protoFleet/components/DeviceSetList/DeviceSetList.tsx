@@ -44,6 +44,7 @@ type DeviceSetListProps = {
   onNextPage?: () => void;
   onPrevPage?: () => void;
   onRowClick?: (item: DeviceSetListItem, index: number) => void;
+  emptyStateRow?: ReactNode;
 };
 
 const DeviceSetList = ({
@@ -64,6 +65,7 @@ const DeviceSetList = ({
   onNextPage,
   onPrevPage,
   onRowClick,
+  emptyStateRow,
 }: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -104,6 +106,7 @@ const DeviceSetList = ({
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
         onRowClick={onRowClick}
+        emptyStateRow={emptyStateRow}
       />
 
       {shouldRenderPagination && (

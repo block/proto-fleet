@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
   AssignMinersModal,
   type RackFormData,
@@ -152,6 +153,21 @@ const RacksPage = () => {
     }
     return pills;
   }, [selectedZones, selectedIssues, allZones]);
+
+  const hasActiveFilters = selectedZones.length > 0 || selectedIssues.length > 0;
+
+  const handleClearFilters = useCallback(() => {
+    setSelectedZones([]);
+    selectedZonesRef.current = [];
+    setSelectedIssues([]);
+    selectedIssuesRef.current = [];
+    resetAndFetch();
+  }, [resetAndFetch, selectedIssuesRef]);
+
+  const emptyStateRow: ReactNode = useMemo(() => {
+    if (isLoading || totalCount > 0) return undefined;
+    return <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />;
+  }, [hasActiveFilters, isLoading, totalCount, handleClearFilters]);
 
   const handleRackSettingsContinue = useCallback((formData: RackFormData) => {
     setShowRackSettingsModal(false);
@@ -439,6 +455,7 @@ const RacksPage = () => {
             hasNextPage={hasNextPage}
             onNextPage={handleNextPage}
             onPrevPage={handlePrevPage}
+            emptyStateRow={emptyStateRow}
           />
         </div>
       ) : (
@@ -448,9 +465,7 @@ const RacksPage = () => {
               <ProgressCircular indeterminate />
             </div>
           ) : racks.length === 0 ? (
-            <div className="flex items-center justify-center py-20">
-              <p className="text-300 text-text-primary-50">No racks match the current filters</p>
-            </div>
+            <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
           ) : (
             <div ref={measureRef}>
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>

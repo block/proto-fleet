@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
@@ -9,6 +9,7 @@ import {
   issueOptions,
   useIssueFilter,
 } from "@/protoFleet/components/DeviceSetList";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
@@ -74,6 +75,19 @@ const GroupsPage = () => {
       })
       .filter(Boolean) as { key: string; label: string; onRemove: () => void }[];
   }, [selectedIssues, handleRemoveIssue]);
+
+  const hasActiveFilters = selectedIssues.length > 0;
+
+  const handleClearFilters = useCallback(() => {
+    setSelectedIssues([]);
+    selectedIssuesRef.current = [];
+    resetAndFetch();
+  }, [resetAndFetch, selectedIssuesRef]);
+
+  const emptyStateRow: ReactNode = useMemo(() => {
+    if (isLoading || totalCount > 0) return undefined;
+    return <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />;
+  }, [hasActiveFilters, isLoading, totalCount, handleClearFilters]);
 
   const renderName = useCallback(
     (item: DeviceSetListItem) => (
@@ -202,6 +216,7 @@ const GroupsPage = () => {
               onNextPage={handleNextPage}
               onPrevPage={handlePrevPage}
               onRowClick={handleRowClick}
+              emptyStateRow={emptyStateRow}
             />
           </div>
         </>

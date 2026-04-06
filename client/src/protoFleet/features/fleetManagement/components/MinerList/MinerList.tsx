@@ -24,6 +24,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
@@ -313,20 +314,8 @@ const ScopedMinerListBody = ({
         getDefaultSortDirection={getDefaultSortDirection}
         onRowClick={onRowClick}
         emptyStateRow={
-          hasActiveFilters && totalMiners === 0 ? (
-            <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-              <div className="text-heading-200 text-text-primary">No results</div>
-              <p className="mt-1 text-400 text-text-primary-70">Try adjusting or clearing your filters.</p>
-              <Button
-                className="mt-6"
-                variant={variants.secondary}
-                size={sizes.base}
-                testId="clear-all-filters-button"
-                onClick={handleClearFilters}
-              >
-                Clear all filters
-              </Button>
-            </div>
+          totalMiners === 0 ? (
+            <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
           ) : undefined
         }
       />
