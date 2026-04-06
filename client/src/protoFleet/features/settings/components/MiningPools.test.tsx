@@ -386,6 +386,118 @@ describe("MiningPools", () => {
     });
   });
 
+  describe("Clickable pool rows", () => {
+    const mockPool = {
+      poolId: BigInt(1),
+      poolName: "Clickable Pool",
+      url: "stratum+tcp://clickable.com:3333",
+      username: "clickuser",
+    } as Pool;
+
+    beforeEach(async () => {
+      const usePools = (await import("@/protoFleet/api/usePools")).default;
+      vi.mocked(usePools).mockReturnValue({
+        pools: [mockPool],
+        miningPools: [],
+        createPool: vi.fn(),
+        updatePool: vi.fn(),
+        deletePool: vi.fn(),
+        validatePool: vi.fn(),
+        validatePoolPending: false,
+        isLoading: false,
+      });
+    });
+
+    it("pool rows do not have role='button' to avoid a11y conflict with nested controls", () => {
+      render(<MiningPools />);
+
+      const poolRows = screen.getAllByTestId("pool-row");
+      for (const row of poolRows) {
+        expect(row).not.toHaveAttribute("role", "button");
+        expect(row).toHaveAttribute("tabindex", "0");
+      }
+    });
+
+    it("clicking a pool row opens the edit modal", async () => {
+      render(<MiningPools />);
+
+      const poolRow = screen.getAllByTestId("pool-row")[0];
+      fireEvent.click(poolRow);
+
+      await waitFor(() => {
+        expect(screen.getByText("Hashrate contributes to default mining pools.")).toBeInTheDocument();
+        const urlInput = screen.getByTestId("url-0-input") as HTMLInputElement;
+        const usernameInput = screen.getByTestId("username-0-input") as HTMLInputElement;
+        expect(urlInput.value).toBe("stratum+tcp://clickable.com:3333");
+        expect(usernameInput.value).toBe("clickuser");
+      });
+    });
+
+    it("clicking the ellipsis menu button does not trigger the row click", async () => {
+      render(<MiningPools />);
+
+      const optionsButton = screen.getByRole("button", { name: "Options menu" });
+      fireEvent.click(optionsButton);
+
+      // The menu should open (shows "Edit pool" option)
+      expect(screen.getByText("Edit pool")).toBeInTheDocument();
+
+      // The edit modal should NOT have opened (no modal inputs visible)
+      expect(screen.queryByTestId("url-0-input")).not.toBeInTheDocument();
+    });
+
+    it("pressing Enter on a focused pool row opens the edit modal", async () => {
+      render(<MiningPools />);
+
+      const poolRow = screen.getAllByTestId("pool-row")[0];
+      fireEvent.keyDown(poolRow, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(screen.getByText("Hashrate contributes to default mining pools.")).toBeInTheDocument();
+        const urlInput = screen.getByTestId("url-0-input") as HTMLInputElement;
+        expect(urlInput.value).toBe("stratum+tcp://clickable.com:3333");
+      });
+    });
+
+    it("pressing Space on a focused pool row opens the edit modal", async () => {
+      render(<MiningPools />);
+
+      const poolRow = screen.getAllByTestId("pool-row")[0];
+      fireEvent.keyDown(poolRow, { key: " " });
+
+      await waitFor(() => {
+        expect(screen.getByText("Hashrate contributes to default mining pools.")).toBeInTheDocument();
+        const urlInput = screen.getByTestId("url-0-input") as HTMLInputElement;
+        expect(urlInput.value).toBe("stratum+tcp://clickable.com:3333");
+      });
+    });
+
+    it("clicking a menu item does not also open the edit modal", async () => {
+      render(<MiningPools />);
+
+      // Open the options menu
+      const optionsButton = screen.getByRole("button", { name: "Options menu" });
+      fireEvent.click(optionsButton);
+
+      // Click "Test connection" menu item
+      const testButton = screen.getByText("Test connection");
+      fireEvent.click(testButton);
+
+      // The edit modal should NOT have opened
+      expect(screen.queryByTestId("url-0-input")).not.toBeInTheDocument();
+    });
+
+    it("pressing Enter on the focused ellipsis button does not open the edit modal", async () => {
+      render(<MiningPools />);
+
+      const optionsButton = screen.getByRole("button", { name: "Options menu" });
+      fireEvent.keyDown(optionsButton, { key: "Enter" });
+
+      // The edit modal should NOT have opened
+      expect(screen.queryByTestId("url-0-input")).not.toBeInTheDocument();
+    });
+  });
+
   describe("Edit pool", () => {
     const mockPool = {
       poolId: BigInt(1),

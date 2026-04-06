@@ -100,7 +100,10 @@ const PoolRowMenu = ({
     <Button
       variant="ghost"
       size="compact"
-      onClick={() => setShowMenu(!showMenu)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowMenu(!showMenu);
+      }}
       ariaLabel="Options menu"
       ariaHasPopup="menu"
       ariaExpanded={showMenu}
@@ -114,7 +117,8 @@ const PoolRowMenu = ({
         xOffset={-30}
         yOffset={40}
       >
-        <div className="flex flex-col">
+        {/* Stop propagation so menu item clicks don't bubble to the row onClick */}
+        <div className="flex flex-col" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <Row
             onClick={() => {
               onEdit(pool);
@@ -154,7 +158,19 @@ const PoolRowDesktop = ({ pool, onEdit, onTestConnection, onDelete, connectionSt
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="grid grid-cols-3 gap-1 text-300 text-text-primary" data-testid="pool-row">
+    <div
+      className="grid cursor-pointer grid-cols-3 gap-1 rounded-lg text-300 text-text-primary transition-colors duration-200 hover:bg-core-primary-5"
+      data-testid="pool-row"
+      onClick={() => onEdit(pool)}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit(pool);
+        }
+      }}
+    >
       <div className="flex items-center py-3" data-testid="pool-name">
         {pool.poolName || "—"}
       </div>
@@ -182,7 +198,19 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, onDelete, connectionSta
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="grid grid-cols-2 items-start py-4" data-testid="pool-row">
+    <div
+      className="grid cursor-pointer grid-cols-2 items-start rounded-lg py-4 transition-colors duration-200 hover:bg-core-primary-5"
+      data-testid="pool-row"
+      onClick={() => onEdit(pool)}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit(pool);
+        }
+      }}
+    >
       {/* Left column: Pool name and URL */}
       <div className="flex flex-col">
         {pool.poolName ? (
