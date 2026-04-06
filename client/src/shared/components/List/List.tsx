@@ -430,6 +430,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               columnIndex === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
               columnIndex === 0 && stickyFirstColumn && columnShadowBaseClassList,
               columnIndex === 0 && stickyFirstColumn && stickyStateHorizontalIsStuck && columnShadowVisibleClassList,
+              columnIndex === 0 && stickyFirstColumn && "border-r border-border-5 phone:border-r-0",
               applyColumnWidthsToCells && columnWidthClass,
               columnIndex === activeCols.length - 1 && rightPaddingClasses,
             )}
@@ -1119,6 +1120,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                     idx === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
                     idx === 0 && stickyFirstColumn && columnShadowBaseClassList,
                     idx === 0 && stickyFirstColumn && stickyState.horizontal.isStuck && columnShadowVisibleClassList,
+                    idx === 0 && stickyFirstColumn && "border-r border-border-5 phone:border-r-0",
                     idx === activeCols.length - 1 && rightPaddingClasses,
                     applyColumnWidthsToCells && columnWidthClass,
                   )}
