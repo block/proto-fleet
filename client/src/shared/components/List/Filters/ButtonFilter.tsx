@@ -26,7 +26,7 @@ const ButtonFilter = ({
   return (
     <Button
       size={size}
-      variant={isActive ? "primary" : "ghost"}
+      variant={isActive ? "accent" : "ghost"}
       onClick={() => setActiveFilter(filter)}
       prefixIcon={status && <StatusCircle status={status} width="w-2" variant="simple" removeMargin={true} />}
       testId={`filter-button-${filter}`}

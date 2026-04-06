@@ -168,7 +168,7 @@ const GroupsPage = () => {
                     <Button
                       key={pill.key}
                       size={sizes.compact}
-                      variant={variants.secondary}
+                      variant={variants.accent}
                       prefixIcon={<DismissTiny />}
                       onClick={pill.onRemove}
                     >

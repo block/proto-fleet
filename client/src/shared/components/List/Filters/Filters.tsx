@@ -195,7 +195,7 @@ const Filters = <ItemType,>({
           {activeDropdownFilterItems.map((item) => (
             <Button
               size={sizes.compact}
-              variant={variants.secondary}
+              variant={variants.accent}
               key={`${item.filterValue}-${item.id}`}
               prefixIcon={<DismissTiny />}
               onClick={() => handleRemoveDropdownFilter(item.id, item.filterValue)}

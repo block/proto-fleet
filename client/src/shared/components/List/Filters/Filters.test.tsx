@@ -53,7 +53,7 @@ describe("Filters", () => {
 
     // Initially "All Items" should be active
     const allItemsBtn = screen.getByText("All Items").closest("button");
-    expect(allItemsBtn).toHaveAttribute("class", expect.stringContaining("primary"));
+    expect(allItemsBtn).toHaveAttribute("class", expect.stringContaining("accent"));
 
     // Find the "Active" filter if it exists
     const activeFilterIdx = buttonFilters.findIndex((f) => f.title === "Active");
@@ -63,7 +63,7 @@ describe("Filters", () => {
 
       // "Active" should now be active
       const activeBtn = screen.getByText("Active").closest("button");
-      expect(activeBtn).toHaveAttribute("class", expect.stringContaining("primary"));
+      expect(activeBtn).toHaveAttribute("class", expect.stringContaining("accent"));
     }
   });
 
