@@ -249,6 +249,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * Optional accessibility labels for column headers when the visible title is empty or abbreviated.
    */
   columnHeaderAriaLabels?: Partial<Record<ColKey, string>>;
+  /**
+   * Optional callback fired when a row is clicked.
+   * When provided, rows get cursor-pointer and hover styling.
+   * Interactive elements inside rows should call e.stopPropagation() to prevent triggering this.
+   */
+  onRowClick?: (item: ListItem, index: number) => void;
 } & (ControlledSelectionModeProps<ItemKeyValueType> | UncontrolledSelectionModeProps<ItemKeyValueType>) &
   (RowReorderDisabledProps | RowReorderEnabledProps<ColKey, ItemKeyValueType>);
 
@@ -293,6 +299,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   rowClassName?: string;
   rowStyle?: CSSProperties;
   rowRef?: (element: HTMLTableRowElement | null) => void;
+  onRowClick?: (item: ListItem, index: number) => void;
 };
 
 const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
@@ -329,6 +336,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   rowClassName = rowClassList,
   rowStyle,
   rowRef,
+  onRowClick,
 }: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
   const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
   const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
@@ -347,16 +355,36 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   return (
     <tr
       key={rowKey as string | number}
-      className={rowClassName}
+      className={clsx(rowClassName, onRowClick && "cursor-pointer hover:bg-core-primary-5")}
       ref={(element) => {
         itemRef?.(rowKey, element);
         rowRef?.(element);
       }}
       data-testid="list-row"
       style={rowStyle}
+      onClick={onRowClick ? () => onRowClick(item, index) : undefined}
+      onKeyDown={
+        onRowClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                const target = e.target as HTMLElement;
+                if (target.closest("button, a, input, select, textarea")) return;
+                e.preventDefault();
+                onRowClick(item, index);
+              }
+            }
+          : undefined
+      }
+      tabIndex={onRowClick ? 0 : undefined}
+      role={onRowClick ? "button" : undefined}
     >
       {itemSelectable && (
-        <td className={clsx(tdClassList, firstStickyClasses, "w-9")} style={paddingCssVariables} data-testid="checkbox">
+        <td
+          className={clsx(tdClassList, firstStickyClasses, "w-9")}
+          style={paddingCssVariables}
+          data-testid="checkbox"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div
             className={clsx("w-9 truncate overflow-hidden py-3", {
               "opacity-50": rowDisabled,
@@ -448,6 +476,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             "opacity-50": rowDisabled,
           })}
           data-testid="action"
+          onClick={(e) => e.stopPropagation()}
         >
           <div className={clsx("flex justify-end", tdPaddingClassList)}>
             <Button
@@ -465,6 +494,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             "opacity-50": rowDisabled,
           })}
           data-testid="action"
+          onClick={(e) => e.stopPropagation()}
         >
           <div className={clsx("w-11", tdPaddingClassList)}>
             <PopoverProvider>
@@ -593,6 +623,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   preserveOffPageSelection = false,
   pageScopedSelection = false,
   columnHeaderAriaLabels,
+  onRowClick,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -1012,6 +1043,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       disabled,
       handleSelectItem,
       itemRef,
+      onRowClick,
     };
 
     if (rowDragEnabled) {

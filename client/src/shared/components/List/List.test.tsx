@@ -1740,4 +1740,156 @@ describe("List", () => {
       expect(radios[0].checked).toBe(true);
     });
   });
+
+  describe("onRowClick", () => {
+    it("calls onRowClick with the correct item when a row is clicked", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const rows = screen.getAllByTestId("list-row");
+      fireEvent.click(rows[0]);
+
+      expect(handleRowClick).toHaveBeenCalledTimes(1);
+      expect(handleRowClick).toHaveBeenCalledWith(testItems[0], 0);
+    });
+
+    it("adds cursor-pointer class to rows when onRowClick is provided", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      expect(row.className).toContain("cursor-pointer");
+    });
+
+    it("does not add cursor-pointer class when onRowClick is not provided", () => {
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      expect(row.className).not.toContain("cursor-pointer");
+    });
+
+    it("does not trigger onRowClick when the checkbox cell is clicked", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const checkbox = screen.getAllByTestId("checkbox")[0];
+      fireEvent.click(checkbox);
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("triggers onRowClick when Enter key is pressed on a focused row", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      fireEvent.keyDown(row, { key: "Enter" });
+
+      expect(handleRowClick).toHaveBeenCalledTimes(1);
+      expect(handleRowClick).toHaveBeenCalledWith(testItems[0], 0);
+    });
+
+    it("triggers onRowClick when Space key is pressed on a focused row", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      fireEvent.keyDown(row, { key: " " });
+
+      expect(handleRowClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not trigger onRowClick when Enter is pressed on a nested interactive element", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const checkbox = screen.getAllByTestId("checkbox")[0].querySelector("input");
+      expect(checkbox).toBeTruthy();
+      fireEvent.keyDown(checkbox!, { key: "Enter", bubbles: true });
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("sets role='button' and tabIndex on rows when onRowClick is provided", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      expect(row).toHaveAttribute("role", "button");
+      expect(row).toHaveAttribute("tabindex", "0");
+    });
+  });
 });

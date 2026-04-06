@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type MouseEvent, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
@@ -82,7 +82,14 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     return (
       <div
         className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={isClickable ? onClick : undefined}
+        onClick={
+          isClickable
+            ? (e: MouseEvent) => {
+                e.stopPropagation();
+                onClick?.();
+              }
+            : undefined
+        }
       >
         <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
         <ProgressCircular size={14} indeterminate />
@@ -126,7 +133,14 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   return (
     <div
       className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-      onClick={isClickable ? onClick : undefined}
+      onClick={
+        isClickable
+          ? (e: MouseEvent) => {
+              e.stopPropagation();
+              onClick?.();
+            }
+          : undefined
+      }
     >
       <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
       {status}

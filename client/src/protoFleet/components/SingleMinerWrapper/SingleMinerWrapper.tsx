@@ -12,8 +12,16 @@ const CloseButton = ({ id }: { id: string }) => {
   );
 };
 
+/** Encode the route param as a single safe path segment. Strips C0 control
+ *  characters and whitespace, then re-encodes so /, \, .., ?, # etc. are
+ *  never interpreted as URL structure when used in baseUrl or minerRoot. */
+// eslint-disable-next-line no-control-regex
+const safePathSegment = (raw: string): string => encodeURIComponent(raw.replace(/[\x00-\x1f\x7f]/g, ""));
+
 const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
-  const { id } = useParams();
+  const { id: rawId } = useParams();
+  const safeId = safePathSegment(rawId || "");
+  const displayId = rawId || "";
 
   // Here we are just setting the base url to <vite_server>/:id,
   // which vite proxies to the actual miner api server.
@@ -21,9 +29,9 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   // could pass <protofleet_host>/miners/:id instead
   return (
     <MinerHostingProvider
-      baseUrl={id || ""}
-      minerRoot={`/miners/${id}`}
-      closeButton={(<CloseButton id={id || ""} />) as ReactNode}
+      baseUrl={safeId}
+      minerRoot={`/miners/${safeId}`}
+      closeButton={(<CloseButton id={displayId} />) as ReactNode}
     >
       {children}
     </MinerHostingProvider>

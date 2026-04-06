@@ -18,7 +18,7 @@ const MinerIpAddress = ({ deviceIdentifier }: MinerIpAddressProps) => {
   }
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer">
+    <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
       {ipAddress}
     </a>
   );

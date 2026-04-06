@@ -28,6 +28,7 @@ const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
     const row = (e.currentTarget as HTMLElement).closest("tr");
     const checkbox = row?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     if (checkbox && !checkbox.disabled) {
+      e.stopPropagation();
       checkbox.dispatchEvent(
         new MouseEvent("click", {
           bubbles: true,
@@ -53,7 +54,10 @@ const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
       <div className="flex items-center gap-2">
         {needsAttention && !needsAuthentication && (
           <button
-            onClick={() => onOpenStatusFlow(deviceIdentifier)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenStatusFlow(deviceIdentifier);
+            }}
             className="cursor-pointer transition-opacity hover:opacity-80"
             aria-label="View issues"
           >

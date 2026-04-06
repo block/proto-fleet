@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from "react";
+import { type MouseEvent, ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useGroupedErrors } from "@/protoFleet/components/StatusModal/hooks/useStatusModalHooks";
@@ -85,7 +85,14 @@ const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
   return (
     <div
       className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-      onClick={isClickable ? onClick : undefined}
+      onClick={
+        isClickable
+          ? (e: MouseEvent) => {
+              e.stopPropagation();
+              onClick?.();
+            }
+          : undefined
+      }
     >
       {icon}
       {summary}

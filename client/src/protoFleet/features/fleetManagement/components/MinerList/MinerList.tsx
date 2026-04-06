@@ -197,6 +197,7 @@ type ScopedMinerListBodyProps = {
   hasNextPage: boolean;
   handlePrevPage: () => void;
   handleNextPage: () => void;
+  onRowClick: (item: DeviceListItem, index: number) => void;
 };
 
 const ScopedMinerListBody = ({
@@ -228,6 +229,7 @@ const ScopedMinerListBody = ({
   hasNextPage,
   handlePrevPage,
   handleNextPage,
+  onRowClick,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -309,6 +311,7 @@ const ScopedMinerListBody = ({
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
+        onRowClick={onRowClick}
         emptyStateRow={
           hasActiveFilters && totalMiners === 0 ? (
             <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
@@ -475,6 +478,13 @@ const MinerList = ({
       };
     });
   }, []);
+
+  const handleRowClick = useCallback(
+    (item: DeviceListItem) => {
+      navigate(`/miners/${encodeURIComponent(item.deviceIdentifier)}`);
+    },
+    [navigate],
+  );
 
   const minerColConfig = useMemo(
     () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow, availableGroups }),
@@ -732,6 +742,7 @@ const MinerList = ({
           hasNextPage={hasNextPage}
           handlePrevPage={handlePrevPage}
           handleNextPage={handleNextPage}
+          onRowClick={handleRowClick}
         />
       )}
 

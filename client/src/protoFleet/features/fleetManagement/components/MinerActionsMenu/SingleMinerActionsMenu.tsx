@@ -1,10 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import AddToGroupModal from "./AddToGroupModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
+
+type SingleMinerAction = SupportedAction | "viewMiner";
 import CoolingModeModal from "./CoolingModeModal";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import ManagePowerModal from "./ManagePowerModal";
@@ -16,7 +19,7 @@ import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
-import { Edit, Ellipsis } from "@/shared/assets/icons";
+import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -92,7 +95,22 @@ const SingleMinerActionsMenu = ({
     onActionComplete,
   });
 
+  const navigate = useNavigate();
+
+  const handleViewMiner = useCallback(() => {
+    navigate(`/miners/${encodeURIComponent(deviceIdentifier)}`);
+  }, [navigate, deviceIdentifier]);
+
   const actionsWithRename = useMemo(() => {
+    const viewMinerAction: BulkAction<SingleMinerAction> = {
+      action: "viewMiner",
+      title: "View miner",
+      icon: <Eye />,
+      actionHandler: handleViewMiner,
+      requiresConfirmation: false,
+      showGroupDivider: true,
+    };
+
     const renameAction: BulkAction<SupportedAction> = {
       action: settingsActions.rename,
       title: "Rename",
@@ -103,12 +121,18 @@ const SingleMinerActionsMenu = ({
 
     const addToGroupIndex = popoverActions.findIndex((action) => action.action === groupActions.addToGroup);
     if (addToGroupIndex !== -1) {
-      return [...popoverActions.slice(0, addToGroupIndex), renameAction, ...popoverActions.slice(addToGroupIndex)];
+      return [
+        viewMinerAction,
+        ...popoverActions.slice(0, addToGroupIndex),
+        renameAction,
+        ...popoverActions.slice(addToGroupIndex),
+      ];
     }
 
     const securityIndex = popoverActions.findIndex((action) => action.action === settingsActions.security);
     if (securityIndex !== -1) {
       return [
+        viewMinerAction,
         ...popoverActions.slice(0, securityIndex),
         {
           ...renameAction,
@@ -118,8 +142,8 @@ const SingleMinerActionsMenu = ({
       ];
     }
 
-    return [...popoverActions, renameAction];
-  }, [handleRenameOpen, popoverActions]);
+    return [viewMinerAction, ...popoverActions, renameAction];
+  }, [handleViewMiner, handleRenameOpen, popoverActions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
@@ -128,7 +152,7 @@ const SingleMinerActionsMenu = ({
     setIsOpen(false);
   }, []);
 
-  const handleAction = (action: BulkAction<SupportedAction>) => {
+  const handleAction = (action: BulkAction<SingleMinerAction>) => {
     setIsOpen(false);
     if (action.requiresConfirmation) {
       setShowWarnDialog(true);
@@ -213,9 +237,9 @@ type SingleMinerActionsMenuInnerProps = {
   setIsOpen: (value: boolean | ((prev: boolean) => boolean)) => void;
   showWarnDialog: boolean;
   currentAction: SupportedAction | null;
-  popoverActions: BulkAction<SupportedAction>[];
+  popoverActions: BulkAction<SingleMinerAction>[];
   onClickOutside: () => void;
-  handleAction: (action: BulkAction<SupportedAction>) => void;
+  handleAction: (action: BulkAction<SingleMinerAction>) => void;
   handleConfirmationClick: () => void;
   handleCancelClick: () => void;
   selectedMiners: MinerSelection[];

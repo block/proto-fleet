@@ -89,4 +89,70 @@ describe("MinerName", () => {
 
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
+
+  it("toggles checkbox and stops propagation when name is clicked with enabled checkbox", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <input type="checkbox" data-testid="row-checkbox" />
+            </td>
+            <td>
+              <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    const checkbox = screen.getByTestId("row-checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: minerName }));
+
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("lets click propagate when checkbox is disabled (for row navigation)", async () => {
+    const user = userEvent.setup();
+    const rowClickHandler = vi.fn();
+
+    render(
+      <table>
+        <tbody>
+          <tr onClick={rowClickHandler}>
+            <td>
+              <input type="checkbox" disabled />
+            </td>
+            <td>
+              <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    await user.click(screen.getByRole("button", { name: minerName }));
+
+    expect(rowClickHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops event propagation when the alert icon is clicked", async () => {
+    const user = userEvent.setup();
+    const parentClickHandler = vi.fn();
+    vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
+
+    render(
+      <div onClick={parentClickHandler}>
+        <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /view issues/i }));
+
+    expect(parentClickHandler).not.toHaveBeenCalled();
+  });
 });
