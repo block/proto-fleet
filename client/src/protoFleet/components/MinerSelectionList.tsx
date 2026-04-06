@@ -352,7 +352,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-2">
           <List<DeviceListItem, string, ModalColumn>
             activeCols={activeCols}
             colTitles={modalColTitles}
@@ -376,7 +376,6 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             containerClassName="min-h-0"
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
-            scrollRef={scrollRef}
             footerContent={
               !isLoading &&
               totalMiners !== undefined &&

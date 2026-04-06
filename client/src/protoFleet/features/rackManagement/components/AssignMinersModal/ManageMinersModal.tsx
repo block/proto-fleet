@@ -60,7 +60,7 @@ export default function ManageMinersModal({
       title="Select miners"
       size="extraLarge"
       className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
-      bodyClassName="flex-1 min-h-0"
+      bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
       onDismiss={onDismiss}
       divider={false}
       buttons={[
