@@ -70,7 +70,7 @@ const DISCOVERY_PORTS: &[u16] = &[80, 4028];
 /// - 80:   Everything else (HTTP web API)
 fn canonical_port(family: &str) -> u16 {
     match family {
-        "whatsminer" => 4028,
+        crate::capabilities::FAMILY_WHATSMINER => 4028,
         // All web-based miners: Antminer (stock/VNish/Braiins/LuxOS),
         // AvalonMiner, Goldshell, Auradine, BitAxe, IceRiver,
         // Innosilicon, ePIC, Hammer, VolcMiner, Elphapex, LuckyMiner

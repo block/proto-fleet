@@ -6,6 +6,32 @@ use proto_fleet_plugin::capabilities::*;
 
 pub type Capabilities = HashMap<String, bool>;
 
+// Hardware families
+pub const FAMILY_WHATSMINER: &str = "whatsminer";
+pub const FAMILY_ANTMINER: &str = "antminer";
+pub const FAMILY_AVALONMINER: &str = "avalonminer";
+pub const FAMILY_GOLDSHELL: &str = "goldshell";
+pub const FAMILY_AURADINE: &str = "auradine";
+pub const FAMILY_BITAXE: &str = "bitaxe";
+pub const FAMILY_ICERIVER: &str = "iceriver";
+pub const FAMILY_INNOSILICON: &str = "innosilicon";
+pub const FAMILY_EPIC: &str = "epic";
+pub const FAMILY_HAMMER: &str = "hammer";
+pub const FAMILY_VOLCMINER: &str = "volcminer";
+pub const FAMILY_ELPHAPEX: &str = "elphapex";
+pub const FAMILY_LUCKYMINER: &str = "luckyminer";
+
+// Firmware variants
+pub const VARIANT_STOCK: &str = "stock";
+pub const VARIANT_VNISH: &str = "vnish";
+pub const VARIANT_BRAIINS: &str = "braiins";
+pub const VARIANT_LUXOS: &str = "luxos";
+
+// Manufacturer display names for aftermarket firmware
+const DISPLAY_VNISH: &str = "VNish";
+const DISPLAY_BRAIINS: &str = "Braiins";
+const DISPLAY_LUXOS: &str = "LuxOS";
+
 /// Static base capabilities built once and cloned on use.
 static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     let mut caps = Capabilities::new();
@@ -124,19 +150,27 @@ pub fn probe_capabilities(miner: &dyn Miner) -> Capabilities {
 pub fn make_to_family(make: &str) -> Option<&'static str> {
     // Aftermarket firmware display names map back to their hardware family
     let families: &[(&[&str], &str)] = &[
-        (&["whatsminer"], "whatsminer"),
-        (&["antminer", "vnish", "braiins", "luxos"], "antminer"),
-        (&["avalonminer"], "avalonminer"),
-        (&["goldshell"], "goldshell"),
-        (&["auradine"], "auradine"),
-        (&["bitaxe"], "bitaxe"),
-        (&["iceriver"], "iceriver"),
-        (&["innosilicon"], "innosilicon"),
-        (&["epic"], "epic"),
-        (&["hammer"], "hammer"),
-        (&["volcminer"], "volcminer"),
-        (&["elphapex"], "elphapex"),
-        (&["luckyminer"], "luckyminer"),
+        (&[FAMILY_WHATSMINER], FAMILY_WHATSMINER),
+        (
+            &[
+                FAMILY_ANTMINER,
+                VARIANT_VNISH,
+                VARIANT_BRAIINS,
+                VARIANT_LUXOS,
+            ],
+            FAMILY_ANTMINER,
+        ),
+        (&[FAMILY_AVALONMINER], FAMILY_AVALONMINER),
+        (&[FAMILY_GOLDSHELL], FAMILY_GOLDSHELL),
+        (&[FAMILY_AURADINE], FAMILY_AURADINE),
+        (&[FAMILY_BITAXE], FAMILY_BITAXE),
+        (&[FAMILY_ICERIVER], FAMILY_ICERIVER),
+        (&[FAMILY_INNOSILICON], FAMILY_INNOSILICON),
+        (&[FAMILY_EPIC], FAMILY_EPIC),
+        (&[FAMILY_HAMMER], FAMILY_HAMMER),
+        (&[FAMILY_VOLCMINER], FAMILY_VOLCMINER),
+        (&[FAMILY_ELPHAPEX], FAMILY_ELPHAPEX),
+        (&[FAMILY_LUCKYMINER], FAMILY_LUCKYMINER),
     ];
     for (names, family) in families {
         for name in *names {
@@ -151,14 +185,14 @@ pub fn make_to_family(make: &str) -> Option<&'static str> {
 /// Map firmware string to config variant key (no allocation).
 pub fn firmware_to_variant(firmware: &str) -> &'static str {
     let lower = firmware.as_bytes();
-    if contains_ascii_ci(lower, b"vnish") {
-        "vnish"
-    } else if contains_ascii_ci(lower, b"braiins") {
-        "braiins"
-    } else if contains_ascii_ci(lower, b"luxos") {
-        "luxos"
+    if contains_ascii_ci(lower, VARIANT_VNISH.as_bytes()) {
+        VARIANT_VNISH
+    } else if contains_ascii_ci(lower, VARIANT_BRAIINS.as_bytes()) {
+        VARIANT_BRAIINS
+    } else if contains_ascii_ci(lower, VARIANT_LUXOS.as_bytes()) {
+        VARIANT_LUXOS
     } else {
-        "stock"
+        VARIANT_STOCK
     }
 }
 
@@ -167,19 +201,19 @@ pub fn firmware_to_variant(firmware: &str) -> &'static str {
 /// (e.g. VNish reporting make="VNish" with a version-only firmware string).
 pub fn detect_variant(make: &str, firmware: &str) -> &'static str {
     let variant = firmware_to_variant(firmware);
-    if variant != "stock" {
+    if variant != VARIANT_STOCK {
         return variant;
     }
     // Firmware string didn't match — check make as fallback
     let make_lower = make.as_bytes();
-    if contains_ascii_ci(make_lower, b"vnish") {
-        "vnish"
-    } else if contains_ascii_ci(make_lower, b"braiins") {
-        "braiins"
-    } else if contains_ascii_ci(make_lower, b"luxos") {
-        "luxos"
+    if contains_ascii_ci(make_lower, VARIANT_VNISH.as_bytes()) {
+        VARIANT_VNISH
+    } else if contains_ascii_ci(make_lower, VARIANT_BRAIINS.as_bytes()) {
+        VARIANT_BRAIINS
+    } else if contains_ascii_ci(make_lower, VARIANT_LUXOS.as_bytes()) {
+        VARIANT_LUXOS
     } else {
-        "stock"
+        VARIANT_STOCK
     }
 }
 
@@ -202,9 +236,9 @@ fn contains_ascii_ci(haystack: &[u8], needle: &[u8]) -> bool {
 /// Map firmware variant to manufacturer display name.
 pub fn firmware_manufacturer(variant: &str) -> Option<&'static str> {
     match variant {
-        "braiins" => Some("Braiins"),
-        "vnish" => Some("VNish"),
-        "luxos" => Some("LuxOS"),
+        VARIANT_BRAIINS => Some(DISPLAY_BRAIINS),
+        VARIANT_VNISH => Some(DISPLAY_VNISH),
+        VARIANT_LUXOS => Some(DISPLAY_LUXOS),
         _ => None,
     }
 }
@@ -289,7 +323,7 @@ pub struct DefaultCredential {
 
 pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential> {
     match (family, variant) {
-        ("whatsminer", "stock") => vec![
+        (FAMILY_WHATSMINER, VARIANT_STOCK) => vec![
             DefaultCredential {
                 username: "admin",
                 password: "admin",
@@ -299,39 +333,43 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
                 password: "super",
             },
         ],
-        ("antminer", _) => vec![DefaultCredential {
-            username: "root",
-            password: "root",
-        }],
-        ("avalonminer", _) => vec![DefaultCredential {
+        (FAMILY_ANTMINER, VARIANT_VNISH) => vec![DefaultCredential {
             username: "admin",
             password: "admin",
         }],
-        ("goldshell", _) => vec![DefaultCredential {
+        (FAMILY_ANTMINER, _) => vec![DefaultCredential {
+            username: "root",
+            password: "root",
+        }],
+        (FAMILY_AVALONMINER, _) => vec![DefaultCredential {
+            username: "admin",
+            password: "admin",
+        }],
+        (FAMILY_GOLDSHELL, _) => vec![DefaultCredential {
             username: "admin",
             password: "123456789",
         }],
-        ("auradine", _) => vec![DefaultCredential {
+        (FAMILY_AURADINE, _) => vec![DefaultCredential {
             username: "admin",
             password: "admin",
         }],
-        ("iceriver", _) => vec![DefaultCredential {
+        (FAMILY_ICERIVER, _) => vec![DefaultCredential {
             username: "admin",
             password: "12345678",
         }],
-        ("innosilicon", _) => vec![DefaultCredential {
+        (FAMILY_INNOSILICON, _) => vec![DefaultCredential {
             username: "admin",
             password: "admin",
         }],
-        ("epic", _) => vec![DefaultCredential {
+        (FAMILY_EPIC, _) => vec![DefaultCredential {
             username: "admin",
             password: "letmein",
         }],
-        ("hammer", _) => vec![DefaultCredential {
+        (FAMILY_HAMMER, _) => vec![DefaultCredential {
             username: "root",
             password: "root",
         }],
-        ("volcminer", _) => vec![DefaultCredential {
+        (FAMILY_VOLCMINER, _) => vec![DefaultCredential {
             username: "admin",
             password: "ltc@dog",
         }],

@@ -807,7 +807,7 @@ pub async fn validate_write_access(
     // VNish allows LED control without auth but returns empty hostname when
     // unauthenticated. Other backends may not populate hostname at all, so
     // this check is firmware-specific to avoid false rejections.
-    if crate::capabilities::detect_variant(make, firmware) == "vnish" {
+    if crate::capabilities::detect_variant(make, firmware) == crate::capabilities::VARIANT_VNISH {
         let data = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, miner.get_data())).await;
         match data {
             Ok(Ok(data)) => {
