@@ -1891,7 +1891,7 @@ describe("List", () => {
       expect(handleRowClick).not.toHaveBeenCalled();
     });
 
-    it("sets role='button' and tabIndex on rows when onRowClick is provided", () => {
+    it("sets tabIndex on rows when onRowClick is provided", () => {
       const handleRowClick = vi.fn();
       render(
         <List<TestItem, TestItemKey>
@@ -1905,7 +1905,7 @@ describe("List", () => {
       );
 
       const row = screen.getAllByTestId("list-row")[0];
-      expect(row).toHaveAttribute("role", "button");
+      expect(row).not.toHaveAttribute("role", "button");
       expect(row).toHaveAttribute("tabindex", "0");
     });
   });

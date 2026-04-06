@@ -376,7 +376,6 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           : undefined
       }
       tabIndex={onRowClick ? 0 : undefined}
-      role={onRowClick ? "button" : undefined}
     >
       {itemSelectable && (
         <td

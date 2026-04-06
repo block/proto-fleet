@@ -103,7 +103,14 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     return (
       <div
         className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={isClickable ? onClick : undefined}
+        onClick={
+          isClickable
+            ? (e: MouseEvent) => {
+                e.stopPropagation();
+                onClick?.();
+              }
+            : undefined
+        }
       >
         <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
         <ProgressCircular size={14} indeterminate />
@@ -116,7 +123,14 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     return (
       <div
         className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={isClickable ? onClick : undefined}
+        onClick={
+          isClickable
+            ? (e: MouseEvent) => {
+                e.stopPropagation();
+                onClick?.();
+              }
+            : undefined
+        }
       >
         <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
         Reboot required

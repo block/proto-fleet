@@ -529,6 +529,36 @@ describe("MinerList", () => {
     });
   });
 
+  describe("row click navigation", () => {
+    it("opens miner detail in a new tab with noopener,noreferrer", async () => {
+      const user = userEvent.setup();
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+      useFleetStore.setState((state) => ({
+        fleet: {
+          ...state.fleet,
+          miners: {
+            m1: createMinerSnapshot("m1"),
+          },
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const row = screen.getByTestId("list-row");
+      await user.click(row);
+
+      expect(openSpy).toHaveBeenCalledWith("/miners/m1", "_blank", "noopener,noreferrer");
+      openSpy.mockRestore();
+    });
+  });
+
   describe("null state", () => {
     it("should show null state when no miners are paired", () => {
       const onAddMiners = vi.fn();

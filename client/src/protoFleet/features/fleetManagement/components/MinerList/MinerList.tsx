@@ -468,12 +468,9 @@ const MinerList = ({
     });
   }, []);
 
-  const handleRowClick = useCallback(
-    (item: DeviceListItem) => {
-      navigate(`/miners/${encodeURIComponent(item.deviceIdentifier)}`);
-    },
-    [navigate],
-  );
+  const handleRowClick = useCallback((item: DeviceListItem) => {
+    window.open(`/miners/${encodeURIComponent(item.deviceIdentifier)}`, "_blank", "noopener,noreferrer");
+  }, []);
 
   const minerColConfig = useMemo(
     () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow, availableGroups }),
