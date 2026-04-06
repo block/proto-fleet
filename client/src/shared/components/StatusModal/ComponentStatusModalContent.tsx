@@ -30,19 +30,34 @@ const ComponentStatusModalContent = ({
   const hasErrors = errors.length > 0;
   const hasSingleError = errors.length === 1;
 
-  // Create icon with proper sizing and colors to match MinerStatus
+  // Create icon with proper sizing and colors
   const icon = useMemo(() => {
-    const iconClass = hasErrors ? "text-text-critical" : "text-core-primary-20";
+    const iconClass = hasErrors ? "text-intent-critical-fill" : "text-core-primary-20";
+    const containerClass = clsx(
+      "flex w-fit items-center justify-center rounded-lg p-2",
+      hasErrors ? "bg-intent-critical-10" : "bg-core-primary-5",
+    );
+
+    let iconElement;
     switch (componentType) {
       case "fan":
-        return <Fan width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <Fan width={iconSizes.xLarge} className={iconClass} />;
+        break;
       case "hashboard":
-        return <Hashboard width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <Hashboard width={iconSizes.xLarge} className={iconClass} />;
+        break;
       case "psu":
-        return <LightningAlt width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <LightningAlt width={iconSizes.xLarge} className={iconClass} />;
+        break;
       case "controlBoard":
-        return <ControlBoard width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <ControlBoard width={iconSizes.xLarge} className={iconClass} />;
+        break;
+      default:
+        iconElement = <Alert width={iconSizes.xLarge} className={iconClass} />;
+        break;
     }
+
+    return <div className={containerClass}>{iconElement}</div>;
   }, [componentType, hasErrors]);
 
   // For single error: use error message as title, timestamp as subtitle, skip error rows
@@ -59,7 +74,7 @@ const ComponentStatusModalContent = ({
             key: `error-${index}-${error.timestamp || index}`,
             icon: (
               <div className="flex h-6 w-6 items-center justify-center rounded bg-core-primary-5">
-                <Alert className="text-text-critical" width={iconSizes.small} />
+                <Alert className="text-intent-critical-fill" width={iconSizes.small} />
               </div>
             ),
             title: error.message,

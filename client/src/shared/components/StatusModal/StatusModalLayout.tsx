@@ -57,7 +57,7 @@ const StatusModalLayout = ({
           <Divider />
           {/* Secondary section - identical structure to header section */}
           <div className="flex flex-col gap-2">
-            <Alert className="text-text-critical" width={iconSizes.xLarge} />
+            <Alert className="text-intent-critical-fill" width={iconSizes.xLarge} />
             <div className="text-heading-300 text-text-primary">{secondaryTitle}</div>
             {secondarySubtitle && <div className="text-300 text-text-primary-50">{secondarySubtitle}</div>}
           </div>

@@ -33,7 +33,7 @@ const MinerStatusModalContent = ({
     } else if (isSleeping) {
       return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
     } else if (needsAuthentication || needsMiningPool || haserrors) {
-      return <Alert className="text-text-critical" width={iconSizes.xLarge} />;
+      return <Alert className="text-intent-critical-fill" width={iconSizes.xLarge} />;
     } else
       return <Checkmark className="rounded-full bg-intent-success-fill text-surface-base" width={iconSizes.xLarge} />;
   }, [haserrors, isSleeping, isOffline, needsAuthentication, needsMiningPool]);
