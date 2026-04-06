@@ -60,10 +60,10 @@ const AsicTablePreview = ({
   dangerThreshold = 82,
   criticalThreshold = 90,
   colors = {
-    normal: "#0096D1", // intent-info-fill
-    warning: "#FD8A00", // intent-warning-fill
-    critical: "#FA2B37", // intent-critical-fill
-    empty: "#F2F2F2", // core-primary-5
+    normal: "var(--color-intent-info-fill)",
+    warning: "var(--color-intent-warning-fill)",
+    critical: "var(--color-intent-critical-fill)",
+    empty: "var(--color-surface-5)",
   },
   className = "",
 }: AsicTablePreviewProps) => {

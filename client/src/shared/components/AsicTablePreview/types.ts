@@ -11,12 +11,12 @@ export interface AsicTablePreviewProps {
   dangerThreshold?: number; // Danger threshold (default: 82°C)
   criticalThreshold?: number; // Critical threshold (default: 90°C)
 
-  // Color props to avoid CSS variable side effects
+  // Color props (defaults use CSS custom properties for theme support)
   colors?: {
-    normal: string; // Default: intent-info (#0096D1)
-    warning: string; // Default: intent-warning (#FD8A00)
-    critical: string; // Default: intent-critical (#FA2B37)
-    empty: string; // Default: core-primary-5 (#F2F2F2)
+    normal: string; // Default: var(--color-intent-info-fill)
+    warning: string; // Default: var(--color-intent-warning-fill)
+    critical: string; // Default: var(--color-intent-critical-fill)
+    empty: string; // Default: var(--color-core-primary-5)
   };
 
   className?: string;

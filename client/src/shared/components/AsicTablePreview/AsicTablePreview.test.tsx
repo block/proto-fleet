@@ -163,8 +163,8 @@ describe("AsicTablePreview", () => {
     const normalChip = screen.getByTestId("asic-0-0");
     const emptyChip = screen.getByTestId("asic-0-1");
 
-    expect(normalChip).toHaveStyle({ backgroundColor: "#0096D1" });
-    expect(emptyChip).toHaveStyle({ backgroundColor: "#F2F2F2" });
+    expect(normalChip).toHaveStyle({ backgroundColor: "var(--color-intent-info-fill)" });
+    expect(emptyChip).toHaveStyle({ backgroundColor: "var(--color-surface-5)" });
   });
 
   it("applies custom className", () => {
