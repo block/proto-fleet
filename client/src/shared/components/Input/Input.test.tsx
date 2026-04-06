@@ -31,3 +31,65 @@ describe("Input", () => {
     expect(inputElement.getAttribute("autocomplete")).toBe("new-password");
   });
 });
+
+describe("Input ARIA attributes", () => {
+  test("renders aria-required when required prop is set", () => {
+    render(<Input id="email" label="Email" required />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("aria-required", "true");
+  });
+
+  test("does not render aria-required when required prop is not set", () => {
+    render(<Input id="email" label="Email" />);
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-required");
+  });
+
+  test("renders aria-invalid when there is an error", () => {
+    render(<Input id="email" label="Email" error="Invalid email" />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  test("renders aria-invalid when error is boolean true", () => {
+    render(<Input id="email" label="Email" error={true} />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  test("does not render aria-invalid when there is no error", () => {
+    render(<Input id="email" label="Email" />);
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-invalid");
+  });
+
+  test("renders aria-describedby pointing to error message ID when error is a string", () => {
+    render(<Input id="email" label="Email" error="Invalid email" />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("aria-describedby", "email-error");
+  });
+
+  test("does not render aria-describedby when error is boolean true", () => {
+    render(<Input id="email" label="Email" error={true} />);
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  test("does not render aria-describedby when there is no error", () => {
+    render(<Input id="email" label="Email" />);
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  test("does not render aria-describedby when error is an empty string", () => {
+    render(<Input id="email" label="Email" error="" />);
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  test("error message div has matching id attribute", () => {
+    render(<Input id="email" label="Email" error="Invalid email" testId="email-input" />);
+    const errorDiv = screen.getByTestId("email-input-validation-error");
+    expect(errorDiv).toHaveAttribute("id", "email-error");
+  });
+});

@@ -43,6 +43,7 @@ interface InputProps {
   onBlur?: () => void;
   autoComplete?: string;
   units?: string;
+  required?: boolean;
 }
 
 const length = (value: string | number) => {
@@ -77,6 +78,7 @@ const Input = ({
   onBlur,
   autoComplete,
   units,
+  required,
 }: InputProps) => {
   const [value, setValue] = useState(initValue);
   // keep the error state until the animation is finished
@@ -188,6 +190,10 @@ const Input = ({
           ref={inputRef ?? fallbackRef}
           disabled={disabled}
           autoFocus={autoFocus}
+          required={required}
+          aria-required={required || undefined}
+          aria-invalid={!!error || undefined}
+          aria-describedby={typeof error === "string" && error ? `${id}-error` : undefined}
           onFocus={() => {
             onFocus && onFocus();
             setFocused(true);
@@ -284,7 +290,12 @@ const Input = ({
       >
         <div className="flex items-center space-x-1">
           <div className="h-1 w-[10px] rounded-full bg-intent-critical-20" />
-          <div data-testid={`${testId}-validation-error`}>{validationError}</div>
+          <div
+            id={typeof error === "string" && error ? `${id}-error` : undefined}
+            data-testid={`${testId}-validation-error`}
+          >
+            {validationError}
+          </div>
         </div>
       </div>
     </div>

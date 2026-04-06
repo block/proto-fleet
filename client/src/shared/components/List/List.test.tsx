@@ -40,6 +40,23 @@ describe("List", () => {
     }
   });
 
+  it("renders th elements with scope='col' attribute", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+      />,
+    );
+
+    const headerCells = screen.getAllByRole("columnheader");
+    for (const th of headerCells) {
+      expect(th).toHaveAttribute("scope", "col");
+    }
+  });
+
   it("renders rows correctly", () => {
     render(
       <List<TestItem, TestItemKey>

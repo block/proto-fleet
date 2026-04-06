@@ -27,6 +27,7 @@ interface TextareaProps {
   onFocus?: () => void;
   onBlur?: () => void;
   rows?: number;
+  required?: boolean;
 }
 
 const length = (value: string | number) => {
@@ -57,6 +58,7 @@ const Textarea = ({
   onFocus,
   onBlur,
   rows = 5,
+  required,
 }: TextareaProps) => {
   const [value, setValue] = useState(initValue);
   // keep the error state until the animation is finished
@@ -143,6 +145,10 @@ const Textarea = ({
           ref={inputRef || fallbackRef}
           disabled={disabled}
           autoFocus={autoFocus}
+          required={required}
+          aria-required={required || undefined}
+          aria-invalid={!!error || undefined}
+          aria-describedby={typeof error === "string" && error ? `${id}-error` : undefined}
           onFocus={() => {
             onFocus?.();
             setFocused(true);
@@ -207,7 +213,11 @@ const Textarea = ({
       >
         <div className="flex items-start space-x-1">
           <div className="mt-1.5 h-1 w-[10px] shrink-0 rounded-full bg-intent-critical-20" />
-          <div data-testid={`${testId}-validation-error`} className="whitespace-pre-wrap">
+          <div
+            id={typeof error === "string" && error ? `${id}-error` : undefined}
+            data-testid={`${testId}-validation-error`}
+            className="whitespace-pre-wrap"
+          >
             {validationError}
           </div>
         </div>

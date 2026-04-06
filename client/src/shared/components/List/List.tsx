@@ -1080,7 +1080,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             )}
           >
             {itemSelectable && (
-              <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
+              <th scope="col" className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
                 {selectionType !== "radio" && (
                   <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
                     <Checkbox
@@ -1114,6 +1114,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
               return (
                 <th
+                  scope="col"
                   className={clsx(
                     "pl-2",
                     thClassList,
@@ -1161,7 +1162,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
               );
             })}
             {actions.length > 0 && (
-              <th className={thClassList}>
+              <th scope="col" className={thClassList}>
                 <div className="w-11 truncate overflow-hidden" />
               </th>
             )}
