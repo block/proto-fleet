@@ -10,7 +10,7 @@ import {
 import type { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
 import Ellipsis from "@/shared/assets/icons/Ellipsis";
-import Button, { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -455,6 +455,7 @@ const MiningPools = () => {
           />
           <Button
             variant={variants.primary}
+            size={sizes.compact}
             onClick={() => setShowAddPoolModal(true)}
             className="shrink-0 phone:w-full"
           >

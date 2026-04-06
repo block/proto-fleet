@@ -154,13 +154,13 @@ const Firmware = () => {
         <div className="flex gap-3">
           <Button
             variant={variants.primary}
-            size={sizes.base}
+            size={sizes.compact}
             text="Upload firmware"
             onClick={() => setShowUploadDialog(true)}
           />
           <Button
             variant={variants.danger}
-            size={sizes.base}
+            size={sizes.compact}
             text="Delete all"
             onClick={() => setShowDeleteAllDialog(true)}
             disabled={files.length === 0 || isDeletingAll}

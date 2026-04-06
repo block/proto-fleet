@@ -197,7 +197,7 @@ const Team = () => {
         {canAddTeamMembers && (
           <Button
             variant={variants.primary}
-            size={sizes.base}
+            size={sizes.compact}
             text="Add team member"
             onClick={() => setShowAddMemberModal(true)}
           />

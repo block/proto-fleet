@@ -156,7 +156,7 @@ const ApiKeys = () => {
         <Header title="API Keys" titleSize="text-heading-300" />
         <Button
           variant={variants.primary}
-          size={sizes.base}
+          size={sizes.compact}
           text="Create API key"
           onClick={() => setShowCreateModal(true)}
         />
