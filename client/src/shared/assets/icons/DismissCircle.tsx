@@ -1,9 +1,9 @@
-import clsx from "clsx";
+import InteractiveIcon from "./InteractiveIcon";
 import { IconProps } from "./types";
 
-const DismissCircle = ({ className, onClick, width = "w-[16px]" }: IconProps) => {
+const DismissCircle = ({ width = "w-[16px]", ...props }: IconProps) => {
   return (
-    <div className={clsx(width, className)} onClick={onClick}>
+    <InteractiveIcon {...props} width={width}>
       <svg width="100%" height="100%" fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
         <path
           fillRule="evenodd"
@@ -13,7 +13,7 @@ const DismissCircle = ({ className, onClick, width = "w-[16px]" }: IconProps) =>
           fillOpacity=".3"
         />
       </svg>
-    </div>
+    </InteractiveIcon>
   );
 };
 

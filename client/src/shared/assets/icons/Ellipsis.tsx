@@ -1,10 +1,9 @@
-import clsx from "clsx";
-
+import InteractiveIcon from "./InteractiveIcon";
 import { IconProps } from "./types";
 
-const Ellipsis = ({ className, width = "w-[20px]", onClick }: IconProps) => {
+const Ellipsis = ({ width = "w-[20px]", ...props }: IconProps) => {
   return (
-    <div className={clsx(width, className)} onClick={onClick}>
+    <InteractiveIcon {...props} width={width}>
       <svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path
           fillRule="evenodd"
@@ -13,7 +12,7 @@ const Ellipsis = ({ className, width = "w-[20px]", onClick }: IconProps) => {
           fill="currentColor"
         />
       </svg>
-    </div>
+    </InteractiveIcon>
   );
 };
 

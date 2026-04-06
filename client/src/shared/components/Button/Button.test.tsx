@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import Button, { sizes, variants } from ".";
@@ -22,5 +22,23 @@ describe("Button", () => {
     const buttonElement = getByText(buttonText);
     fireEvent.click(buttonElement);
     expect(onClickMock).toHaveBeenCalled();
+  });
+
+  test("renders icon-only buttons with an accessible name and focus-visible styles", () => {
+    render(
+      <Button
+        ariaLabel="Close dialog"
+        onClick={() => {}}
+        prefixIcon={<span aria-hidden="true">x</span>}
+        size={sizes.base}
+        variant={variants.secondary}
+      />,
+    );
+
+    const buttonElement = screen.getByRole("button", { name: "Close dialog" });
+
+    expect(buttonElement).toHaveClass("focus-visible:ring-2");
+    expect(buttonElement).toHaveClass("focus-visible:ring-core-primary-fill");
+    expect(buttonElement).toHaveClass("focus-visible:ring-offset-2");
   });
 });

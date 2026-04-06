@@ -38,25 +38,28 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   if (visibleItems.length === 0) return null;
 
   return (
-    <ul
-      data-testid="secondary-nav"
-      className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-3 px-3 pt-3 text-text-primary-70"
-    >
-      {visibleItems.map((item) => {
-        return (
-          <li key={item.path}>
-            <Link
-              to={"/" + stripLeadingSlash(item.path)}
-              className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
-                "bg-core-primary-5": isCurrentPath(item.path),
-              })}
-            >
-              {item.label}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
+    <nav aria-label="Settings">
+      <ul
+        data-testid="secondary-nav"
+        className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-3 px-3 pt-3 text-text-primary-70"
+      >
+        {visibleItems.map((item) => {
+          return (
+            <li key={item.path}>
+              <Link
+                to={"/" + stripLeadingSlash(item.path)}
+                aria-current={isCurrentPath(item.path) ? "page" : undefined}
+                className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
+                  "bg-core-primary-5": isCurrentPath(item.path),
+                })}
+              >
+                {item.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 };
 

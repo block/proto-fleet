@@ -76,7 +76,7 @@ const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDo
           className="sticky top-0 z-10 pb-14"
           title="Manage security"
           titleSize="text-heading-100"
-          icon={<DismissCircleDark width="w-6" onClick={onDismiss} className="cursor-pointer" />}
+          icon={<DismissCircleDark ariaLabel="Close manage security" width="w-6" onClick={onDismiss} />}
           inline
           buttons={[
             {

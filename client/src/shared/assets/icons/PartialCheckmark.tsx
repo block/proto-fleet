@@ -1,11 +1,10 @@
-import clsx from "clsx";
-
 import { iconSizes } from "./constants";
+import InteractiveIcon from "./InteractiveIcon";
 import { IconProps } from "./types";
 
-const PartialCheckmark = ({ className, onClick, width = iconSizes.medium }: IconProps) => {
+const PartialCheckmark = ({ width = iconSizes.medium, ...props }: IconProps) => {
   return (
-    <div className={clsx(width, className)} onClick={onClick}>
+    <InteractiveIcon {...props} width={width}>
       <svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
         <g filter="url(#filter0_dddd_805_58063)">
           <path
@@ -88,7 +87,7 @@ const PartialCheckmark = ({ className, onClick, width = iconSizes.medium }: Icon
           </linearGradient>
         </defs>
       </svg>
-    </div>
+    </InteractiveIcon>
   );
 };
 

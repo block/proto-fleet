@@ -31,7 +31,7 @@ const AppLayout = ({ children }: Props) => {
       <div
         className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*15)] left-16 z-40 ${isDashboard ? "bg-surface-5 dark:bg-surface-base" : "bg-surface-base"} phone:bottom-[calc(100vh-theme(spacing.1)*12)] phone:left-0 tablet:bottom-[calc(100vh-theme(spacing.1)*12)] tablet:left-0`}
       >
-        <PageHeader openMenu={() => setIsMenuOpen(true)} />
+        <PageHeader isMenuOpen={isMenuOpen} openMenu={() => setIsMenuOpen(true)} />
       </div>
 
       <div

@@ -14,6 +14,7 @@ import clsx from "clsx";
 
 import useValueWidth from "./useValueWidth";
 import { DismissCircle, Eye } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Tooltip from "@/shared/components/Tooltip";
 import { positions } from "@/shared/constants";
 
@@ -253,7 +254,7 @@ const Input = ({
               "top-7 -translate-y-1/2 transform": !compact,
             })}
           >
-            <DismissCircle onClick={handleChange} className="hover:cursor-pointer" opacity="0.7" />
+            <DismissCircle ariaLabel={`Clear ${label}`} onClick={handleChange} className="text-text-primary-70" />
           </div>
         ) : undefined}
         {keyboardShortcuts && !length(value) ? (
@@ -275,7 +276,15 @@ const Input = ({
             {statusIcon ? (
               statusIcon
             ) : (
-              <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" testId="eye-icon" />
+              <Button
+                ariaLabel={inputType === "password" ? "Show password" : "Hide password"}
+                variant={variants.textOnly}
+                size={sizes.textOnly}
+                onClick={togglePasswordVisibility}
+                className="text-text-primary-70 hover:!opacity-70"
+                testId="eye-icon"
+                prefixIcon={<Eye />}
+              />
             )}
           </div>
         )}

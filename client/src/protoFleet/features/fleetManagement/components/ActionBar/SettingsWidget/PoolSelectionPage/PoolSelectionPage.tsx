@@ -365,7 +365,12 @@ const PoolSelectionPage = ({
           title="Assign pools"
           titleSize="text-heading-100"
           icon={
-            <DismissCircleDark width="w-6" onClick={onCancel} className="cursor-pointer" testId="header-icon-button" />
+            <DismissCircleDark
+              ariaLabel="Close assign pools"
+              width="w-6"
+              onClick={onCancel}
+              testId="header-icon-button"
+            />
           }
           inline
           buttons={[

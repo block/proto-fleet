@@ -1,16 +1,17 @@
 import { iconSizes } from "./constants";
+import InteractiveIcon from "./InteractiveIcon";
 import { IconProps } from "./types";
 
-const Dismiss = ({ className, opacity = ".01", width = iconSizes.medium }: IconProps) => {
+const Dismiss = ({ opacity = ".01", width = iconSizes.medium, ...props }: IconProps) => {
   return (
-    <div className={width}>
+    <InteractiveIcon width={width} {...props}>
       <svg
         width="100%"
         height="100%"
         viewBox="0 0 20 20"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className={className}
+        className={props.className}
         preserveAspectRatio="xMidYMid meet"
       >
         <path className="fill-surface-base" fillOpacity={opacity} d="M0 0h20v20H0z" />
@@ -21,7 +22,7 @@ const Dismiss = ({ className, opacity = ".01", width = iconSizes.medium }: IconP
           fill="currentColor"
         />
       </svg>
-    </div>
+    </InteractiveIcon>
   );
 };
 

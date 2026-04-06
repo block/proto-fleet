@@ -40,6 +40,7 @@ export function StatusModal<TComponentAddress = any>({
         title={componentData.title}
         buttons={componentData.buttons}
         icon={showBack ? <ArrowRight className="rotate-180" /> : undefined}
+        iconAriaLabel={showBack ? "Go back" : undefined}
         onIconClick={showBack ? componentData.onNavigateBack : undefined}
         onDismiss={componentData.onDismiss}
         open={open}

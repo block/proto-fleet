@@ -111,6 +111,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         className="fixed z-10 h-16 items-center border-b border-border-5 bg-surface-base px-4"
         centerButton={true}
         icon={<Dismiss width="w-3.5" />}
+        iconAriaLabel="Close hashboards"
         iconVariant="textOnly"
         iconTextColor="text-text-primary"
         iconOnClick={close}

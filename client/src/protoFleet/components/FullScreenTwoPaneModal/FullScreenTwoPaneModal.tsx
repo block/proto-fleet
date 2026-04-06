@@ -18,6 +18,7 @@ interface FullScreenTwoPaneModalProps {
   title: string;
   onDismiss?: () => void;
   isBusy?: boolean;
+  closeAriaLabel?: string;
   buttons?: ButtonProps[];
   primaryPane: ReactNode;
   secondaryPane: ReactNode;
@@ -98,6 +99,7 @@ const FullScreenTwoPaneModal = ({
   title,
   onDismiss,
   isBusy = false,
+  closeAriaLabel = "Close dialog",
   buttons,
   primaryPane,
   secondaryPane,
@@ -163,6 +165,7 @@ const FullScreenTwoPaneModal = ({
               title={title}
               titleSize="text-heading-100"
               stackButtonsOnPhone={false}
+              iconAriaLabel={closeAriaLabel}
               icon={
                 <DismissCircleDark
                   width="w-6"

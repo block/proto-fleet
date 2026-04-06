@@ -32,6 +32,7 @@ interface ModalProps {
   phoneFooterButtons?: ModalButtonProps[];
   phoneSheet?: boolean;
   icon?: ReactNode | null;
+  iconAriaLabel?: string;
   onIconClick?: () => void;
   open?: boolean;
   showHeader?: boolean;
@@ -64,6 +65,7 @@ const Modal = ({
   divider = true,
   size = sizes.large,
   zIndex,
+  iconAriaLabel = "Close dialog",
 }: ModalProps) => {
   const ModalRef = useRef<HTMLDivElement>(null);
   const slideUpAnimation = useSlideUpAnimation();
@@ -97,6 +99,14 @@ const Modal = ({
     ignoreSelectors: [".popover-content"],
     shouldIgnore: shouldIgnoreClickOutside,
   });
+  const headerIconProps =
+    icon === null
+      ? {}
+      : {
+          icon,
+          iconAriaLabel,
+          iconOnClick: onIconClick || dismissModal,
+        };
 
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
@@ -131,8 +141,7 @@ const Modal = ({
               title={title}
               description={description}
               titleSize="text-heading-200"
-              icon={icon == null ? undefined : icon}
-              iconOnClick={icon === null ? undefined : onIconClick || dismissModal}
+              {...headerIconProps}
               buttonSize={buttonSize}
               buttonsWrapperClassName={hasPhoneFooterButtons ? "phone:hidden" : undefined}
               buttons={buttons?.map((button) => ({

@@ -7,11 +7,11 @@ export class SettingsPage extends BasePage {
   }
 
   async selectFahrenheit() {
-    await this.page.locator('//*[@data-testid="fahrenheit-option"]//input').click();
+    await this.page.getByTestId("fahrenheit-option").click();
   }
 
   async selectCelsius() {
-    await this.page.locator('//*[@data-testid="celsius-option"]//input').click();
+    await this.page.getByTestId("celsius-option").click();
   }
 
   async clickDoneButton() {

@@ -192,7 +192,7 @@ const Textarea = ({
               "top-7 -translate-y-1/2 transform": !compact,
             })}
           >
-            <DismissCircle onClick={handleClear} className="hover:cursor-pointer" opacity="0.7" />
+            <DismissCircle ariaLabel={`Clear ${label}`} onClick={handleClear} className="text-text-primary-70" />
           </div>
         ) : null}
         {keyboardShortcuts && !length(value) ? (

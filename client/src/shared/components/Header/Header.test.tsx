@@ -10,17 +10,19 @@ vi.mock("@/shared/components/Button", async () => {
   return {
     ...actual,
     default: ({
+      ariaLabel,
       className,
       onClick,
       prefixIcon,
       testId,
     }: {
+      ariaLabel?: string;
       className?: string;
       onClick?: () => void;
       prefixIcon?: ReactNode;
       testId?: string;
     }) => (
-      <button className={className} data-testid={testId} onClick={onClick} type="button">
+      <button aria-label={ariaLabel} className={className} data-testid={testId} onClick={onClick} type="button">
         {prefixIcon}
       </button>
     ),
@@ -30,10 +32,25 @@ vi.mock("@/shared/components/Button", async () => {
 describe("Header", () => {
   it("passes iconButtonClassName to the shared icon button wrapper", () => {
     const { getByTestId } = render(
-      <Header icon={<div>icon</div>} iconOnClick={vi.fn()} iconButtonClassName="!p-0" title="Rename miners" inline />,
+      <Header
+        icon={<div>icon</div>}
+        iconAriaLabel="Open header action"
+        iconOnClick={vi.fn()}
+        iconButtonClassName="!p-0"
+        title="Rename miners"
+        inline
+      />,
     );
 
     expect(getByTestId("header-icon-button")).toHaveClass("!p-0");
+  });
+
+  it("passes iconAriaLabel to the shared icon button wrapper", () => {
+    const { getByTestId } = render(
+      <Header icon={<div>icon</div>} iconAriaLabel="Close header" iconOnClick={vi.fn()} title="Rename miners" inline />,
+    );
+
+    expect(getByTestId("header-icon-button")).toHaveAttribute("aria-label", "Close header");
   });
 
   it("passes buttonsWrapperClassName to the button group wrapper", () => {

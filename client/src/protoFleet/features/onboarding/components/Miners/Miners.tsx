@@ -205,16 +205,19 @@ const Miners = ({
             className="sticky top-0 z-10 pb-14"
             title="Add miners"
             titleSize="text-heading-200"
-            icon={<Dismiss />}
-            iconOnClick={
-              pairingPending
-                ? undefined
-                : () => {
+            {...(pairingPending
+              ? {
+                  icon: <Dismiss />,
+                }
+              : {
+                  icon: <Dismiss />,
+                  iconAriaLabel: "Close add miners",
+                  iconOnClick: () => {
                     handleScanCancel();
                     setActiveStep("findMiners");
                     setShowModal(false);
-                  }
-            }
+                  },
+                })}
             inline
             buttons={
               showLoadingSkeleton

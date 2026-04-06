@@ -559,6 +559,7 @@ const ScheduleModal = ({
         title={isEditMode ? "Edit schedule" : "Add a schedule"}
         onDismiss={onDismiss}
         isBusy={isBusy}
+        closeAriaLabel="Close schedule editor"
         buttons={[
           ...(isEditMode
             ? [

@@ -1,11 +1,10 @@
-import clsx from "clsx";
-
 import { iconSizes } from "./constants";
+import InteractiveIcon from "./InteractiveIcon";
 import { IconProps } from "./types";
 
-const Checkmark = ({ className, onClick, width = iconSizes.medium }: IconProps) => {
+const Checkmark = ({ width = iconSizes.medium, ...props }: IconProps) => {
   return (
-    <div className={clsx(width, className)} data-testid="checkmark-icon" onClick={onClick}>
+    <InteractiveIcon {...props} testId="checkmark-icon" width={width}>
       <svg
         width="100%"
         height="100%"
@@ -69,7 +68,7 @@ const Checkmark = ({ className, onClick, width = iconSizes.medium }: IconProps) 
           </filter>
         </defs>
       </svg>
-    </div>
+    </InteractiveIcon>
   );
 };
 

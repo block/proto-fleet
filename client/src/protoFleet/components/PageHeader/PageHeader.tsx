@@ -6,6 +6,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 interface PageHeaderProps {
+  isMenuOpen?: boolean;
   openMenu?: () => void;
 }
 
@@ -26,7 +27,7 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
   );
 };
 
-const PageHeader = ({ openMenu }: PageHeaderProps) => {
+const PageHeader = ({ isMenuOpen, openMenu }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const location = useLocation();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -41,7 +42,9 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
           <div className="flex grow items-center">
             {(isPhone || isTablet) && (
               <Pause
-                className="mr-2 text-text-primary hover:cursor-pointer"
+                ariaExpanded={isMenuOpen}
+                ariaLabel="Open navigation menu"
+                className="mr-2 text-text-primary"
                 onClick={openMenu}
                 testId="navigation-menu-button"
               />

@@ -4,7 +4,7 @@ import clsx from "clsx";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import ButtonGroup, { ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
 
-interface HeaderProps {
+interface BaseHeaderProps {
   buttons?: ButtonProps[];
   buttonSize?: keyof typeof sizes;
   buttonsWrapperClassName?: string;
@@ -14,8 +14,6 @@ interface HeaderProps {
   compact?: boolean;
   descriptionClassName?: string;
   iconButtonClassName?: string;
-  icon?: ReactNode;
-  iconOnClick?: () => void;
   iconSize?: keyof typeof sizes;
   iconTextColor?: string;
   iconVariant?: ButtonVariant;
@@ -32,6 +30,20 @@ interface HeaderProps {
   description?: string | ReactNode;
 }
 
+type StaticHeaderIconProps = {
+  icon?: ReactNode;
+  iconAriaLabel?: undefined;
+  iconOnClick?: undefined;
+};
+
+type InteractiveHeaderIconProps = {
+  icon: ReactNode;
+  iconAriaLabel: string;
+  iconOnClick: () => void;
+};
+
+type HeaderProps = BaseHeaderProps & (StaticHeaderIconProps | InteractiveHeaderIconProps);
+
 const Header = ({
   buttons,
   buttonSize = sizes.base,
@@ -42,6 +54,7 @@ const Header = ({
   compact,
   descriptionClassName,
   iconButtonClassName,
+  iconAriaLabel,
   icon,
   iconOnClick,
   iconSize = sizes.base,
@@ -70,6 +83,7 @@ const Header = ({
       <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
           <Button
+            ariaLabel={iconAriaLabel}
             textColor={iconTextColor}
             variant={iconVariant}
             size={iconSize}

@@ -563,6 +563,7 @@ const BulkRenameModal = ({
         title="Rename miners"
         onDismiss={onDismiss}
         isBusy={isBusy}
+        closeAriaLabel="Close rename miners"
         buttons={[
           {
             text: selectionCount === 1 ? "Apply to 1 miner" : `Apply to ${selectionCount} miners`,

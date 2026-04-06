@@ -306,6 +306,7 @@ const GroupOverviewPage = () => {
             titleSize="text-heading-300"
             inline
             icon={<ChevronDown className="rotate-90" />}
+            iconAriaLabel="Back to groups"
             iconOnClick={() => navigate("/groups")}
           >
             <div className="ml-3 flex items-center gap-3">

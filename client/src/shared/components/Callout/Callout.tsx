@@ -61,6 +61,7 @@ const Callout = ({
 
     if (dismissible && onDismiss) {
       result.push({
+        ariaLabel: "Dismiss callout",
         prefixIcon: <DismissTiny />,
         textColor: "text-current",
         borderColor: "border-current",

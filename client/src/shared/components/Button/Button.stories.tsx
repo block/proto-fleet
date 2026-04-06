@@ -21,8 +21,15 @@ export const Buttons = ({ size, variant }: ButtonProps) => {
         <Button text={text} disabled onClick={onClick} size={size} variant={variant} />
       </div>
       <div className="flex space-x-2">
-        <Button prefixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />
-        <Button prefixIcon={<Icon />} disabled onClick={onClick} size={size} variant={variant} />
+        <Button ariaLabel="Icon button" prefixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />
+        <Button
+          ariaLabel="Disabled icon button"
+          prefixIcon={<Icon />}
+          disabled
+          onClick={onClick}
+          size={size}
+          variant={variant}
+        />
       </div>
       <div className="flex space-x-2">
         <Button text={text} prefixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />

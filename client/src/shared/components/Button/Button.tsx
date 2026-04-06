@@ -6,7 +6,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 
 export type ButtonVariant = keyof typeof variants;
 
-interface ButtonProps {
+export interface ButtonProps {
   ariaLabel?: string;
   ariaHasPopup?: boolean | "menu" | "dialog" | "listbox" | "tree" | "grid";
   ariaExpanded?: boolean;
@@ -66,7 +66,7 @@ const Button = ({
       aria-haspopup={ariaHasPopup}
       aria-expanded={ariaExpanded}
       className={clsx(
-        "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-0",
+        "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base",
         {
           "cursor-pointer": !disabledState,
           "cursor-not-allowed": disabledState,

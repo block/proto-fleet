@@ -385,7 +385,12 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
           <div className="@container rounded-3xl bg-core-primary-5 p-6">
             <div className="mb-6 flex items-center justify-between gap-x-10">
               <div className="text-heading-300">Complete setup</div>
-              <Button onClick={handleDismiss} variant="secondary" prefixIcon={<Dismiss />}></Button>
+              <Button
+                ariaLabel="Dismiss complete setup"
+                onClick={handleDismiss}
+                variant="secondary"
+                prefixIcon={<Dismiss />}
+              />
             </div>
             <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
               <AnimatePresence mode="popLayout">

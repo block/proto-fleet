@@ -57,7 +57,8 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   };
 
   return (
-    <div
+    <nav
+      aria-label="Main"
       className={clsx(
         "flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70 laptop:w-full laptop:bg-surface-5 laptop:dark:bg-surface-base desktop:w-full desktop:bg-surface-5 desktop:dark:bg-surface-base",
         "laptop:items-center desktop:items-center",
@@ -78,6 +79,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           >
             <Link
               to={homeItem.path}
+              aria-label="Home"
               className={clsx({
                 "w-full": isPhone || isTablet,
               })}
@@ -107,6 +109,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                 <Link
                   to={item.path}
                   onClick={() => closeMenu?.()}
+                  aria-current={isCurrentPath(item.path) ? "page" : undefined}
                   className={clsx(
                     "group flex items-center justify-start rounded-lg px-2 py-1 laptop:aspect-square laptop:justify-center laptop:p-2 desktop:aspect-square desktop:justify-center desktop:p-2",
                     "hover:cursor-pointer hover:bg-core-primary-5",
@@ -194,6 +197,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                             <Link
                               to={nav.path}
                               onClick={() => closeMenu?.()}
+                              aria-current={isCurrentPath(nav.path) ? "page" : undefined}
                               className={clsx(
                                 "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
                                 "hover:cursor-pointer hover:bg-core-primary-5",
@@ -218,6 +222,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           onClick={() => {
             logout();
           }}
+          aria-label="Log out"
           className={clsx(
             "group flex h-8 w-full items-center justify-start rounded-lg px-2 py-1 laptop:h-10 laptop:justify-center desktop:h-10 desktop:justify-center",
             "hover:cursor-pointer hover:bg-core-primary-10",
@@ -228,7 +233,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           {(isPhone || isTablet) && <span className="ml-2 text-emphasis-300 text-text-primary-70">Logout</span>}
         </button>
       </div>
-    </div>
+    </nav>
   );
 };
 

@@ -276,7 +276,7 @@ describe("CompleteSetup", () => {
 
       renderCompleteSetup();
 
-      const dismissButton = screen.getByRole("button", { name: "" });
+      const dismissButton = screen.getByRole("button", { name: "Dismiss complete setup" });
       fireEvent.click(dismissButton);
 
       expect(setCompleteSetupDismissed).toHaveBeenCalledWith(true);

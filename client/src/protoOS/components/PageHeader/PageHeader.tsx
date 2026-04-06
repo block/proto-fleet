@@ -22,7 +22,8 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
       <div className="flex h-12 w-full items-center justify-between gap-2 self-start px-4 py-2">
         <div className="inline-flex items-center gap-2">
           <Pause
-            className="text-text-primary hover:cursor-pointer"
+            ariaLabel="Open navigation menu"
+            className="text-text-primary"
             onClick={openMenu}
             testId="navigation-menu-button"
           />
