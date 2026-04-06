@@ -755,81 +755,116 @@ impl AsicRsDevice {
     }
 }
 
+/// Strategy for validating write access, chosen based on firmware variant.
+#[derive(Debug)]
+pub(crate) enum WriteAccessProbeStrategy {
+    /// LED toggle — LED is auth-gated on this firmware.
+    /// Used for: stock, Braiins, LuxOS and anything else with `supports_led=true`.
+    Led,
+    /// Hostname check — VNish allows LED without auth but returns empty hostname
+    /// when unauthenticated. Skip the LED probe entirely for VNish.
+    Hostname,
+    /// No probe possible.
+    None,
+}
+
+impl WriteAccessProbeStrategy {
+    pub(crate) fn for_miner(make: &str, firmware: &str, supports_led: bool) -> Self {
+        match crate::capabilities::detect_variant(make, firmware) {
+            crate::capabilities::VARIANT_VNISH => Self::Hostname,
+            _ if supports_led => Self::Led,
+            _ => Self::None,
+        }
+    }
+}
+
 /// Validate that the miner accepts authenticated operations.
-/// Probe 1 (conditional): fault light toggle -- tests write access
-/// Probe 2 (VNish only): hostname check -- VNish allows LED without auth
-///   but returns empty hostname when unauthenticated
 pub async fn validate_write_access(
     miner: &dyn Miner,
     supports_led: bool,
     make: &str,
     firmware: &str,
 ) -> anyhow::Result<()> {
-    // Probe 1: fault light toggle (only if miner supports it)
-    if supports_led {
-        let result = catch_panic(tokio::time::timeout(
-            WRITE_PROBE_TIMEOUT,
-            miner.set_fault_light(true),
-        ))
-        .await;
-        match result {
-            Ok(Ok(Ok(true))) => {
-                let _ = catch_panic(tokio::time::timeout(
-                    WRITE_PROBE_TIMEOUT,
-                    miner.set_fault_light(false),
-                ))
-                .await;
-            }
-            Ok(Ok(Ok(false))) => {
+    let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, supports_led);
+    tracing::debug!(
+        make,
+        firmware,
+        supports_led,
+        ?strategy,
+        "write-access probe: starting"
+    );
+    match strategy {
+        WriteAccessProbeStrategy::Led => probe_led(miner).await,
+        WriteAccessProbeStrategy::Hostname => probe_hostname(miner).await,
+        WriteAccessProbeStrategy::None => Ok(()),
+    }
+}
+
+/// Probe write access via fault light toggle.
+/// LED is auth-gated on stock, Braiins, and LuxOS firmware.
+async fn probe_led(miner: &dyn Miner) -> anyhow::Result<()> {
+    let result = catch_panic(tokio::time::timeout(
+        WRITE_PROBE_TIMEOUT,
+        miner.set_fault_light(true),
+    ))
+    .await;
+    match result {
+        Ok(Ok(Ok(true))) => {
+            let _ = catch_panic(tokio::time::timeout(
+                WRITE_PROBE_TIMEOUT,
+                miner.set_fault_light(false),
+            ))
+            .await;
+        }
+        Ok(Ok(Ok(false))) => {
+            return Err(anyhow::anyhow!(
+                "[unauthenticated] LED command returned false, credentials may lack write permission"
+            ));
+        }
+        Ok(Ok(Err(e))) => {
+            return Err(anyhow::anyhow!(
+                "[unauthenticated] LED probe failed: {e}, credentials may lack write permission"
+            ));
+        }
+        Ok(Err(_)) => {
+            return Err(anyhow::anyhow!(
+                "[unavailable] LED probe timed out, cannot confirm write permission"
+            ));
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "[unavailable] LED probe panicked: {e}, cannot confirm write permission"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Probe write access via hostname check.
+/// VNish allows LED control without auth but returns empty hostname when
+/// unauthenticated. Other backends may not populate hostname at all, so
+/// this check is firmware-specific to avoid false rejections.
+async fn probe_hostname(miner: &dyn Miner) -> anyhow::Result<()> {
+    let data = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, miner.get_data())).await;
+    match data {
+        Ok(Ok(data)) => {
+            if data.hostname.as_deref().unwrap_or("").is_empty() {
                 return Err(anyhow::anyhow!(
-                    "[unauthenticated] LED command returned false, credentials may lack write permission"
-                ));
-            }
-            Ok(Ok(Err(e))) => {
-                return Err(anyhow::anyhow!(
-                    "[unauthenticated] LED probe failed: {e}, credentials may lack write permission"
-                ));
-            }
-            Ok(Err(_)) => {
-                return Err(anyhow::anyhow!(
-                    "[unavailable] LED probe timed out, cannot confirm write permission"
-                ));
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "[unavailable] LED probe panicked: {e}, cannot confirm write permission"
+                    "[unauthenticated] hostname is empty, credentials may be invalid"
                 ));
             }
         }
-    }
-
-    // Probe 2 (VNish only): hostname check.
-    // VNish allows LED control without auth but returns empty hostname when
-    // unauthenticated. Other backends may not populate hostname at all, so
-    // this check is firmware-specific to avoid false rejections.
-    if crate::capabilities::detect_variant(make, firmware) == crate::capabilities::VARIANT_VNISH {
-        let data = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, miner.get_data())).await;
-        match data {
-            Ok(Ok(data)) => {
-                if data.hostname.as_deref().unwrap_or("").is_empty() {
-                    return Err(anyhow::anyhow!(
-                        "[unauthenticated] hostname is empty, credentials may be invalid"
-                    ));
-                }
-            }
-            Ok(Err(_)) => {
-                return Err(anyhow::anyhow!(
-                    "[unavailable] hostname check timed out, cannot confirm auth"
-                ));
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "[unavailable] hostname check failed: {e}, cannot confirm auth"
-                ));
-            }
+        Ok(Err(_)) => {
+            return Err(anyhow::anyhow!(
+                "[unavailable] hostname check timed out, cannot confirm write access"
+            ));
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "[unavailable] hostname check failed: {e}, cannot confirm write access"
+            ));
         }
     }
-
     Ok(())
 }
 
@@ -1133,5 +1168,98 @@ mod tests {
         );
         assert!(device.require_cap(CAP_REBOOT).await.is_ok());
         assert!(device.require_cap(CAP_MINING_START).await.is_err());
+    }
+
+    // --- WriteAccessProbeStrategy::for_miner ---
+
+    #[test]
+    fn test_strategy_vnish_firmware_uses_hostname_probe() {
+        // Arrange
+        let make = "Antminer";
+        let firmware = "VNish 1.2.3";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
+
+        // Assert — VNish allows LED without auth; hostname check is the real discriminator
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Hostname));
+    }
+
+    #[test]
+    fn test_strategy_vnish_firmware_uses_hostname_even_without_led_support() {
+        // Arrange
+        let make = "Antminer";
+        let firmware = "VNish 1.2.3";
+
+        // Act — supports_led=false shouldn't matter; VNish always uses hostname
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, false);
+
+        // Assert
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Hostname));
+    }
+
+    #[test]
+    fn test_strategy_vnish_make_fallback_uses_hostname_probe() {
+        // Arrange — VNish sometimes reports make="VNish" with a version-only firmware string
+        let make = "VNish";
+        let firmware = "2.4.1";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
+
+        // Assert — detect_variant falls back to make when firmware string has no keyword
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Hostname));
+    }
+
+    #[test]
+    fn test_strategy_braiins_with_led_uses_led_probe() {
+        // Arrange
+        let make = "Antminer";
+        let firmware = "Braiins OS+ 22.08";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
+
+        // Assert
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Led));
+    }
+
+    #[test]
+    fn test_strategy_luxos_with_led_uses_led_probe() {
+        // Arrange
+        let make = "Antminer";
+        let firmware = "LuxOS 2.1.0";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
+
+        // Assert
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Led));
+    }
+
+    #[test]
+    fn test_strategy_whatsminer_stock_with_led_uses_led_probe() {
+        // Arrange
+        let make = "Whatsminer";
+        let firmware = "WhatsMiner Stock";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
+
+        // Assert
+        assert!(matches!(strategy, WriteAccessProbeStrategy::Led));
+    }
+
+    #[test]
+    fn test_strategy_stock_firmware_without_led_uses_none() {
+        // Arrange — device with no LED support and no firmware-specific probe
+        let make = "Goldshell";
+        let firmware = "GoldshellFirmware";
+
+        // Act
+        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, false);
+
+        // Assert
+        assert!(matches!(strategy, WriteAccessProbeStrategy::None));
     }
 }
