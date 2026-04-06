@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { authClient } from "@/protoFleet/api/clients";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup from "@/shared/components/ButtonGroup";
 import { groupVariants } from "@/shared/components/ButtonGroup/constants";
+import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 
@@ -79,11 +81,7 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
       className="!max-w-[400px]"
       bodyClassName="-mt-2"
     >
-      {errorMessage && (
-        <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-          {errorMessage}
-        </div>
-      )}
+      {errorMessage ? <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={errorMessage} /> : null}
 
       <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
         <Input

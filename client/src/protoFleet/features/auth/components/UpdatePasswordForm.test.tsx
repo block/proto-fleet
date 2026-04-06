@@ -117,11 +117,12 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("displays error message with correct styling", () => {
-    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Invalid password format" />);
+    const { getByText, getByTestId } = render(
+      <UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Invalid password format" />,
+    );
 
-    const errorElement = getByText("Invalid password format");
-    expect(errorElement.className).toContain("bg-intent-critical-10");
-    expect(errorElement.className).toContain("text-intent-critical-text");
+    expect(getByText("Invalid password format")).toBeInTheDocument();
+    expect(getByTestId("callout")).toBeInTheDocument();
   });
 
   it("shows validation error when submitting with empty passwords", () => {
@@ -157,10 +158,9 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("does not show error message when errorMsg is empty string", () => {
-    const { container } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="" />);
+    const { queryByTestId } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="" />);
 
-    const errorElement = container.querySelector(".bg-intent-critical-10");
-    expect(errorElement).toBeFalsy();
+    expect(queryByTestId("callout")).toBeFalsy();
   });
 
   it("renders descriptive text about temporary password", () => {

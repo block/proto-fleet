@@ -4,8 +4,10 @@ import clsx from "clsx";
 import { useLogin } from "@/protoOS/api";
 
 import { ids, initValues, type Values } from "@/protoOS/features/auth/components";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup, { ButtonProps, groupVariants, sizes } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
@@ -73,9 +75,7 @@ const LoginForm = ({ onClickForgotPassword, onDismiss, onSuccess }: LoginFormPro
           })}
           data-testid="error"
         >
-          <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-            Invalid credentials entered.
-          </div>
+          <Callout intent="danger" prefixIcon={<Alert />} title="Invalid credentials entered." />
         </div>
 
         <Input id={ids.username} label="Username" initValue="admin" disabled testId="username" />

@@ -45,6 +45,7 @@ vi.mock("@/shared/components/Callout", () => ({
 }));
 
 vi.mock("@/shared/assets/icons", () => ({
+  Alert: () => <span>alert-icon</span>,
   DismissCircle: () => <span>icon</span>,
 }));
 

@@ -4,7 +4,9 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -175,12 +177,13 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
       >
         <div className="flex h-full min-h-0 flex-col">
           {errorMsg ? (
-            <div
-              className="mb-4 shrink-0 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text"
-              data-testid="error-msg"
-            >
-              {errorMsg}
-            </div>
+            <Callout
+              className="mb-4 shrink-0"
+              intent="danger"
+              prefixIcon={<Alert />}
+              testId="error-msg"
+              title={errorMsg}
+            />
           ) : null}
 
           <div className="mb-4 shrink-0">

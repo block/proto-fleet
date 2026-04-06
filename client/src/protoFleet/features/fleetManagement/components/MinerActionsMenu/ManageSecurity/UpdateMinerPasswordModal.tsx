@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 import { PasswordStrengthMeter, WeakPasswordWarning } from "@/shared/components/Setup";
@@ -128,11 +130,9 @@ const UpdateMinerPasswordModal = ({
         This password will be required to make any changes to pools or miner performance.
       </div>
 
-      {validationError && (
-        <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-          {validationError}
-        </div>
-      )}
+      {validationError ? (
+        <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={validationError} />
+      ) : null}
 
       <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
         <Input

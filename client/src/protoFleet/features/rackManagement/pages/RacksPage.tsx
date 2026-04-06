@@ -15,8 +15,9 @@ import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/r
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-import { ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
+import { Alert, ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -431,11 +432,9 @@ const RacksPage = () => {
           )}
         </div>
       </div>
-      {error && (
-        <div className="text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 text-300 phone:mx-6 tablet:mx-6">
-          {error}
-        </div>
-      )}
+      {error ? (
+        <Callout className="mx-10 mb-4 phone:mx-6 tablet:mx-6" intent="danger" prefixIcon={<Alert />} title={error} />
+      ) : null}
       {racksViewMode === "list" ? (
         <div className="overflow-x-auto p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
           <DeviceSetList

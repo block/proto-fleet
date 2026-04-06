@@ -14,8 +14,9 @@ import GroupModal from "@/protoFleet/features/groupManagement/components/GroupMo
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 
-import { DismissTiny, Groups } from "@/shared/assets/icons";
+import { Alert, DismissTiny, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -193,11 +194,14 @@ const GroupsPage = () => {
               )}
             </div>
           </div>
-          {error && (
-            <div className="text-body-200 text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 phone:mx-6 tablet:mx-6">
-              {error}
-            </div>
-          )}
+          {error ? (
+            <Callout
+              className="mx-10 mb-4 phone:mx-6 tablet:mx-6"
+              intent="danger"
+              prefixIcon={<Alert />}
+              title={error}
+            />
+          ) : null}
           <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
             <DeviceSetList
               deviceSets={groups}

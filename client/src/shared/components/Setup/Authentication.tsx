@@ -1,7 +1,8 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Success } from "@/shared/assets/icons";
+import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -234,9 +235,7 @@ const Authentication = ({
           "max-h-96 duration-500": submitError,
         })}
       >
-        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
-          {submitError}
-        </div>
+        <Callout intent="danger" prefixIcon={<Alert />} title={submitError} />
       </div>
       <div className="flex flex-col gap-6 bg-surface-base">
         <Input

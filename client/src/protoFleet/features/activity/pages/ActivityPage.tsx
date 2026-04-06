@@ -1,7 +1,9 @@
 import { useActivity } from "@/protoFleet/api/useActivity";
 import { useExportActivity } from "@/protoFleet/api/useExportActivity";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -41,11 +43,9 @@ const ActivityPage = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="text-intent-critical mx-10 mb-4 rounded-lg bg-intent-critical-10 px-4 py-3 text-300 phone:mx-6 tablet:mx-6">
-          {error}
-        </div>
-      )}
+      {error ? (
+        <Callout className="mx-10 mb-4 phone:mx-6 tablet:mx-6" intent="danger" prefixIcon={<Alert />} title={error} />
+      ) : null}
 
       <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
         <ActivityTable activities={activities} totalCount={totalCount} />

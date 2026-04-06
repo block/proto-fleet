@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import Footer from "@/protoFleet/components/Footer";
-import { Logo } from "@/shared/assets/icons";
+import { Alert, Logo } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import { PasswordStrengthMeter, WeakPasswordWarning } from "@/shared/components/Setup";
@@ -78,9 +79,7 @@ export const UpdatePasswordForm = ({
               />
 
               {errorMsg || validationError ? (
-                <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                  {errorMsg || validationError}
-                </div>
+                <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg || validationError} />
               ) : null}
 
               <div className="flex flex-col gap-4">

@@ -5,7 +5,9 @@ import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/au
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { useUsername } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -30,9 +32,7 @@ const AuthenticateForm = ({ onChange, apiError }: { onChange: (value: string) =>
           })}
           data-testid="error"
         >
-          <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-            {apiError}
-          </div>
+          <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={apiError} />
         </div>
 
         <Input id="currentPassword" label="Password" type="password" onChange={onChange} autoFocus />
@@ -343,9 +343,7 @@ const AuthenticationSettings = () => {
                     })}
                     data-testid="password-error"
                   >
-                    <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                      {passwordUpdateApiError}
-                    </div>
+                    <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={passwordUpdateApiError} />
                   </div>
 
                   <div className="flex flex-col gap-4">
@@ -397,9 +395,7 @@ const AuthenticationSettings = () => {
                     })}
                     data-testid="username-error"
                   >
-                    <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                      {usernameUpdateApiError}
-                    </div>
+                    <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={usernameUpdateApiError} />
                   </div>
                   <div className="flex flex-col gap-4">
                     <Input id="username" label="Username" type="text" disabled initValue={username} />

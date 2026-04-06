@@ -14,6 +14,7 @@ interface CalloutProps {
   intent: keyof typeof intents;
   prefixIcon: ReactNode;
   subtitle?: string | ReactNode;
+  testId?: string;
   title: string | ReactNode;
   dismissible?: boolean;
   onDismiss?: () => void;
@@ -27,6 +28,7 @@ const Callout = ({
   intent,
   prefixIcon,
   subtitle,
+  testId = "callout",
   title,
   dismissible = false,
   onDismiss,
@@ -93,7 +95,7 @@ const Callout = ({
   }
 
   return (
-    <div className={clsx("rounded-xl shadow-100", className)} data-testid="callout">
+    <div className={clsx("rounded-xl shadow-100", className)} data-testid={testId}>
       {header && /(information|success|warning|danger)/.test(intent) && (
         <div className={clsx("rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast", bgColor)}>{header}</div>
       )}

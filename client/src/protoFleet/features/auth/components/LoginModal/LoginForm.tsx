@@ -7,9 +7,10 @@ import { useLogin } from "@/protoFleet/api/useLogin";
 import { ids, initValues, type Values } from "@/protoFleet/features/auth/components/LoginModal";
 import { useSetTemporaryPassword } from "@/protoFleet/store";
 
-import { Logo } from "@/shared/assets/icons";
+import { Alert, Logo } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup, { ButtonProps, groupVariants, sizes } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
@@ -83,9 +84,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
               })}
               data-testid="error"
             >
-              <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-                Invalid credentials entered.
-              </div>
+              <Callout intent="danger" prefixIcon={<Alert />} title="Invalid credentials entered." />
             </div>
 
             <Input

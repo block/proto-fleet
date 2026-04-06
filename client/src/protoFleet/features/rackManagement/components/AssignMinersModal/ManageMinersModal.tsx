@@ -6,6 +6,8 @@ import MinerSelectionList, {
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
 
+import { Alert } from "@/shared/assets/icons";
+import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
 
 interface ManageMinersModalProps {
@@ -73,11 +75,9 @@ export default function ManageMinersModal({
       ]}
     >
       <div className="flex h-full min-h-0 flex-col">
-        {overflowError && (
-          <div className="mb-4 shrink-0 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-            {overflowError}
-          </div>
-        )}
+        {overflowError ? (
+          <Callout className="mb-4 shrink-0" intent="danger" prefixIcon={<Alert />} title={overflowError} />
+        ) : null}
 
         <MinerSelectionList
           ref={selectionRef}

@@ -10,6 +10,8 @@ import {
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/rackManagement/components/AssignMinersModal/types";
 
+import { Alert } from "@/shared/assets/icons";
+import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -336,9 +338,7 @@ const RackSettingsModal = ({
         </div>
       ) : (
         <div className="flex flex-col gap-4 pt-1">
-          {errorMsg && (
-            <div className="text-intent-critical rounded-lg bg-intent-critical-10 px-4 py-3 text-300">{errorMsg}</div>
-          )}
+          {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
           <div className="relative">
             <Input

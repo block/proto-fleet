@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiKeys } from "@/protoFleet/api/useApiKeys";
 import type { ApiKeyItem } from "@/protoFleet/api/useApiKeys";
-import { Copy, Success } from "@/shared/assets/icons";
+import { Alert, Copy, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -156,11 +157,7 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
           creation.
         </div>
 
-        {errorMsg ? (
-          <div className="mb-6 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-            {errorMsg}
-          </div>
-        ) : null}
+        {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
         <div className="flex flex-col gap-4">
           <Input

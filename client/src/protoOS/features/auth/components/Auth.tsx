@@ -5,8 +5,9 @@ import { ids, initValues } from "./constants";
 import { Values } from "./types";
 import { useLogin, usePassword } from "@/protoOS/api";
 
-import { Logo } from "@/shared/assets/icons";
+import { Alert, Logo } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
 import { isPasswordTooShort, passwordErrors } from "@/shared/components/Setup/authentication.constants";
@@ -128,9 +129,7 @@ const Auth = () => {
               "mb-4 max-h-96 duration-500": apiError.show,
             })}
           >
-            <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
-              {apiError.error}
-            </div>
+            <Callout intent="danger" prefixIcon={<Alert />} title={apiError.error} />
           </div>
 
           <div className="relative z-10 rounded-lg bg-surface-elevated-base">
