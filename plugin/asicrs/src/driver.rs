@@ -154,7 +154,7 @@ impl Driver for DriverService {
             .parse()
             .map_err(|_| Status::invalid_argument(format!("Invalid port: {}", req.port)))?;
 
-        tracing::info!(ip = %req.ip_address, port = port, "discover_device called");
+        tracing::debug!(ip = %req.ip_address, port = port, "discover_device called");
 
         if !DISCOVERY_PORTS.contains(&port) {
             tracing::debug!(port = port, "Port not in discovery set, skipping");
@@ -198,7 +198,7 @@ impl Driver for DriverService {
                 )));
             }
             Ok(Ok(Ok(None))) => {
-                tracing::info!(
+                tracing::debug!(
                     ip = %req.ip_address,
                     "get_miner returned None - no miner identified"
                 );
@@ -208,7 +208,7 @@ impl Driver for DriverService {
                 )));
             }
             Ok(Ok(Ok(Some(m)))) => {
-                tracing::info!(ip = %req.ip_address, "get_miner succeeded - miner identified");
+                tracing::debug!(ip = %req.ip_address, "get_miner succeeded - miner identified");
                 m
             }
         };
@@ -528,7 +528,7 @@ impl Driver for DriverService {
 
         self.devices.write().await.insert(device_id.clone(), device);
 
-        tracing::info!(device_id = %device_id, "Created device");
+        tracing::debug!(device_id = %device_id, "Created device");
 
         Ok(Response::new(pb::NewDeviceResponse { device_id }))
     }
@@ -555,7 +555,7 @@ impl Driver for DriverService {
         let device_id = req.into_inner().device_id;
         if let Some(device) = self.devices.write().await.remove(&device_id) {
             device.close().await;
-            tracing::info!(device_id = %device_id, "Closed device");
+            tracing::debug!(device_id = %device_id, "Closed device");
             Ok(Response::new(()))
         } else {
             Err(Status::not_found(format!("Device not found: {device_id}")))

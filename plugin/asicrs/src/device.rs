@@ -240,7 +240,7 @@ impl AsicRsDevice {
             }
         }
 
-        tracing::info!(device_id = %self.id, host = %host, "Reconnected to miner");
+        tracing::debug!(device_id = %self.id, host = %host, "Reconnected to miner");
         *self.miner.lock().await = Some(m);
 
         // Reset backoff on successful connection
@@ -692,7 +692,7 @@ impl AsicRsDevice {
             other => return Err(anyhow::anyhow!("Unsupported performance mode: {:?}", other)),
         };
 
-        tracing::info!(
+        tracing::debug!(
             device_id = %self.id,
             mining_mode = %mining_mode,
             performance_mode = ?mode,
