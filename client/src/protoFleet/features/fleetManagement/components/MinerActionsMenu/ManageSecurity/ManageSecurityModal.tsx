@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { DismissCircleDark, Fleet, LogoAlt, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
@@ -78,7 +78,6 @@ const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDo
           titleSize="text-heading-100"
           icon={<DismissCircleDark width="w-6" onClick={onDismiss} className="cursor-pointer" />}
           inline
-          buttonSize={sizes.base}
           buttons={[
             {
               text: "Done",

@@ -216,7 +216,6 @@ const Miners = ({
                   }
             }
             inline
-            buttonSize={sizes.base}
             buttons={
               showLoadingSkeleton
                 ? []

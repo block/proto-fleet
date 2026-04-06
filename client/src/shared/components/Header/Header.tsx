@@ -34,7 +34,7 @@ interface HeaderProps {
 
 const Header = ({
   buttons,
-  buttonSize = sizes.compact,
+  buttonSize = sizes.base,
   buttonsWrapperClassName,
   centerButton,
   className,

@@ -178,7 +178,6 @@ const FullScreenTwoPaneModal = ({
               iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
               iconVariant={variants.textOnly}
               inline
-              buttonSize={sizes.base}
               buttonsWrapperClassName="hidden lg:block"
               buttons={buttons}
             >

@@ -368,7 +368,6 @@ const PoolSelectionPage = ({
             <DismissCircleDark width="w-6" onClick={onCancel} className="cursor-pointer" testId="header-icon-button" />
           }
           inline
-          buttonSize={sizes.base}
           buttons={[
             {
               text: buttonText,

@@ -70,7 +70,6 @@ const RenameMinerDialog = ({ open, deviceIdentifier, onConfirm, onDismiss }: Ren
       onDismiss={onDismiss}
       divider={false}
       size="large"
-      buttonSize="base"
       buttons={[
         {
           text: "Save",

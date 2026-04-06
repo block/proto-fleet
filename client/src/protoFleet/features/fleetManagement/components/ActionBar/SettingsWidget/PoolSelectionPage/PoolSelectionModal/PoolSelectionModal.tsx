@@ -238,7 +238,6 @@ const PoolSelectionModal = ({
       title="Select pool"
       showHeader
       divider
-      buttonSize={sizes.base}
       buttons={[
         {
           text: "Test connection",

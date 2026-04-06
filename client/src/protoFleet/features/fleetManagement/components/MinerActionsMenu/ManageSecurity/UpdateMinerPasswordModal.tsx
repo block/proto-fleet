@@ -122,7 +122,6 @@ const UpdateMinerPasswordModal = ({
       size="small"
       divider={false}
       className="w-full"
-      buttonSize="base"
       contentHeaderClassName="text-heading-300"
     >
       <div className="mb-6 text-300 text-text-primary-70">

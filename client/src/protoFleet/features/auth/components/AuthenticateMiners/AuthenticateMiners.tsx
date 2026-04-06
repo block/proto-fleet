@@ -460,7 +460,6 @@ const AuthenticateMiners = ({ open, onClose, onSuccess }: AuthenticateMinersProp
           onClick: authenticateMiners,
         },
       ]}
-      buttonSize={sizes.base}
       size={showMiners ? modalSizes.extraLarge : modalSizes.large}
       title={showMiners ? "Authenticate miners" : undefined}
     >

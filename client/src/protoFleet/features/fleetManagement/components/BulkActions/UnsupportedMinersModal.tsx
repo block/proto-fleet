@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { UnsupportedMinerGroup } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { Fleet } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { sizes as buttonSizes, variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
@@ -59,7 +59,6 @@ const UnsupportedMinersModal = ({
             testId: "continue-button",
           },
         ]}
-        buttonSize={buttonSizes.base}
         size="large"
         divider={false}
       >

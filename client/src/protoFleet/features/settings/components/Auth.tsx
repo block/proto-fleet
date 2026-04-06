@@ -322,7 +322,6 @@ const AuthenticationSettings = () => {
                 },
               },
             ]}
-            buttonSize="base"
             divider={false}
             size="large"
             onDismiss={() => setShowModal(false)}
