@@ -184,6 +184,7 @@ type Service struct {
 	capabilitiesProvider  CapabilitiesProvider
 	pairer                Pairer
 	listener              Listener
+	localNetworkInfo      func(context.Context) (*NetworkInfo, error)
 }
 
 func NewService(
@@ -205,6 +206,7 @@ func NewService(
 		capabilitiesProvider:  capabilitiesProvider,
 		pairer:                pairer,
 		listener:              listener,
+		localNetworkInfo:      defaultLocalNetworkInfo,
 	}
 }
 
@@ -229,12 +231,118 @@ type NetworkInfo struct {
 	networking.NetworkInfo
 }
 
-func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
+func defaultLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
 	info, err := networking.GetLocalNetworkInfo()
 	if err != nil {
 		return nil, err
 	}
 	return &NetworkInfo{info}, nil
+}
+
+func (s *Service) GetLocalNetworkInfo(ctx context.Context) (*NetworkInfo, error) {
+	if s.localNetworkInfo != nil {
+		return s.localNetworkInfo(ctx)
+	}
+	return defaultLocalNetworkInfo(ctx)
+}
+
+func canonicalCIDR(cidr string) (canonical string, maskBits int, isIPv4 bool, ok bool) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", 0, false, false
+	}
+
+	ones, _ := ipNet.Mask.Size()
+	canonical = (&net.IPNet{
+		IP:   ipNet.IP.Mask(ipNet.Mask),
+		Mask: ipNet.Mask,
+	}).String()
+
+	return canonical, ones, ipNet.IP.To4() != nil, true
+}
+
+func maskBitsForLocalSubnetTarget(target string, localSubnet string) (int, bool) {
+	canonicalTarget, targetMaskBits, _, ok := canonicalCIDR(target)
+	if !ok {
+		return 0, false
+	}
+
+	canonicalLocalSubnet, _, _, ok := canonicalCIDR(localSubnet)
+	if !ok || canonicalTarget != canonicalLocalSubnet {
+		return 0, false
+	}
+
+	return targetMaskBits, true
+}
+
+func mergeAutoDiscoveryTargets(baseTarget string, knownSubnets []string) []string {
+	canonicalBaseTarget, _, baseIsIPv4, ok := canonicalCIDR(baseTarget)
+	if !ok {
+		return []string{baseTarget}
+	}
+
+	targets := []string{canonicalBaseTarget}
+	seen := map[string]struct{}{
+		canonicalBaseTarget: {},
+	}
+
+	for _, subnet := range knownSubnets {
+		canonicalSubnet, _, subnetIsIPv4, ok := canonicalCIDR(subnet)
+		if !ok || subnetIsIPv4 != baseIsIPv4 {
+			continue
+		}
+		if _, exists := seen[canonicalSubnet]; exists {
+			continue
+		}
+
+		seen[canonicalSubnet] = struct{}{}
+		targets = append(targets, canonicalSubnet)
+	}
+
+	return targets
+}
+
+func (s *Service) resolveNmapTargets(ctx context.Context, target string) ([]string, error) {
+	targets := []string{target}
+
+	localNetworkInfo, err := s.GetLocalNetworkInfo(ctx)
+	if err != nil {
+		slog.Debug("Skipping known-subnet expansion for nmap discovery because local network info is unavailable",
+			"target", target,
+			"error", err)
+		return targets, nil
+	}
+
+	maskBits, shouldExpand := maskBitsForLocalSubnetTarget(target, localNetworkInfo.Subnet)
+	if !shouldExpand {
+		slog.Debug("Skipping known-subnet expansion because target does not match local subnet",
+			"target", target,
+			"local_subnet", localNetworkInfo.Subnet)
+		return targets, nil
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	knownSubnets, err := s.deviceStore.GetKnownSubnets(ctx, info.OrganizationID, maskBits)
+	if err != nil {
+		slog.Debug("Skipping known-subnet expansion because subnet query failed",
+			"target", target,
+			"error", err)
+		return targets, nil
+	}
+
+	expandedTargets := mergeAutoDiscoveryTargets(target, knownSubnets)
+	if len(expandedTargets) > 1 {
+		slog.Info("Expanded auto-discovery scan targets from paired miners",
+			"base_target", target,
+			"targets", expandedTargets,
+			"organization_id", info.OrganizationID)
+	}
+
+	return expandedTargets, nil
 }
 
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
@@ -313,6 +421,10 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 	if err != nil {
 		return nil, err
 	}
+	targets, err := s.resolveNmapTargets(ctx, r.Target)
+	if err != nil {
+		return nil, err
+	}
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
@@ -326,7 +438,8 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		// Common nmap options for faster scanning
 		nmapOpts := []nmap.Option{
-			nmap.WithTargets(r.Target),
+			nmap.WithTargets(targets...),
+			nmap.WithUnique(),
 			nmap.WithDisabledDNSResolution(),
 			nmap.WithTimingTemplate(nmap.TimingAggressive), // -T4 for faster scanning
 			nmap.WithMaxRetries(nmapMaxRetriesPerHost),
@@ -345,7 +458,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		}
 
 		slog.Debug("Starting nmap scan",
-			"target", r.Target,
+			"targets", targets,
 			"ports", ports,
 			"timeout_seconds", defaultNmapTimeoutSeconds)
 
@@ -353,7 +466,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				slog.Info("Nmap scan timed out",
-					"target", r.Target,
+					"targets", targets,
 					"timeout_seconds", defaultNmapTimeoutSeconds)
 				// After timeout, we cannot probe hosts because the context is expired.
 				// Send timeout error and return.
@@ -568,6 +681,27 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 				go func(ipAddr string) {
 					defer wg.Done()
 					defer func() { <-semaphore }()
+
+					if net.ParseIP(ipAddr) == nil {
+						var resolver net.Resolver
+						addrs, err := resolver.LookupIPAddr(timeoutCtx, ipAddr)
+						if err != nil {
+							slog.Debug("hostname resolution failed, skipping entry", "input", ipAddr, "error", err)
+							return
+						}
+						var resolved string
+						for _, addr := range addrs {
+							if addr.IP.To4() != nil {
+								resolved = addr.IP.String()
+								break
+							}
+						}
+						if resolved == "" {
+							slog.Debug("hostname resolved but no IPv4 address found, skipping entry", "input", ipAddr)
+							return
+						}
+						ipAddr = resolved
+					}
 
 					for _, port := range ports {
 						if timeoutCtx.Err() != nil {

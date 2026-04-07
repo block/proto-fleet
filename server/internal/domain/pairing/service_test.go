@@ -348,6 +348,61 @@ func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) 
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestDiscoverWithIPList_ResolvesHostnameToIP(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("127.0.0.1", "8080", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "127.0.0.1", "8080").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"8080"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"localhost"},
+		Ports:       []string{"8080"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		devices = append(devices, result.Devices...)
+	}
+
+	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "127.0.0.1", "8080")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "localhost", "8080")
+}
+
+func TestDiscoverWithIPList_SkipsUnresolvableHostnames(t *testing.T) {
+	mockDiscoverer := &MockDiscoverer{}
+	mockDevice := createMockDevice("192.168.1.10", "8080", "proto")
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Return(mockDevice, nil).Once()
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"8080"})
+
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10", "this-host-definitely-does-not-exist.invalid"},
+		Ports:       []string{"8080"},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		devices = append(devices, result.Devices...)
+	}
+
+	assert.Len(t, devices, 1)
+	assert.Equal(t, "192.168.1.10", devices[0].IpAddress)
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "this-host-definitely-does-not-exist.invalid", mock.Anything)
+}
+
 func TestDiscoverWithIPRange_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
 	mockDiscoverer := &MockDiscoverer{}
 	testContext := testutil.InitializeDBServiceInfrastructure(t)

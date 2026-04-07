@@ -805,6 +805,49 @@ func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDevic
 	return items, nil
 }
 
+const getKnownSubnets = `-- name: GetKnownSubnets :many
+SELECT DISTINCT
+    set_masklen(network(inet(dd.ip_address)), $1)::text AS subnet
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.ip_address IS NOT NULL
+  AND dd.ip_address != ''
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY subnet
+`
+
+type GetKnownSubnetsParams struct {
+	MaskBits int32
+	OrgID    int64
+}
+
+func (q *Queries) GetKnownSubnets(ctx context.Context, arg GetKnownSubnetsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getKnownSubnetsStmt, getKnownSubnets, arg.MaskBits, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var subnet string
+		if err := rows.Scan(&subnet); err != nil {
+			return nil, err
+		}
+		items = append(items, subnet)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMinerModelGroups = `-- name: GetMinerModelGroups :many
 SELECT
     dd.model,

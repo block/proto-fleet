@@ -261,6 +261,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getGroupLabelsForDevicesStmt, err = db.PrepareContext(ctx, getGroupLabelsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupLabelsForDevices: %w", err)
 	}
+	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
+	}
 	if q.getLatestAllDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestAllDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestAllDeviceMetrics: %w", err)
 	}
@@ -1036,6 +1039,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getGroupLabelsForDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getKnownSubnetsStmt != nil {
+		if cerr := q.getKnownSubnetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getKnownSubnetsStmt: %w", cerr)
+		}
+	}
 	if q.getLatestAllDeviceMetricsStmt != nil {
 		if cerr := q.getLatestAllDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestAllDeviceMetricsStmt: %w", cerr)
@@ -1779,6 +1787,7 @@ type Queries struct {
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
+	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
@@ -1989,6 +1998,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
+		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,

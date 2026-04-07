@@ -104,6 +104,75 @@ func TestGetOfflineDevices_InvalidLimit(t *testing.T) {
 	}
 }
 
+func TestGetKnownSubnets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES
+			(1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key'),
+			(2, '00000000-0000-0000-0000-000000000002', 'Other Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	for _, fixture := range []struct {
+		discoveredID  int64
+		deviceID      int64
+		orgID         int64
+		identifier    string
+		ipAddress     string
+		pairingStatus string
+		deleted       bool
+	}{
+		{discoveredID: 501, deviceID: 501, orgID: 1, identifier: "known-subnet-1", ipAddress: "192.168.10.11", pairingStatus: "PAIRED"},
+		{discoveredID: 502, deviceID: 502, orgID: 1, identifier: "known-subnet-2", ipAddress: "192.168.10.99", pairingStatus: "PAIRED"},
+		{discoveredID: 503, deviceID: 503, orgID: 1, identifier: "known-subnet-3", ipAddress: "192.168.11.5", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{discoveredID: 504, deviceID: 504, orgID: 1, identifier: "ignored-unpaired", ipAddress: "172.16.1.5", pairingStatus: "UNPAIRED"},
+		{discoveredID: 505, deviceID: 505, orgID: 2, identifier: "ignored-other-org", ipAddress: "192.168.99.5", pairingStatus: "PAIRED"},
+		{discoveredID: 506, deviceID: 506, orgID: 1, identifier: "ignored-deleted-device", ipAddress: "192.168.12.5", pairingStatus: "PAIRED", deleted: true},
+	} {
+		_, err = conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+			VALUES ($1, $2, $3, 'test-model', 'test-manufacturer', 'proto', $4, '50051', 'grpc', TRUE)
+		`, fixture.discoveredID, fixture.orgID, fixture.identifier, fixture.ipAddress)
+		require.NoError(t, err)
+
+		if fixture.deleted {
+			_, err = conn.Exec(`
+				INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address, deleted_at)
+				VALUES ($1, $2, $3, $4, $5, NOW())
+			`, fixture.deviceID, fixture.orgID, fixture.discoveredID, fixture.identifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02d", fixture.deviceID%100))
+		} else {
+			_, err = conn.Exec(`
+				INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+				VALUES ($1, $2, $3, $4, $5)
+			`, fixture.deviceID, fixture.orgID, fixture.discoveredID, fixture.identifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02d", fixture.deviceID%100))
+		}
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, $2, NOW())
+		`, fixture.deviceID, fixture.pairingStatus)
+		require.NoError(t, err)
+	}
+
+	subnets24, err := store.GetKnownSubnets(ctx, 1, 24)
+	require.NoError(t, err)
+	require.Equal(t, []string{"192.168.10.0/24", "192.168.11.0/24"}, subnets24)
+
+	subnets16, err := store.GetKnownSubnets(ctx, 1, 16)
+	require.NoError(t, err)
+	require.Equal(t, []string{"192.168.0.0/16"}, subnets16)
+}
+
 // setupOfflineDeviceTestData creates test data in the database
 func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()

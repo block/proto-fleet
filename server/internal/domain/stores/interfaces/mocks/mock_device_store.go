@@ -168,6 +168,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceWithIPAssignment(ctx, deviceIden
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceWithIPAssignment", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceWithIPAssignment), ctx, deviceIdentifier, orgID)
 }
 
+// GetKnownSubnets mocks base method.
+func (m *MockDeviceStore) GetKnownSubnets(ctx context.Context, orgID int64, maskBits int) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetKnownSubnets", ctx, orgID, maskBits)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetKnownSubnets indicates an expected call of GetKnownSubnets.
+func (mr *MockDeviceStoreMockRecorder) GetKnownSubnets(ctx, orgID, maskBits any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnownSubnets", reflect.TypeOf((*MockDeviceStore)(nil).GetKnownSubnets), ctx, orgID, maskBits)
+}
+
 // GetMinerCredentials mocks base method.
 func (m *MockDeviceStore) GetMinerCredentials(ctx context.Context, device *pairingv1.Device, orgID int64) (*pairingv1.Credentials, error) {
 	m.ctrl.T.Helper()

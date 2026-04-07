@@ -109,6 +109,7 @@ type DeviceStore interface {
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
+	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int) ([]string, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter, sortConfig *SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)

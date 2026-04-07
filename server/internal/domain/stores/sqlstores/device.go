@@ -711,6 +711,23 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	return offlineDevices, nil
 }
 
+// GetKnownSubnets retrieves unique subnets inferred from paired devices' last known IP addresses.
+func (s *SQLDeviceStore) GetKnownSubnets(ctx context.Context, orgID int64, maskBits int) ([]string, error) {
+	if maskBits < 0 || maskBits > 128 {
+		return nil, fmt.Errorf("maskBits must be between 0 and 128, got %d", maskBits)
+	}
+
+	rows, err := s.getQueries(ctx).GetKnownSubnets(ctx, sqlc.GetKnownSubnetsParams{
+		OrgID:    orgID,
+		MaskBits: int32(maskBits), // #nosec G115 -- validated above to fit within int32 range
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get known subnets: %w", err)
+	}
+
+	return rows, nil
+}
+
 // ListMinerStateSnapshots retrieves both paired and unpaired devices using a query builder.
 // Supports sorted pagination using keyset pagination with cursor encoding.
 func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter, sortConfig *stores.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {

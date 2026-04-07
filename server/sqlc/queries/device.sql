@@ -335,6 +335,20 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY ds.status_timestamp DESC
 LIMIT $1;
 
+-- name: GetKnownSubnets :many
+SELECT DISTINCT
+    set_masklen(network(inet(dd.ip_address)), sqlc.arg('mask_bits'))::text AS subnet
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.ip_address IS NOT NULL
+  AND dd.ip_address != ''
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+ORDER BY subnet;
+
 -- name: ListMinerStateSnapshots :many
 -- TYPE GENERATION STUB - This query is never executed.
 -- The actual list query uses a hand-written query builder in device.go
