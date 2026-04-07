@@ -1,6 +1,7 @@
 import {
   ChangeEvent,
   type CSSProperties,
+  type MouseEvent,
   ReactNode,
   Ref,
   useCallback,
@@ -362,7 +363,15 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       }}
       data-testid="list-row"
       style={rowStyle}
-      onClick={onRowClick ? () => onRowClick(item, index) : undefined}
+      onClick={
+        onRowClick
+          ? (e: MouseEvent<HTMLTableRowElement>) => {
+              if (e.currentTarget.contains(e.target as Node)) {
+                onRowClick(item, index);
+              }
+            }
+          : undefined
+      }
       onKeyDown={
         onRowClick
           ? (e) => {

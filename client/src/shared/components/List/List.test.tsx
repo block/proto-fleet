@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { createPortal } from "react-dom";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import List from "@/shared/components/List/index";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
@@ -1887,6 +1888,39 @@ describe("List", () => {
       const checkbox = screen.getAllByTestId("checkbox")[0].querySelector("input");
       expect(checkbox).toBeTruthy();
       fireEvent.keyDown(checkbox!, { key: "Enter", bubbles: true });
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick for clicks from portaled content", () => {
+      const handleRowClick = vi.fn();
+
+      const configWithPortal = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => (
+            <>
+              {item.name}
+              {createPortal(<button data-testid={`portal-btn-${item.id}`}>Portal</button>, document.body)}
+            </>
+          ),
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithPortal}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const portalBtn = screen.getByTestId(`portal-btn-${testItems[0].id}`);
+      fireEvent.click(portalBtn);
 
       expect(handleRowClick).not.toHaveBeenCalled();
     });
