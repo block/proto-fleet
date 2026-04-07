@@ -1,6 +1,6 @@
 import { Info } from "@/shared/assets/icons";
 import { groupVariants } from "@/shared/components/ButtonGroup";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 interface NoFansDetectedDialogProps {
   onUseAirCooling: () => void;
@@ -23,9 +23,9 @@ const NoFansDetectedDialog = ({
       titleSize="text-heading-300"
       subtitleSize="text-300"
       icon={
-        <div className="flex size-10 items-center justify-center rounded-lg bg-surface-5">
+        <DialogIcon>
           <Info />
-        </div>
+        </DialogIcon>
       }
       buttonGroupVariant={groupVariants.justifyBetween}
       loading={loading}

@@ -1,6 +1,6 @@
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 interface RevokeApiKeyDialogProps {
   open?: boolean;
@@ -18,9 +18,9 @@ const RevokeApiKeyDialog = ({ open, keyName, onConfirm, onDismiss, isSubmitting 
       titleSize="text-heading-300"
       onDismiss={onDismiss}
       icon={
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5 text-intent-critical-fill">
+        <DialogIcon intent="critical">
           <Alert />
-        </div>
+        </DialogIcon>
       }
       buttons={[
         {

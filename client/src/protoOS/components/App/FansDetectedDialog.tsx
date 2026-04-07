@@ -1,7 +1,7 @@
 import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 interface FansDetectedDialogProps {
   onContinue: () => void;
@@ -19,9 +19,9 @@ const FansDetectedDialog = ({ onContinue, onSwitchToAirCooled, isLoading = false
       subtitle="While in immersion mode, fans and fan errors will be disabled. To use fans to cool this miner, switch to air cooling mode."
       subtitleSize="text-300"
       icon={
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
+        <DialogIcon>
           <Alert className="text-text-critical" width={iconSizes.medium} />
-        </div>
+        </DialogIcon>
       }
       buttons={[
         {

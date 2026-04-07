@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Copy, Lock, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -50,9 +50,9 @@ const ResetPasswordModal = ({
         titleSize="text-heading-300"
         onDismiss={onDismiss}
         icon={
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
+          <DialogIcon>
             <Lock />
-          </div>
+          </DialogIcon>
         }
         buttons={[
           {

@@ -4,7 +4,7 @@ import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -138,9 +138,9 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       subtitleSize="text-300"
       onDismiss={handleDone}
       icon={
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5 text-intent-success-fill">
+        <DialogIcon intent="success">
           <Success />
-        </div>
+        </DialogIcon>
       }
       buttonGroupVariant={groupVariants.rightAligned}
       buttons={[
