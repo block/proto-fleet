@@ -1,30 +1,24 @@
 import clsx from "clsx";
 
-import type { ScheduleListItem, ScheduleStatus } from "@/protoFleet/api/useScheduleApi";
+import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import {
   scheduleActionLabels,
   scheduleCols,
   type ScheduleColumn,
+  scheduleStatusDotClassName,
   scheduleStatusLabels,
 } from "@/protoFleet/features/settings/components/Schedules/constants";
 import { Grip } from "@/shared/assets/icons";
 import type { ColConfig } from "@/shared/components/List/types";
 
-const scheduleStatusDotClassName: Record<ScheduleStatus, string> = {
-  running: "bg-intent-success-fill",
-  active: "bg-intent-success-fill",
-  paused: "bg-text-primary-30",
-  completed: "bg-text-primary-30",
-};
-
 const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, ScheduleColumn> => ({
   [scheduleCols.priority]: {
     component: () => (
       <div className="flex items-center justify-center text-text-primary-50">
-        <Grip width="w-4" />
+        <Grip width="w-4" className="h-4 shrink-0" />
       </div>
     ),
-    width: "w-12",
+    width: "w-[5%] phone:w-auto",
   },
   [scheduleCols.name]: {
     component: (schedule) => (
@@ -33,7 +27,7 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
         <span className="truncate text-200 text-text-primary-70">{schedule.targetSummary}</span>
       </div>
     ),
-    width: "w-72",
+    width: "w-[18%] phone:w-auto",
   },
   [scheduleCols.schedule]: {
     component: (schedule) => (
@@ -42,11 +36,11 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
         <span className="truncate text-200 text-text-primary-70">{schedule.nextRunSummary ?? "—"}</span>
       </div>
     ),
-    width: "w-80",
+    width: "w-[30%] phone:w-auto",
   },
   [scheduleCols.action]: {
     component: (schedule) => <span>{scheduleActionLabels[schedule.action]}</span>,
-    width: "w-44",
+    width: "w-[14%] phone:w-auto",
   },
   [scheduleCols.status]: {
     component: (schedule) => (
@@ -55,11 +49,11 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
         <span>{scheduleStatusLabels[schedule.status]}</span>
       </div>
     ),
-    width: "w-36",
+    width: "w-[12%] phone:w-auto",
   },
   [scheduleCols.createdBy]: {
     component: (schedule) => <span>{schedule.createdBy}</span>,
-    width: "w-44",
+    width: "w-[14%] phone:w-auto",
   },
 });
 

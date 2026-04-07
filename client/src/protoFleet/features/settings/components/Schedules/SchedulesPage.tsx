@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import useScheduleApi, { type ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
+import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
+import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import {
   activeScheduleCols,
   formatClientTimezoneLabel,
@@ -49,7 +50,7 @@ const SchedulesPage = () => {
     resumeSchedule,
     deleteSchedule,
     reorderSchedules,
-  } = useScheduleApi();
+  } = useScheduleApiContext();
   const { isPhone, isTablet } = useWindowDimensions();
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(defaultActiveFilters);
   const [currentSort, setCurrentSort] = useState<{ field: ScheduleColumn; direction: SortDirection }>();
@@ -294,7 +295,7 @@ const SchedulesPage = () => {
         getDefaultSortDirection={getDefaultScheduleSortDirection}
         actions={rowActions}
         applyColumnWidthsToCells
-        tableClassName="mb-2 w-max !table-auto"
+        tableClassName="mb-2 w-full phone:w-max phone:!table-auto"
       />
       <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div>
 

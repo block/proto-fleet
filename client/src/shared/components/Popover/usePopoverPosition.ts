@@ -116,6 +116,28 @@ const usePopoverPosition = (
     updateMeasurements();
   }, [updateMeasurements]);
 
+  useEffect(() => {
+    if (renderMode === "inline") {
+      return;
+    }
+
+    const triggerElement = triggerRef.current;
+
+    if (!triggerElement || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateMeasurements();
+    });
+
+    resizeObserver.observe(triggerElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [renderMode, triggerRef, updateMeasurements]);
+
   // Listen for visualViewport resize events to detect zoom changes.
   // Browser zoom doesn't change window.innerWidth/Height, but visualViewport.resize fires reliably.
   useEffect(() => {
@@ -169,6 +191,8 @@ const usePopoverPosition = (
         ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
       }
 
+      const alignedLeft = left;
+
       // handle overflow on the left side
       // left position on page is less than some margin
       if (left + triggerRect.left < minimalMargin) {
@@ -194,6 +218,12 @@ const usePopoverPosition = (
       );
 
       // Adjust positioning based on render mode
+      let style = {
+        top: `${top}px`,
+        left: `${left}px`,
+        visibility: "visible",
+      } as CSSProperties;
+
       if (renderMode === "portal-fixed") {
         // Portal with fixed positioning: use viewport coordinates (no page offset)
         top = triggerRect.top + top;
@@ -203,17 +233,39 @@ const usePopoverPosition = (
         // This prevents action rows from being rendered outside the tappable area on small screens.
         top = clampPosition(top, minimalMargin, visibleViewport.height - popoverRect.height - minimalMargin);
         left = clampPosition(left, minimalMargin, visibleViewport.width - popoverRect.width - minimalMargin);
+
+        style = {
+          top: `${top}px`,
+          left: `${left}px`,
+          visibility: "visible",
+        };
       } else if (renderMode === "portal-scrolling") {
         // Portal with scrolling: use document coordinates (with page offset)
         top = triggerRect.top + top + initialPageOffset;
         left = triggerRect.left + left;
+
+        style = {
+          top: `${top}px`,
+          left: `${left}px`,
+          visibility: "visible",
+        };
+      } else if (left === alignedLeft) {
+        if (finalPosition === positions["top left"] || finalPosition === positions["bottom left"]) {
+          style = {
+            top: `${top}px`,
+            right: `${-xOffset}px`,
+            visibility: "visible",
+          };
+        } else if (finalPosition === positions["top right"] || finalPosition === positions["bottom right"]) {
+          style = {
+            top: `${top}px`,
+            left: `${xOffset}px`,
+            visibility: "visible",
+          };
+        }
       }
-      // For "inline" mode, keep relative positioning (no adjustment needed)
-      setPopoverStyle({
-        top: `${top}px`,
-        left: `${left}px`,
-        visibility: "visible",
-      });
+
+      setPopoverStyle(style);
     };
 
     computePosition();

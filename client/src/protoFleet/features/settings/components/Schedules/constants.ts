@@ -48,6 +48,13 @@ export const scheduleStatusLabels: Record<ScheduleStatus, string> = {
   completed: "Completed",
 };
 
+export const scheduleStatusDotClassName: Record<ScheduleStatus, string> = {
+  running: "bg-intent-success-fill",
+  active: "bg-intent-success-fill",
+  paused: "bg-text-primary-30",
+  completed: "bg-text-primary-30",
+};
+
 export const scheduleActionLabels: Record<ScheduleAction, string> = {
   setPowerTarget: "Set power target",
   reboot: "Reboot",

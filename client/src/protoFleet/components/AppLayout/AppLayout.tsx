@@ -3,7 +3,9 @@ import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
+import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
+import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -12,15 +14,17 @@ type Props = {
   children: ReactNode;
 };
 
-const AppLayout = ({ children }: Props) => {
+const AppLayoutContent = ({ children }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
   const isDashboard =
     location.pathname === "/" || location.pathname.startsWith("/groups/") || location.pathname.startsWith("/racks/");
   const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
+  const schedulePillData = useSchedulePillData();
+  const hasDismissedSetup = Boolean(dismissedSetup);
 
-  const showPhoneWidgets = isPhone && dismissedSetup;
+  const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
 
   return (
     <div className="absolute top-0 right-0 bottom-0 left-0 bg-surface-base">
@@ -31,7 +35,7 @@ const AppLayout = ({ children }: Props) => {
       <div
         className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*15)] left-16 z-40 desktop:left-50 ${isDashboard ? "bg-surface-5 dark:bg-surface-base" : "bg-surface-base"} phone:bottom-[calc(100vh-theme(spacing.1)*12)] phone:left-0 tablet:bottom-[calc(100vh-theme(spacing.1)*12)] tablet:left-0`}
       >
-        <PageHeader isMenuOpen={isMenuOpen} openMenu={() => setIsMenuOpen(true)} />
+        <PageHeader isMenuOpen={isMenuOpen} openMenu={() => setIsMenuOpen(true)} schedulePillData={schedulePillData} />
       </div>
 
       <div
@@ -47,5 +51,11 @@ const AppLayout = ({ children }: Props) => {
     </div>
   );
 };
+
+const AppLayout = (props: Props) => (
+  <ScheduleApiProvider>
+    <AppLayoutContent {...props} />
+  </ScheduleApiProvider>
+);
 
 export default AppLayout;

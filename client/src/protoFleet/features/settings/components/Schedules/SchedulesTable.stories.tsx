@@ -207,7 +207,7 @@ const SchedulesTableStory = ({ initialSchedules = demoSchedules }: SchedulesTabl
 
   return (
     <div className="min-h-screen w-screen bg-white p-6">
-      <div className="max-w-[1200px]">
+      <div className="w-full">
         <List<ScheduleListItem, string, ScheduleColumn>
           items={sortedSchedules}
           itemKey="id"
@@ -230,7 +230,7 @@ const SchedulesTableStory = ({ initialSchedules = demoSchedules }: SchedulesTabl
           getDefaultSortDirection={getDefaultScheduleSortDirection}
           actions={rowActions}
           applyColumnWidthsToCells
-          tableClassName="mb-2 w-max !table-auto"
+          tableClassName="mb-2 w-full phone:w-max phone:!table-auto"
         />
         <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div>
       </div>

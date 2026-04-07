@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 
+import { SCHEDULES_CHANGED_EVENT } from "./scheduleEvents";
 import useScheduleApi from "./useScheduleApi";
 import { scheduleClient } from "@/protoFleet/api/clients";
 import {
@@ -67,6 +68,17 @@ const createTimestamp = (value: string) => {
     seconds: BigInt(Math.floor(date.getTime() / 1000)),
     nanos: (date.getTime() % 1000) * 1_000_000,
   });
+};
+
+const createDeferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 };
 
 const formatExpectedNextRunSummary = (value: string) => {
@@ -149,14 +161,18 @@ const createScheduleMessage = ({
   });
 
 describe("useScheduleApi", () => {
+  let dispatchEventSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-30T09:00:00-04:00"));
+    dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    dispatchEventSpy.mockRestore();
   });
 
   it("lists schedules from the schedule service and maps them into list rows", async () => {
@@ -246,6 +262,63 @@ describe("useScheduleApi", () => {
     expect(result.current.schedules[0]?.createdBy).toBe("admin@example.com");
   });
 
+  it("keeps the loading flag idle during background refreshes", async () => {
+    const deferred = createDeferred<Awaited<ReturnType<typeof scheduleClient.listSchedules>>>();
+    mockListSchedules.mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useScheduleApi());
+
+    let refreshPromise: Promise<unknown> | undefined;
+
+    await act(async () => {
+      refreshPromise = result.current.refreshSchedules({ background: true });
+    });
+
+    expect(result.current.isLoading).toBe(false);
+
+    deferred.resolve(
+      create(ListSchedulesResponseSchema, {
+        schedules: [],
+      }),
+    );
+
+    await act(async () => {
+      await refreshPromise;
+    });
+
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it("reuses the same in-flight refresh across background and foreground callers", async () => {
+    const deferred = createDeferred<Awaited<ReturnType<typeof scheduleClient.listSchedules>>>();
+    mockListSchedules.mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useScheduleApi());
+
+    let backgroundRefreshPromise: Promise<unknown> | undefined;
+    let foregroundRefreshPromise: Promise<unknown> | undefined;
+
+    await act(async () => {
+      backgroundRefreshPromise = result.current.refreshSchedules({ background: true });
+      foregroundRefreshPromise = result.current.refreshSchedules();
+    });
+
+    expect(mockListSchedules).toHaveBeenCalledTimes(1);
+    expect(result.current.isLoading).toBe(true);
+
+    deferred.resolve(
+      create(ListSchedulesResponseSchema, {
+        schedules: [],
+      }),
+    );
+
+    await act(async () => {
+      await Promise.all([backgroundRefreshPromise, foregroundRefreshPromise]);
+    });
+
+    expect(result.current.isLoading).toBe(false);
+  });
+
   it("pauses and resumes schedules via the schedule service", async () => {
     mockListSchedules.mockResolvedValue(
       create(ListSchedulesResponseSchema, {
@@ -303,6 +376,7 @@ describe("useScheduleApi", () => {
     expect(mockPauseSchedule).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: 1n }));
     expect(mockResumeSchedule).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: 1n }));
     expect(result.current.schedules[0]?.status).toBe("active");
+    expect(dispatchEventSpy.mock.calls.map(([event]: [Event]) => event.type)).toContain(SCHEDULES_CHANGED_EVENT);
   });
 
   it("reorders schedules through the service and removes deleted schedules locally", async () => {
@@ -351,6 +425,7 @@ describe("useScheduleApi", () => {
         priority: 1,
       }),
     ]);
+    expect(dispatchEventSpy.mock.calls.map(([event]: [Event]) => event.type)).toContain(SCHEDULES_CHANGED_EVENT);
   });
 
   it("includes weekly and monthly recurrence patterns in schedule summaries", async () => {

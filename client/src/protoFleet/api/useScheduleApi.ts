@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { scheduleClient } from "@/protoFleet/api/clients";
@@ -19,6 +19,7 @@ import {
   ScheduleTargetType,
   type UpdateScheduleRequest,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import { emitSchedulesChanged } from "@/protoFleet/api/scheduleEvents";
 import {
   addDaysToDateValue,
   buildDateInTimeZone,
@@ -41,6 +42,10 @@ export interface ScheduleListItem {
   status: ScheduleStatus;
   createdBy: string;
   rawSchedule: Schedule;
+}
+
+interface RefreshSchedulesOptions {
+  background?: boolean;
 }
 
 const dayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short" });
@@ -298,33 +303,76 @@ export const useScheduleApi = () => {
   const { handleAuthErrors } = useAuthErrors();
   const [schedules, setSchedules] = useState<ScheduleListItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const inFlightRefreshRef = useRef<Promise<ScheduleListItem[]> | null>(null);
+  const foregroundRefreshCountRef = useRef(0);
 
-  const listSchedules = useCallback(async () => {
-    setIsLoading(true);
-
-    try {
-      const scheduleResponse = await scheduleClient.listSchedules(create(ListSchedulesRequestSchema, {}));
-      const mappedSchedules = normalizeSchedules(scheduleResponse.schedules.map((schedule) => mapSchedule(schedule)));
-
-      setSchedules(mappedSchedules);
-      return mappedSchedules;
-    } catch (error) {
-      const resolvedError = ensureError(error, "Failed to load schedules.");
-
-      handleAuthErrors({
-        error,
-        onError: () => {
-          throw resolvedError;
-        },
-      });
-
-      throw resolvedError;
-    } finally {
-      setIsLoading(false);
+  const runListSchedules = useCallback(() => {
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current;
     }
+
+    const requestPromise = (async () => {
+      try {
+        const scheduleResponse = await scheduleClient.listSchedules(create(ListSchedulesRequestSchema, {}));
+        const mappedSchedules = normalizeSchedules(scheduleResponse.schedules.map((schedule) => mapSchedule(schedule)));
+
+        setSchedules(mappedSchedules);
+        return mappedSchedules;
+      } catch (error) {
+        const resolvedError = ensureError(error, "Failed to load schedules.");
+
+        handleAuthErrors({
+          error,
+          onError: () => {
+            throw resolvedError;
+          },
+        });
+
+        throw resolvedError;
+      }
+    })();
+
+    inFlightRefreshRef.current = requestPromise;
+
+    void requestPromise.then(
+      () => {
+        if (inFlightRefreshRef.current === requestPromise) {
+          inFlightRefreshRef.current = null;
+        }
+      },
+      () => {
+        if (inFlightRefreshRef.current === requestPromise) {
+          inFlightRefreshRef.current = null;
+        }
+      },
+    );
+
+    return requestPromise;
   }, [handleAuthErrors]);
 
-  const refreshSchedules = useCallback(async () => listSchedules(), [listSchedules]);
+  const listSchedules = useCallback(
+    async ({ background = false }: RefreshSchedulesOptions = {}) => {
+      if (background) {
+        return runListSchedules();
+      }
+
+      foregroundRefreshCountRef.current += 1;
+      setIsLoading(true);
+
+      try {
+        return await runListSchedules();
+      } finally {
+        foregroundRefreshCountRef.current = Math.max(0, foregroundRefreshCountRef.current - 1);
+        setIsLoading(foregroundRefreshCountRef.current > 0);
+      }
+    },
+    [runListSchedules],
+  );
+
+  const refreshSchedules = useCallback(
+    async (options?: RefreshSchedulesOptions) => listSchedules(options),
+    [listSchedules],
+  );
 
   const pauseSchedule = useCallback(
     async (scheduleId: string) => {
@@ -339,6 +387,7 @@ export const useScheduleApi = () => {
         }
 
         setSchedules((current) => updateMappedSchedule(current, nextSchedule));
+        emitSchedulesChanged();
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to pause schedule.");
 
@@ -368,6 +417,7 @@ export const useScheduleApi = () => {
         }
 
         setSchedules((current) => updateMappedSchedule(current, nextSchedule));
+        emitSchedulesChanged();
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to resume schedule.");
 
@@ -389,6 +439,7 @@ export const useScheduleApi = () => {
       try {
         await scheduleClient.deleteSchedule(create(DeleteScheduleRequestSchema, { scheduleId: BigInt(scheduleId) }));
         setSchedules((current) => normalizeSchedules(current.filter((schedule) => schedule.id !== scheduleId)));
+        emitSchedulesChanged();
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to delete schedule.");
 
@@ -427,6 +478,7 @@ export const useScheduleApi = () => {
             }),
           );
         });
+        emitSchedulesChanged();
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to reorder schedules.");
 
@@ -455,6 +507,7 @@ export const useScheduleApi = () => {
 
         const mappedSchedule = mapSchedule(nextSchedule);
         setSchedules((current) => normalizeSchedules([...current, mappedSchedule]));
+        emitSchedulesChanged();
         return mappedSchedule;
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to create schedule.");
@@ -483,6 +536,7 @@ export const useScheduleApi = () => {
         }
 
         setSchedules((current) => updateMappedSchedule(current, nextSchedule));
+        emitSchedulesChanged();
         return mapSchedule(nextSchedule);
       } catch (error) {
         const resolvedError = ensureError(error, "Failed to update schedule.");
@@ -527,5 +581,7 @@ export const useScheduleApi = () => {
     ],
   );
 };
+
+export type UseScheduleApiResult = ReturnType<typeof useScheduleApi>;
 
 export default useScheduleApi;

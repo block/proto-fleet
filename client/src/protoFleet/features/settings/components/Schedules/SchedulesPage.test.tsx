@@ -3,8 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SchedulesPage from "./SchedulesPage";
 import type { Schedule } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
+import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 
-const mockUseScheduleApi = vi.fn();
 const mockPushToast = vi.fn();
 const mockScheduleModal = vi.fn<(props: { open: boolean }) => ReactElement | null>(() => null);
 
@@ -15,9 +16,8 @@ vi.mock("@/shared/features/toaster", () => ({
   },
 }));
 
-vi.mock("@/protoFleet/api/useScheduleApi", () => ({
-  __esModule: true,
-  default: () => mockUseScheduleApi(),
+vi.mock("@/protoFleet/api/ScheduleApiContext", () => ({
+  useScheduleApiContext: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/ScheduleModal", () => ({
@@ -25,7 +25,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/ScheduleModal", () 
   default: (props: { open: boolean }) => mockScheduleModal(props),
 }));
 
-const createSchedule = (overrides: Partial<Record<string, unknown>> = {}) => ({
+const createSchedule = (overrides: Partial<ScheduleListItem> = {}): ScheduleListItem => ({
   id: "1",
   priority: 1,
   name: "Night sleep",
@@ -36,6 +36,22 @@ const createSchedule = (overrides: Partial<Record<string, unknown>> = {}) => ({
   status: "active",
   createdBy: "Negar Naghshbandi",
   rawSchedule: {} as Schedule,
+  ...overrides,
+});
+
+const createScheduleApiContextValue = (
+  overrides: Partial<ReturnType<typeof useScheduleApiContext>> = {},
+): ReturnType<typeof useScheduleApiContext> => ({
+  schedules: [],
+  isLoading: false,
+  listSchedules: vi.fn().mockResolvedValue([]),
+  refreshSchedules: vi.fn().mockResolvedValue(undefined),
+  createSchedule: vi.fn().mockResolvedValue(undefined),
+  updateSchedule: vi.fn().mockResolvedValue(undefined),
+  pauseSchedule: vi.fn().mockResolvedValue(undefined),
+  resumeSchedule: vi.fn().mockResolvedValue(undefined),
+  deleteSchedule: vi.fn().mockResolvedValue(undefined),
+  reorderSchedules: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -57,33 +73,17 @@ describe("SchedulesPage", () => {
     mockScheduleModal.mockReset();
     mockScheduleModal.mockImplementation(({ open }: { open: boolean }) => (open ? <div>Schedule modal</div> : null));
 
-    mockUseScheduleApi.mockReturnValue({
-      schedules: [],
-      isLoading: false,
-      refreshSchedules: vi.fn().mockResolvedValue(undefined),
-      createSchedule: vi.fn().mockResolvedValue(undefined),
-      updateSchedule: vi.fn().mockResolvedValue(undefined),
-      pauseSchedule: vi.fn().mockResolvedValue(undefined),
-      resumeSchedule: vi.fn().mockResolvedValue(undefined),
-      deleteSchedule: vi.fn().mockResolvedValue(undefined),
-      reorderSchedules: vi.fn().mockResolvedValue(undefined),
-    });
+    vi.mocked(useScheduleApiContext).mockReturnValue(createScheduleApiContextValue());
   });
 
   it("keeps the loading state visible until the initial schedules load finishes", async () => {
     const deferred = createDeferred<void>();
 
-    mockUseScheduleApi.mockReturnValue({
-      schedules: [],
-      isLoading: false,
-      refreshSchedules: vi.fn().mockReturnValue(deferred.promise),
-      createSchedule: vi.fn().mockResolvedValue(undefined),
-      updateSchedule: vi.fn().mockResolvedValue(undefined),
-      pauseSchedule: vi.fn().mockResolvedValue(undefined),
-      resumeSchedule: vi.fn().mockResolvedValue(undefined),
-      deleteSchedule: vi.fn().mockResolvedValue(undefined),
-      reorderSchedules: vi.fn().mockResolvedValue(undefined),
-    });
+    vi.mocked(useScheduleApiContext).mockReturnValue(
+      createScheduleApiContextValue({
+        refreshSchedules: vi.fn().mockReturnValue(deferred.promise),
+      }),
+    );
 
     render(<SchedulesPage />);
 
@@ -116,17 +116,11 @@ describe("SchedulesPage", () => {
   });
 
   it("renders the populated schedules table", async () => {
-    mockUseScheduleApi.mockReturnValue({
-      schedules: [createSchedule()],
-      isLoading: false,
-      refreshSchedules: vi.fn().mockResolvedValue(undefined),
-      createSchedule: vi.fn().mockResolvedValue(undefined),
-      updateSchedule: vi.fn().mockResolvedValue(undefined),
-      pauseSchedule: vi.fn().mockResolvedValue(undefined),
-      resumeSchedule: vi.fn().mockResolvedValue(undefined),
-      deleteSchedule: vi.fn().mockResolvedValue(undefined),
-      reorderSchedules: vi.fn().mockResolvedValue(undefined),
-    });
+    vi.mocked(useScheduleApiContext).mockReturnValue(
+      createScheduleApiContextValue({
+        schedules: [createSchedule()],
+      }),
+    );
 
     render(<SchedulesPage />);
 
@@ -137,17 +131,12 @@ describe("SchedulesPage", () => {
   });
 
   it("shows an error toast when schedules fail to load", async () => {
-    mockUseScheduleApi.mockReturnValue({
-      schedules: [createSchedule()],
-      isLoading: false,
-      refreshSchedules: vi.fn().mockRejectedValue(new Error("Load failed")),
-      createSchedule: vi.fn().mockResolvedValue(undefined),
-      updateSchedule: vi.fn().mockResolvedValue(undefined),
-      pauseSchedule: vi.fn().mockResolvedValue(undefined),
-      resumeSchedule: vi.fn().mockResolvedValue(undefined),
-      deleteSchedule: vi.fn().mockResolvedValue(undefined),
-      reorderSchedules: vi.fn().mockResolvedValue(undefined),
-    });
+    vi.mocked(useScheduleApiContext).mockReturnValue(
+      createScheduleApiContextValue({
+        schedules: [createSchedule()],
+        refreshSchedules: vi.fn().mockRejectedValue(new Error("Load failed")),
+      }),
+    );
 
     render(<SchedulesPage />);
 
