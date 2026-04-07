@@ -51,7 +51,7 @@ describe("Navigation Menu", () => {
       </MemoryRouter>,
     );
 
-    const currentItem = getByText("Foo");
+    const currentItem = getByText("Foo").closest("a");
     await waitFor(() => {
       expect(currentItem).toHaveClass("bg-core-primary-5");
     });

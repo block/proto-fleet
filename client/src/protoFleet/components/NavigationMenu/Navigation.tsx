@@ -60,18 +60,19 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
     <nav
       aria-label="Main"
       className={clsx(
-        "flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70 laptop:w-full laptop:bg-surface-5 laptop:dark:bg-surface-base desktop:w-full desktop:bg-surface-5 desktop:dark:bg-surface-base",
-        "laptop:items-center desktop:items-center",
+        "group/nav flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
+        "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:bg-surface-5 laptop:hover:w-50 laptop:hover:shadow-lg laptop:dark:bg-surface-base",
+        "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10 desktop:bg-surface-5 desktop:dark:bg-surface-base",
         "tablet:absolute tablet:z-30",
         "phone:absolute phone:z-30",
         className,
       )}
     >
-      <div className="flex flex-col items-center justify-center gap-3">
+      <div className="flex flex-col items-start gap-1">
         {homeItem && homeItem.path && (
           <div
             className={clsx(
-              "flex h-15 w-full items-start justify-center px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0 desktop:h-13 desktop:items-center desktop:!pb-0",
+              "flex h-15 w-full items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0 desktop:h-13 desktop:items-center desktop:!pb-0",
               {
                 "border-b border-border-5": isPhone || isTablet,
               },
@@ -80,20 +81,23 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             <Link
               to={homeItem.path}
               aria-label="Home"
-              className={clsx({
+              className={clsx("flex items-center", {
                 "w-full": isPhone || isTablet,
+                "px-2.5": !(isPhone || isTablet),
               })}
             >
               {isPhone || isTablet ? (
                 <Logo className="h-10 text-text-primary hover:cursor-pointer" />
               ) : (
-                <LogoAlt className="text-text-primary hover:cursor-pointer" />
+                <div className="flex size-5 shrink-0 items-center justify-center">
+                  <LogoAlt className="text-text-primary hover:cursor-pointer" />
+                </div>
               )}
             </Link>
           </div>
         )}
 
-        <ul data-testid="navigation-menu" className="flex w-full flex-col items-center justify-center gap-3 px-3">
+        <ul data-testid="navigation-menu" className="flex w-full flex-col items-start gap-1 px-3">
           {items.map((item, idx) => {
             // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
             if (
@@ -109,24 +113,27 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                 <Link
                   to={item.path}
                   onClick={() => closeMenu?.()}
+                  aria-label={item.label}
                   aria-current={isCurrentPath(item.path) ? "page" : undefined}
                   className={clsx(
-                    "group flex items-center justify-start rounded-lg px-2 py-1 laptop:aspect-square laptop:justify-center laptop:p-2 desktop:aspect-square desktop:justify-center desktop:p-2",
+                    "group flex h-10 w-full items-center rounded-lg px-2.5 py-2",
                     "hover:cursor-pointer hover:bg-core-primary-5",
                     isCurrentPath(item.path) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
-                    {
-                      "bg-core-primary-5": isCurrentPath(item.path),
-                    },
+                    { "bg-core-primary-5": isCurrentPath(item.path) },
                   )}
                 >
-                  {item.icon
-                    ? createElement(item.icon, {
-                        className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
-                        width: "w-5",
-                      })
-                    : item.label}
-                  {(isPhone || isTablet) && item.icon && (
-                    <span className="ml-2 text-emphasis-300 text-text-primary-70">{item.label}</span>
+                  <div className="flex size-5 shrink-0 items-center justify-center">
+                    {item.icon
+                      ? createElement(item.icon, {
+                          className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
+                          width: "w-5",
+                        })
+                      : item.label}
+                  </div>
+                  {item.icon && (
+                    <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
+                      {item.label}
+                    </span>
                   )}
                 </Link>
               </li>
@@ -217,20 +224,24 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             )}
         </ul>
       </div>
-      <div className="pb-3 phone:px-3 tablet:px-3">
+      <div className="px-3 pb-3">
         <button
           onClick={() => {
             logout();
           }}
           aria-label="Log out"
           className={clsx(
-            "group flex h-8 w-full items-center justify-start rounded-lg px-2 py-1 laptop:h-10 laptop:justify-center desktop:h-10 desktop:justify-center",
+            "group flex h-10 w-full items-center rounded-lg px-2.5 py-2",
             "hover:cursor-pointer hover:bg-core-primary-10",
           )}
           data-testid="logout-button"
         >
-          <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
-          {(isPhone || isTablet) && <span className="ml-2 text-emphasis-300 text-text-primary-70">Logout</span>}
+          <div className="flex size-5 shrink-0 items-center justify-center">
+            <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
+          </div>
+          <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
+            Logout
+          </span>
         </button>
       </div>
     </nav>
