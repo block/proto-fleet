@@ -530,7 +530,38 @@ describe("MinerList", () => {
   });
 
   describe("row click navigation", () => {
-    it("opens miner detail in a new tab with noopener,noreferrer", async () => {
+    it("opens miner URL in a new tab when miner has a URL", async () => {
+      const user = userEvent.setup();
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+      const snapshot = createMinerSnapshot("m1");
+      snapshot.url = "https://192.168.1.100";
+
+      useFleetStore.setState((state) => ({
+        fleet: {
+          ...state.fleet,
+          miners: {
+            m1: snapshot,
+          },
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const row = screen.getByTestId("list-row");
+      await user.click(row);
+
+      expect(openSpy).toHaveBeenCalledWith("https://192.168.1.100", "_blank", "noopener,noreferrer");
+      openSpy.mockRestore();
+    });
+
+    it("does not open a new tab when miner has no URL", async () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
@@ -554,7 +585,7 @@ describe("MinerList", () => {
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
-      expect(openSpy).toHaveBeenCalledWith("/miners/m1", "_blank", "noopener,noreferrer");
+      expect(openSpy).not.toHaveBeenCalled();
       openSpy.mockRestore();
     });
   });

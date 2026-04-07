@@ -464,7 +464,10 @@ const MinerList = ({
   }, []);
 
   const handleRowClick = useCallback((item: DeviceListItem) => {
-    window.open(`/miners/${encodeURIComponent(item.deviceIdentifier)}`, "_blank", "noopener,noreferrer");
+    const url = useFleetStore.getState().fleet.miners[item.deviceIdentifier]?.url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   }, []);
 
   const minerColConfig = useMemo(
