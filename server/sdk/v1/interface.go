@@ -455,9 +455,9 @@ type Driver interface {
 // If a driver implements this interface and returns credentials, the server
 // will attempt pairing with each credential before requiring manual input.
 type DefaultCredentialsProvider interface {
-	// GetDefaultCredentials returns a list of credentials to try during pairing.
-	// Returns nil or empty slice if the driver doesn't support auto-authentication.
-	GetDefaultCredentials(ctx context.Context) []UsernamePassword
+	// GetDefaultCredentials returns credentials to try for the given device.
+	// Pass empty strings to get all known credentials (fallback for unknown devices).
+	GetDefaultCredentials(ctx context.Context, manufacturer, firmwareVersion string) []UsernamePassword
 }
 
 // ModelCapabilitiesProvider is an optional interface that drivers can implement

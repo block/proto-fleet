@@ -1000,17 +1000,17 @@ func (m *MockDefaultCredentialsProvider) EXPECT() *MockDefaultCredentialsProvide
 }
 
 // GetDefaultCredentials mocks base method.
-func (m *MockDefaultCredentialsProvider) GetDefaultCredentials(ctx context.Context) []sdk.UsernamePassword {
+func (m *MockDefaultCredentialsProvider) GetDefaultCredentials(ctx context.Context, manufacturer, firmwareVersion string) []sdk.UsernamePassword {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDefaultCredentials", ctx)
+	ret := m.ctrl.Call(m, "GetDefaultCredentials", ctx, manufacturer, firmwareVersion)
 	ret0, _ := ret[0].([]sdk.UsernamePassword)
 	return ret0
 }
 
 // GetDefaultCredentials indicates an expected call of GetDefaultCredentials.
-func (mr *MockDefaultCredentialsProviderMockRecorder) GetDefaultCredentials(ctx any) *gomock.Call {
+func (mr *MockDefaultCredentialsProviderMockRecorder) GetDefaultCredentials(ctx, manufacturer, firmwareVersion any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultCredentials", reflect.TypeOf((*MockDefaultCredentialsProvider)(nil).GetDefaultCredentials), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultCredentials", reflect.TypeOf((*MockDefaultCredentialsProvider)(nil).GetDefaultCredentials), ctx, manufacturer, firmwareVersion)
 }
 
 // MockModelCapabilitiesProvider is a mock of ModelCapabilitiesProvider interface.

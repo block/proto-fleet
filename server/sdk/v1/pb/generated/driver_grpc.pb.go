@@ -64,7 +64,7 @@ type DriverClient interface {
 	DiscoverDevice(ctx context.Context, in *DiscoverDeviceRequest, opts ...grpc.CallOption) (*DiscoverDeviceResponse, error)
 	PairDevice(ctx context.Context, in *PairDeviceRequest, opts ...grpc.CallOption) (*PairDeviceResponse, error)
 	// Optional - Returns default credentials for auto-authentication during pairing
-	GetDefaultCredentials(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error)
+	GetDefaultCredentials(ctx context.Context, in *GetDefaultCredentialsRequest, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error)
 	// Optional - Returns model-specific capabilities for devices
 	GetCapabilitiesForModel(ctx context.Context, in *GetCapabilitiesForModelRequest, opts ...grpc.CallOption) (*GetCapabilitiesForModelResponse, error)
 	// Optional - Returns canonical discovery scan ports for server-side port derivation
@@ -146,7 +146,7 @@ func (c *driverClient) PairDevice(ctx context.Context, in *PairDeviceRequest, op
 	return out, nil
 }
 
-func (c *driverClient) GetDefaultCredentials(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error) {
+func (c *driverClient) GetDefaultCredentials(ctx context.Context, in *GetDefaultCredentialsRequest, opts ...grpc.CallOption) (*GetDefaultCredentialsResponse, error) {
 	out := new(GetDefaultCredentialsResponse)
 	err := c.cc.Invoke(ctx, Driver_GetDefaultCredentials_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -414,7 +414,7 @@ type DriverServer interface {
 	DiscoverDevice(context.Context, *DiscoverDeviceRequest) (*DiscoverDeviceResponse, error)
 	PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error)
 	// Optional - Returns default credentials for auto-authentication during pairing
-	GetDefaultCredentials(context.Context, *emptypb.Empty) (*GetDefaultCredentialsResponse, error)
+	GetDefaultCredentials(context.Context, *GetDefaultCredentialsRequest) (*GetDefaultCredentialsResponse, error)
 	// Optional - Returns model-specific capabilities for devices
 	GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error)
 	// Optional - Returns canonical discovery scan ports for server-side port derivation
@@ -469,7 +469,7 @@ func (UnimplementedDriverServer) DiscoverDevice(context.Context, *DiscoverDevice
 func (UnimplementedDriverServer) PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PairDevice not implemented")
 }
-func (UnimplementedDriverServer) GetDefaultCredentials(context.Context, *emptypb.Empty) (*GetDefaultCredentialsResponse, error) {
+func (UnimplementedDriverServer) GetDefaultCredentials(context.Context, *GetDefaultCredentialsRequest) (*GetDefaultCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDefaultCredentials not implemented")
 }
 func (UnimplementedDriverServer) GetCapabilitiesForModel(context.Context, *GetCapabilitiesForModelRequest) (*GetCapabilitiesForModelResponse, error) {
@@ -633,7 +633,7 @@ func _Driver_PairDevice_Handler(srv interface{}, ctx context.Context, dec func(i
 }
 
 func _Driver_GetDefaultCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(emptypb.Empty)
+	in := new(GetDefaultCredentialsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -645,7 +645,7 @@ func _Driver_GetDefaultCredentials_Handler(srv interface{}, ctx context.Context,
 		FullMethod: Driver_GetDefaultCredentials_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).GetDefaultCredentials(ctx, req.(*emptypb.Empty))
+		return srv.(DriverServer).GetDefaultCredentials(ctx, req.(*GetDefaultCredentialsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

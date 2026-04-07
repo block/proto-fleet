@@ -102,7 +102,7 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 	// If no credentials provided, try default credentials if plugin provides them
 	if credentials == nil {
 		if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
-			defaultCreds := provider.GetDefaultCredentials(ctx)
+			defaultCreds := provider.GetDefaultCredentials(ctx, discoveredDevice.Manufacturer, discoveredDevice.FirmwareVersion)
 			if len(defaultCreds) > 0 {
 				return p.pairWithDefaultCredentials(ctx, plugin, discoveredDevice, defaultCreds)
 			}

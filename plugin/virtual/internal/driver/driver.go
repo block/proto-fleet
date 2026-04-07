@@ -198,6 +198,6 @@ func (d *Driver) NewDevice(_ context.Context, deviceID string, deviceInfo sdk.De
 
 // GetDefaultCredentials implements sdk.DefaultCredentialsProvider.
 // Returns default credentials for virtual miners to enable auto-authentication during pairing.
-func (d *Driver) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword {
+func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
 	return defaultCredentials
 }

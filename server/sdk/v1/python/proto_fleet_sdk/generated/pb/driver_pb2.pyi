@@ -639,6 +639,14 @@ class PairDeviceResponse(_message.Message):
     device: DeviceInfo
     def __init__(self, device: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
 
+class GetDefaultCredentialsRequest(_message.Message):
+    __slots__ = ("manufacturer", "firmware_version")
+    MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
+    FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    manufacturer: str
+    firmware_version: str
+    def __init__(self, manufacturer: _Optional[str] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+
 class GetDefaultCredentialsResponse(_message.Message):
     __slots__ = ("credentials",)
     CREDENTIALS_FIELD_NUMBER: _ClassVar[int]

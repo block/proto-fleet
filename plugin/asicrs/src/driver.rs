@@ -13,9 +13,9 @@ use proto_fleet_plugin::pb;
 
 use crate::capabilities::{
     default_credentials, detect_variant, driver_base_capabilities, firmware_manufacturer,
-    make_to_family, static_base_capabilities, verify_identity,
+    make_to_family, static_base_capabilities, verify_identity, VARIANT_STOCK,
 };
-use crate::config::PluginConfig;
+use crate::config::{MinerFamilyConfig, PluginConfig};
 use crate::device::AsicRsDevice;
 
 const DRIVER_NAME: &str = "asicrs";
@@ -418,18 +418,43 @@ impl Driver for DriverService {
 
     async fn get_default_credentials(
         &self,
-        _req: Request<()>,
+        req: Request<pb::GetDefaultCredentialsRequest>,
     ) -> Result<Response<pb::GetDefaultCredentialsResponse>, Status> {
+        let req = req.into_inner();
+        let target_family = if req.manufacturer.is_empty() {
+            None
+        } else {
+            make_to_family(&req.manufacturer)
+        };
+        let target_variant =
+            target_family.map(|_| detect_variant(&req.manufacturer, &req.firmware_version));
+
         let mut creds = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        for (family_name, family_config) in &self.config.miners {
+        let families: Vec<(&str, &MinerFamilyConfig)> =
+            match target_family.and_then(|tf| self.config.miners.get(tf).map(|c| (tf, c))) {
+                Some((tf, c)) => vec![(tf, c)],
+                None => self
+                    .config
+                    .miners
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v))
+                    .collect(),
+            };
+
+        for (family_name, family_config) in families {
             for (variant_name, fw_config) in &family_config.firmware {
                 if !fw_config.enabled {
                     continue;
                 }
+                if let Some(tv) = target_variant {
+                    if tv != VARIANT_STOCK && variant_name.as_str() != tv {
+                        continue;
+                    }
+                }
                 for cred in default_credentials(family_name, variant_name) {
-                    let key = (cred.username.to_string(), cred.password.to_string());
+                    let key = (cred.username, cred.password);
                     if seen.insert(key) {
                         creds.push(pb::UsernamePassword {
                             username: cred.username.into(),
@@ -773,5 +798,148 @@ impl Driver for DriverService {
 
         let errors = device.to_device_errors(&data);
         Ok(Response::new(errors))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal PluginConfig from a YAML snippet for use in tests.
+    fn config_from_yaml(yaml: &str) -> PluginConfig {
+        serde_yml::from_str(yaml).expect("invalid test config YAML")
+    }
+
+    fn make_request(
+        manufacturer: &str,
+        firmware_version: &str,
+    ) -> Request<pb::GetDefaultCredentialsRequest> {
+        Request::new(pb::GetDefaultCredentialsRequest {
+            manufacturer: manufacturer.to_string(),
+            firmware_version: firmware_version.to_string(),
+        })
+    }
+
+    const TWO_FAMILY_CONFIG: &str = r#"
+plugin:
+  log_level: info
+  discovery_timeout_seconds: 10
+  telemetry_cache_ttl_seconds: 5
+miners:
+  whatsminer:
+    stock:
+      enabled: true
+  antminer:
+    stock:
+      enabled: true
+    vnish:
+      enabled: true
+"#;
+
+    #[tokio::test]
+    async fn test_empty_manufacturer_returns_all_families() {
+        // Arrange
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+
+        // Act
+        let resp = service
+            .get_default_credentials(make_request("", ""))
+            .await
+            .unwrap();
+        let creds = resp.into_inner().credentials;
+
+        // Assert: deduplicated union of whatsminer (admin/admin, super/super) +
+        // antminer stock (root/root) + antminer vnish (admin/admin deduped)
+        assert_eq!(
+            creds.len(),
+            3,
+            "should return one entry per unique credential across all families"
+        );
+        let usernames: Vec<&str> = creds.iter().map(|c| c.username.as_str()).collect();
+        assert!(usernames.contains(&"admin"));
+        assert!(usernames.contains(&"super"));
+        assert!(usernames.contains(&"root"));
+    }
+
+    #[tokio::test]
+    async fn test_known_family_returns_only_that_familys_credentials() {
+        // Arrange
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+
+        // Act
+        let resp = service
+            .get_default_credentials(make_request("whatsminer", ""))
+            .await
+            .unwrap();
+        let creds = resp.into_inner().credentials;
+
+        // Assert: only whatsminer stock credentials
+        assert_eq!(creds.len(), 2);
+        assert_eq!(creds[0].username, "admin");
+        assert_eq!(creds[0].password, "admin");
+        assert_eq!(creds[1].username, "super");
+        assert_eq!(creds[1].password, "super");
+    }
+
+    #[tokio::test]
+    async fn test_vnish_firmware_filters_to_vnish_variant() {
+        // Arrange
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+
+        // Act
+        let resp = service
+            .get_default_credentials(make_request("antminer", "VNish_1.2.0"))
+            .await
+            .unwrap();
+        let creds = resp.into_inner().credentials;
+
+        // Assert: only VNish variant credentials (admin/admin), not stock (root/root)
+        assert_eq!(creds.len(), 1);
+        assert_eq!(creds[0].username, "admin");
+        assert_eq!(creds[0].password, "admin");
+    }
+
+    #[tokio::test]
+    async fn test_unknown_manufacturer_falls_back_to_all_families() {
+        // Arrange
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+
+        // Act — "acmeminer" is not a recognized family
+        let resp = service
+            .get_default_credentials(make_request("acmeminer", ""))
+            .await
+            .unwrap();
+        let creds = resp.into_inner().credentials;
+
+        // Assert: same as empty manufacturer — all configured families
+        assert_eq!(creds.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_recognized_family_absent_from_config_falls_back_to_all() {
+        // Arrange: config has only antminer, no whatsminer entry
+        let config_yaml = r#"
+plugin:
+  log_level: info
+  discovery_timeout_seconds: 10
+  telemetry_cache_ttl_seconds: 5
+miners:
+  antminer:
+    stock:
+      enabled: true
+"#;
+        let service = DriverService::new(config_from_yaml(config_yaml));
+
+        // Act — whatsminer is a recognized family but absent from this config
+        let resp = service
+            .get_default_credentials(make_request("whatsminer", ""))
+            .await
+            .unwrap();
+        let creds = resp.into_inner().credentials;
+
+        // Assert: falls back to all configured families (antminer stock only)
+        assert_eq!(creds.len(), 1);
+        assert_eq!(creds[0].username, "root");
+        assert_eq!(creds[0].password, "root");
     }
 }

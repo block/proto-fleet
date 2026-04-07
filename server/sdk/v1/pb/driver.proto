@@ -377,6 +377,12 @@ message PairDeviceResponse {
   DeviceInfo device = 1; // Updated device info after pairing (includes serial number, MAC address, etc.)
 }
 
+// GetDefaultCredentialsRequest specifies the device context for credential lookup
+message GetDefaultCredentialsRequest {
+  string manufacturer = 1;      // device make from discovery (e.g. "whatsminer", "antminer")
+  string firmware_version = 2;  // firmware version string (e.g. "2.0.4", "VNish_1.2.0")
+}
+
 // GetDefaultCredentialsResponse contains default credentials for auto-authentication
 message GetDefaultCredentialsResponse {
   repeated UsernamePassword credentials = 1; // List of credentials to try in order
@@ -596,7 +602,7 @@ service Driver {
   rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
 
   // Optional - Returns default credentials for auto-authentication during pairing
-  rpc GetDefaultCredentials(google.protobuf.Empty) returns (GetDefaultCredentialsResponse);
+  rpc GetDefaultCredentials(GetDefaultCredentialsRequest) returns (GetDefaultCredentialsResponse);
 
   // Optional - Returns model-specific capabilities for devices
   rpc GetCapabilitiesForModel(GetCapabilitiesForModelRequest) returns (GetCapabilitiesForModelResponse);

@@ -208,7 +208,7 @@ func (s *DriverGRPCServer) PairDevice(ctx context.Context, req *pb.PairDeviceReq
 	}, nil
 }
 
-func (s *DriverGRPCServer) GetDefaultCredentials(ctx context.Context, _ *emptypb.Empty) (*pb.GetDefaultCredentialsResponse, error) {
+func (s *DriverGRPCServer) GetDefaultCredentials(ctx context.Context, req *pb.GetDefaultCredentialsRequest) (*pb.GetDefaultCredentialsResponse, error) {
 	// Check if the driver implements DefaultCredentialsProvider
 	provider, ok := s.Impl.(DefaultCredentialsProvider)
 	if !ok {
@@ -216,7 +216,7 @@ func (s *DriverGRPCServer) GetDefaultCredentials(ctx context.Context, _ *emptypb
 		return &pb.GetDefaultCredentialsResponse{}, nil
 	}
 
-	creds := provider.GetDefaultCredentials(ctx)
+	creds := provider.GetDefaultCredentials(ctx, req.GetManufacturer(), req.GetFirmwareVersion())
 	pbCreds := make([]*pb.UsernamePassword, len(creds))
 	for i, c := range creds {
 		pbCreds[i] = &pb.UsernamePassword{
@@ -835,8 +835,11 @@ func (c *DriverGRPCClient) PairDevice(ctx context.Context, device DeviceInfo, ac
 // GetDefaultCredentials implements DefaultCredentialsProvider for the gRPC client.
 // This allows the server to get default credentials from plugins over gRPC.
 // Returns nil if the plugin doesn't implement the method (not an error condition).
-func (c *DriverGRPCClient) GetDefaultCredentials(ctx context.Context) []UsernamePassword {
-	resp, err := c.client.GetDefaultCredentials(ctx, &emptypb.Empty{})
+func (c *DriverGRPCClient) GetDefaultCredentials(ctx context.Context, manufacturer, firmwareVersion string) []UsernamePassword {
+	resp, err := c.client.GetDefaultCredentials(ctx, &pb.GetDefaultCredentialsRequest{
+		Manufacturer:    manufacturer,
+		FirmwareVersion: firmwareVersion,
+	})
 	if err != nil {
 		// If the plugin doesn't implement this method, return nil (not an error)
 		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {

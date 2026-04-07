@@ -688,7 +688,7 @@ type mockDriverWithDefaultCredentials struct {
 	defaultCredentials []sdk.UsernamePassword
 }
 
-func (m *mockDriverWithDefaultCredentials) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword {
+func (m *mockDriverWithDefaultCredentials) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
 	return m.defaultCredentials
 }
 

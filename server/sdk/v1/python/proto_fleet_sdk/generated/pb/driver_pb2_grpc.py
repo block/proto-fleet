@@ -58,7 +58,7 @@ class DriverStub(object):
                 _registered_method=True)
         self.GetDefaultCredentials = channel.unary_unary(
                 '/sdk.v1.Driver/GetDefaultCredentials',
-                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                request_serializer=pb_dot_driver__pb2.GetDefaultCredentialsRequest.SerializeToString,
                 response_deserializer=pb_dot_driver__pb2.GetDefaultCredentialsResponse.FromString,
                 _registered_method=True)
         self.GetCapabilitiesForModel = channel.unary_unary(
@@ -410,7 +410,7 @@ def add_DriverServicer_to_server(servicer, server):
             ),
             'GetDefaultCredentials': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDefaultCredentials,
-                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    request_deserializer=pb_dot_driver__pb2.GetDefaultCredentialsRequest.FromString,
                     response_serializer=pb_dot_driver__pb2.GetDefaultCredentialsResponse.SerializeToString,
             ),
             'GetCapabilitiesForModel': grpc.unary_unary_rpc_method_handler(
@@ -673,7 +673,7 @@ class Driver(object):
             request,
             target,
             '/sdk.v1.Driver/GetDefaultCredentials',
-            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            pb_dot_driver__pb2.GetDefaultCredentialsRequest.SerializeToString,
             pb_dot_driver__pb2.GetDefaultCredentialsResponse.FromString,
             options,
             channel_credentials,

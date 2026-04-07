@@ -96,7 +96,7 @@ func AssertPairing(t *testing.T, tc TestContext) {
 		if !ok {
 			t.Skip("driver does not implement DefaultCredentialsProvider")
 		}
-		creds := provider.GetDefaultCredentials(TestCtx(t))
+		creds := provider.GetDefaultCredentials(TestCtx(t), "", "")
 
 		// Assert
 		assert.NotEmpty(t, creds, "should return at least one default credential")

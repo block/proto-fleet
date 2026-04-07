@@ -333,7 +333,7 @@ func (d *Driver) extractUsernamePassword(secret sdk.SecretBundle) (sdk.UsernameP
 
 // GetDefaultCredentials implements sdk.DefaultCredentialsProvider.
 // Returns known default credentials for Antminer devices to enable auto-authentication during pairing.
-func (d *Driver) GetDefaultCredentials(_ context.Context) []sdk.UsernamePassword {
+func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
 	return defaultCredentials
 }
 
