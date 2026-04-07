@@ -1,4 +1,4 @@
-import { type MouseEvent, ReactNode, useMemo } from "react";
+import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useGroupedErrors } from "@/protoFleet/components/StatusModal/hooks/useStatusModalHooks";
@@ -82,21 +82,19 @@ const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
   // Issues should always be clickable (even for disabled rows)
   const isClickable = !!onClick;
 
-  return (
-    <div
-      className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-      onClick={
-        isClickable
-          ? (e: MouseEvent) => {
-              e.stopPropagation();
-              onClick?.();
-            }
-          : undefined
-      }
-    >
+  const content = (
+    <>
       {icon}
       {summary}
-    </div>
+    </>
+  );
+
+  return isClickable ? (
+    <button type="button" className="flex cursor-pointer items-center gap-2 hover:underline" onClick={onClick}>
+      {content}
+    </button>
+  ) : (
+    <div className="flex items-center gap-2">{content}</div>
   );
 };
 

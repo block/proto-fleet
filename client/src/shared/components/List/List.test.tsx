@@ -1942,5 +1942,184 @@ describe("List", () => {
       expect(row).not.toHaveAttribute("role", "button");
       expect(row).toHaveAttribute("tabindex", "0");
     });
+
+    it("does not trigger onRowClick when a nested button is clicked", () => {
+      const handleRowClick = vi.fn();
+      const buttonClick = vi.fn();
+
+      const configWithButton = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => (
+            <button data-testid={`btn-${item.id}`} onClick={buttonClick}>
+              {item.name}
+            </button>
+          ),
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithButton}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId(`btn-${testItems[0].id}`));
+
+      expect(buttonClick).toHaveBeenCalledTimes(1);
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick when a nested link is clicked", () => {
+      const handleRowClick = vi.fn();
+
+      const configWithLink = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => (
+            <a href="#" data-testid={`link-${item.id}`}>
+              {item.name}
+            </a>
+          ),
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithLink}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId(`link-${testItems[0].id}`));
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick when a data-interactive element is clicked", () => {
+      const handleRowClick = vi.fn();
+
+      const configWithInteractive = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => (
+            <div data-interactive data-testid={`interactive-${item.id}`}>
+              {item.name}
+            </div>
+          ),
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithInteractive}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId(`interactive-${testItems[0].id}`));
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick when action-cell padding is clicked", () => {
+      const handleRowClick = vi.fn();
+      const actions: ListAction<TestItem>[] = [
+        { title: "Action 1", actionHandler: vi.fn() },
+        { title: "Action 2", actionHandler: vi.fn() },
+      ];
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          actions={actions}
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const actionCells = screen.getAllByTestId("action");
+      fireEvent.click(actionCells[0]);
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick when Enter is pressed on a nested button", () => {
+      const handleRowClick = vi.fn();
+
+      const configWithButton = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => <button data-testid={`btn-${item.id}`}>{item.name}</button>,
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithButton}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const button = screen.getByTestId(`btn-${testItems[0].id}`);
+      fireEvent.keyDown(button, { key: "Enter", bubbles: true });
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger onRowClick when a role='button' element is clicked", () => {
+      const handleRowClick = vi.fn();
+
+      const configWithRoleButton = {
+        ...testColConfig,
+        [testCols.name]: {
+          ...testColConfig[testCols.name as keyof typeof testColConfig],
+          component: (item: TestItem) => (
+            <div role="button" data-testid={`role-btn-${item.id}`}>
+              {item.name}
+            </div>
+          ),
+        },
+      };
+
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={configWithRoleButton}
+          items={testItems}
+          itemKey="id"
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId(`role-btn-${testItems[0].id}`));
+
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
   });
 });

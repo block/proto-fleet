@@ -110,7 +110,6 @@ const GroupsPage = () => {
         to={`/miners?group=${item.deviceSet.id}`}
         className="hover:underline"
         aria-label={`View miners in ${item.deviceSet.label}`}
-        onClick={(e) => e.stopPropagation()}
       >
         {item.deviceSet.deviceCount}
       </Link>

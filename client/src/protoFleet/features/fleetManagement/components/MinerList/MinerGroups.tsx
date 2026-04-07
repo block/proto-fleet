@@ -42,7 +42,7 @@ const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) =>
   if (groupLabels.length === 1) {
     const link = getGroupLink(groupLabels[0]);
     return link ? (
-      <Link to={link} className="text-emphasis-300 hover:underline" onClick={(e) => e.stopPropagation()}>
+      <Link to={link} className="text-emphasis-300 hover:underline">
         {groupLabels[0]}
       </Link>
     ) : (
@@ -67,11 +67,7 @@ const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) =>
                 return (
                   <li key={label} className="py-2">
                     {link ? (
-                      <Link
-                        to={link}
-                        className="text-emphasis-300 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <Link to={link} className="text-emphasis-300 hover:underline">
                         {label}
                       </Link>
                     ) : (

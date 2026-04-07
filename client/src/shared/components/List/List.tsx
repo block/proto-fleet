@@ -51,6 +51,9 @@ import SortIndicator from "@/shared/components/SortIndicator";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
+const INTERACTIVE_ELEMENT_SELECTOR =
+  'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+
 type SelectionMode = "none" | "all" | "subset";
 
 type ControlledSelectionModeProps<ItemKeyValueType> = {
@@ -253,7 +256,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   /**
    * Optional callback fired when a row is clicked.
    * When provided, rows get cursor-pointer and hover styling.
-   * Interactive elements inside rows should call e.stopPropagation() to prevent triggering this.
+   *
+   * Standard interactive descendants (button, a, input, select, textarea,
+   * [role="button"], [role="link"]) are automatically excluded — clicks on
+   * them will not trigger this callback. For non-standard interactive elements
+   * (e.g. a clickable `<div>`), add the `data-interactive` attribute.
    */
   onRowClick?: (item: ListItem, index: number) => void;
 } & (ControlledSelectionModeProps<ItemKeyValueType> | UncontrolledSelectionModeProps<ItemKeyValueType>) &
@@ -366,9 +373,12 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       onClick={
         onRowClick
           ? (e: MouseEvent<HTMLTableRowElement>) => {
-              if (e.currentTarget.contains(e.target as Node)) {
-                onRowClick(item, index);
-              }
+              const target = e.target;
+              if (!(target instanceof Element)) return;
+              if (!e.currentTarget.contains(target)) return;
+              if (target.closest(INTERACTIVE_ELEMENT_SELECTOR)) return;
+              if (target.closest("[data-no-row-click]")) return;
+              onRowClick(item, index);
             }
           : undefined
       }
@@ -376,8 +386,9 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         onRowClick
           ? (e) => {
               if (e.key === "Enter" || e.key === " ") {
-                const target = e.target as HTMLElement;
-                if (target.closest("button, a, input, select, textarea")) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest(INTERACTIVE_ELEMENT_SELECTOR)) return;
                 e.preventDefault();
                 onRowClick(item, index);
               }
@@ -391,7 +402,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           className={clsx(tdClassList, firstStickyClasses, "w-9")}
           style={paddingCssVariables}
           data-testid="checkbox"
-          onClick={(e) => e.stopPropagation()}
+          data-no-row-click
         >
           <div
             className={clsx("w-9 truncate overflow-hidden py-3", {
@@ -485,7 +496,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             "opacity-50": rowDisabled,
           })}
           data-testid="action"
-          onClick={(e) => e.stopPropagation()}
+          data-no-row-click
         >
           <div className={clsx("flex justify-end", tdPaddingClassList)}>
             <Button
@@ -503,7 +514,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             "opacity-50": rowDisabled,
           })}
           data-testid="action"
-          onClick={(e) => e.stopPropagation()}
+          data-no-row-click
         >
           <div className={clsx("w-11", tdPaddingClassList)}>
             <PopoverProvider>
@@ -517,6 +528,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             "opacity-50": rowDisabled,
           })}
           data-testid="action"
+          data-no-row-click
         >
           <div className={clsx("w-11", tdPaddingClassList)} />
         </td>

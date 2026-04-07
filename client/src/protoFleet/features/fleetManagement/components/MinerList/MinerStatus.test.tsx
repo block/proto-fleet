@@ -555,7 +555,7 @@ describe("MinerStatus", () => {
       expect(onClick).toHaveBeenCalledTimes(1);
     });
 
-    it("should apply hover styles when clickable", async () => {
+    it("should render as a button when clickable", async () => {
       const { useMinerActiveBatches } = await import("@/protoFleet/store");
       const { useMiner, useMinerDeviceStatus } = await import("@/protoFleet/store");
 
@@ -579,73 +579,10 @@ describe("MinerStatus", () => {
       const onClick = vi.fn();
       const { container } = render(<MinerStatus deviceIdentifier="device-hover" onClick={onClick} />);
 
-      const wrapper = container.querySelector("div");
-      expect(wrapper?.className).toContain("cursor-pointer");
-      expect(wrapper?.className).toContain("hover:underline");
-    });
-
-    it("should stop event propagation when clicked during loading state", async () => {
-      const { useMinerActiveBatches } = await import("@/protoFleet/store");
-      const { useMiner, useMinerDeviceStatus } = await import("@/protoFleet/store");
-
-      vi.mocked(useMiner).mockReturnValue({
-        pairingStatus: PairingStatus.PAIRED,
-      } as any);
-
-      vi.mocked(useMinerDeviceStatus).mockReturnValue(DeviceStatus.OFFLINE);
-
-      vi.mocked(useMinerActiveBatches).mockReturnValue([
-        {
-          batchIdentifier: "batch-propagation",
-          action: deviceActions.reboot,
-          deviceIdentifiers: ["device-propagation"],
-          startedAt: Date.now(),
-          status: "in_progress",
-        },
-      ]);
-
-      const onClick = vi.fn();
-      const parentClickHandler = vi.fn();
-
-      render(
-        <div onClick={parentClickHandler}>
-          <MinerStatus deviceIdentifier="device-propagation" onClick={onClick} />
-        </div>,
-      );
-
-      const element = screen.getByText("Rebooting");
-      element.click();
-
-      expect(onClick).toHaveBeenCalledTimes(1);
-      expect(parentClickHandler).not.toHaveBeenCalled();
-    });
-
-    it("should stop event propagation when clicked in normal (non-loading) state", async () => {
-      const { useMiner, useMinerDeviceStatus, useMinerActiveBatches } = await import("@/protoFleet/store");
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-
-      vi.mocked(useMiner).mockReturnValue({
-        pairingStatus: PairingStatus.PAIRED,
-      } as any);
-
-      vi.mocked(useMinerDeviceStatus).mockReturnValue(DeviceStatus.OFFLINE);
-      vi.mocked(useMinerActiveBatches).mockReturnValue([]);
-      vi.mocked(useMinerStatus).mockReturnValue("Offline");
-
-      const onClick = vi.fn();
-      const parentClickHandler = vi.fn();
-
-      render(
-        <div onClick={parentClickHandler}>
-          <MinerStatus deviceIdentifier="device-normal" onClick={onClick} />
-        </div>,
-      );
-
-      const element = screen.getByText("Offline");
-      element.click();
-
-      expect(onClick).toHaveBeenCalledTimes(1);
-      expect(parentClickHandler).not.toHaveBeenCalled();
+      const button = container.querySelector("button");
+      expect(button).toBeTruthy();
+      expect(button?.className).toContain("cursor-pointer");
+      expect(button?.className).toContain("hover:underline");
     });
   });
 });

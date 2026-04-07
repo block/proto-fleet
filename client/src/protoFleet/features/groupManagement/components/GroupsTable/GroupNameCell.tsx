@@ -18,7 +18,6 @@ const GroupNameCell = ({ group, onEdit, onActionComplete }: GroupNameCellProps) 
       <Link
         to={`/groups/${encodeURIComponent(group.label)}`}
         className="min-w-0 truncate text-left hover:underline"
-        onClick={(e) => e.stopPropagation()}
         title={group.label}
       >
         {group.label}

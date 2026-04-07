@@ -69,19 +69,6 @@ describe("MinerName", () => {
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
-  it("calls onOpenStatusFlow when alert icon is clicked", async () => {
-    const user = userEvent.setup();
-    const onOpenStatusFlow = vi.fn();
-    vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
-
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />);
-
-    await user.click(screen.getByRole("button", { name: /view issues/i }));
-
-    expect(onOpenStatusFlow).toHaveBeenCalledTimes(1);
-    expect(onOpenStatusFlow).toHaveBeenCalledWith(deviceIdentifier);
-  });
-
   it("hides alert icon when no attention is needed", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
 
@@ -140,19 +127,15 @@ describe("MinerName", () => {
     expect(rowClickHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("stops event propagation when the alert icon is clicked", async () => {
+  it("calls onOpenStatusFlow when the alert icon is clicked", async () => {
     const user = userEvent.setup();
-    const parentClickHandler = vi.fn();
+    const onOpenStatusFlow = vi.fn();
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
 
-    render(
-      <div onClick={parentClickHandler}>
-        <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
-      </div>,
-    );
+    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />);
 
     await user.click(screen.getByRole("button", { name: /view issues/i }));
 
-    expect(parentClickHandler).not.toHaveBeenCalled();
+    expect(onOpenStatusFlow).toHaveBeenCalledWith(deviceIdentifier);
   });
 });

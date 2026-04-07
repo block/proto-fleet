@@ -343,10 +343,7 @@ const SingleMinerActionsMenuInner = ({
         }
         testId="single-miner-actions-menu-button"
         disabled={disabled}
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen((prev) => !prev);
-        }}
+        onClick={() => setIsOpen((prev) => !prev)}
       />
       {isOpen && (
         <Popover

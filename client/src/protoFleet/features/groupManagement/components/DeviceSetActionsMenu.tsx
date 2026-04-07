@@ -274,10 +274,7 @@ const DeviceSetActionsMenuInner = ({
           variant={buttonVariant}
           ariaLabel="Device set actions"
           prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpen();
-          }}
+          onClick={handleOpen}
         />
         {isOpen &&
           (fetchingMembers ? (

@@ -1,4 +1,4 @@
-import { type MouseEvent, useMemo } from "react";
+import { ReactNode, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
@@ -8,6 +8,22 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 import { useMinerStatus } from "@/shared/hooks/useStatusSummary";
+
+type StatusWrapperProps = {
+  onClick?: () => void;
+  children: ReactNode;
+};
+
+const StatusWrapper = ({ onClick, children }: StatusWrapperProps) => {
+  if (onClick) {
+    return (
+      <button type="button" className="flex cursor-pointer items-center gap-2 hover:underline" onClick={onClick}>
+        {children}
+      </button>
+    );
+  }
+  return <div className="flex items-center gap-2">{children}</div>;
+};
 
 type MinerStatusProps = {
   deviceIdentifier: string;
@@ -62,9 +78,6 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
     return statuses.normal;
   }, [isOffline, isSleeping, needsAttention]);
 
-  // Status should always be clickable (even for disabled rows)
-  const isClickable = !!onClick;
-
   // Check for active batch operations FIRST (highest priority)
   const hasActiveBatch = activeBatches.length > 0;
   const batchAction = hasActiveBatch ? activeBatches[0].action : null;
@@ -79,62 +92,34 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
 
   // Show loading state only if batch is active AND device hasn't reached expected status yet
   if (hasActiveBatch && batchLoadingMessage && !deviceHasReachedExpectedStatus) {
-    return (
-      <div
-        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={
-          isClickable
-            ? (e: MouseEvent) => {
-                e.stopPropagation();
-                onClick?.();
-              }
-            : undefined
-        }
-      >
+    const content = (
+      <>
         <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
         <ProgressCircular size={14} indeterminate />
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
-      </div>
+      </>
     );
+
+    return <StatusWrapper onClick={onClick}>{content}</StatusWrapper>;
   }
 
   // Firmware update states — show dedicated indicators
   if (isUpdating) {
     return (
-      <div
-        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={
-          isClickable
-            ? (e: MouseEvent) => {
-                e.stopPropagation();
-                onClick?.();
-              }
-            : undefined
-        }
-      >
+      <StatusWrapper onClick={onClick}>
         <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
         <ProgressCircular size={14} indeterminate />
         Updating firmware
-      </div>
+      </StatusWrapper>
     );
   }
 
   if (isRebootRequired) {
     return (
-      <div
-        className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-        onClick={
-          isClickable
-            ? (e: MouseEvent) => {
-                e.stopPropagation();
-                onClick?.();
-              }
-            : undefined
-        }
-      >
+      <StatusWrapper onClick={onClick}>
         <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
         Reboot required
-      </div>
+      </StatusWrapper>
     );
   }
 
@@ -145,20 +130,10 @@ const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
   }
 
   return (
-    <div
-      className={`flex items-center gap-2 ${isClickable ? "cursor-pointer hover:underline" : ""}`}
-      onClick={
-        isClickable
-          ? (e: MouseEvent) => {
-              e.stopPropagation();
-              onClick?.();
-            }
-          : undefined
-      }
-    >
+    <StatusWrapper onClick={onClick}>
       <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
       {status}
-    </div>
+    </StatusWrapper>
   );
 };
 
