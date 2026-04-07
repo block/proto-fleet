@@ -159,7 +159,7 @@ const FullScreenTwoPaneModal = ({
   return (
     <PageOverlay open={open} {...(zIndex && { zIndex })}>
       <div className={clsx("h-full w-full overflow-auto bg-surface-base", className)}>
-        <div className="flex min-h-full w-full flex-col pb-6 lg:px-6">
+        <div className="flex h-full w-full flex-col pb-6 lg:px-6">
           <div className="sticky top-0 z-10 bg-surface-base px-6 pt-4 pb-4 lg:px-0">
             <Header
               title={title}
@@ -194,7 +194,7 @@ const FullScreenTwoPaneModal = ({
           {abovePanes}
 
           {loadingState ?? (
-            <div className="mx-auto flex w-full flex-1" style={maxWidth !== "none" ? { maxWidth } : undefined}>
+            <div className="mx-auto flex min-h-0 w-full flex-1" style={maxWidth !== "none" ? { maxWidth } : undefined}>
               <div className={paneContainerClassName ?? defaultPaneContainerClassName}>
                 {primaryPane}
                 {secondaryPane}
