@@ -15,16 +15,12 @@ miners:
       enabled: true
     vnish:
       enabled: true
+    luxos:
+      enabled: true
+    marathon:
+      enabled: true
 
   avalonminer:
-    stock:
-      enabled: true
-
-  goldshell:
-    stock:
-      enabled: true
-
-  auradine:
     stock:
       enabled: true
 
@@ -32,30 +28,10 @@ miners:
     stock:
       enabled: true
 
-  iceriver:
-    stock:
-      enabled: true
-
-  innosilicon:
+  nerdaxe:
     stock:
       enabled: true
 
   epic:
-    stock:
-      enabled: true
-
-  hammer:
-    stock:
-      enabled: true
-
-  volcminer:
-    stock:
-      enabled: true
-
-  elphapex:
-    stock:
-      enabled: true
-
-  luckyminer:
     stock:
       enabled: true

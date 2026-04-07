@@ -66,14 +66,13 @@ const DISCOVERY_PORTS: &[u16] = &[80, 4028];
 /// Canonical discovery port per miner family.
 /// When a miner is reachable on multiple ports, we only claim it on its
 /// canonical port to avoid duplicate discovery and connection exhaustion.
-/// - 4028: WhatsMiner (CGMiner-style RPC over raw TCP socket)
+/// - 4028: WhatsMiner, AvalonMiner (CGMiner-style RPC over raw TCP socket)
 /// - 80:   Everything else (HTTP web API)
 fn canonical_port(family: &str) -> u16 {
     match family {
         crate::capabilities::FAMILY_WHATSMINER => 4028,
-        // All web-based miners: Antminer (stock/VNish/Braiins/LuxOS),
-        // AvalonMiner, Goldshell, Auradine, BitAxe, IceRiver,
-        // Innosilicon, ePIC, Hammer, VolcMiner, Elphapex, LuckyMiner
+        crate::capabilities::FAMILY_AVALONMINER => 4028,
+        // Web-based miners: Antminer (stock/VNish/Braiins/LuxOS/Marathon), BitAxe, NerdAxe, ePIC
         _ => 80,
     }
 }

@@ -10,27 +10,22 @@ pub type Capabilities = HashMap<String, bool>;
 pub const FAMILY_WHATSMINER: &str = "whatsminer";
 pub const FAMILY_ANTMINER: &str = "antminer";
 pub const FAMILY_AVALONMINER: &str = "avalonminer";
-pub const FAMILY_GOLDSHELL: &str = "goldshell";
-pub const FAMILY_AURADINE: &str = "auradine";
 pub const FAMILY_BITAXE: &str = "bitaxe";
-pub const FAMILY_ICERIVER: &str = "iceriver";
-pub const FAMILY_INNOSILICON: &str = "innosilicon";
+pub const FAMILY_NERDAXE: &str = "nerdaxe";
 pub const FAMILY_EPIC: &str = "epic";
-pub const FAMILY_HAMMER: &str = "hammer";
-pub const FAMILY_VOLCMINER: &str = "volcminer";
-pub const FAMILY_ELPHAPEX: &str = "elphapex";
-pub const FAMILY_LUCKYMINER: &str = "luckyminer";
 
 // Firmware variants
 pub const VARIANT_STOCK: &str = "stock";
 pub const VARIANT_VNISH: &str = "vnish";
 pub const VARIANT_BRAIINS: &str = "braiins";
 pub const VARIANT_LUXOS: &str = "luxos";
+pub const VARIANT_MARATHON: &str = "marathon";
 
 // Manufacturer display names for aftermarket firmware
 const DISPLAY_VNISH: &str = "VNish";
 const DISPLAY_BRAIINS: &str = "Braiins";
 const DISPLAY_LUXOS: &str = "LuxOS";
+const DISPLAY_MARATHON: &str = "Marathon";
 
 /// Static base capabilities built once and cloned on use.
 static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
@@ -157,20 +152,14 @@ pub fn make_to_family(make: &str) -> Option<&'static str> {
                 VARIANT_VNISH,
                 VARIANT_BRAIINS,
                 VARIANT_LUXOS,
+                VARIANT_MARATHON,
             ],
             FAMILY_ANTMINER,
         ),
         (&[FAMILY_AVALONMINER], FAMILY_AVALONMINER),
-        (&[FAMILY_GOLDSHELL], FAMILY_GOLDSHELL),
-        (&[FAMILY_AURADINE], FAMILY_AURADINE),
         (&[FAMILY_BITAXE], FAMILY_BITAXE),
-        (&[FAMILY_ICERIVER], FAMILY_ICERIVER),
-        (&[FAMILY_INNOSILICON], FAMILY_INNOSILICON),
+        (&[FAMILY_NERDAXE], FAMILY_NERDAXE),
         (&[FAMILY_EPIC], FAMILY_EPIC),
-        (&[FAMILY_HAMMER], FAMILY_HAMMER),
-        (&[FAMILY_VOLCMINER], FAMILY_VOLCMINER),
-        (&[FAMILY_ELPHAPEX], FAMILY_ELPHAPEX),
-        (&[FAMILY_LUCKYMINER], FAMILY_LUCKYMINER),
     ];
     for (names, family) in families {
         for name in *names {
@@ -182,6 +171,10 @@ pub fn make_to_family(make: &str) -> Option<&'static str> {
     None
 }
 
+// "marafw" appears in live Marathon device version strings (e.g. "MARAFW_1.0.0"),
+// while VARIANT_MARATHON ("marathon") matches the display name returned by asic-rs.
+const FIRMWARE_STR_MARAFW: &str = "marafw";
+
 /// Map firmware string to config variant key (no allocation).
 pub fn firmware_to_variant(firmware: &str) -> &'static str {
     let lower = firmware.as_bytes();
@@ -191,6 +184,10 @@ pub fn firmware_to_variant(firmware: &str) -> &'static str {
         VARIANT_BRAIINS
     } else if contains_ascii_ci(lower, VARIANT_LUXOS.as_bytes()) {
         VARIANT_LUXOS
+    } else if contains_ascii_ci(lower, FIRMWARE_STR_MARAFW.as_bytes())
+        || contains_ascii_ci(lower, VARIANT_MARATHON.as_bytes())
+    {
+        VARIANT_MARATHON
     } else {
         VARIANT_STOCK
     }
@@ -212,6 +209,8 @@ pub fn detect_variant(make: &str, firmware: &str) -> &'static str {
         VARIANT_BRAIINS
     } else if contains_ascii_ci(make_lower, VARIANT_LUXOS.as_bytes()) {
         VARIANT_LUXOS
+    } else if contains_ascii_ci(make_lower, VARIANT_MARATHON.as_bytes()) {
+        VARIANT_MARATHON
     } else {
         VARIANT_STOCK
     }
@@ -239,6 +238,7 @@ pub fn firmware_manufacturer(variant: &str) -> Option<&'static str> {
         VARIANT_BRAIINS => Some(DISPLAY_BRAIINS),
         VARIANT_VNISH => Some(DISPLAY_VNISH),
         VARIANT_LUXOS => Some(DISPLAY_LUXOS),
+        VARIANT_MARATHON => Some(DISPLAY_MARATHON),
         _ => None,
     }
 }
@@ -345,34 +345,64 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
             username: "admin",
             password: "admin",
         }],
-        (FAMILY_GOLDSHELL, _) => vec![DefaultCredential {
-            username: "admin",
-            password: "123456789",
-        }],
-        (FAMILY_AURADINE, _) => vec![DefaultCredential {
-            username: "admin",
-            password: "admin",
-        }],
-        (FAMILY_ICERIVER, _) => vec![DefaultCredential {
-            username: "admin",
-            password: "12345678",
-        }],
-        (FAMILY_INNOSILICON, _) => vec![DefaultCredential {
-            username: "admin",
-            password: "admin",
-        }],
         (FAMILY_EPIC, _) => vec![DefaultCredential {
             username: "admin",
             password: "letmein",
         }],
-        (FAMILY_HAMMER, _) => vec![DefaultCredential {
-            username: "root",
-            password: "root",
-        }],
-        (FAMILY_VOLCMINER, _) => vec![DefaultCredential {
-            username: "admin",
-            password: "ltc@dog",
-        }],
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_make_to_family_marathon_maps_to_antminer() {
+        // Arrange
+        let make = "Marathon";
+
+        // Act
+        let family = make_to_family(make);
+
+        // Assert
+        assert_eq!(family, Some(FAMILY_ANTMINER));
+    }
+
+    #[test]
+    fn test_firmware_to_variant_marafw_prefix() {
+        // Arrange
+        let firmware = "MARAFW_1.0.0";
+
+        // Act
+        let variant = firmware_to_variant(firmware);
+
+        // Assert
+        assert_eq!(variant, VARIANT_MARATHON);
+    }
+
+    #[test]
+    fn test_firmware_to_variant_marathon_display_name() {
+        // Arrange
+        let firmware = "Marathon";
+
+        // Act
+        let variant = firmware_to_variant(firmware);
+
+        // Assert
+        assert_eq!(variant, VARIANT_MARATHON);
+    }
+
+    #[test]
+    fn test_detect_variant_marathon_make_fallback() {
+        // Arrange — bare version string with no recognizable firmware token; make is "Marathon"
+        let make = "Marathon";
+        let firmware = "1.0.0";
+
+        // Act
+        let variant = detect_variant(make, firmware);
+
+        // Assert
+        assert_eq!(variant, VARIANT_MARATHON);
     }
 }

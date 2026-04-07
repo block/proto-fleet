@@ -374,6 +374,71 @@ func TestDiscoverDevice_NotAntminer(t *testing.T) {
 	assert.Contains(t, err.Error(), "not an Antminer device")
 }
 
+func TestDiscoverDevice_RejectsNonStockFirmware(t *testing.T) {
+	tests := []struct {
+		name     string
+		bmminer  string
+		miner    string
+		luxminer string
+	}{
+		{name: "luxos in BMMiner", bmminer: "LuxOS 2.1.0"},
+		{name: "braiins in BMMiner", bmminer: "Braiins OS+ 22.08"},
+		{name: "vnish in BMMiner", bmminer: "VNish 1.2.7"},
+		{name: "luxos in Miner fallback", miner: "luxos-1.0"},
+		{name: "marathon in BMMiner", bmminer: "MARAFW_1.0.0"},
+		// LuxOS reports firmware in a custom "LUXminer" field; BMMiner is empty
+		// and Miner contains only a bare version number with no recognizable marker.
+		{name: "luxos via LUXminer field", luxminer: "2025.4.8.220305-57b389c7", miner: "2025.4.8.220305"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockClient := mocks.NewMockAntminerClient(ctrl)
+
+			d, err := New(func(_ string, _, _ int32, _ string) (antminer.AntminerClient, error) {
+				return mockClient, nil
+			})
+			require.NoError(t, err)
+
+			mockClient.EXPECT().
+				GetVersion(gomock.Any()).
+				Return(&rpc.VersionResponse{
+					Status: []rpc.StatusInfo{{
+						Status: "S",
+						When:   time.Now().Unix(),
+						Code:   1,
+						Msg:    "Success",
+					}},
+					Version: []rpc.VersionInfo{{
+						BMMiner:  tt.bmminer,
+						LUXminer: tt.luxminer,
+						API:      "3.1",
+						Miner:    tt.miner,
+						Type:     "Antminer S19",
+					}},
+					ID: 1,
+				}, nil)
+
+			mockClient.EXPECT().
+				Close().
+				Times(1)
+
+			// Act
+			_, err = d.DiscoverDevice(t.Context(), testIPAddress, correctPort)
+
+			// Assert
+			require.Error(t, err)
+			var sdkErr sdk.SDKError
+			assert.ErrorAs(t, err, &sdkErr)
+			assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
+		})
+	}
+}
+
 func TestDiscoverDevice_UnknownModel(t *testing.T) {
 	d, err := New(createRealClientFactory())
 	require.NoError(t, err)

@@ -68,6 +68,19 @@ After modifying definitions in `proto/`, regenerate generated clients and server
 just gen
 ```
 
+## Supported Hardware
+
+| Hardware | Firmware variants | Discovery port |
+| --- | --- | --- |
+| MicroBT WhatsMiner | Stock | 4028 |
+| Bitmain Antminer | Stock | 4028 |
+| Bitmain Antminer | VNish, Braiins OS, LuxOS, Marathon | 80 |
+| Canaan AvalonMiner | Stock | 4028 |
+| BitAxe | Stock (AxeOS) | 80 |
+| NerdAxe | Stock | 80 |
+| ePIC | Stock | 80 |
+| Proto | Stock | 443 |
+
 ## Production Install
 
 ### Latest Version

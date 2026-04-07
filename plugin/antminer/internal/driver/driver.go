@@ -33,7 +33,34 @@ const (
 	requiredRPCPort   = 4028
 	manufacturer      = "Bitmain"
 	versionTypePrefix = "Antminer"
+
+	// Firmware variant markers — substrings that appear in the BMMiner/Miner
+	// version field for each aftermarket firmware. Checked case-insensitively.
+	firmwareMarkerLuxOS   = "luxos"
+	firmwareMarkerBraiins = "braiins"
+	firmwareMarkerVNish   = "vnish"
+	firmwareMarkerMaraFW  = "marafw"
 )
+
+// nonStockFirmwareMarkers are case-insensitive substrings that indicate
+// non-stock firmware that should be handled by a specialized plugin (e.g. asicrs).
+var nonStockFirmwareMarkers = []string{
+	firmwareMarkerLuxOS,
+	firmwareMarkerBraiins,
+	firmwareMarkerVNish,
+	firmwareMarkerMaraFW,
+}
+
+// isNonStockFirmware reports whether the firmware string indicates a non-stock variant.
+func isNonStockFirmware(firmware string) bool {
+	lower := strings.ToLower(firmware)
+	for _, marker := range nonStockFirmwareMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
@@ -217,6 +244,16 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	firmwareVersion := versionInfo.BMMiner
 	if firmwareVersion == "" {
 		firmwareVersion = versionInfo.Miner
+	}
+
+	if versionInfo.LUXminer != "" {
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress,
+			fmt.Errorf("LuxOS firmware detected, skipping antminer plugin"))
+	}
+
+	if isNonStockFirmware(firmwareVersion) {
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress,
+			fmt.Errorf("non-stock firmware detected (%s), skipping antminer plugin", firmwareVersion))
 	}
 
 	return sdk.DeviceInfo{

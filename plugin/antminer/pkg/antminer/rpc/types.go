@@ -26,6 +26,7 @@ type VersionResponse struct {
 
 type VersionInfo struct {
 	BMMiner     string `json:"BMMiner"`
+	LUXminer    string `json:"LUXminer"`
 	API         string `json:"API"`
 	Miner       string `json:"Miner"`
 	CompileTime string `json:"CompileTime"`
