@@ -54,9 +54,12 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
       contentHeader="Upload firmware"
       onDismiss={handleDismiss}
       buttons={buttons}
-      size="small"
+      size="large"
       divider={false}
     >
+      <div className="text-text-secondary mt-2 text-300">
+        Add a firmware file to make it available for miner updates.
+      </div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner && (
           <div className="flex items-center justify-center p-8">

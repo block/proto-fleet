@@ -2,27 +2,21 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
-interface DeleteAllFirmwareDialogProps {
+interface DeleteFirmwareDialogProps {
   open?: boolean;
-  fileCount: number;
+  filename: string;
   onConfirm: () => void;
   onDismiss: () => void;
   isSubmitting: boolean;
 }
 
-const DeleteAllFirmwareDialog = ({
-  open,
-  fileCount,
-  onConfirm,
-  onDismiss,
-  isSubmitting,
-}: DeleteAllFirmwareDialogProps) => {
+const DeleteFirmwareDialog = ({ open, filename, onConfirm, onDismiss, isSubmitting }: DeleteFirmwareDialogProps) => {
   return (
     <Dialog
       open={open}
-      title="Delete all firmware files?"
+      title="Delete firmware file?"
       titleSize="text-heading-300"
-      testId="delete-all-firmware-dialog"
+      testId="delete-firmware-dialog"
       onDismiss={onDismiss}
       icon={
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5 text-intent-critical-fill">
@@ -34,9 +28,10 @@ const DeleteAllFirmwareDialog = ({
           text: "Cancel",
           onClick: onDismiss,
           variant: variants.secondary,
+          disabled: isSubmitting,
         },
         {
-          text: "Delete all",
+          text: "Delete",
           onClick: onConfirm,
           variant: variants.danger,
           loading: isSubmitting,
@@ -44,11 +39,10 @@ const DeleteAllFirmwareDialog = ({
       ]}
     >
       <div className="text-300 text-text-primary-70">
-        This will permanently delete {fileCount === 1 ? "1 firmware file" : `all ${fileCount} firmware files`}. This
-        action cannot be undone.
+        This will permanently delete "{filename}". This action cannot be undone.
       </div>
     </Dialog>
   );
 };
 
-export default DeleteAllFirmwareDialog;
+export default DeleteFirmwareDialog;

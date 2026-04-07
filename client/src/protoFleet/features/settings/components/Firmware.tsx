@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
+import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import { Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -59,6 +60,8 @@ const Firmware = () => {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FirmwareFileData | null>(null);
+  const [isDeletingSingle, setIsDeletingSingle] = useState(false);
 
   const fetchFiles = useCallback(() => {
     setIsLoading(true);
@@ -84,25 +87,32 @@ const Firmware = () => {
   }, [fetchFiles]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const handleDeleteFile = useCallback(
-    (file: FirmwareFileData) => {
-      deleteFirmwareFile(file.id)
-        .then(() => {
-          pushToast({
-            message: `Deleted ${file.filename}`,
-            status: STATUSES.success,
-          });
-          fetchFiles();
-        })
-        .catch((error) => {
-          pushToast({
-            message: error?.message || "Failed to delete firmware file",
-            status: STATUSES.error,
-          });
+  const handleDeleteFile = useCallback((file: FirmwareFileData) => {
+    setFileToDelete(file);
+  }, []);
+
+  const handleDeleteFileConfirm = useCallback(() => {
+    if (!fileToDelete) return;
+    setIsDeletingSingle(true);
+    deleteFirmwareFile(fileToDelete.id)
+      .then(() => {
+        pushToast({
+          message: `Deleted ${fileToDelete.filename}`,
+          status: STATUSES.success,
         });
-    },
-    [deleteFirmwareFile, fetchFiles],
-  );
+        setFileToDelete(null);
+        fetchFiles();
+      })
+      .catch((error) => {
+        pushToast({
+          message: error?.message || "Failed to delete firmware file",
+          status: STATUSES.error,
+        });
+      })
+      .finally(() => {
+        setIsDeletingSingle(false);
+      });
+  }, [fileToDelete, deleteFirmwareFile, fetchFiles]);
 
   const handleDeleteAllConfirm = useCallback(() => {
     setIsDeletingAll(true);
@@ -188,6 +198,16 @@ const Firmware = () => {
         open={showUploadDialog}
         onSuccess={handleUploadSuccess}
         onDismiss={() => setShowUploadDialog(false)}
+      />
+
+      <DeleteFirmwareDialog
+        open={fileToDelete !== null}
+        filename={fileToDelete?.filename ?? ""}
+        onConfirm={handleDeleteFileConfirm}
+        onDismiss={() => {
+          if (!isDeletingSingle) setFileToDelete(null);
+        }}
+        isSubmitting={isDeletingSingle}
       />
 
       <DeleteAllFirmwareDialog

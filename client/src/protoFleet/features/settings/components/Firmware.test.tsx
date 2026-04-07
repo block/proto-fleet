@@ -88,7 +88,7 @@ describe("Firmware", () => {
     });
   });
 
-  it("calls deleteFirmwareFile when per-row delete action is triggered", async () => {
+  it("opens delete confirmation dialog when per-row delete action is triggered", async () => {
     mockListFirmwareFiles.mockResolvedValue(sampleFiles);
 
     const { getAllByText, getByText } = render(<Firmware />);
@@ -98,11 +98,69 @@ describe("Firmware", () => {
     });
 
     const deleteButtons = getAllByText("Delete");
+    fireEvent.click(deleteButtons[0]);
+
+    expect(getByText("Delete firmware file?")).toBeInTheDocument();
+    const dialog = screen.getByTestId("delete-firmware-dialog");
+    expect(within(dialog).getByText(/alpha\.swu/)).toBeInTheDocument();
+    expect(mockDeleteFirmwareFile).not.toHaveBeenCalled();
+  });
+
+  it("calls deleteFirmwareFile after confirming single delete dialog", async () => {
+    mockListFirmwareFiles.mockResolvedValue(sampleFiles);
+
+    const { getAllByText, getByText } = render(<Firmware />);
+
+    await waitFor(() => {
+      expect(getByText("alpha.swu")).toBeInTheDocument();
+    });
+
+    const deleteButtons = getAllByText("Delete");
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(getByText("Delete firmware file?")).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByTestId("delete-firmware-dialog");
+    const dialogDeleteButton = within(dialog).getByText("Delete");
+
     await act(async () => {
-      fireEvent.click(deleteButtons[0]);
+      fireEvent.click(dialogDeleteButton);
     });
 
     expect(mockDeleteFirmwareFile).toHaveBeenCalledWith("f1");
+  });
+
+  it("keeps delete dialog open and does not refresh list on delete failure", async () => {
+    mockListFirmwareFiles.mockResolvedValue(sampleFiles);
+    mockDeleteFirmwareFile.mockRejectedValue(new Error("Server error"));
+
+    const { getAllByText, getByText } = render(<Firmware />);
+
+    await waitFor(() => {
+      expect(getByText("alpha.swu")).toBeInTheDocument();
+    });
+
+    mockListFirmwareFiles.mockClear();
+
+    const deleteButtons = getAllByText("Delete");
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(getByText("Delete firmware file?")).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByTestId("delete-firmware-dialog");
+    const dialogDeleteButton = within(dialog).getByText("Delete");
+
+    await act(async () => {
+      fireEvent.click(dialogDeleteButton);
+    });
+
+    expect(mockDeleteFirmwareFile).toHaveBeenCalledWith("f1");
+    expect(getByText("Delete firmware file?")).toBeInTheDocument();
+    expect(mockListFirmwareFiles).not.toHaveBeenCalled();
   });
 
   it("opens delete-all dialog when Delete all button is clicked", async () => {
