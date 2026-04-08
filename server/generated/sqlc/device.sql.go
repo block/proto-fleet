@@ -1257,6 +1257,28 @@ WHERE dd.org_id = $1
               AND errors.component_type = ANY($10::int[])
         )
     )
+    -- Group filter
+    AND (
+        $11::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM device_set_membership dsm
+            WHERE dsm.device_id = d.id
+              AND dsm.org_id = $1
+              AND dsm.device_set_type = 'group'
+              AND dsm.device_set_id = ANY($12::bigint[])
+        )
+    )
+    -- Rack filter
+    AND (
+        $13::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM device_set_membership dsm
+            WHERE dsm.device_id = d.id
+              AND dsm.org_id = $1
+              AND dsm.device_set_type = 'rack'
+              AND dsm.device_set_id = ANY($14::bigint[])
+        )
+    )
 `
 
 type GetTotalMinerStateSnapshotsParams struct {
@@ -1270,6 +1292,10 @@ type GetTotalMinerStateSnapshotsParams struct {
 	NeedsAttentionFilter      sql.NullBool
 	ErrorComponentTypesFilter sql.NullString
 	ErrorComponentTypeValues  []int32
+	GroupIdsFilter            sql.NullString
+	GroupIDValues             []int64
+	RackIdsFilter             sql.NullString
+	RackIDValues              []int64
 }
 
 // Unified query that supports all filters including component error filtering
@@ -1286,6 +1312,10 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 		arg.NeedsAttentionFilter,
 		arg.ErrorComponentTypesFilter,
 		pq.Array(arg.ErrorComponentTypeValues),
+		arg.GroupIdsFilter,
+		pq.Array(arg.GroupIDValues),
+		arg.RackIdsFilter,
+		pq.Array(arg.RackIDValues),
 	)
 	var total int64
 	err := row.Scan(&total)

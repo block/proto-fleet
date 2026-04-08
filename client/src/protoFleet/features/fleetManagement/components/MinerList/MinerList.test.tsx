@@ -693,6 +693,19 @@ describe("MinerList", () => {
       expect(screen.getByText("Miners")).toBeInTheDocument();
     });
 
+    it("shows filtered empty state when items are empty but totalMiners is non-zero", () => {
+      render(
+        <MemoryRouter initialEntries={["/?group=1"]}>
+          <MinerList title="Miners" minerIds={[]} totalMiners={8} totalUnfilteredMiners={8} onAddMiners={vi.fn()} />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByText("No results")).toBeInTheDocument();
+      expect(screen.getByText("Try adjusting or clearing your filters.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Clear all filters" })).toBeInTheDocument();
+      expect(screen.queryByText(/Showing/)).not.toBeInTheDocument();
+    });
+
     it("clears group param along with other filters while preserving sort params", async () => {
       const user = userEvent.setup();
 

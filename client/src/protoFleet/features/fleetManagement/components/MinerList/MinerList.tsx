@@ -312,7 +312,7 @@ const ScopedMinerListBody = ({
         getDefaultSortDirection={getDefaultSortDirection}
         onRowClick={onRowClick}
         emptyStateRow={
-          totalMiners === 0 ? (
+          totalMiners === 0 || deviceItems.length === 0 ? (
             <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
           ) : undefined
         }
@@ -668,7 +668,8 @@ const MinerList = ({
 
   const firstItemIndex = currentPage * pageSize + 1;
   const lastItemIndex = currentPage * pageSize + minerIds.length;
-  const shouldRenderPagination = !loading && totalMiners !== undefined && totalMiners > 0;
+  const shouldRenderPagination =
+    !loading && totalMiners !== undefined && totalMiners > 0 && (minerIds.length > 0 || currentPage > 0);
 
   return (
     <>

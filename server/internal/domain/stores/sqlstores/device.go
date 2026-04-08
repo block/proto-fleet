@@ -782,6 +782,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
 		ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
 		ErrorComponentTypeValues:  fp.errorComponentTypeValues,
+		GroupIdsFilter:            fp.groupIDsFilter,
+		GroupIDValues:             fp.groupIDValues,
+		RackIdsFilter:             fp.rackIDsFilter,
+		RackIDValues:              fp.rackIDValues,
 	})
 	if err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)

@@ -500,6 +500,28 @@ WHERE dd.org_id = sqlc.arg('org_id')
               AND errors.closed_at IS NULL
               AND errors.component_type = ANY(sqlc.arg('error_component_type_values')::int[])
         )
+    )
+    -- Group filter
+    AND (
+        sqlc.narg('group_ids_filter')::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM device_set_membership dsm
+            WHERE dsm.device_id = d.id
+              AND dsm.org_id = sqlc.arg('org_id')
+              AND dsm.device_set_type = 'group'
+              AND dsm.device_set_id = ANY(sqlc.arg('group_id_values')::bigint[])
+        )
+    )
+    -- Rack filter
+    AND (
+        sqlc.narg('rack_ids_filter')::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM device_set_membership dsm
+            WHERE dsm.device_id = d.id
+              AND dsm.org_id = sqlc.arg('org_id')
+              AND dsm.device_set_type = 'rack'
+              AND dsm.device_set_id = ANY(sqlc.arg('rack_id_values')::bigint[])
+        )
     );
 
 -- name: GetFilteredDeviceIds :many

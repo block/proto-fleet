@@ -45,12 +45,48 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByGroupID(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Len(t, resp.Miners, 2, "should return only the 2 devices in the group")
+	assert.Equal(t, int32(2), resp.TotalMiners, "total count should match filtered list length")
 
 	returnedIDs := make([]string, len(resp.Miners))
 	for i, m := range resp.Miners {
 		returnedIDs[i] = m.DeviceIdentifier
 	}
 	assert.ElementsMatch(t, deviceIDs[:2], returnedIDs)
+}
+
+func TestService_ListMinerStateSnapshots_ShouldReturnZeroTotalForEmptyGroupFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+
+	// Create 3 miners but don't add any to the group
+	testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+
+	group, err := collectionStore.CreateCollection(t.Context(), orgID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP, "Empty Group", "")
+	require.NoError(t, err)
+
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Act - filter by the empty group
+	resp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 10,
+		Filter: &pb.MinerListFilter{
+			GroupIds: []int64{group.Id},
+		},
+	})
+
+	// Assert - both list and total should be zero
+	require.NoError(t, err)
+	assert.Empty(t, resp.Miners, "should return no devices for empty group")
+	assert.Equal(t, int32(0), resp.TotalMiners, "total count should be 0 for empty group filter")
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByGroupAndRackWithANDLogic(t *testing.T) {
