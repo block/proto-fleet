@@ -38,8 +38,6 @@ function getDaySelection(
   selectedEndDate?: Date,
   hoveredDate?: Date,
 ): DaySelection {
-  if (!day.isCurrentMonth) return "none";
-
   if (selectionMode === "single") {
     if (selectedDate && isSameDay(day.dateObj, selectedDate)) return "single";
     return "none";
@@ -97,7 +95,6 @@ const Calendar = ({
 
   const isDayDisabled = useCallback(
     (day: DayData): boolean => {
-      if (!day.isCurrentMonth) return true;
       if (!isDateInTimeframe(day.dateObj, timeframe)) return true;
       if (isDateDisabled?.(day.dateObj)) return true;
       return false;
@@ -169,10 +166,8 @@ const Calendar = ({
               <button
                 type="button"
                 className={clsx("flex h-9 w-9 items-center justify-center rounded-full text-300 transition-colors", {
-                  // Not in current month
-                  invisible: !day.isCurrentMonth,
                   // Disabled
-                  "cursor-not-allowed text-text-primary-30": disabled && day.isCurrentMonth,
+                  "cursor-not-allowed text-text-primary-30": disabled,
                   // Selected (single or range endpoints)
                   "bg-core-accent-fill text-text-base-contrast-static": isRangeEnd && !disabled,
                   // Range middle
@@ -182,12 +177,14 @@ const Calendar = ({
                   // Normal interactive
                   "cursor-pointer text-text-primary hover:bg-core-primary-5":
                     !disabled && !isSelected && day.isCurrentMonth,
+                  "cursor-pointer text-text-primary-30 hover:bg-core-primary-5":
+                    !disabled && !isSelected && !day.isCurrentMonth,
                 })}
                 disabled={disabled}
-                onClick={() => !disabled && day.isCurrentMonth && onDayClick(day.dateObj)}
-                onMouseEnter={() => day.isCurrentMonth && !disabled && onDayHover(day.dateObj)}
+                onClick={() => !disabled && onDayClick(day.dateObj)}
+                onMouseEnter={() => !disabled && onDayHover(day.dateObj)}
                 onMouseLeave={() => onDayHover(undefined)}
-                tabIndex={!day.isCurrentMonth || disabled ? -1 : 0}
+                tabIndex={disabled ? -1 : 0}
                 aria-label={`${MONTH_NAMES[day.month]} ${day.date}, ${day.year}`}
                 aria-disabled={disabled}
                 aria-selected={isSelected}

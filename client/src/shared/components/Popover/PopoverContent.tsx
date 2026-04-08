@@ -1,10 +1,14 @@
-import { MouseEvent, useRef } from "react";
+import { MouseEvent, useEffect, useLayoutEffect, useRef } from "react";
 import clsx from "clsx";
 import ButtonGroup, { groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Header from "@/shared/components/Header";
 import { popoverSizes } from "@/shared/components/Popover/constants.ts";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
+import { usePopover } from "@/shared/components/Popover/usePopover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // TODO content of this component can be moved to Popover when ThemeSwitcher does not use this component anymore
 const PopoverContent = ({
@@ -21,12 +25,47 @@ const PopoverContent = ({
   closeIgnoreSelectors,
 }: PopoverContentProps) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const { triggerRef, renderMode } = usePopover();
 
   useClickOutside({
     ref: popoverRef,
     onClickOutside: closePopover,
     ignoreSelectors: closeIgnoreSelectors,
   });
+
+  useLayoutEffect(() => {
+    if (renderMode !== "portal-scrolling") {
+      return;
+    }
+
+    if (popoverRef.current?.contains(document.activeElement)) {
+      return;
+    }
+
+    const firstFocusableElement = popoverRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    firstFocusableElement?.focus();
+  }, [renderMode]);
+
+  useEffect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      const isInsidePopover = popoverRef.current?.contains(event.target) ?? false;
+      const isInsideTrigger = triggerRef.current?.contains(event.target) ?? false;
+
+      if (!isInsidePopover && !isInsideTrigger) {
+        closePopover();
+      }
+    };
+
+    document.addEventListener("focusin", handleFocusIn);
+
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn);
+    };
+  }, [closePopover, triggerRef]);
 
   // Stop propagation to prevent modal close
   const handleClick = (e: MouseEvent) => {

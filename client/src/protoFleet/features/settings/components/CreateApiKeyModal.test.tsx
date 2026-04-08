@@ -1,8 +1,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CreateApiKeyModal from "./CreateApiKeyModal";
 import { useApiKeys } from "@/protoFleet/api/useApiKeys";
-import type { ApiKeyItem } from "@/protoFleet/api/useApiKeys";
 import * as utility from "@/shared/utils/utility";
 
 vi.mock("@/protoFleet/api/useApiKeys");
@@ -19,16 +18,6 @@ const mockCreateApiKey = vi.fn();
 const mockOnDismiss = vi.fn();
 const mockOnSuccess = vi.fn();
 
-const mockApiKeyInfo: ApiKeyItem = {
-  keyId: "key-123",
-  name: "CI integration",
-  prefix: "pf_test",
-  createdAt: new Date("2026-04-03T12:00:00Z"),
-  expiresAt: null,
-  lastUsedAt: null,
-  createdBy: "admin",
-};
-
 beforeEach(() => {
   vi.mocked(useApiKeys).mockReturnValue({
     createApiKey: mockCreateApiKey,
@@ -37,6 +26,10 @@ beforeEach(() => {
   });
 
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("CreateApiKeyModal", () => {
@@ -65,9 +58,7 @@ describe("CreateApiKeyModal", () => {
   });
 
   it("calls createApiKey with a trimmed name", async () => {
-    mockCreateApiKey.mockImplementation(({ onSuccess }) => {
-      onSuccess("pf_test_secret", mockApiKeyInfo);
-    });
+    mockCreateApiKey.mockResolvedValue("pf_test_secret");
 
     const { getByLabelText, getByText } = render(
       <CreateApiKeyModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
@@ -85,10 +76,38 @@ describe("CreateApiKeyModal", () => {
     });
   });
 
+  it("submits the expiration date selected from the date picker", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00"));
+    mockCreateApiKey.mockResolvedValue("pf_test_secret");
+
+    const { getByLabelText, getByTestId, getByText } = render(
+      <CreateApiKeyModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
+    );
+
+    fireEvent.change(getByLabelText("Key name"), { target: { value: "CI integration" } });
+    fireEvent.click(getByTestId("api-key-expires-trigger"));
+    fireEvent.click(getByTestId("api-key-expires-calendar-day-10"));
+    fireEvent.click(getByText("Create"));
+
+    expect(mockCreateApiKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "CI integration",
+      }),
+    );
+
+    const [{ expiresAt }] = mockCreateApiKey.mock.calls[0];
+    expect(expiresAt).toBeInstanceOf(Date);
+    expect(expiresAt.getFullYear()).toBe(2026);
+    expect(expiresAt.getMonth()).toBe(3);
+    expect(expiresAt.getDate()).toBe(10);
+    expect(expiresAt.getHours()).toBe(23);
+    expect(expiresAt.getMinutes()).toBe(59);
+    expect(expiresAt.getSeconds()).toBe(59);
+  });
+
   it("renders the standard success dialog after creation", async () => {
-    mockCreateApiKey.mockImplementation(({ onSuccess }) => {
-      onSuccess("pf_test_secret", mockApiKeyInfo);
-    });
+    mockCreateApiKey.mockResolvedValue("pf_test_secret");
 
     const { getByLabelText, getByText, getByTestId } = render(
       <CreateApiKeyModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
@@ -106,9 +125,7 @@ describe("CreateApiKeyModal", () => {
   });
 
   it("allows copying the generated API key", async () => {
-    mockCreateApiKey.mockImplementation(({ onSuccess }) => {
-      onSuccess("pf_test_secret", mockApiKeyInfo);
-    });
+    mockCreateApiKey.mockResolvedValue("pf_test_secret");
 
     const { getByLabelText, getByText, getByRole } = render(
       <CreateApiKeyModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
@@ -126,9 +143,7 @@ describe("CreateApiKeyModal", () => {
   });
 
   it("calls onSuccess and onDismiss when Done is clicked", async () => {
-    mockCreateApiKey.mockImplementation(({ onSuccess }) => {
-      onSuccess("pf_test_secret", mockApiKeyInfo);
-    });
+    mockCreateApiKey.mockResolvedValue("pf_test_secret");
 
     const { getByLabelText, getByText } = render(
       <CreateApiKeyModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
@@ -147,13 +162,14 @@ describe("CreateApiKeyModal", () => {
   });
 
   it("ignores a stale create success after the modal is dismissed", async () => {
-    let resolveCreate: ((apiKey: string, info: ApiKeyItem) => void) | undefined;
-    let finishCreate: (() => void) | undefined;
+    let resolveCreate: ((value: string) => void) | undefined;
 
-    mockCreateApiKey.mockImplementation(({ onSuccess, onFinally }) => {
-      resolveCreate = onSuccess;
-      finishCreate = onFinally;
-    });
+    mockCreateApiKey.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
 
     const { getByLabelText, getByText, queryByText, queryByTestId, rerender } = render(
       <CreateApiKeyModal open onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
@@ -170,8 +186,7 @@ describe("CreateApiKeyModal", () => {
     rerender(<CreateApiKeyModal open onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 
     await act(async () => {
-      resolveCreate?.("pf_test_secret", mockApiKeyInfo);
-      finishCreate?.();
+      resolveCreate?.("pf_test_secret");
     });
 
     expect(queryByText("API key created")).not.toBeInTheDocument();

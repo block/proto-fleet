@@ -6,7 +6,7 @@ import {
   buildDateInTimeZone,
   formatTimeZoneDateParts,
   getTimeZoneDateTimeParts,
-} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 
 const MINUTE_IN_MS = 60_000;
 const HOUR_IN_MINUTES = 60;

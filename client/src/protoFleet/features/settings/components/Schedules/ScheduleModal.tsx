@@ -33,9 +33,14 @@ import {
   timeOptions,
   validateSchedule,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+import {
+  formatDateValue,
+  parseDate as parseScheduleDate,
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 import { ChevronDown } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
+import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants";
@@ -319,6 +324,7 @@ const ScheduleModal = ({
   const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const initializedFormSourceRef = useRef<string | null>(null);
+  const valuesRef = useRef(values);
   const formSourceKey = schedule?.id ?? "__create__";
 
   useEffect(() => {
@@ -355,10 +361,15 @@ const ScheduleModal = ({
     });
   }, [listRacks, open]);
 
+  useEffect(() => {
+    valuesRef.current = values;
+  }, [values]);
+
   const setNextValues = useCallback(
     (updater: ScheduleFormValues | ((current: ScheduleFormValues) => ScheduleFormValues)) => {
       setValues((current) => {
         const next = typeof updater === "function" ? updater(current) : updater;
+        valuesRef.current = next;
 
         if (showAllErrors || Object.keys(touchedFields).length > 0) {
           setErrors(validateSchedule(next));
@@ -381,6 +392,36 @@ const ScheduleModal = ({
   const getVisibleError = useCallback(
     (field: keyof ScheduleFormErrors) => (showAllErrors || touchedFields[field] ? errors[field] : undefined),
     [errors, showAllErrors, touchedFields],
+  );
+
+  const updateDateValidation = useCallback((field: "startDate" | "endDate", nextValues: ScheduleFormValues) => {
+    setTouchedFields((touched) => ({ ...touched, [field]: true }));
+    setErrors(validateSchedule(nextValues));
+  }, []);
+
+  const touchDateField = useCallback(
+    (field: "startDate" | "endDate") => {
+      updateDateValidation(field, valuesRef.current);
+    },
+    [updateDateValidation],
+  );
+
+  const updateDateField = useCallback(
+    (field: "startDate" | "endDate", date: Date) => {
+      const nextValue = formatDateValue(date);
+      const nextValues = { ...valuesRef.current, [field]: nextValue };
+      valuesRef.current = nextValues;
+      setValues(nextValues);
+      updateDateValidation(field, nextValues);
+    },
+    [updateDateValidation],
+  );
+
+  const selectedStartDate = values.startDate ? (parseScheduleDate(values.startDate) ?? undefined) : undefined;
+  const selectedEndDate = values.endDate ? (parseScheduleDate(values.endDate) ?? undefined) : undefined;
+  const isEndDateDisabled = useCallback(
+    (date: Date) => (selectedStartDate ? date.getTime() < selectedStartDate.getTime() : false),
+    [selectedStartDate],
   );
 
   const handleActionChange = useCallback(
@@ -700,14 +741,21 @@ const ScheduleModal = ({
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Input
+                    <DatePickerField
                       id="schedule-start-date"
                       label="Start date"
-                      type="date"
-                      initValue={values.startDate}
-                      onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
-                      onChangeBlur={() => handleBlur("startDate")}
+                      labelPlacement="floating"
+                      selectedDate={selectedStartDate}
+                      onSelectedDateChange={(date) => updateDateField("startDate", date)}
+                      onBlur={() => touchDateField("startDate")}
+                      onOpenChange={(open) => {
+                        if (!open) {
+                          touchDateField("startDate");
+                        }
+                      }}
                       error={getVisibleError("startDate")}
+                      popoverRenderMode="portal-scrolling"
+                      testId="schedule-start-date"
                     />
                     <Select
                       id="schedule-end-behavior"
@@ -725,28 +773,43 @@ const ScheduleModal = ({
 
                   {values.endBehavior === "endDate" ? (
                     <div className="grid gap-4 md:grid-cols-2">
-                      <Input
+                      <DatePickerField
                         id="schedule-end-date"
                         label="End date"
-                        type="date"
-                        initValue={values.endDate}
-                        onChange={(value) => setNextValues((current) => ({ ...current, endDate: value }))}
-                        onChangeBlur={() => handleBlur("endDate")}
+                        labelPlacement="floating"
+                        selectedDate={selectedEndDate}
+                        onSelectedDateChange={(date) => updateDateField("endDate", date)}
+                        onBlur={() => touchDateField("endDate")}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            touchDateField("endDate");
+                          }
+                        }}
+                        isDateDisabled={isEndDateDisabled}
                         error={getVisibleError("endDate")}
+                        popoverRenderMode="portal-scrolling"
+                        testId="schedule-end-date"
                       />
                     </div>
                   ) : null}
                 </>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Input
+                  <DatePickerField
                     id="schedule-start-date"
                     label="Start date"
-                    type="date"
-                    initValue={values.startDate}
-                    onChange={(value) => setNextValues((current) => ({ ...current, startDate: value }))}
-                    onChangeBlur={() => handleBlur("startDate")}
+                    labelPlacement="floating"
+                    selectedDate={selectedStartDate}
+                    onSelectedDateChange={(date) => updateDateField("startDate", date)}
+                    onBlur={() => touchDateField("startDate")}
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        touchDateField("startDate");
+                      }
+                    }}
                     error={getVisibleError("startDate")}
+                    popoverRenderMode="portal-scrolling"
+                    testId="schedule-start-date"
                   />
                   <Select
                     id="schedule-start-time"

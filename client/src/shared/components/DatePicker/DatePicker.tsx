@@ -1,11 +1,11 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import clsx from "clsx";
 
 import Calendar from "./Calendar";
 import { PresetId } from "./constants";
 import DatePickerInput from "./DatePickerInput";
 import PresetList from "./PresetList";
-import { DatePickerProps } from "./types";
+import type { DatePickerProps } from "./types";
 import {
   computePresetDates,
   formatDisplayDate,
@@ -15,13 +15,19 @@ import {
   isSameDay,
 } from "./utils";
 import { Calendar as CalendarIcon } from "@/shared/assets/icons";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
+import { positions } from "@/shared/constants";
 
 const hasOwnProperty = <K extends keyof DatePickerProps>(props: DatePickerProps, key: K): boolean =>
   Object.prototype.hasOwnProperty.call(props, key);
 
-const DatePicker = (props: DatePickerProps) => {
+const DatePickerContent = (props: DatePickerProps) => {
   const {
+    id,
+    label,
+    floatingLabel = false,
+    onBlur,
+    onOpenChange,
     selectionMode = "single",
     withInputs = false,
     displayMenu = false,
@@ -37,14 +43,16 @@ const DatePicker = (props: DatePickerProps) => {
     className,
     testId = "date-picker",
     disabled = false,
+    error = false,
+    popoverRenderMode = "inline",
   } = props;
+  const { triggerRef, setPopoverRenderMode } = usePopover();
 
   const isDateControlled = hasOwnProperty(props, "selectedDate");
   const isStartControlled = hasOwnProperty(props, "selectedStartDate");
   const isEndControlled = hasOwnProperty(props, "selectedEndDate");
 
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Internal state (used when not fully controlled)
   const [internalDate, setInternalDate] = useState<Date | undefined>(controlledDate);
@@ -81,22 +89,29 @@ const DatePicker = (props: DatePickerProps) => {
     setRangeSelecting(false);
   }, []);
 
+  const setPickerOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
   const closePicker = useCallback(() => {
     resetPendingRangeState();
-    setOpen(false);
-  }, [resetPendingRangeState]);
+    setPickerOpen(false);
+  }, [resetPendingRangeState, setPickerOpen]);
 
-  useClickOutside({
-    ref: containerRef,
-    onClickOutside: closePicker,
-  });
+  useEffect(() => {
+    setPopoverRenderMode(popoverRenderMode);
+  }, [popoverRenderMode, setPopoverRenderMode]);
 
   // Disabled is an external control boundary, so close the panel before paint when it flips on.
   useLayoutEffect(() => {
-    if (!disabled) return;
+    if (!disabled || !open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     closePicker();
-  }, [disabled, closePicker]);
+  }, [disabled, open, closePicker]);
 
   const isControlledSelection = selectionMode === "single" ? isDateControlled : isStartControlled || isEndControlled;
   const controlledSelection = selectionMode === "single" ? selectedDate : (selectedStartDate ?? selectedEndDate);
@@ -287,46 +302,89 @@ const DatePicker = (props: DatePickerProps) => {
   })();
 
   const hasValue = selectionMode === "single" ? !!selectedDate : !!activeStartDate;
+  const hasError = Boolean(error);
+  const hasFloatingLabel = Boolean(floatingLabel && label);
+  const shouldFloatLabel = hasFloatingLabel && (hasValue || open);
+  const floatingLabelText = label ?? "";
+  const floatingValueText = hasValue ? triggerText : open ? triggerText : "";
+  const closeIgnoreSelectors = id ? [`#${id}`] : [];
 
   return (
-    <div ref={containerRef} className={clsx("relative inline-block", className)} data-testid={testId}>
+    <div className={clsx("relative inline-block", className)} data-testid={testId}>
       {/* Trigger */}
-      <button
-        type="button"
-        className={clsx(
-          "flex w-full min-w-[280px] items-center gap-2 rounded-lg border px-4 py-2.5 text-left text-300 transition duration-200 ease-in-out",
-          {
-            "border-border-5 bg-surface-base": !disabled && !open,
-            "border-border-20 bg-surface-base ring-4 ring-surface-10": open && !disabled,
-            "cursor-not-allowed border-border-5 bg-core-primary-5 text-text-primary-50": disabled,
-            "cursor-pointer hover:border-border-20": !disabled,
-          },
-        )}
-        onClick={() => {
-          if (disabled) return;
-          if (open) {
-            closePicker();
-            return;
-          }
-          setOpen(true);
-        }}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open && !disabled}
-        data-testid={`${testId}-trigger`}
-      >
-        <CalendarIcon className="text-text-primary-50" width="w-4" />
-        <span className={hasValue ? "text-text-primary" : "text-text-primary-50"}>{triggerText}</span>
-      </button>
+      <div ref={triggerRef}>
+        <button
+          type="button"
+          id={id}
+          className={clsx(
+            "relative flex w-full min-w-[280px] rounded-lg border text-left text-300 transition duration-200 ease-in-out",
+            {
+              "h-14 items-center px-4": hasFloatingLabel,
+              "items-center gap-2 px-4 py-2.5": !hasFloatingLabel,
+              "border-border-5 bg-surface-base": !disabled && !open && !hasError,
+              "border-border-20 bg-surface-base ring-4 ring-surface-10": open && !disabled && !hasError,
+              "border-intent-critical-50 bg-surface-base": !disabled && !open && hasError,
+              "border-intent-critical-50 bg-surface-base ring-4 ring-intent-critical-20": open && !disabled && hasError,
+              "cursor-not-allowed border-border-5 bg-core-primary-5 text-text-primary-50": disabled,
+              "cursor-pointer hover:border-border-20": !disabled && !hasError,
+            },
+          )}
+          onClick={() => {
+            if (disabled) return;
+            if (open) {
+              closePicker();
+              return;
+            }
+            setPickerOpen(true);
+          }}
+          disabled={disabled}
+          aria-haspopup="dialog"
+          aria-expanded={open && !disabled}
+          aria-invalid={hasError || undefined}
+          aria-describedby={id && typeof error === "string" && error ? `${id}-error` : undefined}
+          onBlur={() => {
+            if (!open) {
+              onBlur?.();
+            }
+          }}
+          data-testid={`${testId}-trigger`}
+        >
+          {hasFloatingLabel ? (
+            <>
+              <span
+                className={clsx(
+                  "pointer-events-none absolute text-text-primary-50 transition-[top,left] duration-150 ease-in-out",
+                  shouldFloatLabel ? "top-[7px] left-[17px] text-200" : "top-1/2 left-4 -translate-y-1/2 text-300",
+                )}
+              >
+                {floatingLabelText}
+              </span>
+              <div className={clsx("flex min-w-0 items-center gap-2", { "pt-[18px]": shouldFloatLabel })}>
+                {shouldFloatLabel ? <CalendarIcon className="shrink-0 text-text-primary-50" width="w-4" /> : null}
+                {floatingValueText ? (
+                  <span className={hasValue ? "truncate text-text-primary" : "truncate text-text-primary-50"}>
+                    {floatingValueText}
+                  </span>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <>
+              <CalendarIcon className="text-text-primary-50" width="w-4" />
+              <span className={hasValue ? "text-text-primary" : "text-text-primary-50"}>{triggerText}</span>
+            </>
+          )}
+        </button>
+      </div>
 
       {/* Dropdown panel */}
       {open && !disabled && (
-        <div
-          className={clsx(
-            "absolute left-0 z-50 mt-2 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px]",
-            "animate-slide-down-popover",
-          )}
-          data-testid={`${testId}-panel`}
+        <Popover
+          position={positions["bottom right"]}
+          className="!w-auto !space-y-0"
+          closePopover={closePicker}
+          closeIgnoreSelectors={closeIgnoreSelectors}
+          testId={`${testId}-panel`}
         >
           <div className="flex gap-4">
             {/* Preset menu */}
@@ -374,10 +432,16 @@ const DatePicker = (props: DatePickerProps) => {
               />
             </div>
           </div>
-        </div>
+        </Popover>
       )}
     </div>
   );
 };
+
+const DatePicker = (props: DatePickerProps) => (
+  <PopoverProvider>
+    <DatePickerContent {...props} />
+  </PopoverProvider>
+);
 
 export default DatePicker;

@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import process from "node:process";
 
 import { DayOfWeek } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
-import { getTimeZoneDateTimeParts } from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
 import {
   getFutureScheduleRuns,
   hasFutureScheduleRun,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleRunUtils";
 import { createDefaultScheduleFormValues } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+import { getTimeZoneDateTimeParts } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 
 describe("scheduleRunUtils", () => {
   const originalTimeZone = process.env.TZ;

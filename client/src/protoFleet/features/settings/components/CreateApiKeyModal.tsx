@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiKeys } from "@/protoFleet/api/useApiKeys";
-import type { ApiKeyItem } from "@/protoFleet/api/useApiKeys";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
+import { DatePickerField } from "@/shared/components/DatePicker";
+import { formatDate, parseDate } from "@/shared/components/DatePicker/utils";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -18,6 +19,12 @@ interface CreateApiKeyModalProps {
 }
 
 type ModalStep = "enterDetails" | "displayKey";
+
+const getLocalToday = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
 
 const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProps) => {
   const isVisible = open ?? true;
@@ -45,7 +52,6 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
 
     createRequestIDRef.current += 1;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
     setStep("enterDetails");
     setName("");
     setExpiresAt("");
@@ -80,11 +86,14 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
     const createRequestID = createRequestIDRef.current + 1;
     createRequestIDRef.current = createRequestID;
 
-    createApiKey({
-      name: name.trim(),
-      // Interpret as local end-of-day so the key expires when the user expects
-      expiresAt: expiresAt ? new Date(expiresAt + "T23:59:59") : undefined,
-      onSuccess: (apiKey: string, _info: ApiKeyItem) => {
+    void (async () => {
+      try {
+        const apiKey = await createApiKey({
+          name: name.trim(),
+          // Interpret as local end-of-day so the key expires when the user expects
+          expiresAt: expiresAt ? new Date(expiresAt + "T23:59:59") : undefined,
+        });
+
         if (!isMountedRef.current || createRequestIDRef.current !== createRequestID) {
           return;
         }
@@ -95,22 +104,18 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
           message: `API key "${name}" created successfully`,
           status: STATUSES.success,
         });
-      },
-      onError: (error: string) => {
+      } catch (error) {
         if (!isMountedRef.current || createRequestIDRef.current !== createRequestID) {
           return;
         }
 
-        setErrorMsg(error || "Failed to create API key. Please try again.");
-      },
-      onFinally: () => {
-        if (!isMountedRef.current || createRequestIDRef.current !== createRequestID) {
-          return;
+        setErrorMsg(error instanceof Error ? error.message : "Failed to create API key. Please try again.");
+      } finally {
+        if (isMountedRef.current && createRequestIDRef.current === createRequestID) {
+          setIsSubmitting(false);
         }
-
-        setIsSubmitting(false);
-      },
-    });
+      }
+    })();
   }, [name, expiresAt, createApiKey]);
 
   const handleCopyKey = useCallback(() => {
@@ -133,6 +138,9 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
     onSuccess();
     onDismiss();
   }, [onSuccess, onDismiss]);
+
+  const selectedExpirationDate = expiresAt ? (parseDate(expiresAt) ?? undefined) : undefined;
+  const isExpirationDateDisabled = useCallback((date: Date) => date.getTime() <= getLocalToday().getTime(), []);
 
   if (step === "enterDetails") {
     return (
@@ -170,12 +178,22 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
             }}
             autoFocus
           />
-          <Input
+          <DatePickerField
             id="api-key-expires"
             label="Expiration date (optional)"
-            type="date"
-            initValue={expiresAt}
-            onChange={(value) => setExpiresAt(value)}
+            selectedDate={selectedExpirationDate}
+            onSelectedDateChange={(date) => {
+              setExpiresAt(formatDate(date));
+              setErrorMsg("");
+            }}
+            isDateDisabled={isExpirationDateDisabled}
+            clearable
+            onClear={() => {
+              setExpiresAt("");
+              setErrorMsg("");
+            }}
+            popoverRenderMode="portal-scrolling"
+            testId="api-key-expires"
           />
         </div>
       </Modal>

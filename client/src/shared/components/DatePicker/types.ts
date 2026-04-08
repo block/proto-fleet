@@ -6,6 +6,9 @@ export type Timeframe = "past" | "present" | "future";
 
 export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+export type DatePickerPopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
+export type DatePickerLabelPlacement = "above" | "floating";
+
 export type DaySelection = "none" | "single" | "range-first" | "range-middle" | "range-last";
 
 export interface DayData {
@@ -19,6 +22,11 @@ export interface DayData {
 }
 
 export interface DatePickerProps {
+  id?: string;
+  label?: string;
+  floatingLabel?: boolean;
+  onBlur?: () => void;
+  onOpenChange?: (open: boolean) => void;
   selectionMode?: SelectionMode;
   withInputs?: WithInputs;
   displayMenu?: boolean;
@@ -34,4 +42,6 @@ export interface DatePickerProps {
   className?: string;
   testId?: string;
   disabled?: boolean;
+  error?: boolean | string;
+  popoverRenderMode?: DatePickerPopoverRenderMode;
 }

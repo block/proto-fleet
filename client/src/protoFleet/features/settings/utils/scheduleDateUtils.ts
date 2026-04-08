@@ -36,7 +36,8 @@ export const parseDate = (value: string) => {
     return null;
   }
 
-  return new Date(parts.year, parts.month - 1, parts.day);
+  const date = new Date(parts.year, parts.month - 1, parts.day);
+  return formatDateValue(date) === value ? date : null;
 };
 
 export const parseTime = (value: string) => {
@@ -65,6 +66,13 @@ export const parseDateTime = (dateValue: string, timeValue: string) => {
 
 export const formatDateParts = (parts: DateParts) =>
   `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+
+export const formatDateValue = (date: Date) =>
+  formatDateParts({
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+  });
 
 export const formatTimeZoneDateParts = (parts: DateParts) =>
   formatDateParts({
@@ -108,11 +116,7 @@ export const addDaysToDateValue = (dateValue: string, days: number) => {
 
   parsed.setDate(parsed.getDate() + days);
 
-  return formatDateParts({
-    year: parsed.getFullYear(),
-    month: parsed.getMonth() + 1,
-    day: parsed.getDate(),
-  });
+  return formatDateValue(parsed);
 };
 
 export const buildDateInTimeZone = (dateValue: string, timeValue: string, timeZone: string) => {

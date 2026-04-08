@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
@@ -132,6 +132,10 @@ describe("ScheduleModal", () => {
     pushToastMock.mockReset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("preserves draft edits when the same schedule rerenders with an updated status", async () => {
     const user = userEvent.setup();
     const runningSchedule = createScheduleListItem("running");
@@ -179,5 +183,119 @@ describe("ScheduleModal", () => {
     renderScheduleModal(createScheduleListItem("running"));
 
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("saves the start date selected from the date picker", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-04-08T12:00:00"));
+    const user = userEvent.setup();
+    const onUpdateSchedule = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ScheduleModal
+        open
+        schedule={createScheduleListItem("paused")}
+        onDismiss={vi.fn()}
+        onCreateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onUpdateSchedule={onUpdateSchedule}
+        onDeleteSchedule={vi.fn().mockResolvedValue(undefined)}
+        onPauseSchedule={vi.fn().mockResolvedValue(undefined)}
+        onResumeSchedule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("schedule-start-date-trigger"));
+    fireEvent.click(screen.getByTestId("schedule-start-date-calendar-day-12"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(onUpdateSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startDate: "2026-04-12",
+        }),
+      );
+    });
+  });
+
+  it("shows the end date validation error after the date picker closes without a selection", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ScheduleModal
+        open
+        onDismiss={vi.fn()}
+        onCreateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onUpdateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onDeleteSchedule={vi.fn().mockResolvedValue(undefined)}
+        onPauseSchedule={vi.fn().mockResolvedValue(undefined)}
+        onResumeSchedule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Type"));
+    await user.click(screen.getByText("Recurring"));
+    await user.click(screen.getByLabelText("End behavior"));
+    await user.click(screen.getByText("End on date"));
+
+    fireEvent.click(screen.getByTestId("schedule-end-date-trigger"));
+    await user.click(screen.getByLabelText("Schedule name"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Select an end date")).toBeVisible();
+    });
+  });
+
+  it("shows the end date validation error after keyboard focus leaves the open date picker", async () => {
+    render(
+      <ScheduleModal
+        open
+        onDismiss={vi.fn()}
+        onCreateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onUpdateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onDeleteSchedule={vi.fn().mockResolvedValue(undefined)}
+        onPauseSchedule={vi.fn().mockResolvedValue(undefined)}
+        onResumeSchedule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    await userEvent.click(screen.getByLabelText("Type"));
+    await userEvent.click(screen.getByText("Recurring"));
+    await userEvent.click(screen.getByLabelText("End behavior"));
+    await userEvent.click(screen.getByText("End on date"));
+
+    fireEvent.click(screen.getByTestId("schedule-end-date-trigger"));
+    fireEvent.focusIn(screen.getByLabelText("Previous month"));
+    fireEvent.focusIn(screen.getByLabelText("Schedule name"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Select an end date")).toBeVisible();
+    });
+  });
+
+  it("shows the end date validation error when the field blurs without opening the picker", async () => {
+    render(
+      <ScheduleModal
+        open
+        onDismiss={vi.fn()}
+        onCreateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onUpdateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onDeleteSchedule={vi.fn().mockResolvedValue(undefined)}
+        onPauseSchedule={vi.fn().mockResolvedValue(undefined)}
+        onResumeSchedule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    await userEvent.click(screen.getByLabelText("Type"));
+    await userEvent.click(screen.getByText("Recurring"));
+    await userEvent.click(screen.getByLabelText("End behavior"));
+    await userEvent.click(screen.getByText("End on date"));
+
+    const endDateTrigger = screen.getByTestId("schedule-end-date-trigger");
+    fireEvent.focus(endDateTrigger);
+    fireEvent.blur(endDateTrigger);
+
+    await waitFor(() => {
+      expect(screen.getByText("Select an end date")).toBeVisible();
+    });
   });
 });

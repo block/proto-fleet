@@ -17,9 +17,6 @@ export interface ApiKeyItem {
 interface CreateApiKeyProps {
   name: string;
   expiresAt?: Date;
-  onSuccess?: (apiKey: string, info: ApiKeyItem) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
 }
 
 interface ListApiKeysProps {
@@ -52,30 +49,22 @@ const useApiKeys = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createApiKey = useCallback(
-    async ({ name, expiresAt, onSuccess, onError, onFinally }: CreateApiKeyProps) => {
-      await apiKeyClient
-        .createApiKey({
+    async ({ name, expiresAt }: CreateApiKeyProps): Promise<string> => {
+      try {
+        const response = await apiKeyClient.createApiKey({
           name,
           expiresAt: expiresAt ? { seconds: BigInt(Math.floor(expiresAt.getTime() / 1000)), nanos: 0 } : undefined,
-        })
-        .then((response) => {
-          if (response.info) {
-            onSuccess?.(response.apiKey, toApiKeyItem(response.info));
-          } else {
-            onError?.("Received an unexpected response from the server. Please try again.");
-          }
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(err?.message ?? String(err));
-            },
-          });
-        })
-        .finally(() => {
-          onFinally?.();
         });
+
+        if (!response.info) {
+          throw new Error("Received an unexpected response from the server. Please try again.");
+        }
+
+        return response.apiKey;
+      } catch (err) {
+        handleAuthErrors({ error: err });
+        throw err instanceof Error ? err : new Error(String(err));
+      }
     },
     [handleAuthErrors],
   );

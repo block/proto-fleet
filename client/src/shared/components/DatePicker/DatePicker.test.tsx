@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -170,6 +170,26 @@ describe("DatePicker", () => {
     expect(screen.getByText("Select dates")).toBeDefined();
   });
 
+  test("renders a floating label without the placeholder text when closed", () => {
+    render(<DatePicker label="Start date" floatingLabel testId="dp" />);
+
+    expect(screen.getByText("Start date")).toBeDefined();
+    expect(screen.queryByText("Select date")).toBeNull();
+  });
+
+  test("renders the selected value with a floating label", () => {
+    render(<DatePicker label="Start date" floatingLabel selectedDate={new Date(2026, 3, 8)} testId="dp" />);
+
+    expect(screen.getByText("Start date")).toBeDefined();
+    expect(screen.getByText("Apr 8, 2026")).toBeDefined();
+  });
+
+  test("keeps the floating-label value in the trigger's accessible name", () => {
+    render(<DatePicker label="Start date" floatingLabel selectedDate={new Date(2026, 3, 8)} testId="dp" />);
+
+    expect(screen.getByRole("button", { name: /start date.*apr 8, 2026/i })).toBeDefined();
+  });
+
   test("opens calendar panel on click", () => {
     render(<DatePicker testId="dp" />);
     fireEvent.click(screen.getByTestId("dp-trigger"));
@@ -223,6 +243,88 @@ describe("DatePicker", () => {
     expect(screen.getByTestId("dp-inputs")).toBeDefined();
   });
 
+  test("can render the calendar panel in a portal for scrolling containers", () => {
+    render(<DatePicker popoverRenderMode="portal-scrolling" testId="dp" />);
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+
+    const panel = screen.getByTestId("dp-panel");
+    expect(panel).toBeDefined();
+    expect(screen.getByTestId("dp").contains(panel)).toBe(false);
+  });
+
+  test("moves focus into portal-scrolling panels when opened from the trigger", async () => {
+    render(<DatePicker popoverRenderMode="portal-scrolling" testId="dp" />);
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Previous month")).toHaveFocus();
+    });
+  });
+
+  test("closes the calendar panel when focus leaves the picker", async () => {
+    render(
+      <>
+        <DatePicker popoverRenderMode="portal-scrolling" testId="dp" />
+        <button type="button">Outside</button>
+      </>,
+    );
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+    expect(screen.getByTestId("dp-panel")).toBeDefined();
+
+    fireEvent.focusIn(screen.getByLabelText("Previous month"));
+    expect(screen.getByTestId("dp-panel")).toBeDefined();
+
+    fireEvent.focusIn(screen.getByRole("button", { name: "Outside" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("dp-panel")).toBeNull();
+    });
+  });
+
+  test("repositions portal-scrolling panels when a scroll container moves", async () => {
+    let triggerTop = 100;
+
+    render(
+      <div data-testid="scroll-container" style={{ overflow: "auto", maxHeight: "200px" }}>
+        <DatePicker popoverRenderMode="portal-scrolling" testId="dp" />
+      </div>,
+    );
+
+    const triggerContainer = screen.getByTestId("dp-trigger").parentElement as HTMLDivElement;
+    Object.defineProperty(triggerContainer, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: 40,
+        y: triggerTop,
+        top: triggerTop,
+        left: 40,
+        bottom: triggerTop + 56,
+        right: 240,
+        width: 200,
+        height: 56,
+        toJSON: () => ({}),
+      }),
+    });
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+
+    const panel = screen.getByTestId("dp-panel");
+
+    await waitFor(() => {
+      expect(panel.style.top).toBe("164px");
+    });
+
+    triggerTop = 40;
+    fireEvent.scroll(screen.getByTestId("scroll-container"));
+
+    await waitFor(() => {
+      expect(panel.style.top).toBe("104px");
+    });
+  });
+
   test("month navigation works", () => {
     render(<DatePicker testId="dp" />);
     fireEvent.click(screen.getByTestId("dp-trigger"));
@@ -232,6 +334,26 @@ describe("DatePicker", () => {
 
     fireEvent.click(screen.getByTestId("dp-calendar-next-month"));
     expect(monthLabel?.textContent).not.toBe(initialText);
+  });
+
+  test("renders adjacent month days as selectable muted dates", () => {
+    const onChange = vi.fn();
+    render(<DatePicker selectedDate={new Date(2026, 0, 15)} onSelectedDateChange={onChange} testId="dp" />);
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+
+    const adjacentDay = screen.getByLabelText("February 1, 2026");
+    expect(adjacentDay).toBeDefined();
+    expect(adjacentDay).toHaveClass("text-text-primary-30");
+    expect(adjacentDay).not.toHaveClass("invisible");
+    expect(adjacentDay).not.toHaveAttribute("disabled");
+
+    fireEvent.click(adjacentDay);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].getFullYear()).toBe(2026);
+    expect(onChange.mock.calls[0][0].getMonth()).toBe(1);
+    expect(onChange.mock.calls[0][0].getDate()).toBe(1);
   });
 
   test("disabled dates cannot be clicked", () => {

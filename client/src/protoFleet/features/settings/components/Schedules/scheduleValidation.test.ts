@@ -236,4 +236,28 @@ describe("scheduleValidation", () => {
       endTime: "",
     });
   });
+
+  it("blanks malformed saved dates instead of normalizing them to another day", () => {
+    const schedule = create(ScheduleSchema, {
+      id: 11n,
+      name: "Malformed schedule",
+      action: ScheduleAction.REBOOT,
+      scheduleType: ScheduleType.RECURRING,
+      recurrence: create(ScheduleRecurrenceSchema, {
+        frequency: RecurrenceFrequency.DAILY,
+        interval: 1,
+      }),
+      startDate: "2026-02-31",
+      startTime: "08:00",
+      endDate: "2026-13-01",
+      timezone: "UTC",
+    });
+
+    expect(createScheduleFormValuesFromSchedule(schedule)).toMatchObject({
+      startDate: "",
+      startTime: "08:00",
+      endBehavior: "endDate",
+      endDate: "",
+    });
+  });
 });

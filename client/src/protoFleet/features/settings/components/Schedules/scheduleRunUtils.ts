@@ -1,11 +1,11 @@
 import { DayOfWeek } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import type { ScheduleFormValues } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 import {
   addDaysToDateValue,
   buildDateInTimeZone,
   formatDateParts,
   parseDate,
-} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
-import type { ScheduleFormValues } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 
 export type ScheduleRun = {
   start: Date;

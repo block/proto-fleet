@@ -25,7 +25,7 @@ import {
   buildDateInTimeZone,
   formatTimeZoneDateParts,
   getTimeZoneDateTimeParts,
-} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export type ScheduleAction = "setPowerTarget" | "reboot" | "sleep";

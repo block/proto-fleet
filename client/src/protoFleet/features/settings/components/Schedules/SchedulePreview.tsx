@@ -1,10 +1,5 @@
 import { useMemo } from "react";
 
-import {
-  addDaysToDateValue,
-  buildDateInTimeZone,
-  parseDate,
-} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
 import { getFutureScheduleRuns } from "@/protoFleet/features/settings/components/Schedules/scheduleRunUtils";
 import {
   describeSelectedTargets,
@@ -12,6 +7,11 @@ import {
   validateSchedule,
   weekdayOptions,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+import {
+  addDaysToDateValue,
+  buildDateInTimeZone,
+  parseDate,
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 
 type PreviewFormatters = {
   date: Intl.DateTimeFormat;

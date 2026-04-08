@@ -14,14 +14,14 @@ import {
   ScheduleTargetType,
   UpdateScheduleRequestSchema,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import { hasFutureScheduleRun } from "@/protoFleet/features/settings/components/Schedules/scheduleRunUtils";
 import {
   addDaysToDateValue,
   buildDateInTimeZone,
   formatDateParts,
   getTimeZoneDateTimeParts,
   parseDate,
-} from "@/protoFleet/features/settings/components/Schedules/scheduleDateUtils";
-import { hasFutureScheduleRun } from "@/protoFleet/features/settings/components/Schedules/scheduleRunUtils";
+} from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 import type { SelectOption } from "@/shared/components/Select";
 
 export type ScheduleFormAction = "setPowerTarget" | "reboot" | "sleep";
@@ -253,6 +253,8 @@ export const createScheduleFormValuesFromSchedule = (schedule: Schedule): Schedu
   const frequency = mapProtoFrequency(recurrence?.frequency ?? RecurrenceFrequency.DAILY);
   const usesPowerTargetWindow =
     scheduleType === "recurring" && schedule.action === ProtoScheduleAction.SET_POWER_TARGET;
+  const validStartDate = schedule.startDate && parseDate(schedule.startDate) ? schedule.startDate : "";
+  const validEndDate = schedule.endDate && parseDate(schedule.endDate) ? schedule.endDate : "";
 
   return {
     ...defaults,
@@ -260,7 +262,7 @@ export const createScheduleFormValuesFromSchedule = (schedule: Schedule): Schedu
     action: mapProtoAction(schedule.action),
     powerTargetMode: schedule.actionConfig?.mode === PowerTargetMode.MAX ? "max" : defaults.powerTargetMode,
     scheduleType,
-    startDate: schedule.startDate || defaults.startDate,
+    startDate: schedule.startDate ? validStartDate : defaults.startDate,
     startTime: schedule.startTime || defaults.startTime,
     endTime: usesPowerTargetWindow ? schedule.endTime || defaults.endTime : "",
     timezone: schedule.timezone || defaults.timezone,
@@ -268,7 +270,7 @@ export const createScheduleFormValuesFromSchedule = (schedule: Schedule): Schedu
     daysOfWeek: recurrence?.daysOfWeek?.filter((day) => day !== DayOfWeek.UNSPECIFIED) ?? [],
     dayOfMonth: recurrence?.dayOfMonth ? String(recurrence.dayOfMonth) : defaults.dayOfMonth,
     endBehavior: schedule.endDate ? "endDate" : "indefinite",
-    endDate: schedule.endDate || "",
+    endDate: validEndDate,
     rackTargetIds: schedule.targets
       .filter((target) => target.targetType === ScheduleTargetType.RACK)
       .map((target) => target.targetId),

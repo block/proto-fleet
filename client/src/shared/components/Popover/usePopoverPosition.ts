@@ -4,6 +4,26 @@ import { Position, positions } from "@/shared/constants";
 import useMeasure, { UseMeasureRect } from "@/shared/hooks/useMeasure";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
+const isScrollable = (overflowValue: string) => ["auto", "scroll", "overlay"].includes(overflowValue);
+
+const getScrollParents = (element: HTMLElement | null): Array<HTMLElement | Window> => {
+  const scrollParents: Array<HTMLElement | Window> = [window];
+
+  let current = element?.parentElement;
+
+  while (current) {
+    const styles = window.getComputedStyle(current);
+
+    if (isScrollable(styles.overflow) || isScrollable(styles.overflowX) || isScrollable(styles.overflowY)) {
+      scrollParents.push(current);
+    }
+
+    current = current.parentElement;
+  }
+
+  return scrollParents;
+};
+
 const computeBasePosition = (
   triggerRect: UseMeasureRect,
   popoverRect: UseMeasureRect,
@@ -97,6 +117,8 @@ const usePopoverPosition = (
       // which cause incorrect overflow detection and position flipping.
       const isInViewport = rect.bottom > 0 && rect.top < currentViewportHeight;
       if (!isInViewport) {
+        setTriggerRect(null);
+        setPopoverStyle({ visibility: "hidden" });
         return;
       }
 
@@ -135,6 +157,32 @@ const usePopoverPosition = (
 
     return () => {
       resizeObserver.disconnect();
+    };
+  }, [renderMode, triggerRef, updateMeasurements]);
+
+  useEffect(() => {
+    if (renderMode !== "portal-scrolling") {
+      return;
+    }
+
+    const triggerElement = triggerRef.current;
+    if (!triggerElement) {
+      return;
+    }
+
+    const scrollParents = getScrollParents(triggerElement);
+    const visualViewport = window.visualViewport;
+
+    scrollParents.forEach((scrollParent) => {
+      scrollParent.addEventListener("scroll", updateMeasurements, { passive: true });
+    });
+    visualViewport?.addEventListener("scroll", updateMeasurements);
+
+    return () => {
+      scrollParents.forEach((scrollParent) => {
+        scrollParent.removeEventListener("scroll", updateMeasurements);
+      });
+      visualViewport?.removeEventListener("scroll", updateMeasurements);
     };
   }, [renderMode, triggerRef, updateMeasurements]);
 
