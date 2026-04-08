@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
@@ -35,14 +34,15 @@ test.describe("Miners SLEEP - WAKE actions", () => {
         await minersPage.clickActionsMenuButton();
         await minersPage.clickWakeUpButton();
         await minersPage.clickWakeUpConfirm();
-        await minersPage.validateTextInToastGroup("Waking up");
+        await minersPage.validateNoMinerWithStatus("Sleeping");
+        await minersPage.validateNoMinerWithStatus("Waking");
       }
     } finally {
       await context.close();
     }
   });
 
-  test("SLEEP - WAKE a miner @smoke", async ({ minersPage, commonSteps }) => {
+  test("SLEEP - WAKE a miner @smoke", async ({ minersPage, commonSteps, page }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -52,6 +52,8 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
 
     let minerIp: string;
+    const shutdownRequestPromise = page.waitForRequest(/StopMining/);
+    const shutdownResponsePromise = page.waitForResponse(/StopMining/);
 
     await test.step("Select first miner and shut it down", async () => {
       minerIp = await minersPage.getMinerIpAddressByIndex(0);
@@ -60,14 +62,21 @@ test.describe("Miners SLEEP - WAKE actions", () => {
       await minersPage.clickShutdownConfirm();
     });
 
-    await test.step("Validate update process", async () => {
-      await minersPage.validateTextInToastGroup("Putting to sleep");
-      await minersPage.validateTextInToastGroup("Put to sleep");
+    await test.step("Validate shutdown API request", async () => {
+      const request = await shutdownRequestPromise;
+      const response = await shutdownResponsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(response.status()).toBe(200);
     });
 
     await test.step("Validate miner is sleeping", async () => {
       await minersPage.validateMinerStatus(minerIp, "Sleeping");
     });
+
+    const wakeUpRequestPromise = page.waitForRequest(/StartMining/);
+    const wakeUpResponsePromise = page.waitForResponse(/StartMining/);
 
     await test.step("Select all miners and wake them up", async () => {
       await minersPage.clickSelectAllCheckbox();
@@ -76,9 +85,13 @@ test.describe("Miners SLEEP - WAKE actions", () => {
       await minersPage.clickWakeUpConfirm();
     });
 
-    await test.step("Validate update process", async () => {
-      await minersPage.validateTextInToastGroup("Waking up");
-      await minersPage.validateTextInToastGroup("Woke up");
+    await test.step("Validate wake-up API request", async () => {
+      const request = await wakeUpRequestPromise;
+      const response = await wakeUpResponsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(response.status()).toBe(200);
     });
 
     await test.step("Validate none of the miners are sleeping", async () => {
@@ -88,7 +101,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
   });
 
-  test("SLEEP - WAKE all rig miners, without page refresh", async ({ minersPage, commonSteps }) => {
+  test("SLEEP - WAKE all rig miners, without page refresh", async ({ minersPage, commonSteps, page }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -97,6 +110,9 @@ test.describe("Miners SLEEP - WAKE actions", () => {
       await minersPage.filterRigMiners();
     });
 
+    const shutdownRequestPromise = page.waitForRequest(/StopMining/);
+    const shutdownResponsePromise = page.waitForResponse(/StopMining/);
+
     await test.step("Select all miners and put them to sleep", async () => {
       await minersPage.clickSelectAllCheckbox();
       await minersPage.clickActionsMenuButton();
@@ -104,15 +120,22 @@ test.describe("Miners SLEEP - WAKE actions", () => {
       await minersPage.clickShutdownConfirm();
     });
 
-    await test.step("Validate sleep process", async () => {
-      await minersPage.validateTextInToastGroup("Putting to sleep");
-      await minersPage.validateTextInToastGroup("Put to sleep");
+    await test.step("Validate shutdown API request", async () => {
+      const request = await shutdownRequestPromise;
+      const response = await shutdownResponsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(response.status()).toBe(200);
     });
 
     await test.step("Validate all miners are sleeping", async () => {
       await minersPage.waitForAllStatusSpinnersToDisappear();
       await minersPage.validateAllMinersStatus("Sleeping");
     });
+
+    const wakeUpRequestPromise = page.waitForRequest(/StartMining/);
+    const wakeUpResponsePromise = page.waitForResponse(/StartMining/);
 
     await test.step("Select all miners and wake them up", async () => {
       await minersPage.clickSelectAllCheckbox();
@@ -121,9 +144,13 @@ test.describe("Miners SLEEP - WAKE actions", () => {
       await minersPage.clickWakeUpConfirm();
     });
 
-    await test.step("Validate wake up process", async () => {
-      await minersPage.validateTextInToastGroup("Waking up");
-      await minersPage.validateTextInToastGroup("Woke up");
+    await test.step("Validate wake-up API request", async () => {
+      const request = await wakeUpRequestPromise;
+      const response = await wakeUpResponsePromise;
+      const requestBody = request.postDataJSON();
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(response.status()).toBe(200);
     });
 
     await test.step("Validate all miners are awake", async () => {
