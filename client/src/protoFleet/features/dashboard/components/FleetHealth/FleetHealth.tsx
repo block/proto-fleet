@@ -215,7 +215,6 @@ const FleetHealth = ({
           <CompositionBar
             segments={segments}
             height={12}
-            gap={2}
             colorMap={{
               OK: "bg-core-primary-fill",
               NA: "bg-core-accent-fill",
