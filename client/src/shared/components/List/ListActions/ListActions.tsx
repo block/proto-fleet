@@ -61,29 +61,32 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
           closePopover={() => setActionsVisible(false)}
         >
           {resolvedActions.map(
-            ({ action, title, icon, variant, disabled: actionDisabled, showDividerAfter }, index) => (
-              <Row
-                key={`${title}-${index}`}
-                className={clsx(
-                  "text-emphasis-300",
-                  variant === "destructive" && "text-intent-critical-fill",
-                  actionDisabled && "text-text-primary-50",
-                )}
-                prefixIcon={icon}
-                onClick={
-                  actionDisabled
-                    ? undefined
-                    : () => {
-                        action.actionHandler(item);
-                        setActionsVisible(false);
-                      }
-                }
-                compact
-                divider={showDividerAfter}
-              >
-                {title}
-              </Row>
-            ),
+            ({ action, title, icon, variant, disabled: actionDisabled, showDividerAfter }, index) => {
+              const colorClass = clsx(
+                variant === "destructive" && "text-intent-critical-fill",
+                actionDisabled && "text-text-primary-50",
+              );
+
+              return (
+                <Row
+                  key={`${title}-${index}`}
+                  className={clsx("text-emphasis-300", colorClass)}
+                  prefixIcon={icon && colorClass ? <div className={colorClass}>{icon}</div> : icon}
+                  onClick={
+                    actionDisabled
+                      ? undefined
+                      : () => {
+                          action.actionHandler(item);
+                          setActionsVisible(false);
+                        }
+                  }
+                  compact
+                  divider={showDividerAfter}
+                >
+                  {title}
+                </Row>
+              );
+            },
           )}
         </Popover>
       )}
