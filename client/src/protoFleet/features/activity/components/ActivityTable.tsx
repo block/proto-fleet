@@ -33,7 +33,7 @@ const ActivityTable = ({ activities, totalCount }: ActivityTableProps) => {
           const Icon = isFailed ? Alert : getActivityIcon(entry.eventType);
           return (
             <div className="flex items-center gap-2">
-              <div className={isFailed ? "text-intent-critical" : "text-text-primary-70"}>
+              <div className={isFailed ? "text-intent-critical" : "text-text-primary"}>
                 <Icon width="w-4" />
               </div>
               <span>{entry.description}</span>
@@ -69,6 +69,7 @@ const ActivityTable = ({ activities, totalCount }: ActivityTableProps) => {
       colTitles={colTitles}
       colConfig={colConfig}
       total={totalCount}
+      stickyFirstColumn={false}
       itemName={{ singular: "activity", plural: "activities" }}
       noDataElement={<div className="py-10 text-center text-text-primary-50">No activity to display.</div>}
     />
