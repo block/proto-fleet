@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { loadingMessages, minersMessage, settingsActions, SupportedAction } from "./constants";
+import { getLoadingMessage, minersMessage, settingsActions, SupportedAction } from "./constants";
 import { type MinerGroup } from "./ManageSecurity";
 import {
   type MinerListFilter,
@@ -242,7 +242,7 @@ export const useManageSecurityFlow = ({
       setShowUpdatePasswordModal(false);
 
       const id = pushToast({
-        message: `${loadingMessages[settingsActions.security]} ${minersMessage}`,
+        message: getLoadingMessage(settingsActions.security, minersMessage),
         status: TOAST_STATUSES.loading,
         longRunning: true,
         onClose: () => onActionComplete?.(),

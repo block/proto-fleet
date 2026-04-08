@@ -33,7 +33,7 @@ const UnsupportedMinersModal = ({
       <Dialog
         open={open && noneSupported}
         title="Action not supported"
-        subtitle={`This action isn't supported by the connected ${minerText} firmware.`}
+        subtitle={`This action is not supported by the connected ${minerText} firmware.`}
         subtitleSize="text-300"
         buttonGroupVariant={groupVariants.leftAligned}
         onDismiss={onDismiss}
@@ -63,7 +63,7 @@ const UnsupportedMinersModal = ({
         divider={false}
       >
         <div className="mb-6">
-          <h1 className="text-heading-300 text-text-primary">Some miners don't support this action.</h1>
+          <h1 className="text-heading-300 text-text-primary">Some miners do not support this action.</h1>
           <p className="text-300 text-text-primary-70">
             This action will be skipped for {totalUnsupportedCount} miners.
           </p>

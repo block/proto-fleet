@@ -2,6 +2,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   deviceActions,
+  getLoadingMessage,
+  getSuccessMessage,
   groupActions,
   loadingMessages,
   minersMessage,
@@ -435,7 +437,7 @@ export const useMinerActions = ({
 
           if (successCount > 0) {
             updateToast(originalToastId, {
-              message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+              message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
               status: TOAST_STATUSES.success,
             });
           }
@@ -465,7 +467,7 @@ export const useMinerActions = ({
       }).finally(() => {
         if (successCount > 0) {
           updateToast(originalToastId, {
-            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+            message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
             status: TOAST_STATUSES.success,
           });
         } else {
@@ -937,7 +939,7 @@ export const useMinerActions = ({
       if (action === null || !selectorToUse) return;
 
       const id = pushToast({
-        message: `${loadingMessages[action]} ${minersMessage}`,
+        message: getLoadingMessage(action, minersMessage),
         status: TOAST_STATUSES.loading,
         longRunning: true,
         onClose: () => onActionComplete?.(),

@@ -203,7 +203,7 @@ describe("UnsupportedMinersModal", () => {
           onDismiss={mockOnDismiss}
         />,
       );
-      expect(screen.getByText("Some miners don't support this action.")).toBeInTheDocument();
+      expect(screen.getByText("Some miners do not support this action.")).toBeInTheDocument();
       expect(screen.getByText("This action will be skipped for 12 miners.")).toBeInTheDocument();
     });
 

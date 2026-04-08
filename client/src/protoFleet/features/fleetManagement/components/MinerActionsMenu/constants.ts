@@ -98,3 +98,15 @@ export const successMessages: Record<string, string> = {
   [settingsActions.security]: "Updated security for",
   [groupActions.addToGroup]: "Added to group",
 };
+
+export const getLoadingMessage = (action: SupportedAction, subject: string): string => {
+  if (action === deviceActions.shutdown) return `Putting ${subject} to sleep`;
+  const message = loadingMessages[action] ?? "Processing";
+  return `${message} ${subject}`;
+};
+
+export const getSuccessMessage = (action: SupportedAction, subject: string): string => {
+  if (action === deviceActions.shutdown) return `Put ${subject} to sleep`;
+  const message = successMessages[action] ?? "Completed";
+  return `${message} ${subject}`;
+};
