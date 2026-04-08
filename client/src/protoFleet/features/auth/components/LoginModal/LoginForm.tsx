@@ -121,7 +121,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
                 }),
               },
               {
-                text: "Sign in",
+                text: "Log in",
                 onClick: handleContinue,
                 variant: variants.primary,
                 disabled: isSubmitting,
