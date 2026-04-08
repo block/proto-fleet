@@ -245,9 +245,29 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	summary := summaryResp.Summary[0]
 
 	// Determine state based on hashrate (not cumulative HardwareErrors counter).
+	// When hashrate is zero and credentials are available, also check the work mode
+	// to distinguish intentional sleep from an unexpected stop (matching ASIC-RS
+	// parse_is_mining behaviour: check work-mode first, fall back to hashrate).
 	var state sdk.HealthStatus
 	if summary.GHS5s > 0 {
 		state = sdk.HealthHealthyActive
+	} else if c.credentials != nil {
+		connInfo := c.getWebConnectionInfo()
+		config, err := c.webClient.GetMinerConfig(ctx, connInfo)
+		if err == nil {
+			workMode := config.BitmainWorkMode
+			if config.MinerMode != "" {
+				workMode = web.BitmainWorkMode(config.MinerMode)
+			}
+			if workMode == web.BitmainWorkModeSleep {
+				state = sdk.HealthHealthyInactive
+			} else {
+				// Zero hashrate while not in sleep mode — device should be mining but isn't.
+				state = sdk.HealthWarning
+			}
+		} else {
+			state = sdk.HealthHealthyInactive
+		}
 	} else {
 		state = sdk.HealthHealthyInactive
 	}
@@ -502,18 +522,34 @@ func (c *Client) Pair(ctx context.Context, credentials sdk.UsernamePassword) err
 
 // StartMining starts mining operations
 func (c *Client) StartMining(ctx context.Context) error {
-	err := c.webClient.SetMinerConfig(ctx, c.getWebConnectionInfo(), &web.MinerConfig{
-		BitmainWorkMode: web.BitmainWorkModeStart,
-	})
-	return err
+	return c.setWorkMode(ctx, web.BitmainWorkModeStart)
 }
 
-// StopMining stops mining operations
+// StopMining stops mining operations by putting the device into sleep mode.
 func (c *Client) StopMining(ctx context.Context) error {
-	err := c.webClient.SetMinerConfig(ctx, c.getWebConnectionInfo(), &web.MinerConfig{
-		BitmainWorkMode: web.BitmainWorkModeSleep,
-	})
-	return err
+	return c.setWorkMode(ctx, web.BitmainWorkModeSleep)
+}
+
+// setWorkMode fetches the current miner config, updates the work mode, and applies it.
+//
+// Older Antminer firmware uses a "miner-mode" field; newer firmware uses
+// "bitmain-work-mode". Both encode the same values ("0" = normal, "1" = sleep).
+// We detect which field the device uses at runtime by checking which one is
+// non-empty in the GET response, matching the ASIC-RS approach.
+func (c *Client) setWorkMode(ctx context.Context, mode web.BitmainWorkMode) error {
+	connInfo := c.getWebConnectionInfo()
+	config, err := c.webClient.GetMinerConfig(ctx, connInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get current miner config: %w", err)
+	}
+	// Legacy devices return "miner-mode"; modern devices return "bitmain-work-mode".
+	// Update whichever field the device reported so we don't clobber the wrong one.
+	if config.MinerMode != "" {
+		config.MinerMode = string(mode)
+	} else {
+		config.BitmainWorkMode = mode
+	}
+	return c.webClient.SetMinerConfig(ctx, connInfo, config)
 }
 
 // SetCoolingMode sets the cooling mode

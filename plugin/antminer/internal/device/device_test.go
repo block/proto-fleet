@@ -463,8 +463,8 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityFirmware])
 	assert.True(t, capabilities[sdk.CapabilityPoolConfig])
 	assert.True(t, capabilities[sdk.CapabilityBasicAuth])
-	assert.False(t, capabilities[sdk.CapabilityMiningStart])
-	assert.False(t, capabilities[sdk.CapabilityMiningStop])
+	assert.True(t, capabilities[sdk.CapabilityMiningStart])
+	assert.True(t, capabilities[sdk.CapabilityMiningStop])
 }
 
 func ptrFloat64(v float64) *float64 {

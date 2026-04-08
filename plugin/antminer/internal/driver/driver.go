@@ -138,8 +138,8 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 
 		// Command capabilities
 		sdk.CapabilityReboot:             true,
-		sdk.CapabilityMiningStart:        false,
-		sdk.CapabilityMiningStop:         false,
+		sdk.CapabilityMiningStart:        true,
+		sdk.CapabilityMiningStop:         true,
 		sdk.CapabilityLEDBlink:           true,
 		sdk.CapabilityFactoryReset:       false,
 		sdk.CapabilityCoolingModeAir:     false,

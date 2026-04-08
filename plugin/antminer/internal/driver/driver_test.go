@@ -74,8 +74,8 @@ func TestDescribeDriver(t *testing.T) {
 
 	// Check command capabilities
 	assert.True(t, capabilities[sdk.CapabilityReboot])
-	assert.False(t, capabilities[sdk.CapabilityMiningStart])
-	assert.False(t, capabilities[sdk.CapabilityMiningStop])
+	assert.True(t, capabilities[sdk.CapabilityMiningStart])
+	assert.True(t, capabilities[sdk.CapabilityMiningStop])
 	assert.True(t, capabilities[sdk.CapabilityLEDBlink])
 	assert.False(t, capabilities[sdk.CapabilityFactoryReset])
 	assert.False(t, capabilities[sdk.CapabilityCoolingModeAir])

@@ -139,8 +139,8 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 
 		// Command capabilities - based on Antminer capabilities
 		sdk.CapabilityReboot:              true,  // We can reboot devices
-		sdk.CapabilityMiningStart:         false, // Not supported by Antminer
-		sdk.CapabilityMiningStop:          false, // Not supported by Antminer
+		sdk.CapabilityMiningStart:         true,  // Supported via bitmain-work-mode = "0"
+		sdk.CapabilityMiningStop:          true,  // Supported via bitmain-work-mode = "1" (sleep)
 		sdk.CapabilityLEDBlink:            true,  // We can blink LED for identification
 		sdk.CapabilityFactoryReset:        false, // Factory reset not supported
 		sdk.CapabilityCoolingModeAir:      false, // Air cooling mode not configurable
@@ -406,8 +406,7 @@ func (d *Device) Close(ctx context.Context) error {
 	return nil
 }
 
-// The following methods are not implemented for Antminers due to RPC API limitations
-// They would require web API implementation for full functionality
+// StartMining and StopMining use bitmain-work-mode via the web API.
 
 // StartMining implements the SDK Device interface.
 func (d *Device) StartMining(ctx context.Context) error {

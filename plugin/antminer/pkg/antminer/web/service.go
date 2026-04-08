@@ -46,7 +46,7 @@ type BitmainWorkMode string
 const (
 	BitmainWorkModeStart    BitmainWorkMode = "0" // Normal operation
 	BitmainWorkModeSleep    BitmainWorkMode = "1" // Sleep mode
-	BitmainWorkModeLowPower BitmainWorkMode = "2" // Low power mode
+	BitmainWorkModeLowPower BitmainWorkMode = "3" // Low power mode
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_web_api_client.go -package=mocks WebAPIClient
@@ -148,19 +148,24 @@ type Pool struct {
 }
 
 type MinerConfig struct {
-	Pools                  []Pool          `json:"pools"`
-	APIListen              bool            `json:"api-listen"`
-	APINetwork             bool            `json:"api-network"`
-	APIGroups              string          `json:"api-groups"`
-	APIAllow               string          `json:"api-allow"`
-	BitmainFanCtrl         bool            `json:"bitmain-fan-ctrl"`
-	BitmainFanPWM          string          `json:"bitmain-fan-pwm"`
-	BitmainUseVil          bool            `json:"bitmain-use-vil"`
-	BitmainFreq            string          `json:"bitmain-freq"`
-	BitmainVoltage         string          `json:"bitmain-voltage"`
-	BitmainCCDelay         string          `json:"bitmain-ccdelay"`
-	BitmainPWTH            string          `json:"bitmain-pwth"`
-	BitmainWorkMode        BitmainWorkMode `json:"bitmain-work-mode"`
+	Pools          []Pool `json:"pools"`
+	APIListen      bool   `json:"api-listen"`
+	APINetwork     bool   `json:"api-network"`
+	APIGroups      string `json:"api-groups"`
+	APIAllow       string `json:"api-allow"`
+	BitmainFanCtrl bool   `json:"bitmain-fan-ctrl"`
+	BitmainFanPWM  string `json:"bitmain-fan-pwm"`
+	BitmainUseVil  bool   `json:"bitmain-use-vil"`
+	BitmainFreq    string `json:"bitmain-freq"`
+	BitmainVoltage string `json:"bitmain-voltage"`
+	BitmainCCDelay string `json:"bitmain-ccdelay"`
+	BitmainPWTH    string `json:"bitmain-pwth"`
+	// MinerMode is the legacy work-mode field used by older Antminer firmware.
+	// Newer firmware uses BitmainWorkMode instead. Both encode the same values
+	// ("0" = normal, "1" = sleep). The omitempty tags prevent sending an
+	// empty field to devices that don't use it.
+	MinerMode              string          `json:"miner-mode,omitempty"`
+	BitmainWorkMode        BitmainWorkMode `json:"bitmain-work-mode,omitempty"`
 	BitmainHashratePercent string          `json:"bitmain-hashrate-percent"`
 	BitmainFreqLevel       string          `json:"bitmain-freq-level"`
 }

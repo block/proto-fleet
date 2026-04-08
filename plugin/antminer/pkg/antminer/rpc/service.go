@@ -1,14 +1,13 @@
 package rpc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"time"
-
-	"bufio"
 
 	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer/networking"
 )

@@ -463,7 +463,6 @@ func TestRPCCommands(t *testing.T) {
 	})
 }
 
-// Test error handling
 func TestRPCErrorHandling(t *testing.T) {
 	rpcClient := rpc.NewService()
 	connInfo := &networking.ConnectionInfo{

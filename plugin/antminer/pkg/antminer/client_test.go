@@ -380,6 +380,112 @@ func TestClient_GetStatus(t *testing.T) {
 	assert.Empty(t, status.ErrorMessage)
 }
 
+func TestClient_GetStatus_WorkModeCheck(t *testing.T) {
+	tests := []struct {
+		name          string
+		workMode      web.BitmainWorkMode
+		legacyMode    string
+		expectedState sdk.HealthStatus
+	}{
+		{
+			name:          "zero hashrate in sleep mode is inactive",
+			workMode:      web.BitmainWorkModeSleep,
+			expectedState: sdk.HealthHealthyInactive,
+		},
+		{
+			name:          "zero hashrate in normal mode is warning",
+			workMode:      web.BitmainWorkModeStart,
+			expectedState: sdk.HealthWarning,
+		},
+		{
+			name:          "zero hashrate with legacy miner-mode sleep is inactive",
+			legacyMode:    string(web.BitmainWorkModeSleep),
+			expectedState: sdk.HealthHealthyInactive,
+		},
+		{
+			name:          "zero hashrate with legacy miner-mode normal is warning",
+			legacyMode:    string(web.BitmainWorkModeStart),
+			expectedState: sdk.HealthWarning,
+		},
+		{
+			name:          "zero hashrate in low power mode is warning",
+			workMode:      web.BitmainWorkModeLowPower,
+			expectedState: sdk.HealthWarning,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			mockRPCClient, rpcCtrl := setupMockRPCClient(t)
+			mockWebClient, webCtrl := setupMockWebClient(t)
+			defer rpcCtrl.Finish()
+			defer webCtrl.Finish()
+
+			client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
+			err := client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"})
+			require.NoError(t, err)
+
+			mockRPCClient.EXPECT().
+				GetSummary(gomock.Any(), gomock.Any()).
+				Return(&rpc.SummaryResponse{
+					Summary: []rpc.SummaryInfo{{GHS5s: 0}},
+				}, nil)
+			mockRPCClient.EXPECT().
+				GetVersion(gomock.Any(), gomock.Any()).
+				Return(&rpc.VersionResponse{Version: []rpc.VersionInfo{{BMMiner: "1.0.0"}}}, nil)
+			mockWebClient.EXPECT().
+				GetMinerConfig(gomock.Any(), gomock.Any()).
+				Return(&web.MinerConfig{
+					BitmainWorkMode: tc.workMode,
+					MinerMode:       tc.legacyMode,
+				}, nil)
+
+			// Act
+			status, err := client.GetStatus(t.Context())
+
+			// Assert
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedState, status.State)
+		})
+	}
+}
+
+func TestClient_GetStatus_WorkModeCheckFallback(t *testing.T) {
+	// When GetMinerConfig fails, GetStatus should fall back to HealthHealthyInactive
+	// rather than propagating the error, since the hashrate check already determined
+	// the device is not actively mining.
+
+	// Arrange
+	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer rpcCtrl.Finish()
+	defer webCtrl.Finish()
+
+	client := createTestClientWithMocks(t, mockWebClient, mockRPCClient)
+	err := client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"})
+	require.NoError(t, err)
+
+	mockRPCClient.EXPECT().
+		GetSummary(gomock.Any(), gomock.Any()).
+		Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{{GHS5s: 0}},
+		}, nil)
+	mockRPCClient.EXPECT().
+		GetVersion(gomock.Any(), gomock.Any()).
+		Return(&rpc.VersionResponse{Version: []rpc.VersionInfo{{BMMiner: "1.0.0"}}}, nil)
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("connection refused"))
+
+	// Act
+	status, err := client.GetStatus(t.Context())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, sdk.HealthHealthyInactive, status.State)
+}
+
 func TestClient_GetTelemetry(t *testing.T) {
 	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
 	mockWebClient, webCtrl := setupMockWebClient(t)
@@ -525,28 +631,59 @@ func TestClient_Pair(t *testing.T) {
 }
 
 func TestClient_StartStopMining(t *testing.T) {
-	mockWebClient, ctrl := setupMockWebClient(t)
-	defer ctrl.Finish()
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer webCtrl.Finish()
 
 	client := createTestClientWithMocks(t, mockWebClient, nil)
 
-	// Test StartMining - should succeed
+	baseConfig := &web.MinerConfig{
+		Pools:           []web.Pool{{URL: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: "x"}},
+		BitmainWorkMode: web.BitmainWorkModeStart,
+	}
+
+	// Test StartMining - should fetch config and set work mode to "0"
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(baseConfig, nil)
 	mockWebClient.EXPECT().
 		SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(nil)
+		DoAndReturn(func(_ any, _ any, config *web.MinerConfig) error {
+			assert.Equal(t, web.BitmainWorkModeStart, config.BitmainWorkMode)
+			assert.Equal(t, baseConfig.Pools, config.Pools) // pools preserved
+			return nil
+		})
 
 	err := client.StartMining(t.Context())
 	require.NoError(t, err)
 
-	// Test StopMining - should succeed
+	// Test StopMining - should fetch config and set work mode to "1" (sleep)
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(baseConfig, nil)
 	mockWebClient.EXPECT().
 		SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(nil)
+		DoAndReturn(func(_ any, _ any, config *web.MinerConfig) error {
+			assert.Equal(t, web.BitmainWorkModeSleep, config.BitmainWorkMode)
+			assert.Equal(t, baseConfig.Pools, config.Pools) // pools preserved
+			return nil
+		})
 
 	err = client.StopMining(t.Context())
 	require.NoError(t, err)
 
-	// Test StartMining with API error
+	// Test StartMining when GetMinerConfig fails
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("config fetch failed"))
+
+	err = client.StartMining(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get current miner config")
+
+	// Test StartMining when SetMinerConfig fails
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(baseConfig, nil)
 	mockWebClient.EXPECT().
 		SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(fmt.Errorf("API error"))
@@ -554,6 +691,57 @@ func TestClient_StartStopMining(t *testing.T) {
 	err = client.StartMining(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "API error")
+}
+
+func TestClient_StartStopMining_LegacyMinerMode(t *testing.T) {
+	// Older Antminer firmware uses "miner-mode" instead of "bitmain-work-mode".
+	// setWorkMode should detect which field the device uses and update that one.
+	mockWebClient, webCtrl := setupMockWebClient(t)
+	defer webCtrl.Finish()
+
+	client := createTestClientWithMocks(t, mockWebClient, nil)
+
+	legacyConfig := &web.MinerConfig{
+		Pools:     []web.Pool{{URL: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: "x"}},
+		MinerMode: string(web.BitmainWorkModeStart), // legacy device reports "miner-mode", not "bitmain-work-mode"
+	}
+
+	// Test StopMining — should update MinerMode, not BitmainWorkMode
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(legacyConfig, nil)
+	mockWebClient.EXPECT().
+		SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ any, config *web.MinerConfig) error {
+			// Act (done by the caller)
+			// Assert
+			assert.Equal(t, string(web.BitmainWorkModeSleep), config.MinerMode)
+			assert.Equal(t, web.BitmainWorkMode(""), config.BitmainWorkMode) // not touched
+			assert.Equal(t, legacyConfig.Pools, config.Pools)                // pools preserved
+			return nil
+		})
+
+	err := client.StopMining(t.Context())
+	require.NoError(t, err)
+
+	// Test StartMining — should update MinerMode, not BitmainWorkMode
+	mockWebClient.EXPECT().
+		GetMinerConfig(gomock.Any(), gomock.Any()).
+		Return(&web.MinerConfig{
+			MinerMode: string(web.BitmainWorkModeSleep),
+		}, nil)
+	mockWebClient.EXPECT().
+		SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ any, config *web.MinerConfig) error {
+			// Act (done by the caller)
+			// Assert
+			assert.Equal(t, string(web.BitmainWorkModeStart), config.MinerMode)
+			assert.Equal(t, web.BitmainWorkMode(""), config.BitmainWorkMode)
+			return nil
+		})
+
+	err = client.StartMining(t.Context())
+	require.NoError(t, err)
 }
 
 func TestClient_ErrorCases(t *testing.T) {
