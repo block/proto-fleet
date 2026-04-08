@@ -1,8 +1,8 @@
-import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -47,7 +47,7 @@ const HeaderWidgets = ({
 
 const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
-  const location = useLocation();
+  const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
 
@@ -61,7 +61,6 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
     schedulePillData,
   };
   const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
-  const isDashboard = location.pathname === "/";
 
   return (
     <>
@@ -83,12 +82,7 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
         </div>
       </div>
       {showPhoneWidgets && (
-        <div
-          className={clsx(
-            "flex h-[57px] items-center",
-            isDashboard ? "bg-surface-5 dark:bg-surface-base" : "bg-surface-base",
-          )}
-        >
+        <div className={clsx("flex h-[57px] items-center", bgClass)}>
           <HeaderWidgets className="ml-5" {...headerWidgetsProps} />
         </div>
       )}

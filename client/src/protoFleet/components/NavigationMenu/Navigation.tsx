@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useRole } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
@@ -23,6 +24,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogoutAction();
+  const { bg } = usePageBackground();
   const currentRole = useRole();
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const [showSettingsHover, setShowSettingsHover] = useState(false);
@@ -61,8 +63,10 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
       aria-label="Main"
       className={clsx(
         "group/nav flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
-        "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:bg-surface-5 laptop:hover:w-50 laptop:hover:shadow-lg laptop:dark:bg-surface-base",
-        "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10 desktop:bg-surface-5 desktop:dark:bg-surface-base",
+        "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
+        bg === "surface-5" ? "laptop:bg-surface-5 laptop:dark:bg-surface-base" : "laptop:bg-surface-base",
+        "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
+        bg === "surface-5" ? "desktop:bg-surface-5 desktop:dark:bg-surface-base" : "desktop:bg-surface-base",
         "tablet:absolute tablet:z-30",
         "phone:absolute phone:z-30",
         className,

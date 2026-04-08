@@ -4,6 +4,7 @@ import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-rou
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
+import type { PageBackground } from "./hooks/usePageBackground";
 import { onboardingClient } from "@/protoFleet/api/clients";
 import { ActivityPage } from "@/protoFleet/features/activity";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
@@ -61,12 +62,14 @@ const welcomeLoader = async () => {
 interface CreateRouteOptions {
   fullscreen?: boolean;
   loader?: LoaderFunction;
+  bg?: PageBackground;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
   ...(options.loader && { loader: options.loader }),
+  ...(options.bg && { handle: { bg: options.bg } }),
 });
 
 // Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
@@ -97,18 +100,18 @@ export const requiresAuth: Record<string, boolean> = {
  */
 const router = createBrowserRouter([
   // Dashboard (Home)
-  createRoute("/", <Dashboard />),
+  createRoute("/", <Dashboard />, { bg: "surface-5" }),
 
   // Miners
   createRoute("/miners", <Miners />),
 
   // Groups
   createRoute("/groups", <GroupsPage />),
-  createRoute("/groups/:groupLabel", <GroupOverviewPage />),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
   // Racks
   createRoute("/racks", <RacksPage />),
-  createRoute("/racks/:rackId", <RackOverviewPage />),
+  createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
   // Activity
   createRoute("/activity", <ActivityPage />),
