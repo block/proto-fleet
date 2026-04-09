@@ -574,13 +574,6 @@ const BulkRenameModal = ({
           },
         ]}
         primaryPane={
-          <BulkRenamePreviewPanel
-            isLoadingPreview={isLoadingPreview}
-            previewRows={previewRows}
-            showPreviewEllipsis={showPreviewEllipsis}
-          />
-        }
-        secondaryPane={
           <BulkRenamePropertyForm
             preferences={bulkRenamePreferences}
             onDragEnd={handleDragEnd}
@@ -592,6 +585,13 @@ const BulkRenameModal = ({
                 separator,
               })
             }
+          />
+        }
+        secondaryPane={
+          <BulkRenamePreviewPanel
+            isLoadingPreview={isLoadingPreview}
+            previewRows={previewRows}
+            showPreviewEllipsis={showPreviewEllipsis}
           />
         }
       />

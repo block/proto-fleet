@@ -111,7 +111,7 @@ const BulkRenamePropertyForm = ({
   );
 
   return (
-    <section className="order-2 flex flex-col gap-10 p-6 pt-0 lg:order-1 lg:p-10 lg:pt-0">
+    <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10 desktop:pr-10 desktop:pb-10">
       <div className="flex flex-col gap-3">
         <h2 className="text-emphasis-300 text-text-primary">Name properties</h2>
 
@@ -136,7 +136,7 @@ const BulkRenamePropertyForm = ({
 
       <div className="flex flex-col gap-3">
         <h2 className="text-emphasis-300 text-text-primary">Property separator</h2>
-        <div className="flex flex-wrap gap-x-4 gap-y-0 lg:gap-6">
+        <div className="flex flex-wrap gap-x-4 gap-y-0 laptop:gap-6 desktop:gap-6">
           {Object.entries(bulkRenameSeparators).map(([separatorId, separator]) => (
             <label key={separatorId} className="flex h-12 items-center">
               <div className="flex w-8 items-center" data-testid={`bulk-rename-separator-${separatorId}`}>

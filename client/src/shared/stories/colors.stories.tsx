@@ -1,5 +1,4 @@
-import { ElementType, ReactNode, useEffect, useMemo, useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import Divider from "@/shared/components/Divider";
 
 interface ChildrenProps {
@@ -216,11 +215,4 @@ export const Colors = () => {
 
 export default {
   title: "Foundation/Colors",
-  decorators: [
-    (Story: ElementType) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
-    ),
-  ],
 };

@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 
-import { DismissCircleDark, Ellipsis } from "@/shared/assets/icons";
+import { Dismiss, Ellipsis } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
 import ButtonGroup, { type ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
@@ -11,7 +11,12 @@ import Row from "@/shared/components/Row";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
-const defaultPaneContainerClassName = "flex min-h-[calc(100dvh-104px)] w-full flex-1 flex-col lg:grid lg:grid-cols-2";
+const defaultPaneContainerClassName =
+  "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10 desktop:px-10 desktop:grid desktop:min-h-0 desktop:grid-cols-2";
+const defaultPrimaryPaneClassName =
+  "order-2 flex flex-col phone:pl-6 tablet:pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto desktop:order-1 desktop:min-h-0 desktop:overflow-y-auto";
+const defaultSecondaryPaneClassName =
+  "order-1 flex flex-col self-stretch bg-surface-overlay phone:mb-6 phone:max-h-[50vh] phone:overflow-y-auto tablet:mb-6 tablet:max-h-[50vh] tablet:overflow-y-auto laptop:order-2 laptop:min-h-0 laptop:rounded-xl laptop:pl-6 desktop:order-2 desktop:min-h-0 desktop:rounded-xl desktop:pl-6";
 
 interface FullScreenTwoPaneModalProps {
   open: boolean;
@@ -26,6 +31,8 @@ interface FullScreenTwoPaneModalProps {
   loadingState?: ReactNode;
   maxWidth?: string;
   paneContainerClassName?: string;
+  primaryPaneClassName?: string;
+  secondaryPaneClassName?: string;
   className?: string;
   zIndex?: string;
 }
@@ -107,6 +114,8 @@ const FullScreenTwoPaneModal = ({
   loadingState,
   maxWidth = "none",
   paneContainerClassName,
+  primaryPaneClassName,
+  secondaryPaneClassName,
   className,
   zIndex,
 }: FullScreenTwoPaneModalProps) => {
@@ -158,34 +167,32 @@ const FullScreenTwoPaneModal = ({
 
   return (
     <PageOverlay open={open} {...(zIndex && { zIndex })}>
-      <div className={clsx("h-full w-full overflow-auto bg-surface-base", className)}>
-        <div className="flex h-full w-full flex-col pb-6 lg:px-6">
-          <div className="sticky top-0 z-10 bg-surface-base px-6 pt-4 pb-4 lg:px-0">
+      <div
+        className={clsx(
+          "h-full w-full overflow-auto bg-surface-base laptop:overflow-hidden desktop:overflow-hidden",
+          className,
+        )}
+      >
+        <div className="flex h-full min-h-0 w-full flex-col pb-6">
+          <div className="sticky top-0 z-10 mb-6 bg-surface-base px-6 pt-4 pb-4 phone:mb-0 tablet:mb-0 laptop:static desktop:static">
             <Header
               title={title}
               titleSize="text-heading-100"
               stackButtonsOnPhone={false}
               iconAriaLabel={closeAriaLabel}
-              icon={
-                <DismissCircleDark
-                  width="w-6"
-                  className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"}
-                />
-              }
+              icon={<Dismiss className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"} />}
               iconOnClick={() => {
                 if (!isBusy) {
                   onDismiss?.();
                 }
               }}
-              iconButtonClassName="!p-0"
               iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
-              iconVariant={variants.textOnly}
               inline
-              buttonsWrapperClassName="hidden lg:block"
+              buttonsWrapperClassName="hidden laptop:block desktop:block"
               buttons={buttons}
             >
               {/* Mobile buttons: ellipsis + primary CTA */}
-              <div className="ml-3 lg:hidden">
+              <div className="ml-3 shrink-0 laptop:hidden desktop:hidden">
                 <ButtonGroup buttons={mobileButtons} variant={groupVariants.rightAligned} size={sizes.base} />
               </div>
             </Header>
@@ -196,8 +203,8 @@ const FullScreenTwoPaneModal = ({
           {loadingState ?? (
             <div className="mx-auto flex min-h-0 w-full flex-1" style={maxWidth !== "none" ? { maxWidth } : undefined}>
               <div className={paneContainerClassName ?? defaultPaneContainerClassName}>
-                {primaryPane}
-                {secondaryPane}
+                <div className={clsx(defaultPrimaryPaneClassName, primaryPaneClassName)}>{primaryPane}</div>
+                <div className={clsx(defaultSecondaryPaneClassName, secondaryPaneClassName)}>{secondaryPane}</div>
               </div>
             </div>
           )}

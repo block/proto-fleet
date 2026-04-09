@@ -8,7 +8,7 @@ import Callout from "@/shared/components/Callout";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 const SamplePane = ({ label, className }: { label: string; className?: string }) => (
-  <section className={`flex flex-col gap-4 p-6 ${className ?? ""}`}>
+  <section className={`flex flex-col gap-4 pt-6 pr-6 pb-6 ${className ?? ""}`}>
     <div className="text-emphasis-300 text-text-primary">{label}</div>
     <div className="rounded-lg bg-surface-5 p-6">
       <div className="text-300 text-text-primary-70">Sample content for {label.toLowerCase()}</div>
@@ -20,7 +20,7 @@ const SamplePane = ({ label, className }: { label: string; className?: string })
 );
 
 const PreviewPane = () => (
-  <section className="order-1 flex flex-col gap-4 bg-surface-5 p-6 lg:order-2">
+  <section className="flex flex-col gap-4 p-6">
     <div className="text-emphasis-300 text-text-primary">Preview</div>
     <div className="rounded-lg bg-surface-base p-6">
       <div className="text-300 text-text-primary-70">Preview content appears here</div>
@@ -74,7 +74,7 @@ const FullScreenTwoPaneModalStory = ({
       maxWidth={maxWidth}
       abovePanes={
         showAbovePanes ? (
-          <div className="mx-auto w-full max-w-[1280px] shrink-0 px-6 pb-4 lg:px-0">
+          <div className="mx-auto w-full max-w-[1280px] shrink-0 px-6 pb-4 laptop:px-0 desktop:px-0">
             <Callout
               intent="danger"
               prefixIcon={<DismissCircle />}
@@ -91,7 +91,7 @@ const FullScreenTwoPaneModalStory = ({
           </div>
         ) : undefined
       }
-      primaryPane={<SamplePane label="Configuration" className="order-2 lg:order-1" />}
+      primaryPane={<SamplePane label="Configuration" />}
       secondaryPane={<PreviewPane />}
     />
   );
@@ -140,7 +140,7 @@ const WithOverflowButtonsRender = (args: StoryArgs) => {
         { text: "Manage", variant: variants.secondary, onClick: () => {} },
         { text: "Save", variant: variants.primary, onClick: () => {} },
       ]}
-      primaryPane={<SamplePane label="Configuration" className="order-2 lg:order-1" />}
+      primaryPane={<SamplePane label="Configuration" />}
       secondaryPane={<PreviewPane />}
     />
   );

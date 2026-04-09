@@ -21,8 +21,8 @@ const BulkRenamePreviewPanel = ({
 
   return (
     <>
-      <section
-        className="order-1 flex min-h-16 items-center justify-center bg-surface-5 px-6 py-4 lg:hidden"
+      <div
+        className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden desktop:hidden"
         data-testid="bulk-rename-mobile-preview"
       >
         {isLoadingPreview ? (
@@ -38,51 +38,52 @@ const BulkRenamePreviewPanel = ({
         ) : (
           <div className="text-300 text-text-primary-50">No preview available</div>
         )}
-      </section>
+      </div>
 
-      <section className="hidden self-stretch px-6 lg:order-2 lg:flex" data-testid="bulk-rename-desktop-preview">
-        <div className="flex h-full w-full flex-col items-center justify-center gap-6 rounded-3xl bg-surface-5 px-16 pt-6 pb-4">
-          {isLoadingPreview ? (
-            <div className="flex w-full items-center justify-center">
-              <ProgressCircular indeterminate />
-            </div>
-          ) : previewRows.length === 0 ? (
-            <div className="flex w-full items-center justify-center text-300 text-text-primary-50">
-              No preview available
-            </div>
-          ) : (
-            <div className="flex w-full justify-center">
-              <div className="inline-grid max-w-full grid-cols-[fit-content(100%)_auto_fit-content(100%)] items-center gap-x-6 gap-y-6">
-                {previewRows.slice(0, showPreviewEllipsis ? 3 : previewRows.length).map((row, index) => (
-                  <NamePreview
-                    key={`${row.currentName}-${index}`}
-                    currentName={row.currentName}
-                    newName={row.newName}
-                    layout="inline"
-                  />
-                ))}
+      <div
+        className="hidden flex-col items-center justify-center gap-6 px-16 pt-6 pb-4 laptop:flex laptop:flex-1 desktop:flex desktop:flex-1"
+        data-testid="bulk-rename-desktop-preview"
+      >
+        {isLoadingPreview ? (
+          <div className="flex w-full items-center justify-center">
+            <ProgressCircular indeterminate />
+          </div>
+        ) : previewRows.length === 0 ? (
+          <div className="flex w-full items-center justify-center text-300 text-text-primary-50">
+            No preview available
+          </div>
+        ) : (
+          <div className="flex w-full justify-center">
+            <div className="inline-grid max-w-full grid-cols-[fit-content(100%)_auto_fit-content(100%)] items-center gap-x-6 gap-y-6">
+              {previewRows.slice(0, showPreviewEllipsis ? 3 : previewRows.length).map((row, index) => (
+                <NamePreview
+                  key={`${row.currentName}-${index}`}
+                  currentName={row.currentName}
+                  newName={row.newName}
+                  layout="inline"
+                />
+              ))}
 
-                {showPreviewEllipsis ? (
-                  <div className="col-span-3 px-2 text-center text-heading-200 text-text-primary-30">...</div>
-                ) : null}
+              {showPreviewEllipsis ? (
+                <div className="col-span-3 px-2 text-center text-heading-200 text-text-primary-30">...</div>
+              ) : null}
 
-                {showPreviewEllipsis
-                  ? previewRows
-                      .slice(-3)
-                      .map((row, index) => (
-                        <NamePreview
-                          key={`${row.currentName}-tail-${index}`}
-                          currentName={row.currentName}
-                          newName={row.newName}
-                          layout="inline"
-                        />
-                      ))
-                  : null}
-              </div>
+              {showPreviewEllipsis
+                ? previewRows
+                    .slice(-3)
+                    .map((row, index) => (
+                      <NamePreview
+                        key={`${row.currentName}-tail-${index}`}
+                        currentName={row.currentName}
+                        newName={row.newName}
+                        layout="inline"
+                      />
+                    ))
+                : null}
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        )}
+      </div>
     </>
   );
 };

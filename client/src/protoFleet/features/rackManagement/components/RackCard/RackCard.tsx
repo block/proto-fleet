@@ -40,9 +40,12 @@ const RackCard = ({
 
   return (
     <div
-      className={clsx("flex cursor-pointer flex-col rounded-2xl bg-surface-5 transition-opacity hover:opacity-80", {
-        "cursor-default": !onClick,
-      })}
+      className={clsx(
+        "flex cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80",
+        {
+          "cursor-default": !onClick,
+        },
+      )}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}

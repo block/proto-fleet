@@ -199,7 +199,7 @@ const SchedulePreview = ({ values, isEditMode = false }: SchedulePreviewProps) =
 
   return (
     <>
-      <section className="order-1 flex min-h-16 items-center justify-center bg-surface-5 px-6 py-4 lg:hidden">
+      <div className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden desktop:hidden">
         {!isReady ? (
           <div className="text-300 text-text-primary-50">Complete the schedule fields to preview the run.</div>
         ) : mobilePreviewRun ? (
@@ -209,38 +209,36 @@ const SchedulePreview = ({ values, isEditMode = false }: SchedulePreviewProps) =
         ) : (
           <div className="text-300 text-text-primary-50">No preview available</div>
         )}
-      </section>
+      </div>
 
-      <section className="hidden self-stretch px-6 lg:order-2 lg:flex">
-        <div className="flex h-full w-full flex-col justify-center rounded-3xl bg-surface-5 px-16 pt-6 pb-4">
-          {!isReady ? (
-            <div className="max-w-[420px] text-300 text-text-primary-70">
-              Complete the date, time, and targeting fields to preview the schedule before saving.
+      <div className="hidden flex-col justify-center px-16 pt-6 pb-4 laptop:flex laptop:flex-1 desktop:flex desktop:flex-1">
+        {!isReady ? (
+          <div className="max-w-[420px] text-300 text-text-primary-70">
+            Complete the date, time, and targeting fields to preview the schedule before saving.
+          </div>
+        ) : (
+          <div className="max-w-[520px]">
+            <div className={isEditMode ? "text-heading-100 text-text-primary" : "text-heading-200 text-text-primary"}>
+              {previewSummary}
             </div>
-          ) : (
-            <div className="max-w-[520px]">
-              <div className={isEditMode ? "text-heading-100 text-text-primary" : "text-heading-200 text-text-primary"}>
-                {previewSummary}
+
+            <div className="mt-10 text-emphasis-300 text-text-primary-50">Upcoming runs</div>
+            {previewRuns.length === 0 ? (
+              <div className="mt-5 text-300 text-text-primary-70">No future runs match the current schedule.</div>
+            ) : (
+              <div className="mt-5 flex flex-col gap-4">
+                {previewRuns.map((run, index) => (
+                  <div key={`${run.start.toISOString()}-${index}`} className="text-heading-100 text-text-primary">
+                    {run.end
+                      ? `${formatDateAtTime(run.start, formatters, formatters.weekdayDate)} - ${formatters.time.format(run.end)}`
+                      : formatDateAtTime(run.start, formatters, formatters.weekdayDate)}
+                  </div>
+                ))}
               </div>
-
-              <div className="mt-10 text-emphasis-300 text-text-primary-50">Upcoming runs</div>
-              {previewRuns.length === 0 ? (
-                <div className="mt-5 text-300 text-text-primary-70">No future runs match the current schedule.</div>
-              ) : (
-                <div className="mt-5 flex flex-col gap-4">
-                  {previewRuns.map((run, index) => (
-                    <div key={`${run.start.toISOString()}-${index}`} className="text-heading-100 text-text-primary">
-                      {run.end
-                        ? `${formatDateAtTime(run.start, formatters, formatters.weekdayDate)} - ${formatters.time.format(run.end)}`
-                        : formatDateAtTime(run.start, formatters, formatters.weekdayDate)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+            )}
+          </div>
+        )}
+      </div>
     </>
   );
 };

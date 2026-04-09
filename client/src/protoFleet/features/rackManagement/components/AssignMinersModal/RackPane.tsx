@@ -204,7 +204,7 @@ export default function RackPane({
   const slotSize = Math.max(28, Math.min(72, Math.floor(480 / cols)));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col p-4">
       <div className="flex shrink-0 items-center justify-between pb-4">
         <span className="text-300 text-text-primary-50">
           {cols}x{rows}, {originLabel}

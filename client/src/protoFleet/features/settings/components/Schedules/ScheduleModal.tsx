@@ -631,7 +631,7 @@ const ScheduleModal = ({
           },
         ]}
         primaryPane={
-          <section className="order-2 flex flex-col gap-10 p-6 pt-0 lg:order-1 lg:p-10 lg:pt-0">
+          <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10 desktop:pr-10 desktop:pb-10">
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Schedule details</div>
               <div className="grid gap-4 md:grid-cols-2">

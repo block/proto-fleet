@@ -157,14 +157,9 @@ const AssignMinersModalStory = ({
             </div>
           ) : undefined
         }
-        paneContainerClassName="flex min-h-0 flex-1 gap-6 phone:flex-col phone:overflow-y-auto tablet:flex-col tablet:overflow-y-auto"
-        primaryPane={
-          <div className="flex w-1/2 flex-col overflow-y-auto phone:order-2 phone:w-full phone:shrink-0 tablet:order-2 tablet:w-full tablet:shrink-0">
-            <MockMinersPane />
-          </div>
-        }
+        primaryPane={<MockMinersPane />}
         secondaryPane={
-          <div className="flex w-1/2 flex-col overflow-y-auto rounded-xl bg-surface-5 p-4 phone:order-1 phone:max-h-[70vh] phone:w-full phone:shrink-0 tablet:order-1 tablet:max-h-[70vh] tablet:w-full tablet:shrink-0">
+          <div className="p-4">
             <MockRackPane rows={rows} cols={cols} />
           </div>
         }

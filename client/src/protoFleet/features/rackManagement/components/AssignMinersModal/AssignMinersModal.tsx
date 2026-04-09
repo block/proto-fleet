@@ -507,50 +507,45 @@ export default function AssignMinersModal({
             </div>
           ) : undefined
         }
-        paneContainerClassName="flex min-h-0 flex-1 gap-6 phone:flex-col phone:overflow-y-auto tablet:flex-col tablet:overflow-y-auto"
         primaryPane={
-          <div className="flex w-1/2 flex-col overflow-y-auto phone:order-2 phone:w-full phone:shrink-0 tablet:order-2 tablet:w-full tablet:shrink-0">
-            <MinersPane
-              rackMiners={rackMiners}
-              miners={allMiners}
-              slotAssignments={activeAssignments}
-              assignmentMode={assignmentMode}
-              selectedMinerId={selectedMinerId}
-              selectedSlot={selectedSlot}
-              rows={rackSettings.rows}
-              cols={rackSettings.columns}
-              numberingOrigin={numberingOrigin}
-              onModeChange={handleModeChange}
-              onSelectMiner={handleSelectMiner}
-              onRemoveMiner={handleRemoveMiner}
-              onUnassignMiner={handleUnassignMiner}
-              onClearAssignments={handleClearAssignments}
-              hoveredMinerId={hoveredMinerId}
-              onOpenManageMiners={() => setShowManageMiners(true)}
-            />
-          </div>
+          <MinersPane
+            rackMiners={rackMiners}
+            miners={allMiners}
+            slotAssignments={activeAssignments}
+            assignmentMode={assignmentMode}
+            selectedMinerId={selectedMinerId}
+            selectedSlot={selectedSlot}
+            rows={rackSettings.rows}
+            cols={rackSettings.columns}
+            numberingOrigin={numberingOrigin}
+            onModeChange={handleModeChange}
+            onSelectMiner={handleSelectMiner}
+            onRemoveMiner={handleRemoveMiner}
+            onUnassignMiner={handleUnassignMiner}
+            onClearAssignments={handleClearAssignments}
+            hoveredMinerId={hoveredMinerId}
+            onOpenManageMiners={() => setShowManageMiners(true)}
+          />
         }
         secondaryPane={
-          <div className="flex w-1/2 flex-col overflow-y-auto rounded-xl bg-surface-5 p-4 phone:order-1 phone:max-h-[70vh] phone:w-full phone:shrink-0 tablet:order-1 tablet:max-h-[70vh] tablet:w-full tablet:shrink-0">
-            <RackPane
-              rows={rackSettings.rows}
-              cols={rackSettings.columns}
-              numberingOrigin={numberingOrigin}
-              slotAssignments={activeAssignments}
-              assignmentMode={assignmentMode}
-              assignedCount={assignedCount}
-              totalSlots={totalSlots}
-              originLabel={originLabel(numberingOrigin)}
-              selectedSlotKey={selectedSlot?.key ?? null}
-              showPopover={showSlotPopover}
-              hasMiners={rackMiners.length > 0}
-              onCellClick={handleCellClick}
-              onSelectFromList={handleSelectFromList}
-              onSearchMiners={handleSearchMiners}
-              onPopoverDismiss={handlePopoverDismiss}
-              onHoverMiner={setHoveredMinerId}
-            />
-          </div>
+          <RackPane
+            rows={rackSettings.rows}
+            cols={rackSettings.columns}
+            numberingOrigin={numberingOrigin}
+            slotAssignments={activeAssignments}
+            assignmentMode={assignmentMode}
+            assignedCount={assignedCount}
+            totalSlots={totalSlots}
+            originLabel={originLabel(numberingOrigin)}
+            selectedSlotKey={selectedSlot?.key ?? null}
+            showPopover={showSlotPopover}
+            hasMiners={rackMiners.length > 0}
+            onCellClick={handleCellClick}
+            onSelectFromList={handleSelectFromList}
+            onSearchMiners={handleSearchMiners}
+            onPopoverDismiss={handlePopoverDismiss}
+            onHoverMiner={setHoveredMinerId}
+          />
         }
       />
 
