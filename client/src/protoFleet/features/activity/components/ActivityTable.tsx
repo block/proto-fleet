@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { getActivityIcon } from "@/protoFleet/features/activity/utils/activityIcons";
@@ -19,12 +19,15 @@ const colTitles: ColTitles<ActivityColumns> = {
 
 const activeCols: ActivityColumns[] = ["type", "scope", "user", "timestamp"];
 
+const defaultNoDataElement = <div className="py-10 text-center text-text-primary-50">No activity to display.</div>;
+
 interface ActivityTableProps {
   activities: ActivityEntry[];
   totalCount: number;
+  noDataElement?: React.ReactNode;
 }
 
-const ActivityTable = ({ activities, totalCount }: ActivityTableProps) => {
+const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableProps) => {
   const colConfig: ColConfig<ActivityEntry, string, ActivityColumns> = useMemo(
     () => ({
       type: {
@@ -71,7 +74,7 @@ const ActivityTable = ({ activities, totalCount }: ActivityTableProps) => {
       total={totalCount}
       stickyFirstColumn={false}
       itemName={{ singular: "activity", plural: "activities" }}
-      noDataElement={<div className="py-10 text-center text-text-primary-50">No activity to display.</div>}
+      noDataElement={noDataElement ?? defaultNoDataElement}
     />
   );
 };
