@@ -59,10 +59,12 @@ const useAuth = () => {
     try {
       const response = await authClient.getUserAuditInfo({});
 
-      if (response.info?.passwordUpdatedAt) {
-        const seconds = Number(response.info?.passwordUpdatedAt?.seconds);
+      if (response.info?.passwordUpdatedAt && response.info.passwordUpdatedAt.seconds > 0) {
+        const seconds = Number(response.info.passwordUpdatedAt.seconds);
         const date = new Date(seconds * 1000);
         setPasswordLastUpdatedAt(date);
+      } else {
+        setPasswordLastUpdatedAt(null);
       }
     } catch (error) {
       handleAuthErrors({

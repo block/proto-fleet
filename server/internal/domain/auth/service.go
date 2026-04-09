@@ -124,9 +124,15 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, newAuthenticationFailedError()
 	}
 
-	// Update last login timestamp (non-critical, don't fail auth if this fails)
+	// Update last login timestamp (non-critical, don't fail auth if this fails).
+	// Only reflect the new time in the response if the DB write succeeds;
+	// otherwise fall back to the previously persisted value to stay consistent
+	// with what ListUsers will return.
+	loginTime := user.LastLoginAt
 	if err := s.userManagementStore.UpdateLastLogin(ctx, user.ID); err != nil {
 		slog.Warn("failed to update last login timestamp", "user_id", user.ID, "error", err)
+	} else {
+		loginTime = time.Now()
 	}
 
 	// Create session
@@ -165,8 +171,8 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		UserInfo: &authv1.UserInfo{
 			UserId:                 user.UserID,
 			Username:               user.Username,
-			PasswordUpdatedAt:      timestamppb.New(passwordUpdatedAt),
-			LastLoginAt:            toTimestampProto(user.LastLoginAt),
+			PasswordUpdatedAt:      toTimestampProto(passwordUpdatedAt),
+			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
 		},
@@ -422,9 +428,7 @@ func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInf
 		return nil, err
 	}
 
-	protoTimestamp := timestamppb.New(date)
-
-	return &authv1.GetUserAuditInfoResponse{Info: &authv1.UserAuditInfo{PasswordUpdatedAt: protoTimestamp}}, nil
+	return &authv1.GetUserAuditInfoResponse{Info: &authv1.UserAuditInfo{PasswordUpdatedAt: toTimestampProto(date)}}, nil
 }
 
 // generateDefaultOrgName returns a default organization name suffixed with the first 8 chars or the orgID
@@ -576,7 +580,7 @@ func (s *Service) ListUsers(ctx context.Context) (*authv1.ListUsersResponse, err
 		userInfos[i] = &authv1.UserInfo{
 			UserId:                 user.UserID,
 			Username:               user.Username,
-			PasswordUpdatedAt:      timestamppb.New(user.PasswordUpdatedAt),
+			PasswordUpdatedAt:      toTimestampProto(user.PasswordUpdatedAt),
 			LastLoginAt:            toTimestampProto(user.LastLoginAt),
 			Role:                   user.RoleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,

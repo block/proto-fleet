@@ -374,6 +374,36 @@ func TestActivityLogging_DBErrorReturnsInternalNotLoginFailed(t *testing.T) {
 	assert.NotContains(t, err.Error(), "connection refused")
 }
 
+func TestToTimestampProto(t *testing.T) {
+	t.Run("returns nil for zero time", func(t *testing.T) {
+		result := toTimestampProto(time.Time{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns valid timestamp for non-zero time", func(t *testing.T) {
+		now := time.Now()
+		result := toTimestampProto(now)
+		require.NotNil(t, result)
+		assert.Equal(t, now.Unix(), result.Seconds)
+	})
+}
+
+func TestGetUserAuditInfo_NilTimestampForNeverUpdatedPassword(t *testing.T) {
+	ctx := ctxWithSession("ext-123", "admin", 1)
+
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users: map[string]interfaces.User{},
+		},
+	}
+
+	resp, err := service.GetUserAuditInfo(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Info)
+	assert.Nil(t, resp.Info.PasswordUpdatedAt,
+		"PasswordUpdatedAt should be nil when password was never updated (DB NULL)")
+}
+
 func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
