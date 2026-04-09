@@ -39,7 +39,7 @@ test.describe("General Settings", () => {
     }
   });
 
-  test("Set temperature format @smoke", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
+  test("Set temperature format", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Navigate to general settings", async () => {

@@ -31,7 +31,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  detect-specs:
+    runs-on: ubuntu-latest
+    outputs:
+      setup_specs: ${{ steps.detect.outputs.setup_specs }}
+      specs: ${{ steps.detect.outputs.specs }}
+      projects: ${{ steps.detect.outputs.projects }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Detect spec files and projects
+        id: detect
+        run: |
+          cd client/e2eTests/protoFleet/spec
+
+          SETUP_SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -E '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          PROJECTS='["desktop", "mobile"]'
+
+          echo "setup_specs=${SETUP_SPEC_FILES}" >> $GITHUB_OUTPUT
+          echo "specs=${SPEC_FILES}" >> $GITHUB_OUTPUT
+          echo "projects=${PROJECTS}" >> $GITHUB_OUTPUT
+
+          echo "Detected setup specs: ${SETUP_SPEC_FILES}"
+          echo "Detected specs: ${SPEC_FILES}"
+          echo "Projects to run: ${PROJECTS}"
+
   e2e-tests:
+    needs: detect-specs
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -39,13 +69,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [desktop, mobile]
+        spec: ${{ fromJson(needs.detect-specs.outputs.specs) }}
+        project: ${{ fromJson(needs.detect-specs.outputs.projects) }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Set artifact name
+        id: artifact
+        run: |
+          # Sanitize spec name for use in artifact names
+          SPEC_NAME=$(echo "${{ matrix.spec }}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
+          echo "spec_name=${SPEC_NAME}" >> $GITHUB_OUTPUT
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -123,70 +161,56 @@ jobs:
           timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
           echo "Frontend is ready!"
 
-      - name: Run Playwright tests (${{ matrix.project }})
+      - name: Run Playwright tests (${{ matrix.project }} - ${{ matrix.spec }})
         working-directory: client/e2eTests/protoFleet
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "Running smoke tests only for PR"
-            npx playwright test --project=smoke-${{ matrix.project }}
-          else
-            echo "Running all tests for scheduled/manual run"
-            npx playwright test --project=${{ matrix.project }}
-          fi
         env:
           CI: true
-
-      - name: Upload Playwright report
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-report-protofleet-${{ matrix.project }}
-          path: client/e2eTests/protoFleet/playwright-report/
-          retention-days: 30
-
-      - name: Note PR report availability
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+          SETUP_SPECS_JSON: ${{ needs.detect-specs.outputs.setup_specs }}
         run: |
-          echo "## ProtoFleet E2E Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "PR runs keep Playwright HTML reports as workflow artifacts only." >> "$GITHUB_STEP_SUMMARY"
-          echo "GitHub Pages publication is disabled on pull requests." >> "$GITHUB_STEP_SUMMARY"
+          run_spec() {
+            local spec_path="$1"
+            local spec_slug
+            spec_slug=$(echo "${spec_path}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
 
-      - name: Install Testmo CLI
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
-        run: |
-          npm install -g @testmo/testmo-cli@1.0.0
+            echo "Running spec: ${spec_path} on project: ${{ matrix.project }}"
+            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}-${spec_slug}.zip" \
+            PWTEST_BLOB_DO_NOT_REMOVE=1 \
+            npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${spec_path}"
+          }
 
-      - name: Submit test results to Testmo
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
-        working-directory: client/e2eTests/protoFleet
-        env:
-          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
-        run: |
-          # Add XML declaration if missing (Playwright sometimes omits it on CI)
-          if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
-            echo "XML declaration missing, adding it..."
-            echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
-            mv test-results/results-fixed.xml test-results/results.xml
-            echo "First 2 lines after fix:"
-            head -n 2 test-results/results.xml
-          else
-            echo "XML declaration already present"
+          rm -rf blob-report playwright-report test-results
+          mkdir -p blob-report
+
+          mapfile -t setup_specs < <(printf '%s' "${SETUP_SPECS_JSON}" | jq -r '.[]')
+          if [ "${#setup_specs[@]}" -gt 0 ]; then
+            echo "Running setup specs before target spec:"
+            printf ' - %s\n' "${setup_specs[@]}"
+            for spec in "${setup_specs[@]}"; do
+              run_spec "${spec}"
+            done
           fi
 
-          testmo automation:run:submit \
-            --instance https://proto.testmo.net \
-            --project-id 2 \
-            --name "ProtoFleet E2E Tests - $(date +'%Y-%m-%d %H:%M')" \
-            --source "protofleet-e2e-tests-${{ matrix.project }}" \
-            --results test-results/*.xml
+          run_spec "${{ matrix.spec }}"
+
+          echo "Blob reports created:"
+          find blob-report -maxdepth 2 -type f -print | sort || true
+
+      - name: Upload blob report
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: blob-report-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
+          path: client/e2eTests/protoFleet/blob-report/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: failure()
+        if: ${{ failure() && !cancelled() }}
         with:
-          name: playwright-screenshots-protofleet-${{ matrix.project }}
+          name: screenshots-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
           path: client/e2eTests/protoFleet/test-results/
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Dump backend logs on failure
@@ -203,71 +227,176 @@ jobs:
         working-directory: server
         run: docker compose down -v
 
-  publish-reports:
-    name: Publish ProtoFleet E2E Reports
+  merge-reports:
+    name: Merge Test Reports
     runs-on: ubuntu-latest
     needs: [e2e-tests]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ always() && !cancelled() }}
     permissions:
-      contents: write
-    concurrency:
-      group: gh-pages-protofleet-e2e-reports
-      cancel-in-progress: false
+      contents: read
+    outputs:
+      desktop-report-path: ${{ steps.merge.outputs.desktop-report-path }}
+      mobile-report-path: ${{ steps.merge.outputs.mobile-report-path }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Download Playwright reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: playwright-report-protofleet-*
-          path: /tmp/playwright-reports
+          persist-credentials: false
 
-      - name: Determine report directory
-        id: report-dir
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Cache Node modules
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            client/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Download all blob reports
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: blob-report-*
+          path: /tmp/blob-reports
+          merge-multiple: false
+
+      - name: Merge blob reports into HTML reports
+        id: merge
+        working-directory: client/e2eTests/protoFleet
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            REPORT_BASE_DIR="protofleet-e2e-reports/main"
+          echo "Merging blob reports..."
+          mkdir -p merged-reports
+
+          # Organize blob reports by project
+          mkdir -p /tmp/desktop-blobs /tmp/mobile-blobs
+
+          # Copy all desktop blob reports
+          find /tmp/blob-reports -name "blob-report-desktop-*" -type d | while read dir; do
+            if [ "$(find "$dir" -name "*.zip" | wc -l)" -gt 0 ]; then
+              cp -r "$dir"/* /tmp/desktop-blobs/ 2>/dev/null || true
+            fi
+          done
+
+          # Copy all mobile blob reports  
+          find /tmp/blob-reports -name "blob-report-mobile-*" -type d | while read dir; do
+            if [ "$(find "$dir" -name "*.zip" | wc -l)" -gt 0 ]; then
+              cp -r "$dir"/* /tmp/mobile-blobs/ 2>/dev/null || true
+            fi
+          done
+
+          # Merge desktop reports
+          if [ "$(find /tmp/desktop-blobs -name "*.zip" 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Merging desktop reports..."
+            mkdir -p merged-reports/desktop/test-results
+            PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/desktop/playwright-report \
+            PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/desktop/test-results/results.xml \
+            npx playwright merge-reports --reporter=html,junit /tmp/desktop-blobs
+            echo "desktop-report-path=client/e2eTests/protoFleet/merged-reports/desktop" >> $GITHUB_OUTPUT
           else
-            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
-            REPORT_BASE_DIR="protofleet-e2e-reports/branch-${BRANCH_NAME}"
+            echo "No desktop blob reports found"
           fi
-          echo "desktop_dir=${REPORT_BASE_DIR}/desktop" >> $GITHUB_OUTPUT
-          echo "mobile_dir=${REPORT_BASE_DIR}/mobile" >> $GITHUB_OUTPUT
-          echo "Report will be published to: ${REPORT_BASE_DIR}"
 
-      - name: Publish Playwright report to GitHub Pages (desktop)
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+          # Merge mobile reports  
+          if [ "$(find /tmp/mobile-blobs -name "*.zip" 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Merging mobile reports..."
+            mkdir -p merged-reports/mobile/test-results
+            PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/mobile/playwright-report \
+            PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/mobile/test-results/results.xml \
+            npx playwright merge-reports --reporter=html,junit /tmp/mobile-blobs
+            echo "mobile-report-path=client/e2eTests/protoFleet/merged-reports/mobile" >> $GITHUB_OUTPUT
+          else
+            echo "No mobile blob reports found"
+          fi
+
+          echo "Report merging completed"
+          ls -la merged-reports/ || true
+
+      - name: Upload merged Playwright reports
+        id: merged-report-artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: /tmp/playwright-reports/playwright-report-protofleet-desktop
-          destination_dir: ${{ steps.report-dir.outputs.desktop_dir }}
-          keep_files: false
+          name: playwright-report-protofleet-merged
+          path: client/e2eTests/protoFleet/merged-reports/
+          if-no-files-found: warn
+          retention-days: 30
 
-      - name: Publish Playwright report to GitHub Pages (mobile)
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: /tmp/playwright-reports/playwright-report-protofleet-mobile
-          destination_dir: ${{ steps.report-dir.outputs.mobile_dir }}
-          keep_files: false
-
-      - name: Add job summary with test results
+      - name: Install Testmo CLI
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
         run: |
-          REPORT_URL_DESKTOP="https://btc-mining.github.io/proto-fleet/${{ steps.report-dir.outputs.desktop_dir }}"
-          REPORT_URL_MOBILE="https://btc-mining.github.io/proto-fleet/${{ steps.report-dir.outputs.mobile_dir }}"
+          npm install -g @testmo/testmo-cli@1.0.0
 
-          echo "## 🎭 ProtoFleet E2E Test Results (desktop)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View Latest Published HTML Report](${REPORT_URL_DESKTOP})**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Test artifacts:** Available in the artifacts section below" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+      - name: Submit test results to Testmo (Desktop)
+        if: ${{ !cancelled() && needs.e2e-tests.result == 'success' && github.event_name == 'schedule' && steps.merge.outputs.desktop-report-path }}
+        working-directory: client/e2eTests/protoFleet/merged-reports/desktop
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if [ -f "test-results/results.xml" ]; then
+            if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+              echo "XML declaration missing, adding it..."
+              echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+              mv test-results/results-fixed.xml test-results/results.xml
+              echo "First 2 lines after fix:"
+              head -n 2 test-results/results.xml
+            else
+              echo "XML declaration already present"
+            fi
 
-          echo "## 🎭 ProtoFleet E2E Test Results (mobile)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **[View Latest Published HTML Report](${REPORT_URL_MOBILE})**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Test artifacts:** Available in the artifacts section below" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            testmo automation:run:submit \
+              --instance https://proto.testmo.net \
+              --project-id 2 \
+              --name "ProtoFleet E2E Tests Desktop - $(date +'%Y-%m-%d %H:%M')" \
+              --source "protofleet-e2e-tests-desktop" \
+              --results test-results/*.xml
+          else
+            echo "No desktop test results found"
+          fi
+
+      - name: Submit test results to Testmo (Mobile)
+        if: ${{ !cancelled() && needs.e2e-tests.result == 'success' && github.event_name == 'schedule' && steps.merge.outputs.mobile-report-path }}
+        working-directory: client/e2eTests/protoFleet/merged-reports/mobile
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if [ -f "test-results/results.xml" ]; then
+            if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+              echo "XML declaration missing, adding it..."
+              echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+              mv test-results/results-fixed.xml test-results/results.xml
+              echo "First 2 lines after fix:"
+              head -n 2 test-results/results.xml
+            else
+              echo "XML declaration already present"
+            fi
+
+            testmo automation:run:submit \
+              --instance https://proto.testmo.net \
+              --project-id 2 \
+              --name "ProtoFleet E2E Tests Mobile - $(date +'%Y-%m-%d %H:%M')" \
+              --source "protofleet-e2e-tests-mobile" \
+              --results test-results/*.xml
+          else
+            echo "No mobile test results found"
+          fi
+
+      - name: Note report availability
+        env:
+          MERGED_REPORT_ARTIFACT_URL: ${{ steps.merged-report-artifact.outputs.artifact-url }}
+        run: |
+          echo "## 🎭 ProtoFleet E2E Test Reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "${MERGED_REPORT_ARTIFACT_URL}" ]]; then
+            echo "📦 **[Download merged Playwright report artifact](${MERGED_REPORT_ARTIFACT_URL})**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "📦 **Merged test reports:** Available in the artifacts section as \`playwright-report-protofleet-merged\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

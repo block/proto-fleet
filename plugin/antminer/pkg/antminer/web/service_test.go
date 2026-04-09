@@ -383,6 +383,7 @@ func TestGetStatsInfo(t *testing.T) {
 				"chain_num": 3,
 				"fan_num": 4,
 				"fan": [7000, 7000, 7000, 7000],
+				"psu": {"index": 0, "status": "ok"},
 				"hwp_total": 0.0006,
 				"chain": [
 					{
@@ -449,6 +450,9 @@ func TestGetStatsInfo(t *testing.T) {
 	assert.Equal(t, 4, stats.STATS[0].FanNum)
 	assert.Len(t, stats.STATS[0].Fan, 4)
 	assert.Equal(t, 7000, stats.STATS[0].Fan[0])
+	require.NotNil(t, stats.STATS[0].PSU)
+	assert.Equal(t, 0, stats.STATS[0].PSU.Index)
+	assert.Equal(t, "ok", stats.STATS[0].PSU.Status)
 	assert.Len(t, stats.STATS[0].Chain, 3)
 	assert.Len(t, stats.STATS[0].Chain[0].TempChip, 4)
 	assert.InEpsilon(t, 59.0, stats.STATS[0].Chain[0].TempChip[0], 0.01)

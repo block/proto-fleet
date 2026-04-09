@@ -115,6 +115,8 @@ type ErrorConfig struct {
 	BoardDisabled   bool // Set board to disabled
 	BoardNotAlive   bool // Set board status to not "Alive"
 	BoardNotHashing bool // Set board hashrate to 0
+	FanFailed       bool // Set a cooling fan RPM to 0
+	PSUFault        bool // Set PSU status to a faulted state
 
 	// Pool connectivity
 	PoolNotAlive       bool // Set pool status to not "Alive"

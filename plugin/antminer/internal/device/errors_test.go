@@ -871,6 +871,13 @@ func createTestChainStats(index int, tempChip []float64, rateReal float64, hwp f
 	}
 }
 
+func createTestPSUStats(index int, status string) *web.PSUStats {
+	return &web.PSUStats{
+		Index:  index,
+		Status: status,
+	}
+}
+
 // Test: Stats API temperature detection - Critical
 func TestDetectTemperatureErrorsFromStats_Critical(t *testing.T) {
 	now := time.Now()
@@ -990,6 +997,70 @@ func TestDetectHashboardStatusErrorsFromStats_Healthy(t *testing.T) {
 	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
 
 	assert.Empty(t, errors, "Should not detect errors for healthy chains")
+}
+
+func TestDetectFanErrorsFromStats_Failed(t *testing.T) {
+	now := time.Now()
+
+	errors := detectFanErrorsFromStats([]int{0, 7050, 6980, 7020}, 4, testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.FanFailed, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityCritical, errors[0].Severity)
+	assert.Equal(t, sdkerrors.ComponentTypeFan, errors[0].ComponentType)
+	require.NotNil(t, errors[0].ComponentID)
+	assert.Equal(t, "1", *errors[0].ComponentID)
+	assert.Contains(t, errors[0].Summary, "Fan 1")
+	assert.Equal(t, "1", errors[0].VendorAttributes["fan_index"])
+	assert.Equal(t, "0", errors[0].VendorAttributes["fan_rpm"])
+}
+
+func TestDetectFanErrorsFromStats_Healthy(t *testing.T) {
+	now := time.Now()
+
+	errors := detectFanErrorsFromStats([]int{7000, 7050, 6980, 7020}, 4, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors)
+}
+
+func TestDetectFanErrorsFromStats_IgnoresInactivePlaceholderSlots(t *testing.T) {
+	now := time.Now()
+
+	errors := detectFanErrorsFromStats([]int{7000, 7050, 0, 0}, 2, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors)
+}
+
+func TestDetectFanErrorsFromStats_SkipsChecksWhenNoActiveFansReported(t *testing.T) {
+	now := time.Now()
+
+	errors := detectFanErrorsFromStats([]int{0, 0, 0, 0}, 0, testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors)
+}
+
+func TestDetectPSUErrorsFromStats_Fault(t *testing.T) {
+	now := time.Now()
+
+	errors := detectPSUErrorsFromStats(createTestPSUStats(0, "fault"), testDeviceIDForErrors, now)
+
+	require.Len(t, errors, 1)
+	assert.Equal(t, sdkerrors.PSUFaultGeneric, errors[0].MinerError)
+	assert.Equal(t, sdkerrors.SeverityMajor, errors[0].Severity)
+	assert.Equal(t, sdkerrors.ComponentTypePSU, errors[0].ComponentType)
+	require.NotNil(t, errors[0].ComponentID)
+	assert.Equal(t, "1", *errors[0].ComponentID)
+	assert.Contains(t, errors[0].Summary, "PSU 1")
+	assert.Equal(t, "1", errors[0].VendorAttributes["psu_index"])
+	assert.Equal(t, "fault", errors[0].VendorAttributes["psu_status"])
+}
+
+func TestDetectPSUErrorsFromStats_Healthy(t *testing.T) {
+	now := time.Now()
+
+	errors := detectPSUErrorsFromStats(createTestPSUStats(0, "ok"), testDeviceIDForErrors, now)
+
+	assert.Empty(t, errors)
 }
 
 // Test: Stats API hardware errors - Major percentage

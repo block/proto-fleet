@@ -216,6 +216,9 @@ services:
       PASSWORD: "root17"
       ERROR_POOL_NOT_ALIVE: "true"
       ERROR_POOL_GET_FAILURES: "15"
+      ERROR_BOARD_NOT_HASHING: "true"
+      ERROR_FAN_FAILED: "true"
+      ERROR_PSU_FAULT: "true"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 10s

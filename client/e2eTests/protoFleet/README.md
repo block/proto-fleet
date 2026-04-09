@@ -35,7 +35,6 @@ This command will:
 
 ```bash
 just test-e2e-fleet              # Run all tests (desktop)
-just test-e2e-fleet-smoke        # Run only smoke tests (desktop)
 just test-e2e-fleet-ui           # Run in interactive UI mode
 just test-e2e-fleet-headed       # Run with visible browser
 just test-e2e-fleet-wip          # Run only tests tagged @wip
@@ -45,40 +44,17 @@ just test-e2e-fleet-wip          # Run only tests tagged @wip
 
 ```bash
 npm run test:e2e           # Run all tests (desktop)
-npm run test:e2e:smoke     # Run only smoke tests (desktop)
 npm run test:e2e:ui        # Run in interactive UI mode
 npm run test:e2e:headed    # Run with visible browser
 ```
 
-## Smoke Test Suite
-
-The test suite includes a **smoke test** subset that runs on every pull request to provide quick feedback on core functionality. Tests marked with `@smoke` are included in this suite.
-
-### Smoke Test Criteria
-
-Tests included in the smoke suite:
-
-- **Authentication & Navigation**: Basic login and page navigation
-- **Onboarding**: User setup and miner addition workflows
-- **Settings**: Core configuration persistence (e.g., temperature format)
-- **Validation**: Essential input validation scenarios
-- **Basic Actions**: Simple miner management operations
-
 ### Test Execution Strategy
 
-- **Pull Requests**: Only smoke tests run (5-10 minute execution)
-- **Nightly Builds**: Full test suite runs (30+ minute execution)
-- **Manual Runs**: Full test suite by default, smoke tests via `--grep '@smoke'`
+- **Pull Requests**: Run the full Fleet suite through parallel spec workers
+- **Nightly Builds**: Run the full Fleet suite
+- **Manual Runs**: Run the full Fleet suite by default
 
-### Adding Tests to Smoke Suite
-
-To include a test in the smoke suite, add the `@smoke` tag to the test name:
-
-```javascript
-test("Sign in with admin @smoke", async ({ authPage }) => {
-  // Test implementation
-});
-```
+In CI, spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are replayed first, in filename order, before each non-setup spec worker runs its assigned spec file.
 
 **Using Playwright directly:**
 

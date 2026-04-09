@@ -112,7 +112,7 @@ test.describe("Miners UNPAIR - ADD actions", () => {
     });
   });
 
-  test("UNPAIR - ADD multiple miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD multiple miners", async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -166,7 +166,7 @@ test.describe("Miners UNPAIR - ADD actions", () => {
     });
   });
 
-  test("UNPAIR - ADD all miners @smoke", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD all miners", async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 

@@ -93,7 +93,7 @@ test.describe("Mining Pools", () => {
   // Also, removed the actual username for security reasons. Need to get from GH secrets
   // const validUsername = "aaaaaaa";
 
-  test("Configure mining pool @smoke", async ({ settingsPage, settingsPoolsPage, newPoolModal }) => {
+  test("Configure mining pool", async ({ settingsPage, settingsPoolsPage, newPoolModal }) => {
     const settingsPoolName = generateRandomText("PoolName");
     const poolUsername = generatePoolUsername();
 
@@ -138,7 +138,7 @@ test.describe("Mining Pools", () => {
     });
   });
 
-  test("Add default mining pool to all miners @setup @smoke", async ({
+  test("Add default mining pool to all miners @setup", async ({
     minersPage,
     editPoolPage,
     newPoolModal,

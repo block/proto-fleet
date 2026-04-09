@@ -135,6 +135,9 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 		for i := 0; i < chainCount; i++ {
 			baseTemp := state.Temperature + chainTempVariations[i]
 			hashRatePerChain := (state.HashRate * 1000 / float64(chainCount)) * chainHashrateVariations[i]
+			if state.ErrorConfig.BoardNotHashing && i == 0 {
+				hashRatePerChain = 0
+			}
 
 			chains[i] = map[string]interface{}{
 				"index":      i,
@@ -154,6 +157,14 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 		// Add realistic variation to fan speeds
 		// Real fans show slight RPM differences due to manufacturing tolerances and airflow
 		fanSpeeds := []int{7000, 7050, 6980, 7020}
+		if state.ErrorConfig.FanFailed {
+			fanSpeeds[0] = 0
+		}
+
+		psuStatus := "ok"
+		if state.ErrorConfig.PSUFault {
+			psuStatus = "fault"
+		}
 
 		stats := map[string]interface{}{
 			"STATUS": map[string]interface{}{
@@ -179,7 +190,11 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 					"fan_num":    4,
 					"fan":        fanSpeeds,
 					"hwp_total":  0.0006,
-					"chain":      chains,
+					"psu": map[string]interface{}{
+						"index":  0,
+						"status": psuStatus,
+					},
+					"chain": chains,
 				},
 			},
 		}

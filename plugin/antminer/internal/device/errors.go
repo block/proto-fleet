@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/plugin/antminer/pkg/antminer/rpc"
@@ -72,6 +73,8 @@ const (
 	attrThresholdCount   = "threshold_count"
 	attrRateRealGHS      = "rate_real_ghs"
 	attrRateIdealGHS     = "rate_ideal_ghs"
+	attrFanIndex         = "fan_index"
+	attrFanRPM           = "fan_rpm"
 	attrRejectedPercent  = "rejected_percent"
 	attrRejectedCount    = "rejected_count"
 	attrAcceptedCount    = "accepted_count"
@@ -80,6 +83,8 @@ const (
 	attrPoolURL          = "pool_url"
 	attrPoolStatus       = "pool_status"
 	attrPoolIndex        = "pool_index"
+	attrPSUIndex         = "psu_index"
+	attrPSUStatus        = "psu_status"
 	attrGetFailures      = "get_failures"
 	attrRemoteFailures   = "remote_failures"
 	attrThreshold        = "threshold"
@@ -278,6 +283,8 @@ func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *r
 		slog.Debug("Using stats.cgi API data for per-chain error detection", "deviceID", deviceID, "chainCount", len(stats.STATS[0].Chain))
 		errors = append(errors, detectTemperatureErrorsFromStats(stats.STATS[0].Chain, deviceID, now)...)
 		errors = append(errors, detectHashboardStatusErrorsFromStats(stats.STATS[0].Chain, deviceID, now)...)
+		errors = append(errors, detectFanErrorsFromStats(stats.STATS[0].Fan, stats.STATS[0].FanNum, deviceID, now)...)
+		errors = append(errors, detectPSUErrorsFromStats(stats.STATS[0].PSU, deviceID, now)...)
 		perBoardHWErrors = detectPerBoardHardwareErrorsFromStats(stats.STATS[0].Chain, deviceID, now)
 		errors = append(errors, perBoardHWErrors...)
 	} else if devs != nil && len(devs.Devs) > 0 {
@@ -306,6 +313,72 @@ func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *r
 	}
 
 	return errors
+}
+
+func detectFanErrorsFromStats(fanSpeeds []int, activeFanCount int, deviceID string, now time.Time) []sdkerrors.DeviceError {
+	var errors []sdkerrors.DeviceError
+
+	checkedFans := len(fanSpeeds)
+	if activeFanCount >= 0 && activeFanCount < checkedFans {
+		checkedFans = activeFanCount
+	}
+
+	for i := range checkedFans {
+		rpm := fanSpeeds[i]
+		if rpm > 0 {
+			continue
+		}
+
+		fanSlot := i + 1
+		fanID := strconv.Itoa(fanSlot)
+		errors = append(errors, sdkerrors.DeviceError{
+			MinerError:        sdkerrors.FanFailed,
+			Severity:          sdkerrors.SeverityCritical,
+			Summary:           fmt.Sprintf("Fan %d has stopped working", fanSlot),
+			CauseSummary:      "Cooling fan stopped reporting RPM",
+			RecommendedAction: "Replace failed fan immediately",
+			Impact:            "Miner will thermal throttle or shut down",
+			ComponentType:     sdkerrors.ComponentTypeFan,
+			ComponentID:       &fanID,
+			FirstSeenAt:       now,
+			LastSeenAt:        now,
+			DeviceID:          deviceID,
+			VendorAttributes: map[string]string{
+				attrFanIndex: fanID,
+				attrFanRPM:   strconv.Itoa(rpm),
+			},
+		})
+	}
+
+	return errors
+}
+
+func detectPSUErrorsFromStats(psu *web.PSUStats, deviceID string, now time.Time) []sdkerrors.DeviceError {
+	if psu == nil || strings.EqualFold(psu.Status, "ok") || psu.Status == "" {
+		return nil
+	}
+
+	psuSlot := psu.Index + 1
+	psuID := strconv.Itoa(psuSlot)
+	return []sdkerrors.DeviceError{
+		{
+			MinerError:        sdkerrors.PSUFaultGeneric,
+			Severity:          sdkerrors.SeverityMajor,
+			Summary:           fmt.Sprintf("PSU %d status is '%s'", psuSlot, psu.Status),
+			CauseSummary:      "Power supply reported a fault",
+			RecommendedAction: "Inspect PSU for damage or overheating",
+			Impact:            "Power delivery may be compromised",
+			ComponentType:     sdkerrors.ComponentTypePSU,
+			ComponentID:       &psuID,
+			FirstSeenAt:       now,
+			LastSeenAt:        now,
+			DeviceID:          deviceID,
+			VendorAttributes: map[string]string{
+				attrPSUIndex:  psuID,
+				attrPSUStatus: psu.Status,
+			},
+		},
+	}
 }
 
 // detectTemperatureErrors checks boards for temperature issues.

@@ -53,7 +53,7 @@ test.describe("Groups", () => {
     }
   }
 
-  test("Create, edit, and delete groups @smoke", async ({ groupsPage }) => {
+  test("Create, edit, and delete groups", async ({ groupsPage }) => {
     const groupName = generateRandomText("automation");
     const editedGroupName = generateRandomText("automation-edited");
 

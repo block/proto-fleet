@@ -214,6 +214,11 @@ type ChainStats struct {
 	HWP       float64   `json:"hwp"`
 }
 
+type PSUStats struct {
+	Index  int    `json:"index"`
+	Status string `json:"status"`
+}
+
 // StatsData contains aggregated miner statistics and per-chain metrics
 type StatsData struct {
 	Elapsed   int          `json:"elapsed"`
@@ -226,6 +231,7 @@ type StatsData struct {
 	FanNum    int          `json:"fan_num"`
 	Fan       []int        `json:"fan"`
 	HWPTotal  float64      `json:"hwp_total"`
+	PSU       *PSUStats    `json:"psu,omitempty"`
 	Chain     []ChainStats `json:"chain"`
 }
 

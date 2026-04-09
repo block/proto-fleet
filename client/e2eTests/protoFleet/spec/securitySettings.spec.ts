@@ -84,7 +84,7 @@ test.describe("Proto Fleet - Security Settings", () => {
   const newUsername = generateRandomUsername();
   const newPassword = generateRandomText("A1!");
 
-  test("Update admin username and password @smoke", async ({ authPage, settingsPage, settingsSecurityPage }) => {
+  test("Update admin username and password", async ({ authPage, settingsPage, settingsSecurityPage }) => {
     await test.step("Log in as admin", async () => {
       await authPage.inputUsername(username);
       await authPage.inputPassword(password);

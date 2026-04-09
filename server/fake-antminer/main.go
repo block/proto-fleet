@@ -259,6 +259,8 @@ func parseErrorConfig() ErrorConfig {
 		BoardDisabled:      parseBool("ERROR_BOARD_DISABLED", false),
 		BoardNotAlive:      parseBool("ERROR_BOARD_NOT_ALIVE", false),
 		BoardNotHashing:    parseBool("ERROR_BOARD_NOT_HASHING", false),
+		FanFailed:          parseBool("ERROR_FAN_FAILED", false),
+		PSUFault:           parseBool("ERROR_PSU_FAULT", false),
 		PoolNotAlive:       parseBool("ERROR_POOL_NOT_ALIVE", false),
 		PoolGetFailures:    parseInt("ERROR_POOL_GET_FAILURES", 0),
 		PoolRemoteFailures: parseInt("ERROR_POOL_REMOTE_FAILURES", 0),
