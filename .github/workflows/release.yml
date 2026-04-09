@@ -1,16 +1,43 @@
 name: Create ProtoFleet Release Artifacts
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
   pull-requests: read
 
 jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag format
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
+            echo "::error::Tag '$TAG_NAME' does not match expected format (e.g., v1.2.3 or v1.2.3-rc.1)"
+            exit 1
+          fi
+          echo "Tag '$TAG_NAME' is valid"
+
+      - name: Require full releases to be on main
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          AHEAD_BY=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.ahead_by')
+          if [[ "$AHEAD_BY" -ne 0 ]]; then
+            echo "::error::Full releases are only allowed from commits on the main branch. Tag '${{ github.ref_name }}' points to a commit not on main."
+            exit 1
+          fi
+          echo "Full release tag is on main — OK"
+
   build-proto-fleet-windows-installer:
     runs-on: windows-latest
+    needs: [validate-tag]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -63,15 +90,10 @@ jobs:
             ./deployment-files/windows/artifacts/release-installer/uninstall.exe
           retention-days: 1
 
-      - name: Upload Windows release assets
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: |
-            ./deployment-files/windows/artifacts/release-installer/installer.exe
-            ./deployment-files/windows/artifacts/release-installer/uninstall.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-proto-fleet-server:
+    needs: [validate-tag]
+    env:
+      TAG_NAME: ${{ github.ref_name }}
     strategy:
       matrix:
         include:
@@ -95,8 +117,9 @@ jobs:
         run: |
           go mod download
           go build -v -o fleetd-${{ matrix.arch }} ./cmd/fleetd
-          echo "version: ${{ github.event.release.tag_name }}" > version.txt
-          echo "is_prerelease: ${{ github.event.release.prerelease }}" >> version.txt
+          echo "version: $TAG_NAME" > version.txt
+          if [[ "$TAG_NAME" == *-* ]]; then IS_PRERELEASE=true; else IS_PRERELEASE=false; fi
+          echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
 
@@ -126,7 +149,7 @@ jobs:
       - name: Package server binaries (${{ matrix.arch }})
         working-directory: ./server
         run: |
-          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz \
+          tar -czf "proto-fleet-server-${TAG_NAME}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
@@ -138,18 +161,14 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: proto-fleet-server-artifact-${{ matrix.arch }}
-          path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
+          path: ./server/proto-fleet-server-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
           retention-days: 1
-
-      - name: Upload ProtoFleet server artifact
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-proto-fleet-client:
     runs-on: ubuntu-latest
+    needs: [validate-tag]
+    env:
+      TAG_NAME: ${{ github.ref_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -170,9 +189,8 @@ jobs:
       - name: Build ProtoFleet client
         working-directory: ./client
         run: |
-          # Set separate version environment variables
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          export VITE_VERSION="${{ github.event.release.tag_name }}"
+          export VITE_VERSION="$TAG_NAME"
           export VITE_BUILD_DATE="$BUILD_DATE"
           export VITE_COMMIT="${{ github.sha }}"
           npm run build:protoFleet
@@ -180,32 +198,27 @@ jobs:
       - name: Create version file
         working-directory: ./client
         run: |
-          echo "version: ${{ github.event.release.tag_name }}" > dist/protoFleet/version.txt
+          echo "version: $TAG_NAME" > dist/protoFleet/version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> dist/protoFleet/version.txt
           echo "commit: ${{ github.sha }}" >> dist/protoFleet/version.txt
 
       - name: Package ProtoFleet client
         working-directory: ./client
         run: |
-          tar -czf proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz dist/protoFleet
+          tar -czf "proto-fleet-client-${TAG_NAME}.tar.gz" dist/protoFleet
 
-      # Upload to GitHub Actions artifacts
       - name: Upload client artifact for job use
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: proto-fleet-client-artifact
-          path: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
+          path: ./client/proto-fleet-client-${{ github.ref_name }}.tar.gz
           retention-days: 1
-
-      - name: Upload ProtoFleet client artifact
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-proto-os:
     runs-on: ubuntu-latest
+    needs: [validate-tag]
+    env:
+      TAG_NAME: ${{ github.ref_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -227,7 +240,7 @@ jobs:
         working-directory: ./client
         run: |
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          export VITE_VERSION="${{ github.event.release.tag_name }}"
+          export VITE_VERSION="$TAG_NAME"
           export VITE_BUILD_DATE="$BUILD_DATE"
           export VITE_COMMIT="${{ github.sha }}"
           npm run build:protoOS
@@ -235,36 +248,37 @@ jobs:
       - name: Create version file
         working-directory: ./client
         run: |
-          echo "version: ${{ github.event.release.tag_name }}" > dist/protoOS/version.txt
+          echo "version: $TAG_NAME" > dist/protoOS/version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> dist/protoOS/version.txt
           echo "commit: ${{ github.sha }}" >> dist/protoOS/version.txt
 
       - name: Package ProtoOS
         working-directory: ./client
         run: |
-          tar -czf proto-os-${{ github.event.release.tag_name }}.tar.gz dist/protoOS
+          tar -czf "proto-os-${TAG_NAME}.tar.gz" dist/protoOS
 
       - name: Create version file for control board package .ipk
         working-directory: ./client
-        run: echo "${{ github.event.release.tag_name }}" > dist/web_dashboard_version
+        run: echo "$TAG_NAME" > dist/web_dashboard_version
 
       - name: Build ProtoOS .ipk package
         working-directory: ./client
         run: |
           nfpm package --config nfpm-proto-os.yaml --packager ipk --target "proto-os_${VERSION}.ipk"
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ github.ref_name }}
 
-      - name: Upload ProtoOS artifact
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+      - name: Upload ProtoOS artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          files: |
-            ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
-            ./client/proto-os_*.ipk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: proto-os-artifact
+          path: |
+            ./client/proto-os-${{ github.ref_name }}.tar.gz
+            ./client/proto-os_${{ github.ref_name }}.ipk
+          retention-days: 1
 
   build-timescaledb-image:
+    needs: [validate-tag]
     strategy:
       matrix:
         include:
@@ -299,6 +313,8 @@ jobs:
   build-proto-fleet:
     runs-on: ubuntu-latest
     needs: [build-proto-fleet-server, build-proto-fleet-client, build-proto-fleet-windows-installer, build-timescaledb-image]
+    env:
+      TAG_NAME: ${{ github.ref_name }}
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -339,7 +355,7 @@ jobs:
       - name: Extract artifacts
         run: |
           # Extract server artifacts and rename to generic names (no arch suffix)
-          tar -xzf /tmp/server-artifacts/proto-fleet-server-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz -C deployment/server
+          tar -xzf "/tmp/server-artifacts/proto-fleet-server-${TAG_NAME}-${{ matrix.arch }}.tar.gz" -C deployment/server
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
           mv proto-plugin-${{ matrix.arch }} proto-plugin
@@ -349,7 +365,7 @@ jobs:
 
           # Extract client
           mkdir -p /tmp/client
-          tar -xzf /tmp/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz -C /tmp/client
+          tar -xzf "/tmp/proto-fleet-client-${TAG_NAME}.tar.gz" -C /tmp/client
           mkdir -p deployment/client/protoFleet
           cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
 
@@ -379,48 +395,91 @@ jobs:
 
       - name: Create version file
         run: |
-          echo "version: ${{ github.event.release.tag_name }}" > deployment/version.txt
+          echo "version: $TAG_NAME" > deployment/version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> deployment/version.txt
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
 
       - name: Package ProtoFleet deployment bundle (${{ matrix.arch }})
         run: |
-          tar -czf proto-fleet-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz deployment
+          tar -czf "proto-fleet-${TAG_NAME}-${{ matrix.arch }}.tar.gz" deployment
 
       - name: Upload deployment bundle artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
-          path: proto-fleet-${{ github.event.release.tag_name }}-${{ matrix.arch }}.tar.gz
+          path: proto-fleet-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
   publish-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-proto-fleet]
+    needs: [build-proto-fleet, build-proto-os]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Download all deployment bundle artifacts
+      - name: Download deployment bundle artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: proto-fleet-deployment-bundle-*
-          path: /tmp/bundles
+          path: /tmp/release-assets/bundles
           merge-multiple: true
 
-      - name: Upload deployment bundles to GitHub release
+      - name: Download Windows installer artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-windows-installer
+          path: /tmp/release-assets/windows
+
+      - name: Download server artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: proto-fleet-server-artifact-*
+          path: /tmp/release-assets/server
+          merge-multiple: true
+
+      - name: Download client artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-client-artifact
+          path: /tmp/release-assets/client
+
+      - name: Download ProtoOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-os-artifact
+          path: /tmp/release-assets/proto-os
+
+      - name: List all release assets
+        run: find /tmp/release-assets -type f | sort
+
+      - name: Create draft release and upload assets
+        id: create_release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
           files: |
-            /tmp/bundles/proto-fleet-${{ github.event.release.tag_name }}-*.tar.gz
+            /tmp/release-assets/bundles/proto-fleet-${{ github.ref_name }}-*.tar.gz
+            /tmp/release-assets/windows/installer.exe
+            /tmp/release-assets/windows/uninstall.exe
+            /tmp/release-assets/server/proto-fleet-server-${{ github.ref_name }}-*.tar.gz
+            /tmp/release-assets/client/proto-fleet-client-${{ github.ref_name }}.tar.gz
+            /tmp/release-assets/proto-os/proto-os-${{ github.ref_name }}.tar.gz
+            /tmp/release-assets/proto-os/proto-os_${{ github.ref_name }}.ipk
             ./deployment-files/install.sh
             ./deployment-files/uninstall.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false
+
   deploy-to-pi-mar:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-mar']
-    needs: [build-proto-fleet]
+    needs: [publish-proto-fleet]
     timeout-minutes: 30
     environment: pi-mar
     steps:
@@ -435,7 +494,7 @@ jobs:
 
   deploy-to-pi-stl:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-stl']
-    needs: [build-proto-fleet]
+    needs: [publish-proto-fleet]
     timeout-minutes: 30
     environment: pi-stl
     steps:
@@ -450,7 +509,7 @@ jobs:
 
   deploy-to-pi-fxsj:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-fxsj']
-    needs: [build-proto-fleet]
+    needs: [publish-proto-fleet]
     timeout-minutes: 30
     environment: pi-fxsj
     steps:
@@ -465,7 +524,7 @@ jobs:
 
   deploy-to-pi-dalton:
     runs-on: [self-hosted, proto-fleet-rpi, 'pi-dalton']
-    needs: [build-proto-fleet]
+    needs: [publish-proto-fleet]
     timeout-minutes: 30
     environment: pi-dalton
     steps:
