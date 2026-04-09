@@ -274,6 +274,12 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   }
 
   function handleContinue(selectedMinerIdentifiers: string[]) {
+    // Abort any in-flight discovery before pairing
+    discoveryAbortController.current.abort();
+    discoveryAbortController.current = new AbortController();
+    setScanDiscoveryPending(false);
+    setIpListDiscoveryPending(false);
+
     // Clear any previous loading toasts and reset state
     clearLoadingToasts();
 

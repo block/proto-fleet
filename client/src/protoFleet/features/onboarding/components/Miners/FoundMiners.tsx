@@ -11,6 +11,7 @@ import Row from "@/shared/components/Row";
 type FoundMinersProps = {
   miners: Device[];
   deselectedMiners: Device["deviceIdentifier"][];
+  isScanning?: boolean;
   className?: string;
 };
 
@@ -47,7 +48,7 @@ function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
   return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
 }
 
-const FoundMiners = ({ miners, deselectedMiners, className }: FoundMinersProps) => {
+const FoundMiners = ({ miners, deselectedMiners, isScanning, className }: FoundMinersProps) => {
   // Derive minersByModel directly from miners prop
   const minersByModel = useMemo(() => {
     const _minersByModel: MinersByModel = {};
@@ -81,11 +82,12 @@ const FoundMiners = ({ miners, deselectedMiners, className }: FoundMinersProps) 
       <div className="mb-4">
         <Header
           inline
-          title={
-            miners.length === 0
-              ? "No miners found"
-              : `${Object.values(minersByModel).reduce((total, item) => total + item.miners.length, 0)} miners found on your network`
-          }
+          title={(() => {
+            const totalMinerCount = Object.values(minersByModel).reduce((total, item) => total + item.miners.length, 0);
+            if (miners.length === 0) return "No miners found";
+            if (isScanning) return `Finding miners on your network... ${totalMinerCount} found so far`;
+            return `${totalMinerCount} miners found on your network`;
+          })()}
           titleSize="text-heading-300"
           description={
             <>

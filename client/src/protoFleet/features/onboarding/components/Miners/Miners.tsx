@@ -220,7 +220,7 @@ const Miners = ({
                 })}
             inline
             buttons={
-              showLoadingSkeleton
+              showLoadingSkeleton && displayMiners.length === 0
                 ? []
                 : [
                     {
@@ -370,9 +370,36 @@ const Miners = ({
           )}
           {activeStep === "pairing" && (
             <div className="mx-auto max-w-4xl">
-              {showLoadingSkeleton ? (
+              {displayMiners.length > 0 && (
                 <>
-                  <Header title="Finding miners on your network" titleSize="text-heading-300" inline className="mb-6" />
+                  <FoundMiners
+                    miners={displayMiners}
+                    deselectedMiners={deselectedMiners}
+                    className=""
+                    isScanning={discoveryPending}
+                  />
+                  <FoundMinersModal
+                    open={showFoundMinersModal}
+                    setDeselectedMiners={setDeselectedMiners}
+                    miners={displayMiners.map((miner) => ({
+                      ...miner,
+                      selected: !deselectedMiners.includes(miner.deviceIdentifier),
+                    }))}
+                    models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
+                    onDismiss={() => setShowFoundMinersModal(false)}
+                  />
+                </>
+              )}
+              {showLoadingSkeleton && (
+                <>
+                  {displayMiners.length === 0 && (
+                    <Header
+                      title="Finding miners on your network"
+                      titleSize="text-heading-300"
+                      inline
+                      className="mb-6"
+                    />
+                  )}
                   <div className="flex flex-col gap-5">
                     {Array.from({ length: 3 }).map((_, index) => (
                       <div key={index} className="flex items-center justify-between">
@@ -388,20 +415,9 @@ const Miners = ({
                     ))}
                   </div>
                 </>
-              ) : (
-                <>
-                  <FoundMiners miners={displayMiners} deselectedMiners={deselectedMiners} className="" />
-                  <FoundMinersModal
-                    open={showFoundMinersModal}
-                    setDeselectedMiners={setDeselectedMiners}
-                    miners={displayMiners.map((miner) => ({
-                      ...miner,
-                      selected: !deselectedMiners.includes(miner.deviceIdentifier),
-                    }))}
-                    models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
-                    onDismiss={() => setShowFoundMinersModal(false)}
-                  />
-                </>
+              )}
+              {!showLoadingSkeleton && displayMiners.length === 0 && (
+                <FoundMiners miners={[]} deselectedMiners={[]} className="" />
               )}
             </div>
           )}

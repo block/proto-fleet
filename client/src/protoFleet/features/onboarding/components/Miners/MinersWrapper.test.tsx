@@ -173,6 +173,44 @@ describe("MinersWrapper", () => {
       expect(findMinersButton).toBeDisabled();
     });
 
+    it("shows discovered miners progressively while scan is still in progress", async () => {
+      // Arrange
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      let resolveDiscover!: () => void;
+      mockDiscover.mockImplementationOnce(
+        ({ onStreamData }: { onStreamData: (devices: ReturnType<typeof createDiscoveredMiner>[]) => void }) =>
+          new Promise<void>((resolve) => {
+            resolveDiscover = resolve;
+            onStreamData([
+              createDiscoveredMiner("miner-1", "192.168.1.101"),
+              createDiscoveredMiner("miner-2", "192.168.1.102"),
+            ]);
+          }),
+      );
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+
+      // Act
+      const findMinersButton = screen.getByTestId("section-scan-network").querySelector("button")!;
+      fireEvent.click(findMinersButton);
+
+      // Assert: miners appear in the list while scan is still running
+      await waitFor(() => {
+        expect(screen.getByText("Finding miners on your network... 2 found so far")).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
+
+      resolveDiscover();
+    });
+
     it("deduplicates duplicate discoveries in the add-miners UI count", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
@@ -201,10 +239,6 @@ describe("MinersWrapper", () => {
 
       const findMinersButton = screen.getByTestId("section-scan-network").querySelector("button")!;
       fireEvent.click(findMinersButton);
-
-      await waitFor(() => {
-        expect(screen.getByText("Finding miners on your network")).toBeInTheDocument();
-      });
 
       await waitFor(
         () => {
