@@ -234,9 +234,29 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-  AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
-  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
-  AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(string_to_array(sqlc.narg('device_identifiers_filter'), ',')));
+  AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(sqlc.arg('status_values')::text[]))
+  AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(sqlc.arg('model_values')::text[]))
+  AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
+  AND (
+      sqlc.narg('group_ids_filter')::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = sqlc.arg('org_id')
+            AND dsm.device_set_type = 'group'
+            AND dsm.device_set_id = ANY(sqlc.arg('group_id_values')::bigint[])
+      )
+  )
+  AND (
+      sqlc.narg('rack_ids_filter')::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = sqlc.arg('org_id')
+            AND dsm.device_set_type = 'rack'
+            AND dsm.device_set_id = ANY(sqlc.arg('rack_id_values')::bigint[])
+      )
+  );
 
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (

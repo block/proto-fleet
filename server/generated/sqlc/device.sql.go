@@ -86,16 +86,43 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-  AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
-  AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
-  AND ($4::text IS NULL OR d.device_identifier = ANY(string_to_array($4, ',')))
+  AND ($2::text IS NULL OR ds.status::text = ANY($3::text[]))
+  AND ($4::text IS NULL OR dd.model = ANY($5::text[]))
+  AND ($6::text IS NULL OR d.device_identifier = ANY($7::text[]))
+  AND (
+      $8::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = $1
+            AND dsm.device_set_type = 'group'
+            AND dsm.device_set_id = ANY($9::bigint[])
+      )
+  )
+  AND (
+      $10::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = $1
+            AND dsm.device_set_type = 'rack'
+            AND dsm.device_set_id = ANY($11::bigint[])
+      )
+  )
 `
 
 type CountMinersByStateParams struct {
 	OrgID                   int64
 	StatusFilter            sql.NullString
+	StatusValues            []string
 	ModelFilter             sql.NullString
+	ModelValues             []string
 	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
+	GroupIdsFilter          sql.NullString
+	GroupIDValues           []int64
+	RackIdsFilter           sql.NullString
+	RackIDValues            []int64
 }
 
 type CountMinersByStateRow struct {
@@ -134,8 +161,15 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
 		arg.OrgID,
 		arg.StatusFilter,
+		pq.Array(arg.StatusValues),
 		arg.ModelFilter,
+		pq.Array(arg.ModelValues),
 		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
+		arg.GroupIdsFilter,
+		pq.Array(arg.GroupIDValues),
+		arg.RackIdsFilter,
+		pq.Array(arg.RackIDValues),
 	)
 	var i CountMinersByStateRow
 	err := row.Scan(

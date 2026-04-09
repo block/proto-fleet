@@ -17,6 +17,7 @@ import {
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import useDeviceSetStateCounts from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
@@ -254,8 +255,14 @@ const RackOverviewPage = () => {
   );
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
 
-  const stateCounts = useMinerStateCounts();
+  // Initial state counts scoped to this rack (fallback until streaming delivers)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally keyed on rack.id to avoid re-fetches when silent polling replaces the rack object
+  const stateCountsFilter = useMemo(() => (rack ? { rackIds: [rack.id] } : null), [rack?.id]);
+  const { stateCounts: initialStateCounts, hasInitialLoadCompleted } = useDeviceSetStateCounts(stateCountsFilter);
+
+  const streamingStateCounts = useMinerStateCounts();
   const setMinerStateCounts = useSetMinerStateCounts();
+  const stateCounts = streamingStateCounts ?? initialStateCounts;
 
   // Store action hooks
   const setAllHistoricalData = useSetAllHistoricalData();
@@ -443,10 +450,10 @@ const RackOverviewPage = () => {
               slotStates={slotStates}
               numberingOrigin={numberingOrigin}
               onEmptySlotClick={(row, col) => setSearchMinerSlot({ row, col })}
-              hashingCount={stateCounts?.hashingCount ?? (isEmptyRack ? 0 : undefined)}
-              needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack ? 0 : undefined)}
-              offlineCount={stateCounts?.offlineCount ?? (isEmptyRack ? 0 : undefined)}
-              sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack ? 0 : undefined)}
+              hashingCount={stateCounts?.hashingCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
+              needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
+              offlineCount={stateCounts?.offlineCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
+              sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
               rackFilterParam={rack ? `rack=${rack.id}` : undefined}
             />
             <FleetErrors

@@ -9,6 +9,7 @@ import {
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import useDeviceSetStateCounts from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
@@ -145,17 +146,28 @@ const GroupOverviewPage = () => {
   // Group size for "X of Y miners reporting" subtitles
   const groupSize = memberDeviceIds?.length ?? 0;
 
+  // Initial state counts scoped to this group (fallback until streaming delivers)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally keyed on group.id to avoid re-fetches when silent polling replaces the group object
+  const stateCountsFilter = useMemo(() => (group ? { groupIds: [group.id] } : null), [group?.id]);
+  const {
+    totalMiners: initialTotalMiners,
+    stateCounts: initialStateCounts,
+    hasInitialLoadCompleted,
+  } = useDeviceSetStateCounts(stateCountsFilter);
+
   const streamingStateCounts = useMinerStateCounts();
   const setMinerStateCounts = useSetMinerStateCounts();
 
-  // Use streaming counts when available, fall back to group member count
-  const stateCounts = streamingStateCounts;
+  // Use streaming counts when available, fall back to initial scoped counts
+  const stateCounts = streamingStateCounts ?? initialStateCounts;
   const totalMiners = streamingStateCounts
     ? (streamingStateCounts.hashingCount ?? 0) +
       (streamingStateCounts.brokenCount ?? 0) +
       (streamingStateCounts.offlineCount ?? 0) +
       (streamingStateCounts.sleepingCount ?? 0)
-    : groupSize;
+    : hasInitialLoadCompleted
+      ? initialTotalMiners
+      : groupSize;
 
   // Store action hooks
   const setAllHistoricalData = useSetAllHistoricalData();
@@ -330,11 +342,15 @@ const GroupOverviewPage = () => {
           <div className="flex flex-col gap-1">
             <FleetHealth
               title="Miners"
-              fleetSize={streamingStateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
-              healthyMiners={stateCounts?.hashingCount ?? (isEmptyGroup ? 0 : undefined)}
-              needsAttentionMiners={stateCounts?.brokenCount ?? (isEmptyGroup ? 0 : undefined)}
-              offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup ? 0 : undefined)}
-              sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup ? 0 : undefined)}
+              fleetSize={
+                streamingStateCounts || hasInitialLoadCompleted ? totalMiners : memberDeviceIds ? groupSize : undefined
+              }
+              healthyMiners={stateCounts?.hashingCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
+              needsAttentionMiners={
+                stateCounts?.brokenCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)
+              }
+              offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
+              sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
               extraFilterParams={group ? `group=${group.id}` : undefined}
               totalMinersLink={group ? `/miners?group=${group.id}` : undefined}
             />

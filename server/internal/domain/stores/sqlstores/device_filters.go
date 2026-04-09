@@ -23,6 +23,8 @@ type minerFilterParams struct {
 	needsAttentionFilter      bool
 	errorComponentTypesFilter sql.NullString
 	errorComponentTypeValues  []int32
+	deviceIdentifiersFilter   sql.NullString
+	deviceIdentifierValues    []string
 	groupIDsFilter            sql.NullString
 	groupIDValues             []int64
 	rackIDsFilter             sql.NullString
@@ -78,6 +80,12 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 			// #nosec G115 -- ComponentType enum bounded (0-6), safe for int32
 			fp.errorComponentTypeValues[i] = int32(ct)
 		}
+	}
+
+	// Device identifiers filter
+	if len(filter.DeviceIdentifiers) > 0 {
+		fp.deviceIdentifiersFilter = sql.NullString{Valid: true}
+		fp.deviceIdentifierValues = filter.DeviceIdentifiers
 	}
 
 	// Group ID filter

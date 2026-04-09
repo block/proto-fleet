@@ -343,13 +343,20 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // The SQL query handles bucket assignment with status-first priority:
 // Offline > Sleeping > Needs Attention > Hashing
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
-	statusFilter, modelFilter, deviceIdentifiersFilter := buildFilterParams(filter)
+	fp := buildMinerFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
 		OrgID:                   orgID,
-		StatusFilter:            statusFilter,
-		ModelFilter:             modelFilter,
-		DeviceIdentifiersFilter: deviceIdentifiersFilter,
+		StatusFilter:            fp.statusFilter,
+		StatusValues:            fp.statusValues,
+		ModelFilter:             fp.modelFilter,
+		ModelValues:             fp.modelValues,
+		DeviceIdentifiersFilter: fp.deviceIdentifiersFilter,
+		DeviceIdentifierValues:  fp.deviceIdentifierValues,
+		GroupIdsFilter:          fp.groupIDsFilter,
+		GroupIDValues:           fp.groupIDValues,
+		RackIdsFilter:           fp.rackIDsFilter,
+		RackIDValues:            fp.rackIDValues,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
