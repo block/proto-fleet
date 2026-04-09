@@ -31,107 +31,12 @@ const baseProps: ComponentStatusModalProps = {
 };
 
 describe("ComponentStatusModalContent", () => {
-  describe("icon container styling", () => {
-    it("should wrap the icon in a container with rounded-lg class", () => {
+  describe("icon per component type", () => {
+    it("should render Hashboard icon for hashboard component type", () => {
       render(<ComponentStatusModalContent {...baseProps} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.tagName).toBe("DIV");
-      expect(container.className).toContain("rounded-lg");
+      expect(screen.getByTestId("hashboard-icon")).toBeInTheDocument();
     });
 
-    it("should have p-2 padding on the icon container", () => {
-      render(<ComponentStatusModalContent {...baseProps} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.className).toContain("p-2");
-    });
-
-    it("should use bg-core-primary-5 container when there are no errors", () => {
-      render(<ComponentStatusModalContent {...baseProps} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.className).toContain("bg-core-primary-5");
-    });
-
-    it("should use text-core-primary-20 on icon when there are no errors", () => {
-      render(<ComponentStatusModalContent {...baseProps} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      expect(icon.className).toContain("text-core-primary-20");
-    });
-
-    it("should use bg-intent-critical-10 container when there are errors", () => {
-      const propsWithErrors: ComponentStatusModalProps = {
-        ...baseProps,
-        errors: [
-          {
-            componentName: "Hashboard 1",
-            message: "Hashboard is not responding",
-            timestamp: 1700000000,
-          },
-        ],
-      };
-
-      render(<ComponentStatusModalContent {...propsWithErrors} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.className).toContain("bg-intent-critical-10");
-    });
-
-    it("should use text-intent-critical-fill on icon when there are errors", () => {
-      const propsWithErrors: ComponentStatusModalProps = {
-        ...baseProps,
-        errors: [
-          {
-            componentName: "Hashboard 1",
-            message: "Hashboard is not responding",
-            timestamp: 1700000000,
-          },
-        ],
-      };
-
-      render(<ComponentStatusModalContent {...propsWithErrors} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      expect(icon.className).toContain("text-intent-critical-fill");
-    });
-
-    it("should not use primary styling when there are errors", () => {
-      const propsWithErrors: ComponentStatusModalProps = {
-        ...baseProps,
-        errors: [
-          {
-            componentName: "Hashboard 1",
-            message: "Hashboard is not responding",
-            timestamp: 1700000000,
-          },
-        ],
-      };
-
-      render(<ComponentStatusModalContent {...propsWithErrors} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.className).not.toContain("bg-core-primary-5");
-      expect(icon.className).not.toContain("text-core-primary-20");
-    });
-
-    it("should not use critical styling when there are no errors", () => {
-      render(<ComponentStatusModalContent {...baseProps} />);
-
-      const icon = screen.getByTestId("hashboard-icon");
-      const container = icon.parentElement!;
-      expect(container.className).not.toContain("bg-intent-critical-10");
-      expect(icon.className).not.toContain("text-intent-critical-fill");
-    });
-  });
-
-  describe("icon container per component type", () => {
     it("should render Fan icon for fan component type", () => {
       render(<ComponentStatusModalContent {...baseProps} componentType="fan" />);
       expect(screen.getByTestId("fan-icon")).toBeInTheDocument();
@@ -149,10 +54,7 @@ describe("ComponentStatusModalContent", () => {
 
     it("should render Alert icon for other component type", () => {
       render(<ComponentStatusModalContent {...baseProps} componentType="other" />);
-      const icon = screen.getByTestId("alert-icon");
-      expect(icon).toBeInTheDocument();
-      const container = icon.parentElement!;
-      expect(container.className).toContain("rounded-lg");
+      expect(screen.getByTestId("alert-icon")).toBeInTheDocument();
     });
   });
 });

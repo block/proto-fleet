@@ -6,6 +6,7 @@ import type { ComponentStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
 import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import { DialogIcon } from "@/shared/components/Dialog";
 
 const LabeledValue = ({ label, value }: { label: string; value: ReactNode }) => {
   return (
@@ -30,34 +31,28 @@ const ComponentStatusModalContent = ({
   const hasErrors = errors.length > 0;
   const hasSingleError = errors.length === 1;
 
-  // Create icon with proper sizing and colors
+  // Create icon with proper sizing and colors using DialogIcon for consistent proportions
   const icon = useMemo(() => {
-    const iconClass = hasErrors ? "text-intent-critical-fill" : "text-core-primary-20";
-    const containerClass = clsx(
-      "flex w-fit items-center justify-center rounded-lg p-2",
-      hasErrors ? "bg-intent-critical-10" : "bg-core-primary-5",
-    );
-
     let iconElement;
     switch (componentType) {
       case "fan":
-        iconElement = <Fan width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <Fan />;
         break;
       case "hashboard":
-        iconElement = <Hashboard width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <Hashboard />;
         break;
       case "psu":
-        iconElement = <LightningAlt width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <LightningAlt />;
         break;
       case "controlBoard":
-        iconElement = <ControlBoard width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <ControlBoard />;
         break;
       default:
-        iconElement = <Alert width={iconSizes.xLarge} className={iconClass} />;
+        iconElement = <Alert />;
         break;
     }
 
-    return <div className={containerClass}>{iconElement}</div>;
+    return <DialogIcon intent={hasErrors ? "critical" : "info"}>{iconElement}</DialogIcon>;
   }, [componentType, hasErrors]);
 
   // For single error: use error message as title, timestamp as subtitle, skip error rows
@@ -73,7 +68,7 @@ const ComponentStatusModalContent = ({
         : errors.map((error, index) => ({
             key: `error-${index}-${error.timestamp || index}`,
             icon: (
-              <div className="flex h-6 w-6 items-center justify-center rounded bg-core-primary-5">
+              <div className="flex h-6 w-6 items-center justify-center rounded bg-surface-5">
                 <Alert className="text-intent-critical-fill" width={iconSizes.small} />
               </div>
             ),

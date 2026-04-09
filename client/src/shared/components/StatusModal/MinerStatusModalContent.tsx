@@ -4,6 +4,7 @@ import { type MinerStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
 import { Alert, Checkmark, ControlBoard, Fan, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import { DialogIcon } from "@/shared/components/Dialog";
 
 const componentIcons = {
   fan: <Fan width={iconSizes.medium} className="text-text-primary-70" />,
@@ -28,14 +29,25 @@ const MinerStatusModalContent = ({
   const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
   const icon = useMemo(() => {
-    if (isOffline) {
-      return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
-    } else if (isSleeping) {
-      return <Info className="text-core-primary-20" width={iconSizes.xLarge} />;
+    if (isOffline || isSleeping) {
+      return (
+        <DialogIcon intent="info">
+          <Info />
+        </DialogIcon>
+      );
     } else if (needsAuthentication || needsMiningPool || haserrors) {
-      return <Alert className="text-intent-critical-fill" width={iconSizes.xLarge} />;
-    } else
-      return <Checkmark className="rounded-full bg-intent-success-fill text-surface-base" width={iconSizes.xLarge} />;
+      return (
+        <DialogIcon intent="critical">
+          <Alert />
+        </DialogIcon>
+      );
+    } else {
+      return (
+        <DialogIcon intent="success">
+          <Checkmark />
+        </DialogIcon>
+      );
+    }
   }, [haserrors, isSleeping, isOffline, needsAuthentication, needsMiningPool]);
 
   // Determine what titles to show

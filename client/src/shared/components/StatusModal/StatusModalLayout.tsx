@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import ErrorRow from "./ErrorRow";
 import { Alert } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
+import { DialogIcon } from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
 
 export interface StatusModalLayoutError {
@@ -57,7 +57,9 @@ const StatusModalLayout = ({
           <Divider />
           {/* Secondary section - identical structure to header section */}
           <div className="flex flex-col gap-2">
-            <Alert className="text-intent-critical-fill" width={iconSizes.xLarge} />
+            <DialogIcon intent="critical">
+              <Alert />
+            </DialogIcon>
             <div className="text-heading-300 text-text-primary">{secondaryTitle}</div>
             {secondarySubtitle && <div className="text-300 text-text-primary-50">{secondarySubtitle}</div>}
           </div>
