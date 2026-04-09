@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use asic_rs::MinerFactory;
-use asic_rs_core::traits::miner::MinerAuth;
+use asic_rs_core::traits::miner::{Miner, MinerAuth};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
@@ -63,6 +63,9 @@ fn device_err_to_status(e: anyhow::Error) -> Status {
 /// - 4028: Socket-based miners (WhatsMiner CGMiner RPC)
 const DISCOVERY_PORTS: &[u16] = &[80, 4028];
 
+/// TTL for the discover→pair miner handle cache.
+const MINER_CACHE_TTL: Duration = Duration::from_secs(60);
+
 /// Canonical discovery port per miner family.
 /// When a miner is reachable on multiple ports, we only claim it on its
 /// canonical port to avoid duplicate discovery and connection exhaustion.
@@ -77,18 +80,84 @@ fn canonical_port(family: &str) -> u16 {
     }
 }
 
+/// A cached miner handle with its insertion timestamp.
+type MinerCacheEntry = (Instant, Box<dyn Miner>);
+
+/// Thread-safe cache of IP → miner handle, populated by discover_device and
+/// consumed by pair_device.  Encapsulates lock acquisition and poison recovery
+/// so callers don't duplicate that logic.
+struct MinerCache(std::sync::Mutex<HashMap<IpAddr, MinerCacheEntry>>);
+
+impl MinerCache {
+    fn new() -> Self {
+        Self(std::sync::Mutex::new(HashMap::new()))
+    }
+
+    fn insert(&self, ip: IpAddr, miner: Box<dyn Miner>) {
+        if let Ok(mut cache) = self.0.lock() {
+            cache.insert(ip, (Instant::now(), miner));
+        }
+    }
+
+    fn remove(&self, ip: &IpAddr) -> Option<Box<dyn Miner>> {
+        match self.0.lock() {
+            Ok(mut cache) => cache.remove(ip).map(|(_, m)| m),
+            Err(e) => {
+                tracing::warn!(ip = %ip, "miner cache poisoned; recovering cached miner");
+                e.into_inner().remove(ip).map(|(_, m)| m)
+            }
+        }
+    }
+
+    fn evict_stale(&self) {
+        if let Ok(mut cache) = self.0.lock() {
+            cache.retain(|_, (ts, _)| ts.elapsed() < MINER_CACHE_TTL);
+        }
+    }
+}
+
+/// Wraps a `JoinHandle` and aborts the task when dropped, ensuring the background
+/// cache-eviction task doesn't block Tokio's runtime shutdown.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub struct DriverService {
     config: Arc<PluginConfig>,
     factory: Arc<MinerFactory>,
     devices: Arc<RwLock<HashMap<String, Arc<AsicRsDevice>>>>,
+    miner_cache: Arc<MinerCache>,
+    _cache_eviction_task: AbortOnDrop,
 }
 
 impl DriverService {
     pub fn new(config: PluginConfig) -> Self {
+        let miner_cache = Arc::new(MinerCache::new());
+
+        // Evict stale cache entries on a background timer so handles don't outlive the TTL
+        // when no discover/pair calls occur after a large scan.
+        // AbortOnDrop ensures the task is cancelled when DriverService is dropped, so it
+        // doesn't block Tokio's runtime shutdown.
+        let cache_clone = Arc::clone(&miner_cache);
+        let eviction_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(MINER_CACHE_TTL / 2);
+            interval.tick().await; // skip the immediate first tick
+            loop {
+                interval.tick().await;
+                cache_clone.evict_stale();
+            }
+        });
+
         Self {
             config: Arc::new(config),
             factory: Arc::new(MinerFactory::new()),
             devices: Arc::new(RwLock::new(HashMap::new())),
+            miner_cache,
+            _cache_eviction_task: AbortOnDrop(eviction_handle),
         }
     }
 
@@ -295,6 +364,9 @@ impl Driver for DriverService {
             "Discovered device"
         );
 
+        // Cache the miner handle for reuse by pair_device.
+        self.miner_cache.insert(ip, miner);
+
         Ok(Response::new(pb::DiscoverDeviceResponse {
             device: Some(pb::DeviceInfo {
                 host: req.ip_address,
@@ -324,32 +396,79 @@ impl Driver for DriverService {
             .parse()
             .map_err(|_| Status::invalid_argument(format!("Invalid IP: {}", device_info.host)))?;
 
-        // Probe the miner and get data to validate connectivity
         let timeout_dur = Duration::from_secs(self.config.plugin.discovery_timeout_seconds);
-        let factory = self.factory.clone();
-        let mut miner = crate::device::catch_panic(async move {
-            tokio::time::timeout(timeout_dur, factory.get_miner(ip)).await
-        })
-        .await
-        .map_err(|e| {
-            Status::unavailable(format!("Pairing panicked for {}: {e}", device_info.host))
-        })?
-        .map_err(|_| Status::unavailable(format!("Timeout pairing {}", device_info.host)))?
-        .map_err(|e| Status::unavailable(format!("Pairing error for {}: {e}", device_info.host)))?
-        .ok_or_else(|| Status::not_found(format!("No miner found at {}", device_info.host)))?;
+        let cached = self.miner_cache.remove(&ip);
+        let was_cached = cached.is_some();
+        let mut miner: Box<dyn Miner> = if let Some(m) = cached {
+            tracing::debug!(ip = %device_info.host, "reusing cached miner from discovery");
+            m
+        } else {
+            let factory = self.factory.clone();
+            crate::device::catch_panic(async move {
+                tokio::time::timeout(timeout_dur, factory.get_miner(ip)).await
+            })
+            .await
+            .map_err(|e| {
+                Status::unavailable(format!("Pairing panicked for {}: {e}", device_info.host))
+            })?
+            .map_err(|_| Status::unavailable(format!("Timeout pairing {}", device_info.host)))?
+            .map_err(|e| {
+                Status::unavailable(format!("Pairing error for {}: {e}", device_info.host))
+            })?
+            .ok_or_else(|| Status::not_found(format!("No miner found at {}", device_info.host)))?
+        };
 
         // Apply custom auth before validating read access
         if let Some(ref a) = auth {
             miner.set_auth(a.clone());
         }
 
-        // Validate read access with the provided credentials.
-        // Auth failures map to UNAUTHENTICATED so the server retries with other credentials.
-        let timeout_dur = Duration::from_secs(self.config.plugin.discovery_timeout_seconds);
-        let data = crate::device::catch_panic(tokio::time::timeout(timeout_dur, miner.get_data()))
-            .await
-            .map_err(device_err_to_status)?
-            .map_err(|_| Status::unavailable("get_data timed out during pairing"))?;
+        // Validate read access. If get_data fails on a cached handle, fall back to a fresh
+        // connection — the cached miner may be stale after DHCP churn or a dropped session.
+        let data = {
+            let first =
+                crate::device::catch_panic(tokio::time::timeout(timeout_dur, miner.get_data()))
+                    .await;
+            match first {
+                Ok(Ok(d)) => d,
+                _ if was_cached => {
+                    tracing::debug!(
+                        ip = %device_info.host,
+                        "cached miner stale, recreating for pairing"
+                    );
+                    let factory = self.factory.clone();
+                    let mut fresh = crate::device::catch_panic(async move {
+                        tokio::time::timeout(timeout_dur, factory.get_miner(ip)).await
+                    })
+                    .await
+                    .map_err(|e| {
+                        Status::unavailable(format!(
+                            "Pairing panicked for {}: {e}",
+                            device_info.host
+                        ))
+                    })?
+                    .map_err(|_| {
+                        Status::unavailable(format!("Timeout pairing {}", device_info.host))
+                    })?
+                    .map_err(|e| {
+                        Status::unavailable(format!("Pairing error for {}: {e}", device_info.host))
+                    })?
+                    .ok_or_else(|| {
+                        Status::not_found(format!("No miner found at {}", device_info.host))
+                    })?;
+                    if let Some(ref a) = auth {
+                        fresh.set_auth(a.clone());
+                    }
+                    miner = fresh;
+                    crate::device::catch_panic(tokio::time::timeout(timeout_dur, miner.get_data()))
+                        .await
+                        .map_err(device_err_to_status)?
+                        .map_err(|_| Status::unavailable("get_data timed out during pairing"))?
+                }
+                Err(e) => return Err(device_err_to_status(e)),
+                Ok(Err(_)) => return Err(Status::unavailable("get_data timed out during pairing")),
+            }
+        };
 
         // Verify identity: compare fresh device data against the discovery record.
         // If the IP was reassigned between discovery and pairing, this catches it
@@ -371,11 +490,14 @@ impl Driver for DriverService {
         })?;
 
         // Validate credentials: LED probe (if supported) + firmware-specific check.
+        // Pass the already-fetched data so the Hostname strategy (VNish) can reuse
+        // it instead of making a redundant get_data() network call.
         crate::device::validate_write_access(
             miner.as_ref(),
             miner.supports_set_fault_light(),
             &data.device_info.make,
             &data.device_info.firmware,
+            Some(&data),
         )
         .await
         .map_err(device_err_to_status)?;

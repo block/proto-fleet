@@ -720,21 +720,12 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 		},
 	}
 
-	// Create mock SDK device for GetDeviceInfo call
-	mockSDKDevice := sdkMocks.NewMockDevice(ctrl)
-	mockSDKDevice.EXPECT().
-		DescribeDevice(gomock.Any()).
-		Return(expectedDeviceInfo, sdk.Capabilities{}, nil)
-
 	// Create mock driver expecting default credentials
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Any(), gomock.Eq(expectedSecretBundle)).
 		Return(expectedDeviceInfo, nil)
-	// After pairing, GetDeviceInfo calls NewDevice to fetch firmware version
-	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "antminer-device-001", gomock.Any(), gomock.Eq(expectedSecretBundle)).
-		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil)
+	// GetDeviceInfo is not called because PairDevice already returned a firmware version.
 
 	// Wrap mock driver with default credentials provider
 	driverWithCreds := &mockDriverWithDefaultCredentials{
@@ -831,8 +822,6 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 		MacAddress:      "00:11:22:33:44:55",
 		FirmwareVersion: "1.0.0",
 	}
-	describeDeviceInfo := pairingDeviceInfo
-	describeDeviceInfo.FirmwareVersion = ""
 
 	expectedSecretBundle := sdk.SecretBundle{
 		Version: "v1",
@@ -842,18 +831,11 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 		},
 	}
 
-	mockSDKDevice := sdkMocks.NewMockDevice(ctrl)
-	mockSDKDevice.EXPECT().
-		DescribeDevice(gomock.Any()).
-		Return(describeDeviceInfo, sdk.Capabilities{}, nil)
-
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Any(), gomock.Eq(expectedSecretBundle)).
 		Return(pairingDeviceInfo, nil)
-	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "antminer-device-001", gomock.Any(), gomock.Eq(expectedSecretBundle)).
-		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil)
+	// GetDeviceInfo is not called because PairDevice already returned a firmware version.
 
 	driverWithCreds := &mockDriverWithDefaultCredentials{
 		Driver: mockDriver,

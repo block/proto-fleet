@@ -399,7 +399,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 				ipAddress := entry.AddrIPv4[0].String()
 				portStr := fmt.Sprintf("%d", entry.Port)
 
-				err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
+				_, err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
 				if err != nil {
 					slog.Debug("device discovery failed", "error", err)
 				}
@@ -573,7 +573,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					err := s.discoverDevice(timeoutCtx, ip, port, rawResultChan)
+					_, err := s.discoverDevice(timeoutCtx, ip, port, rawResultChan)
 					if err != nil {
 						slog.Debug("device discovery failed", "ip", ip, "port", port, "error", err)
 					}
@@ -635,9 +635,11 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
+						found, err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
+						} else if found {
+							return
 						}
 					}
 				}(uint32ToIP(ip))
@@ -707,9 +709,11 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 						if timeoutCtx.Err() != nil {
 							return
 						}
-						err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
+						found, err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
 						if err != nil {
 							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
+						} else if found {
+							return
 						}
 					}
 				}(ip)
@@ -722,7 +726,11 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	return resultChan, nil
 }
 
-func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) error {
+// discoverDevice attempts to discover a device at the given IP and port. It returns (true, nil)
+// only when a device was found and successfully emitted to resultChan. It returns (false, nil)
+// for handled-but-suppressed paths (e.g. paired-endpoint collision skip) so callers can
+// distinguish "nothing found yet, keep scanning" from "device emitted, stop scanning".
+func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) (bool, error) {
 	// Apply per-device discovery timeout to prevent individual slow devices from blocking others
 	discoveryCtx, cancel := context.WithTimeout(ctx, perDeviceDiscoveryTimeout)
 	defer cancel()
@@ -737,16 +745,16 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 				"error", err)
 		}
 
-		return err
+		return false, err
 	}
 
 	return s.processDiscoveredDevice(ctx, discoveredDevice, ipAddress, port, resultChan)
 }
 
-func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, scannedIP string, scannedPort string, resultChan chan<- *pb.DiscoverResponse) error {
+func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, scannedIP string, scannedPort string, resultChan chan<- *pb.DiscoverResponse) (bool, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Use existing device identifier if available
@@ -755,7 +763,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	if deviceIdentifier == "" {
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil {
-			return err
+			return false, err
 		}
 		reconciledByMAC := reconciledIdentifier != ""
 
@@ -766,12 +774,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		existingDevice, err := s.discoveredDeviceStore.GetByIPAndPort(ctx, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			// Database error - propagate instead of silently generating new identifier
-			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
+			return false, fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
 		}
 		if reconciledIdentifier == "" && existingDevice == nil {
 			reconciledIdentifier, err = s.reconcileByIPAcrossDiscoveryPorts(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
 			if err != nil {
-				return err
+				return false, err
 			}
 		}
 		switch {
@@ -808,9 +816,9 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 					"scanned_port", scannedPort,
 					"occupying_device_identifier", existingDevice.DeviceIdentifier,
 					"reconciled_identifier", reconciledIdentifier)
-				return nil
+				return false, nil
 			case !fleeterror.IsNotFoundError(linkedErr):
-				return fleeterror.NewInternalErrorf("failed to check existing device linkage during reconciliation: %v", linkedErr)
+				return false, fleeterror.NewInternalErrorf("failed to check existing device linkage during reconciliation: %v", linkedErr)
 			default:
 				staleID := discoverymodels.DeviceOrgIdentifier{
 					DeviceIdentifier: existingDevice.DeviceIdentifier,
@@ -840,12 +848,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            info.OrganizationID,
 	}, discoveredDevice, preserveMissingFirmware); err != nil {
-		return err
+		return false, err
 	}
 
 	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	minerCapabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, &discoveredDevice.Device)
@@ -858,7 +866,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	case <-ctx.Done():
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s *Service) hydrateMissingFirmwareVersion(
@@ -1295,18 +1303,17 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
 	}
 
-	// Get device info after pairing to fetch firmware version and other details.
-	updatedDeviceInfo, infoErr := pairer.GetDeviceInfo(ctx, discoveredDevice, credentials)
-	if infoErr != nil {
-		slog.Warn("failed to get device info after pairing, continuing without firmware version",
-			"device_identifier", discoveredDevice.DeviceIdentifier,
-			"error", infoErr)
-	}
-	if updatedDeviceInfo != nil && updatedDeviceInfo.FirmwareVersion != "" {
-		// Preserve firmware learned during PairDevice when the follow-up describe
-		// omits firmware. The plugin path converts from sdk.DeviceInfo, where
-		// firmware is a plain string without field presence.
-		discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+	// Only fetch device info when PairDevice didn't return a firmware version.
+	if discoveredDevice.FirmwareVersion == "" {
+		updatedDeviceInfo, infoErr := pairer.GetDeviceInfo(ctx, discoveredDevice, credentials)
+		if infoErr != nil {
+			slog.Warn("failed to get device info after pairing, continuing without firmware version",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"error", infoErr)
+		}
+		if updatedDeviceInfo != nil {
+			discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+		}
 	}
 
 	// Save updated device info (firmware version, serial number, MAC address) back to discovered_device table

@@ -141,16 +141,15 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 		}
 
-		// Fetch additional device info (firmware version, etc.) using the successful credentials
-		// This ensures auto-auth has the same effect as bulk authentication
-		if deviceInfo, err := p.GetDeviceInfo(ctx, discoveredDevice, credentials); err != nil {
-			slog.Warn("Failed to get device info after auto-auth pairing",
-				"device_identifier", discoveredDevice.DeviceIdentifier,
-				"error", err)
-		} else if deviceInfo.FirmwareVersion != "" {
-			// Preserve firmware learned from PairDevice when DescribeDevice omits it.
-			// sdk.DeviceInfo.FirmwareVersion has no field presence, so empty is ambiguous.
-			discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
+		// Only fetch device info when pair_device didn't return a firmware version.
+		if discoveredDevice.FirmwareVersion == "" {
+			if deviceInfo, err := p.GetDeviceInfo(ctx, discoveredDevice, credentials); err != nil {
+				slog.Warn("Failed to get device info after auto-auth pairing",
+					"device_identifier", discoveredDevice.DeviceIdentifier,
+					"error", err)
+			} else {
+				discoveredDevice.FirmwareVersion = deviceInfo.FirmwareVersion
+			}
 		}
 
 		slog.Info("Device paired successfully with default credentials",

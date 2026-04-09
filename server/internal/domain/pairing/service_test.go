@@ -226,8 +226,6 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 	mockDiscoverer := &MockDiscoverer{}
 	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
 	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
-	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").
-		Return(nil, fleeterror.NewInternalError("not a miner on port 8080")).Once()
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -248,7 +246,7 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 
 	mockDiscoverer.AssertExpectations(t)
 	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "443")
-	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
@@ -279,7 +277,7 @@ func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
-func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRequest(t *testing.T) {
+func TestDiscoverWithIPList_StopsAfterFirstSuccessfulPortForSameIP(t *testing.T) {
 	mockDiscoverer := &MockDiscoverer{}
 	scannedIP := "192.168.1.10"
 	firstPort := "443"
@@ -295,19 +293,8 @@ func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRe
 			Manufacturer: "WhatsMiner",
 		},
 	}
-	secondDiscoveryDevice := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			IpAddress:    scannedIP,
-			Port:         secondPort,
-			UrlScheme:    "http",
-			DriverName:   "asicrs",
-			Model:        "M60S",
-			Manufacturer: "WhatsMiner",
-		},
-	}
 
 	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
-	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(secondDiscoveryDevice, nil).Once()
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -328,8 +315,207 @@ func TestDiscoverWithIPList_DeduplicatesDevicesRediscoveredAcrossPortsInSingleRe
 	}
 
 	mockDiscoverer.AssertExpectations(t)
-	require.Len(t, devices, 1, "the same physical device should only be streamed once per discovery request")
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, scannedIP, secondPort)
+	require.Len(t, devices, 1, "remaining ports should not be probed after a device is found")
 	assert.NotEmpty(t, devices[0].DeviceIdentifier)
+}
+
+func TestDiscoverWithIPList_ContinuesScanAfterCollisionSkip(t *testing.T) {
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	scannedIP := "192.168.1.50"
+	port1 := "4028"
+	port2 := "443"
+	mac := "AA:BB:CC:DD:EE:FF"
+
+	// Device Y is paired at scannedIP:port1 — the "occupying" device.
+	// Device X is paired at another IP with MAC=mac.
+	// When scannedIP:port1 returns a device with mac=mac, reconcileByMAC finds X,
+	// but Y occupies scannedIP:port1 → collision skip → (false, nil).
+	// The scan must continue to port2, which has no occupying device and succeeds.
+	queries := sqlc.New(testContext.ServiceProvider.DB)
+
+	yIdentifier := "device-y-collision-test"
+	yDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            adminUser.OrganizationID,
+		DeviceIdentifier: yIdentifier,
+		IpAddress:        scannedIP,
+		Port:             port1,
+		UrlScheme:        "http",
+		IsActive:         true,
+		DriverName:       "asicrs",
+	})
+	require.NoError(t, err)
+	yDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              adminUser.OrganizationID,
+		DiscoveredDeviceID: yDiscoveredID,
+		DeviceIdentifier:   yIdentifier,
+	})
+	require.NoError(t, err)
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      yDbID,
+		PairingStatus: sqlc.PairingStatusEnumPAIRED,
+	})
+	require.NoError(t, err)
+
+	xIdentifier := "device-x-collision-test"
+	xDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            adminUser.OrganizationID,
+		DeviceIdentifier: xIdentifier,
+		IpAddress:        "192.168.1.99",
+		Port:             port1,
+		UrlScheme:        "http",
+		IsActive:         true,
+		DriverName:       "asicrs",
+	})
+	require.NoError(t, err)
+	xDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              adminUser.OrganizationID,
+		DiscoveredDeviceID: xDiscoveredID,
+		DeviceIdentifier:   xIdentifier,
+		MacAddress:         mac,
+	})
+	require.NoError(t, err)
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      xDbID,
+		PairingStatus: sqlc.PairingStatusEnumPAIRED,
+	})
+	require.NoError(t, err)
+
+	mockDiscoverer := &MockDiscoverer{}
+	deviceWithMAC := func(port string) *discoverymodels.DiscoveredDevice {
+		return &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				IpAddress:  scannedIP,
+				Port:       port,
+				UrlScheme:  "http",
+				DriverName: "asicrs",
+				MacAddress: mac,
+			},
+		}
+	}
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port1).Return(deviceWithMAC(port1), nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port2).Return(deviceWithMAC(port2), nil).Once()
+
+	registerDiscoveryPortsPlugin(t, testContext, "asicrs", []string{port1, port2})
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	// Act
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{scannedIP},
+		Ports:       []string{port1, port2},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	// Assert: port1 collision-skipped, scan continued to port2 and succeeded
+	mockDiscoverer.AssertExpectations(t)
+	require.Len(t, devices, 1, "port2 should be tried after port1 collision skip")
+	assert.Equal(t, xIdentifier, devices[0].DeviceIdentifier)
+}
+
+func TestDiscoverWithIPRange_ContinuesScanAfterCollisionSkip(t *testing.T) {
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	scannedIP := "192.168.1.51"
+	port1 := "4028"
+	port2 := "443"
+	mac := "BB:CC:DD:EE:FF:AA"
+
+	queries := sqlc.New(testContext.ServiceProvider.DB)
+
+	yIdentifier := "device-y-range-collision-test"
+	yDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            adminUser.OrganizationID,
+		DeviceIdentifier: yIdentifier,
+		IpAddress:        scannedIP,
+		Port:             port1,
+		UrlScheme:        "http",
+		IsActive:         true,
+		DriverName:       "asicrs",
+	})
+	require.NoError(t, err)
+	yDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              adminUser.OrganizationID,
+		DiscoveredDeviceID: yDiscoveredID,
+		DeviceIdentifier:   yIdentifier,
+	})
+	require.NoError(t, err)
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      yDbID,
+		PairingStatus: sqlc.PairingStatusEnumPAIRED,
+	})
+	require.NoError(t, err)
+
+	xIdentifier := "device-x-range-collision-test"
+	xDiscoveredID, err := queries.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{
+		OrgID:            adminUser.OrganizationID,
+		DeviceIdentifier: xIdentifier,
+		IpAddress:        "192.168.1.98",
+		Port:             port1,
+		UrlScheme:        "http",
+		IsActive:         true,
+		DriverName:       "asicrs",
+	})
+	require.NoError(t, err)
+	xDbID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              adminUser.OrganizationID,
+		DiscoveredDeviceID: xDiscoveredID,
+		DeviceIdentifier:   xIdentifier,
+		MacAddress:         mac,
+	})
+	require.NoError(t, err)
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      xDbID,
+		PairingStatus: sqlc.PairingStatusEnumPAIRED,
+	})
+	require.NoError(t, err)
+
+	mockDiscoverer := &MockDiscoverer{}
+	deviceWithMAC := func(port string) *discoverymodels.DiscoveredDevice {
+		return &discoverymodels.DiscoveredDevice{
+			Device: pb.Device{
+				IpAddress:  scannedIP,
+				Port:       port,
+				UrlScheme:  "http",
+				DriverName: "asicrs",
+				MacAddress: mac,
+			},
+		}
+	}
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port1).Return(deviceWithMAC(port1), nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, port2).Return(deviceWithMAC(port2), nil).Once()
+
+	registerDiscoveryPortsPlugin(t, testContext, "asicrs", []string{port1, port2})
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+
+	// Act
+	resultChan, err := pairingService.DiscoverWithIPRange(ctx, &pb.IPRangeModeRequest{
+		StartIp: scannedIP,
+		EndIp:   scannedIP,
+		Ports:   []string{port1, port2},
+	})
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for result := range resultChan {
+		require.Empty(t, result.Error)
+		devices = append(devices, result.Devices...)
+	}
+
+	// Assert: port1 collision-skipped, scan continued to port2 and succeeded
+	mockDiscoverer.AssertExpectations(t)
+	require.Len(t, devices, 1, "port2 should be tried after port1 collision skip")
+	assert.Equal(t, xIdentifier, devices[0].DeviceIdentifier)
 }
 
 func TestDiscoverWithIPList_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
@@ -1320,14 +1506,7 @@ func TestPairDevices_SavesFirmwareVersion(t *testing.T) {
 				discoveredDevice.FirmwareVersion = pairedFirmwareVersion
 				return nil
 			})
-		mockProtoPairer.EXPECT().
-			GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials any) (*pb.Device, error) {
-				return &pb.Device{
-					DeviceIdentifier: discoveredDevice.DeviceIdentifier,
-					FirmwareVersion:  "",
-				}, nil
-			})
+		// GetDeviceInfo is not called because PairDevice already set FirmwareVersion.
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, mockProtoPairer, mockDiscoverer)
 

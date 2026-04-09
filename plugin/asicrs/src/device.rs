@@ -779,11 +779,13 @@ impl WriteAccessProbeStrategy {
 }
 
 /// Validate that the miner accepts authenticated operations.
+/// `cached_data` is reused by the Hostname strategy to skip a redundant `get_data()` call.
 pub async fn validate_write_access(
     miner: &dyn Miner,
     supports_led: bool,
     make: &str,
     firmware: &str,
+    cached_data: Option<&MinerData>,
 ) -> anyhow::Result<()> {
     let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, supports_led);
     tracing::debug!(
@@ -795,7 +797,7 @@ pub async fn validate_write_access(
     );
     match strategy {
         WriteAccessProbeStrategy::Led => probe_led(miner).await,
-        WriteAccessProbeStrategy::Hostname => probe_hostname(miner).await,
+        WriteAccessProbeStrategy::Hostname => probe_hostname(miner, cached_data).await,
         WriteAccessProbeStrategy::None => Ok(()),
     }
 }
@@ -841,29 +843,32 @@ async fn probe_led(miner: &dyn Miner) -> anyhow::Result<()> {
 }
 
 /// Probe write access via hostname check.
-/// VNish allows LED control without auth but returns empty hostname when
-/// unauthenticated. Other backends may not populate hostname at all, so
-/// this check is firmware-specific to avoid false rejections.
-async fn probe_hostname(miner: &dyn Miner) -> anyhow::Result<()> {
-    let data = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, miner.get_data())).await;
-    match data {
-        Ok(Ok(data)) => {
-            if data.hostname.as_deref().unwrap_or("").is_empty() {
+/// VNish returns an empty hostname when unauthenticated. Uses `cached_data` when
+/// available to skip the redundant `get_data()` call.
+async fn probe_hostname(miner: &dyn Miner, cached_data: Option<&MinerData>) -> anyhow::Result<()> {
+    let hostname = if let Some(data) = cached_data {
+        data.hostname.clone()
+    } else {
+        let data = catch_panic(tokio::time::timeout(WRITE_PROBE_TIMEOUT, miner.get_data())).await;
+        match data {
+            Ok(Ok(data)) => data.hostname,
+            Ok(Err(_)) => {
                 return Err(anyhow::anyhow!(
-                    "[unauthenticated] hostname is empty, credentials may be invalid"
+                    "[unavailable] hostname check timed out, cannot confirm write access"
+                ));
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "[unavailable] hostname check failed: {e}, cannot confirm write access"
                 ));
             }
         }
-        Ok(Err(_)) => {
-            return Err(anyhow::anyhow!(
-                "[unavailable] hostname check timed out, cannot confirm write access"
-            ));
-        }
-        Err(e) => {
-            return Err(anyhow::anyhow!(
-                "[unavailable] hostname check failed: {e}, cannot confirm write access"
-            ));
-        }
+    };
+
+    if hostname.as_deref().unwrap_or("").is_empty() {
+        return Err(anyhow::anyhow!(
+            "[unauthenticated] hostname is empty, credentials may be invalid"
+        ));
     }
     Ok(())
 }
