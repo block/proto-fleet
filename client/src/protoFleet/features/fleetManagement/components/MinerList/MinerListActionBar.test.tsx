@@ -2,6 +2,15 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
+const { mockSetActionBarVisible } = vi.hoisted(() => ({
+  mockSetActionBarVisible: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useSetActionBarVisible: () => mockSetActionBarVisible,
+}));
+
 vi.mock("@/protoFleet/api/usePools", () => ({
   default: () => ({
     pools: [],

@@ -27,6 +27,25 @@ describe("UISlice", () => {
         createDefaultBulkRenamePreferences().properties.length,
       );
       expect(state.bulkRenamePreferences.properties.every((property) => property.enabled === false)).toBe(true);
+      expect(state.isActionBarVisible).toBe(false);
+    });
+  });
+
+  describe("setActionBarVisible", () => {
+    it("should set isActionBarVisible", () => {
+      const store = create<TestStore>()(
+        immer((set, _get, _api) => ({
+          ui: createUISlice(set as any, _get as any, _api as any),
+        })),
+      );
+
+      expect(store.getState().ui.isActionBarVisible).toBe(false);
+
+      store.getState().ui.setActionBarVisible(true);
+      expect(store.getState().ui.isActionBarVisible).toBe(true);
+
+      store.getState().ui.setActionBarVisible(false);
+      expect(store.getState().ui.isActionBarVisible).toBe(false);
     });
   });
 });

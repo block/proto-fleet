@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
+import { useSetActionBarVisible } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 
@@ -26,6 +28,18 @@ const MinerListActionBar = ({
   currentFilter,
   currentSort,
 }: MinerListActionBarProps) => {
+  const setActionBarVisible = useSetActionBarVisible();
+  const selectedMinersCountRef = useRef(selectedMiners.length);
+
+  useEffect(() => {
+    selectedMinersCountRef.current = selectedMiners.length;
+    setActionBarVisible(selectedMiners.length > 0);
+  }, [selectedMiners.length, setActionBarVisible]);
+
+  useEffect(() => {
+    return () => setActionBarVisible(false);
+  }, [setActionBarVisible]);
+
   const selectionControls =
     onSelectAll || onSelectNone ? (
       <>
@@ -73,8 +87,14 @@ const MinerListActionBar = ({
           totalCount={totalCount}
           currentFilter={currentFilter}
           currentSort={currentSort}
-          onActionStart={() => setHidden(true)}
-          onActionComplete={() => setHidden(false)}
+          onActionStart={() => {
+            setHidden(true);
+            setActionBarVisible(false);
+          }}
+          onActionComplete={() => {
+            setHidden(false);
+            setActionBarVisible(selectedMinersCountRef.current > 0);
+          }}
         />
       )}
     />

@@ -38,11 +38,13 @@ export {
   useTemperatureUnit,
   useDuration,
   useBulkRenamePreferences,
+  useIsActionBarVisible,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
   useSetDuration,
   useSetBulkRenamePreferences,
+  useSetActionBarVisible,
 } from "./hooks/useUI";
 
 // =============================================================================

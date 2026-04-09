@@ -20,6 +20,7 @@ export interface UISlice {
   duration: FleetDuration;
   bulkRenamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
+  isActionBarVisible: boolean;
 
   // Actions
   setTheme: (theme: Theme) => void;
@@ -28,6 +29,7 @@ export interface UISlice {
   setDuration: (duration: FleetDuration) => void;
   setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
+  setActionBarVisible: (visible: boolean) => void;
 }
 
 // =============================================================================
@@ -42,6 +44,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   duration: "24h",
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
   racksViewMode: "grid",
+  isActionBarVisible: false,
 
   // Actions
   setTheme: (theme) =>
@@ -72,5 +75,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setRacksViewMode: (mode) =>
     set((state) => {
       state.ui.racksViewMode = mode;
+    }),
+
+  setActionBarVisible: (visible) =>
+    set((state) => {
+      state.ui.isActionBarVisible = visible;
     }),
 });

@@ -1,10 +1,11 @@
 import { ReactNode, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "react-router-dom";
+import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/router";
-import { useCheckAuthentication } from "@/protoFleet/store";
+import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -83,6 +84,8 @@ const App = ({ children, fullscreen }: AppProps) => {
 
   const { loading, hasAccess } = useCheckAuthentication(requireAuth);
 
+  const isActionBarVisible = useIsActionBarVisible();
+
   // Show loading spinner ONLY if auth is required AND (loading OR access denied)
   const showLoading = requireAuth && (loading || hasAccess !== true);
 
@@ -103,7 +106,12 @@ const App = ({ children, fullscreen }: AppProps) => {
   return (
     <ErrorBoundary>
       {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
-      <div className="fixed right-4 bottom-4 z-60 phone:right-2 phone:bottom-2">
+      <div
+        className={clsx(
+          "fixed right-4 z-60 transition-[bottom] duration-200 phone:right-2",
+          isActionBarVisible ? "bottom-24 phone:bottom-30 tablet:bottom-30" : "bottom-4 phone:bottom-2",
+        )}
+      >
         <Toaster />
       </div>
 

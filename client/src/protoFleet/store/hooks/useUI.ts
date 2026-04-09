@@ -14,6 +14,8 @@ export const useDuration = () => useFleetStore((state) => state.ui.duration);
 
 export const useBulkRenamePreferences = () => useFleetStore((state) => state.ui.bulkRenamePreferences);
 
+export const useIsActionBarVisible = () => useFleetStore((state) => state.ui.isActionBarVisible);
+
 // =============================================================================
 // UI Action Selectors
 // =============================================================================
@@ -27,3 +29,5 @@ export const useSetTemperatureUnit = () => useFleetStore((state) => state.ui.set
 export const useSetDuration = () => useFleetStore((state) => state.ui.setDuration);
 
 export const useSetBulkRenamePreferences = () => useFleetStore((state) => state.ui.setBulkRenamePreferences);
+
+export const useSetActionBarVisible = () => useFleetStore((state) => state.ui.setActionBarVisible);
