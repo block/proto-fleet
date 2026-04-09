@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   deviceActions,
+  getFailureMessage,
   getLoadingMessage,
   getSuccessMessage,
   groupActions,
@@ -443,15 +444,16 @@ export const useMinerActions = ({
           }
 
           if (failureCount > 0) {
+            const failureMsg = getFailureMessage(action, `${failureCount} out of ${totalCount} ${minersMessage}`);
             if (!errorToastId) {
               errorToastId = pushToast({
-                message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                message: failureMsg,
                 status: TOAST_STATUSES.error,
                 longRunning: true,
               });
             } else {
               updateToast(errorToastId, {
-                message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                message: failureMsg,
                 status: TOAST_STATUSES.error,
               });
             }

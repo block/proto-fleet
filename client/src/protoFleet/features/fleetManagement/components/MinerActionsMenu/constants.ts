@@ -99,6 +99,24 @@ export const successMessages: Record<string, string> = {
   [groupActions.addToGroup]: "Added to group",
 };
 
+export const failureMessages: Record<string, string> = {
+  [deviceActions.blinkLEDs]: "LED blink failed on",
+  [deviceActions.downloadLogs]: "Log download failed on",
+  [deviceActions.factoryReset]: "Reset failed on",
+  [deviceActions.reboot]: "Reboot failed on",
+  [deviceActions.shutdown]: "Sleep failed on",
+  [deviceActions.unpair]: "Unpairing failed on",
+  [deviceActions.wakeUp]: "Wake up failed on",
+  [deviceActions.firmwareUpdate]: "Firmware update failed on",
+  [performanceActions.managePower]: "Power update failed on",
+  [performanceActions.curtail]: "Curtailment failed on",
+  [settingsActions.miningPool]: "Pool assignment failed on",
+  [settingsActions.coolingMode]: "Cooling mode update failed on",
+  [settingsActions.rename]: "Renaming failed on",
+  [settingsActions.security]: "Security update failed on",
+  [groupActions.addToGroup]: "Group assignment failed on",
+};
+
 export const getLoadingMessage = (action: SupportedAction, subject: string): string => {
   if (action === deviceActions.shutdown) return `Putting ${subject} to sleep`;
   const message = loadingMessages[action] ?? "Processing";
@@ -109,4 +127,9 @@ export const getSuccessMessage = (action: SupportedAction, subject: string): str
   if (action === deviceActions.shutdown) return `Put ${subject} to sleep`;
   const message = successMessages[action] ?? "Completed";
   return `${message} ${subject}`;
+};
+
+export const getFailureMessage = (action: SupportedAction, context: string): string => {
+  const message = failureMessages[action] ?? "Action failed on";
+  return `${message} ${context}`;
 };

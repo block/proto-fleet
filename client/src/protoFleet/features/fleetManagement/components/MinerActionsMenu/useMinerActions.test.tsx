@@ -438,6 +438,95 @@ describe("useMinerActions", () => {
     });
   });
 
+  describe("Action-specific failure toast messages", () => {
+    it("should show action-specific failure toast for blink LEDs partial failure", async () => {
+      mockBlinkLED.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-blink" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(1),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: ["device-2"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+      await act(async () => {
+        blinkAction?.actionHandler();
+      });
+
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "LED blink failed on 1 out of 2 miners",
+          status: toaster.STATUSES.error,
+        }),
+      );
+    });
+
+    it("should show action-specific failure toast for reboot partial failure", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(1),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: ["device-2"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Reboot failed on 1 out of 2 miners",
+          status: toaster.STATUSES.error,
+        }),
+      );
+    });
+  });
+
   describe("Modal interactions", () => {
     it("should open manage power modal when action handler is called", async () => {
       const onActionStart = vi.fn();
