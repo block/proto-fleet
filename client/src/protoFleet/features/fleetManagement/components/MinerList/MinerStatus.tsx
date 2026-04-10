@@ -91,8 +91,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   if (hasActiveBatch && batchLoadingMessage && !deviceHasReachedExpectedStatus) {
     const content = (
       <>
-        <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
-        <ProgressCircular size={14} indeterminate />
+        <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" />
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
       </>
     );
