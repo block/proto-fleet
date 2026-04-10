@@ -58,6 +58,9 @@ const (
 	// AuthServiceDeactivateUserProcedure is the fully-qualified name of the AuthService's
 	// DeactivateUser RPC.
 	AuthServiceDeactivateUserProcedure = "/auth.v1.AuthService/DeactivateUser"
+	// AuthServiceVerifyCredentialsProcedure is the fully-qualified name of the AuthService's
+	// VerifyCredentials RPC.
+	AuthServiceVerifyCredentialsProcedure = "/auth.v1.AuthService/VerifyCredentials"
 )
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
@@ -84,6 +87,11 @@ type AuthServiceClient interface {
 	// DeactivateUser performs a soft delete on a user account (Super Admin only)
 	// Users cannot deactivate themselves
 	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
+	// VerifyCredentials verifies the provided username and password match the current session user,
+	// without creating a new session. Used for step-up authentication on sensitive operations
+	// (e.g., editing pools, managing security). Both username and password must match the
+	// authenticated session user; mismatched or invalid credentials are rejected.
+	VerifyCredentials(context.Context, *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the auth.v1.AuthService service. By default, it uses
@@ -141,6 +149,11 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+AuthServiceDeactivateUserProcedure,
 			opts...,
 		),
+		verifyCredentials: connect.NewClient[v1.VerifyCredentialsRequest, v1.VerifyCredentialsResponse](
+			httpClient,
+			baseURL+AuthServiceVerifyCredentialsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -155,6 +168,7 @@ type authServiceClient struct {
 	listUsers         *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
 	resetUserPassword *connect.Client[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse]
 	deactivateUser    *connect.Client[v1.DeactivateUserRequest, v1.DeactivateUserResponse]
+	verifyCredentials *connect.Client[v1.VerifyCredentialsRequest, v1.VerifyCredentialsResponse]
 }
 
 // Authenticate calls auth.v1.AuthService.Authenticate.
@@ -202,6 +216,11 @@ func (c *authServiceClient) DeactivateUser(ctx context.Context, req *connect.Req
 	return c.deactivateUser.CallUnary(ctx, req)
 }
 
+// VerifyCredentials calls auth.v1.AuthService.VerifyCredentials.
+func (c *authServiceClient) VerifyCredentials(ctx context.Context, req *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error) {
+	return c.verifyCredentials.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Authenticate validates user credentials and creates a session
@@ -226,6 +245,11 @@ type AuthServiceHandler interface {
 	// DeactivateUser performs a soft delete on a user account (Super Admin only)
 	// Users cannot deactivate themselves
 	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
+	// VerifyCredentials verifies the provided username and password match the current session user,
+	// without creating a new session. Used for step-up authentication on sensitive operations
+	// (e.g., editing pools, managing security). Both username and password must match the
+	// authenticated session user; mismatched or invalid credentials are rejected.
+	VerifyCredentials(context.Context, *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -279,6 +303,11 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		svc.DeactivateUser,
 		opts...,
 	)
+	authServiceVerifyCredentialsHandler := connect.NewUnaryHandler(
+		AuthServiceVerifyCredentialsProcedure,
+		svc.VerifyCredentials,
+		opts...,
+	)
 	return "/auth.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceAuthenticateProcedure:
@@ -299,6 +328,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceResetUserPasswordHandler.ServeHTTP(w, r)
 		case AuthServiceDeactivateUserProcedure:
 			authServiceDeactivateUserHandler.ServeHTTP(w, r)
+		case AuthServiceVerifyCredentialsProcedure:
+			authServiceVerifyCredentialsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -342,4 +373,8 @@ func (UnimplementedAuthServiceHandler) ResetUserPassword(context.Context, *conne
 
 func (UnimplementedAuthServiceHandler) DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.DeactivateUser is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) VerifyCredentials(context.Context, *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.VerifyCredentials is not implemented"))
 }

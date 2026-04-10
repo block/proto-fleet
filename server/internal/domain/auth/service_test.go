@@ -40,7 +40,12 @@ func (m *mockUserStoreForVerify) GetUserByUsername(ctx context.Context, username
 }
 
 func (m *mockUserStoreForVerify) GetUserByID(ctx context.Context, userID int64) (interfaces.User, error) {
-	return interfaces.User{}, nil
+	for _, user := range m.users {
+		if user.ID == userID {
+			return user, nil
+		}
+	}
+	return interfaces.User{}, fleeterror.NewNotFoundErrorf("user not found")
 }
 func (m *mockUserStoreForVerify) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {
 	return interfaces.User{}, nil
@@ -402,6 +407,281 @@ func TestGetUserAuditInfo_NilTimestampForNeverUpdatedPassword(t *testing.T) {
 	require.NotNil(t, resp.Info)
 	assert.Nil(t, resp.Info.PasswordUpdatedAt,
 		"PasswordUpdatedAt should be nil when password was never updated (DB NULL)")
+}
+
+func TestService_VerifySessionCredentials(t *testing.T) {
+	testPassword := "testpass123"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		username      string
+		password      string
+		sessionUserID int64
+		setupUsers    map[string]interfaces.User
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:          "valid credentials matching session user",
+			username:      "admin",
+			password:      testPassword,
+			sessionUserID: 1,
+			setupUsers: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+			expectError: false,
+		},
+		{
+			name:          "wrong username with correct password",
+			username:      "wronguser",
+			password:      testPassword,
+			sessionUserID: 1,
+			setupUsers: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+			expectError:   true,
+			errorContains: "invalid credentials",
+		},
+		{
+			name:          "correct username with wrong password",
+			username:      "admin",
+			password:      "wrongpassword",
+			sessionUserID: 1,
+			setupUsers: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+			expectError:   true,
+			errorContains: "invalid credentials",
+		},
+		{
+			name:          "another valid user's credentials",
+			username:      "bob",
+			password:      testPassword,
+			sessionUserID: 1,
+			setupUsers: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+				"bob":   {ID: 2, Username: "bob", PasswordHash: string(hashedPassword)},
+			},
+			expectError:   true,
+			errorContains: "invalid credentials",
+		},
+		{
+			name:          "empty username",
+			username:      "",
+			password:      testPassword,
+			sessionUserID: 1,
+			setupUsers:    map[string]interfaces.User{},
+			expectError:   true,
+			errorContains: "username and password are required",
+		},
+		{
+			name:          "empty password",
+			username:      "admin",
+			password:      "",
+			sessionUserID: 1,
+			setupUsers:    map[string]interfaces.User{},
+			expectError:   true,
+			errorContains: "username and password are required",
+		},
+		{
+			name:          "both empty",
+			username:      "",
+			password:      "",
+			sessionUserID: 1,
+			setupUsers:    map[string]interfaces.User{},
+			expectError:   true,
+			errorContains: "username and password are required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore := &mockUserStoreForVerify{users: tt.setupUsers}
+			service := &Service{userStore: mockStore}
+
+			ctx := authn.SetInfo(context.Background(), &session.Info{
+				UserID:         tt.sessionUserID,
+				OrganizationID: 100,
+				ExternalUserID: "ext-1",
+				Username:       "admin",
+			})
+
+			err := service.VerifySessionCredentials(ctx, tt.username, tt.password)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestService_VerifySessionCredentials_SecurityProperties(t *testing.T) {
+	testPassword := "testpass123"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	t.Run("wrong username and wrong password produce identical errors", func(t *testing.T) {
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID:         1,
+			OrganizationID: 100,
+			ExternalUserID: "ext-1",
+			Username:       "admin",
+		})
+
+		errWrongUser := service.VerifySessionCredentials(ctx, "wronguser", testPassword)
+		errWrongPass := service.VerifySessionCredentials(ctx, "admin", "wrongpassword")
+
+		require.Error(t, errWrongUser)
+		require.Error(t, errWrongPass)
+		assert.Equal(t, errWrongUser.Error(), errWrongPass.Error(),
+			"Error messages should be identical to prevent information leakage")
+	})
+
+	t.Run("requires authenticated session", func(t *testing.T) {
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore}
+
+		err := service.VerifySessionCredentials(context.Background(), "admin", testPassword)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "error getting session info")
+	})
+
+	t.Run("session user not found in database", func(t *testing.T) {
+		mockStore := &mockUserStoreForVerify{users: map[string]interfaces.User{}}
+		service := &Service{userStore: mockStore}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID:         999,
+			OrganizationID: 100,
+			ExternalUserID: "ext-999",
+			Username:       "ghost",
+		})
+
+		err := service.VerifySessionCredentials(ctx, "ghost", testPassword)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "error looking up session user")
+	})
+}
+
+func TestActivityLogging_StepUpAuthFailed(t *testing.T) {
+	testPassword := "testpass123"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	t.Run("logs activity on wrong username", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+		mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+				assert.Equal(t, activitymodels.CategoryAuth, event.Category)
+				assert.Equal(t, "step_up_auth_failed", event.Type)
+				assert.Equal(t, activitymodels.ResultFailure, event.Result)
+				require.NotNil(t, event.ErrorMessage)
+				assert.Equal(t, "invalid credentials", *event.ErrorMessage)
+				require.NotNil(t, event.Username)
+				assert.Equal(t, "admin", *event.Username)
+				return nil
+			})
+
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore, activitySvc: activitySvc}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID: 1, OrganizationID: 100,
+			ExternalUserID: "ext-1", Username: "admin",
+		})
+
+		err := service.VerifySessionCredentials(ctx, "wronguser", testPassword)
+		require.Error(t, err)
+	})
+
+	t.Run("logs activity on wrong password", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+		mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+				assert.Equal(t, "step_up_auth_failed", event.Type)
+				assert.Equal(t, activitymodels.ResultFailure, event.Result)
+				return nil
+			})
+
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore, activitySvc: activitySvc}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID: 1, OrganizationID: 100,
+			ExternalUserID: "ext-1", Username: "admin",
+		})
+
+		err := service.VerifySessionCredentials(ctx, "admin", "wrongpassword")
+		require.Error(t, err)
+	})
+
+	t.Run("does not log activity on success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		activitySvc, mockActivityStore := newActivitySvc(ctrl)
+
+		mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Times(0)
+
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore, activitySvc: activitySvc}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID: 1, OrganizationID: 100,
+			ExternalUserID: "ext-1", Username: "admin",
+		})
+
+		err := service.VerifySessionCredentials(ctx, "admin", testPassword)
+		require.NoError(t, err)
+	})
+
+	t.Run("nil activitySvc does not panic", func(t *testing.T) {
+		mockStore := &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"admin": {ID: 1, Username: "admin", PasswordHash: string(hashedPassword)},
+			},
+		}
+		service := &Service{userStore: mockStore}
+
+		ctx := authn.SetInfo(context.Background(), &session.Info{
+			UserID: 1, OrganizationID: 100,
+			ExternalUserID: "ext-1", Username: "admin",
+		})
+
+		assert.NotPanics(t, func() {
+			_ = service.VerifySessionCredentials(ctx, "wronguser", testPassword)
+		})
+	})
 }
 
 func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {

@@ -47,8 +47,7 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
     setIsVerifying(true);
 
     try {
-      // Verify credentials using the Authenticate API
-      await authClient.authenticate({ username, password });
+      await authClient.verifyCredentials({ username, password });
 
       // If successful, call onAuthenticated with the credentials
       onAuthenticated(username, password);

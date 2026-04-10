@@ -14,6 +14,7 @@ import (
 var RedactedRequestProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
+	authv1connect.AuthServiceVerifyCredentialsProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
@@ -47,6 +48,7 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceListUsersProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
+	authv1connect.AuthServiceVerifyCredentialsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
@@ -64,4 +66,5 @@ var SensitiveBodyProcedures = map[string]bool{
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure: true,
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:    true,
 	authv1connect.AuthServiceAuthenticateProcedure:                        true,
+	authv1connect.AuthServiceVerifyCredentialsProcedure:                   true,
 }

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -355,6 +356,44 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return fleeterror.NewForbiddenErrorf("invalid credentials")
+	}
+
+	return nil
+}
+
+// VerifySessionCredentials verifies that the provided username and password match
+// the currently authenticated session user. Both must match — this prevents
+// cross-user credential usage in step-up authentication flows.
+func (s *Service) VerifySessionCredentials(ctx context.Context, username, password string) error {
+	if username == "" || password == "" {
+		return fleeterror.NewInvalidArgumentError("username and password are required")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	user, err := s.userStore.GetUserByID(ctx, info.UserID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error looking up session user: %v", err)
+	}
+
+	usernameMatch := subtle.ConstantTimeCompare([]byte(user.Username), []byte(username)) == 1
+	passwordErr := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+
+	if !usernameMatch || passwordErr != nil {
+		s.logActivity(ctx, activitymodels.Event{
+			Category:       activitymodels.CategoryAuth,
+			Type:           "step_up_auth_failed",
+			Description:    "Step-up authentication failed",
+			Result:         activitymodels.ResultFailure,
+			ErrorMessage:   strPtr("invalid credentials"),
+			UserID:         &info.ExternalUserID,
+			Username:       &info.Username,
+			OrganizationID: &info.OrganizationID,
+		})
 		return fleeterror.NewForbiddenErrorf("invalid credentials")
 	}
 

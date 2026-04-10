@@ -36,6 +36,12 @@ service AuthService {
     // DeactivateUser performs a soft delete on a user account (Super Admin only)
     // Users cannot deactivate themselves
     rpc DeactivateUser(DeactivateUserRequest) returns (DeactivateUserResponse);
+
+    // VerifyCredentials verifies the provided username and password match the current session user,
+    // without creating a new session. Used for step-up authentication on sensitive operations
+    // (e.g., editing pools, managing security). Both username and password must match the
+    // authenticated session user; mismatched or invalid credentials are rejected.
+    rpc VerifyCredentials(VerifyCredentialsRequest) returns (VerifyCredentialsResponse);
 }
 
 message AuthenticateRequest {
@@ -168,6 +174,17 @@ message DeactivateUserRequest {
 }
 
 message DeactivateUserResponse {
+}
+
+message VerifyCredentialsRequest {
+    // Username — must match the currently authenticated session user
+    string username = 1;
+
+    // Password for the currently authenticated user
+    string password = 2;
+}
+
+message VerifyCredentialsResponse {
 }
 
 enum UserManagementErrorCode {
