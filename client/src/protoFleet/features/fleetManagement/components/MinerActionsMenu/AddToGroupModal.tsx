@@ -1,6 +1,7 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
 
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
@@ -119,7 +120,7 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
       });
       onDismiss();
     } catch (err) {
-      pushToast({ status: TOAST_STATUSES.error, message: (err as Error)?.message ?? "Failed to add to group" });
+      pushToast({ status: TOAST_STATUSES.error, message: getErrorMessage(err, "Failed to add to group") });
     } finally {
       setSaving(false);
     }

@@ -8,6 +8,7 @@ import type {
   UpdatePoolRequest,
   ValidatePoolRequest,
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreatePoolProps {
@@ -97,7 +98,7 @@ const usePools = (enabled = true) => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -117,7 +118,7 @@ const usePools = (enabled = true) => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -137,7 +138,7 @@ const usePools = (enabled = true) => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -169,7 +170,7 @@ const usePools = (enabled = true) => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })

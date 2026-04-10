@@ -2,6 +2,7 @@ import { useCallback } from "react";
 
 import { apiKeyClient } from "@/protoFleet/api/clients";
 import type { ApiKeyInfo } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface ApiKeyItem {
@@ -80,7 +81,7 @@ const useApiKeys = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })
@@ -102,7 +103,7 @@ const useApiKeys = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })

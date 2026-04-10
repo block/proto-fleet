@@ -41,6 +41,7 @@ import {
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface BlinkLEDProps {
@@ -159,7 +160,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -176,7 +177,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -193,7 +194,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -210,7 +211,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -227,7 +228,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -254,11 +255,13 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error,
             onError: () => {
-              onError?.(error.message);
+              onError?.(getErrorMessage(error, "An unexpected error occurred"));
             },
           });
         } else if (typeof error === "string") {
           onError?.(error);
+        } else {
+          onError?.(getErrorMessage(error, "An unexpected error occurred"));
         }
       }
     },
@@ -300,7 +303,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -322,7 +325,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -344,7 +347,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -366,7 +369,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -399,7 +402,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -416,7 +419,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -433,7 +436,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });
@@ -450,7 +453,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         });

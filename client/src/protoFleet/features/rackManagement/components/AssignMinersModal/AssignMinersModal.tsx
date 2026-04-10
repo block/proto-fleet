@@ -12,6 +12,7 @@ import {
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -442,7 +443,7 @@ export default function AssignMinersModal({
       });
       onSave();
     } catch (err) {
-      setErrorMsg((err as Error)?.message ?? "Failed to save. Please try again.");
+      setErrorMsg(getErrorMessage(err, "Failed to save. Please try again."));
     } finally {
       setIsSaving(false);
     }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import {
@@ -35,9 +36,6 @@ const defaultActiveFilters: ActiveFilters = {
   buttonFilters: ["all"],
   dropdownFilters: {},
 };
-
-const getErrorMessage = (error: unknown, fallbackMessage: string) =>
-  error instanceof Error && error.message ? error.message : fallbackMessage;
 
 const SchedulesPage = () => {
   const {

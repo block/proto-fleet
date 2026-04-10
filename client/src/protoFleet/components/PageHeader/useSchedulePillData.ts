@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { buildSchedulePopoverSections, type SchedulePopoverSection, selectPillSchedule } from "./schedulePillUtils";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -14,9 +15,6 @@ export interface UseSchedulePillDataResult {
 }
 
 const POLL_INTERVAL_MS = 30_000;
-
-const getErrorMessage = (error: unknown, fallbackMessage: string) =>
-  error instanceof Error && error.message ? error.message : fallbackMessage;
 
 export const useSchedulePillData = (): UseSchedulePillDataResult => {
   const { schedules, refreshSchedules, pauseSchedule, resumeSchedule } = useScheduleApiContext();

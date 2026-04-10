@@ -6,6 +6,7 @@ import type {
   DeactivateUserRequest,
   ResetUserPasswordRequest,
 } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
@@ -58,7 +59,7 @@ const useUserManagement = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })
@@ -94,7 +95,7 @@ const useUserManagement = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })
@@ -116,7 +117,7 @@ const useUserManagement = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })
@@ -138,7 +139,7 @@ const useUserManagement = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })

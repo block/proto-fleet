@@ -2,6 +2,7 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import {
   useSetAuthLoading,
   useSetIsAuthenticated,
@@ -55,14 +56,14 @@ const useLogin = () => {
         })
         .catch((err) => {
           if (skipLogoutOnError) {
-            onError?.(err?.message ?? String(err));
+            onError?.(getErrorMessage(err));
             return;
           }
 
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })

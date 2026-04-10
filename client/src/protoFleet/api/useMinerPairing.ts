@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ConnectError } from "@connectrpc/connect";
 import { pairingClient } from "@/protoFleet/api/clients";
 import { Device, DiscoverRequest, PairRequest } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface DiscoverMinersProps {
@@ -48,11 +49,13 @@ const useMinerPairing = () => {
           handleAuthErrors({
             error: error,
             onError: () => {
-              onError?.(error.message);
+              onError?.(getErrorMessage(error, "An unexpected error occurred"));
             },
           });
         } else if (typeof error === "string") {
           onError?.(error);
+        } else {
+          onError?.(getErrorMessage(error, "An unexpected error occurred"));
         }
       } finally {
         setDiscoverPending(false);
@@ -73,7 +76,7 @@ const useMinerPairing = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         })

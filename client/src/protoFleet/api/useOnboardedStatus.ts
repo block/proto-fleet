@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { onboardingClient } from "@/protoFleet/api/clients";
 import type { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import {
   useAuthErrors,
   useDevicePaired,
@@ -30,7 +31,7 @@ const useOnboardedStatus = ({ enabled = true }: { enabled?: boolean } = {}) => {
       handleAuthErrors({
         error: err,
         onError: () => {
-          const errorMessage = err?.message ?? String(err);
+          const errorMessage = getErrorMessage(err);
           throw new Error(`Failed to fetch Onboarded Status: ${errorMessage}`);
         },
       });

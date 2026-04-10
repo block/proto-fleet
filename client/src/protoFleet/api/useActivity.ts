@@ -6,6 +6,7 @@ import {
   type ActivityFilter,
   ActivityFilterSchema,
 } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseActivityParams {
@@ -69,8 +70,7 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
         handleAuthErrors({
           error: err,
           onError: (e) => {
-            const message = e instanceof Error ? e.message : String(e);
-            setError(message);
+            setError(getErrorMessage(e, "Failed to load activities"));
           },
         });
       } finally {

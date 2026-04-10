@@ -9,6 +9,7 @@ import {
   ImportFromForemanRequestSchema,
   type ImportFromForemanResponse,
 } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 const buildCredentials = (apiKey: string, clientId: string) => create(ForemanCredentialsSchema, { apiKey, clientId });
@@ -20,11 +21,11 @@ const useForemanImport = () => {
   const handleRpcError = useCallback(
     (error: unknown, onError?: (m: string) => void) => {
       if (error instanceof ConnectError) {
-        handleAuthErrors({ error, onError: () => onError?.(error.message) });
+        handleAuthErrors({ error, onError: () => onError?.(getErrorMessage(error, "An unexpected error occurred")) });
       } else if (error instanceof Error) {
         onError?.(error.message);
       } else {
-        onError?.("An unexpected error occurred");
+        onError?.(getErrorMessage(error));
       }
     },
     [handleAuthErrors],

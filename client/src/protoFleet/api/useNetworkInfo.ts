@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { networkInfoClient } from "@/protoFleet/api/clients";
 import { NetworkInfo, UpdateNetworkNicknameRequest } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UpdateNetworkInfoProps {
@@ -28,7 +29,7 @@ const useNetworkInfo = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            setError(err?.message ?? String(err));
+            setError(getErrorMessage(err));
           },
         });
       })
@@ -54,7 +55,7 @@ const useNetworkInfo = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.error?.message ?? err);
+              onError?.(getErrorMessage(err));
             },
           });
         })

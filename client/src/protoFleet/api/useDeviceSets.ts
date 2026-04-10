@@ -21,6 +21,7 @@ import {
   RackSlotSchema,
   type RackType,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateGroupProps {
@@ -228,7 +229,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -260,7 +261,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -279,7 +280,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -322,7 +323,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -376,7 +377,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -403,7 +404,7 @@ const useDeviceSets = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.((err as Error)?.message ?? String(err));
+              onError?.(getErrorMessage(err));
             },
           });
         }
@@ -437,7 +438,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -456,7 +457,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -491,7 +492,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -532,7 +533,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -551,7 +552,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -570,7 +571,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -605,7 +606,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -666,7 +667,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -685,7 +686,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -715,7 +716,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -737,7 +738,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
@@ -803,7 +804,7 @@ const useDeviceSets = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            onError?.((err as Error)?.message ?? String(err));
+            onError?.(getErrorMessage(err));
           },
         });
       } finally {
