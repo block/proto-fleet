@@ -57,7 +57,7 @@ describe("useMinerStatusSummary", () => {
     it('should return condensed="Offline" when offline (takes priority over sleeping)', () => {
       const { result } = renderHook(() => useMinerStatusSummary(emptyErrors, true, true));
       expect(result.current.condensed).toBe("Offline");
-      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.title).toBe("Miner is offline");
       expect(result.current.subtitle).toBeUndefined();
     });
 
@@ -112,7 +112,7 @@ describe("useMinerStatusSummary", () => {
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors, false, true));
       expect(result.current.condensed).toBe("Offline");
-      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.title).toBe("Miner is offline");
       expect(result.current.subtitle).toBe("Hashboard 1 failure");
     });
 
@@ -124,7 +124,7 @@ describe("useMinerStatusSummary", () => {
       };
       const { result } = renderHook(() => useMinerStatusSummary(errors, false, true));
       expect(result.current.condensed).toBe("Offline");
-      expect(result.current.title).toBe("Device is offline");
+      expect(result.current.title).toBe("Miner is offline");
       expect(result.current.subtitle).toBe("Multiple failures");
     });
   });

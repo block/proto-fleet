@@ -149,7 +149,7 @@ export function useMinerStatusSummary(
     let title: string;
     let subtitle: string | undefined;
     if (isOffline) {
-      title = "Device is offline";
+      title = "Miner is offline";
       if (hasErrors) {
         subtitle = computeErrorTitle(componentTypesWithErrors);
       }
