@@ -125,7 +125,7 @@ describe("mapSlotStatuses", () => {
 
 describe("formatRackCardStats", () => {
   test("returns undefined for all metrics when no devices are reporting", () => {
-    const result = formatRackCardStats(makeStats());
+    const result = formatRackCardStats(makeStats(), "C");
     expect(result).toEqual({
       hashrate: undefined,
       efficiency: undefined,
@@ -135,24 +135,33 @@ describe("formatRackCardStats", () => {
   });
 
   test("formats hashrate when reporting", () => {
-    const result = formatRackCardStats(makeStats({ hashrateReportingCount: 1, totalHashrateThs: 123.456 }));
+    const result = formatRackCardStats(makeStats({ hashrateReportingCount: 1, totalHashrateThs: 123.456 }), "C");
     expect(result.hashrate).toBe("123.5 TH/s");
   });
 
   test("formats efficiency when reporting", () => {
-    const result = formatRackCardStats(makeStats({ efficiencyReportingCount: 1, avgEfficiencyJth: 22.5 }));
+    const result = formatRackCardStats(makeStats({ efficiencyReportingCount: 1, avgEfficiencyJth: 22.5 }), "C");
     expect(result.efficiency).toBe("22.5 J/TH");
   });
 
   test("formats power when reporting", () => {
-    const result = formatRackCardStats(makeStats({ powerReportingCount: 1, totalPowerKw: 5.1 }));
+    const result = formatRackCardStats(makeStats({ powerReportingCount: 1, totalPowerKw: 5.1 }), "C");
     expect(result.power).toBe("5.1 kW");
   });
 
-  test("formats temperature range when reporting", () => {
+  test("formats temperature range in Celsius when reporting", () => {
     const result = formatRackCardStats(
       makeStats({ temperatureReportingCount: 1, minTemperatureC: 45, maxTemperatureC: 78 }),
+      "C",
     );
-    expect(result.temperature).toBe("45.0°–78.0°C");
+    expect(result.temperature).toBe("45.0 °C – 78.0 °C");
+  });
+
+  test("formats temperature range in Fahrenheit when reporting", () => {
+    const result = formatRackCardStats(
+      makeStats({ temperatureReportingCount: 1, minTemperatureC: 45, maxTemperatureC: 78 }),
+      "F",
+    );
+    expect(result.temperature).toBe("113.0 °F – 172.4 °F");
   });
 });

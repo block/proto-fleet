@@ -140,7 +140,7 @@ export const Default: Story = {
     hashrate: "1.2 PH/s",
     efficiency: "21.50 J/TH",
     power: "25.6 kW",
-    temperature: "62°–71°",
+    temperature: "62 °C – 71 °C",
   },
 };
 
@@ -158,7 +158,7 @@ export const WithIssues: Story = {
     hashrate: "0.9 PH/s",
     efficiency: "23.10 J/TH",
     power: "20.8 kW",
-    temperature: "64°–75°",
+    temperature: "64 °C – 75 °C",
   },
 };
 
@@ -176,7 +176,7 @@ export const WithOffline: Story = {
     hashrate: "0.7 PH/s",
     efficiency: "22.00 J/TH",
     power: "16.1 kW",
-    temperature: "58°–68°",
+    temperature: "58 °C – 68 °C",
   },
 };
 
@@ -194,7 +194,7 @@ export const Sleeping: Story = {
     hashrate: "0.6 PH/s",
     efficiency: "20.80 J/TH",
     power: "12.0 kW",
-    temperature: "50°–60°",
+    temperature: "50 °C – 60 °C",
   },
 };
 
@@ -216,7 +216,7 @@ export const Mixed: Story = {
     hashrate: "0.8 PH/s",
     efficiency: "22.70 J/TH",
     power: "18.3 kW",
-    temperature: "59°–73°",
+    temperature: "59 °C – 73 °C",
   },
 };
 
@@ -256,7 +256,7 @@ export const SparseRack: Story = {
     hashrate: "0.5 PH/s",
     efficiency: "22.40 J/TH",
     power: "11.2 kW",
-    temperature: "55°–64°",
+    temperature: "55 °C – 64 °C",
   },
 };
 
@@ -277,7 +277,7 @@ export const CompactRack: Story = {
     hashrate: "1.5 PH/s",
     efficiency: "21.00 J/TH",
     power: "31.5 kW",
-    temperature: "60°–70°",
+    temperature: "60 °C – 70 °C",
   },
 };
 
@@ -298,7 +298,7 @@ export const WideRack: Story = {
     hashrate: "2.3 PH/s",
     efficiency: "21.80 J/TH",
     power: "50.1 kW",
-    temperature: "61°–72°",
+    temperature: "61 °C – 72 °C",
   },
 };
 
@@ -320,7 +320,7 @@ export const MaxSize: Story = {
     hashrate: "6.9 PH/s",
     efficiency: "21.20 J/TH",
     power: "146.3 kW",
-    temperature: "58°–74°",
+    temperature: "58 °C – 74 °C",
   },
 };
 
@@ -344,7 +344,7 @@ export const GridView: Story = {
         hashrate="1.2 PH/s"
         efficiency="21.50 J/TH"
         power="25.6 kW"
-        temperature="62°–71°"
+        temperature="62 °C – 71 °C"
       />
       <RackCard
         label="R-02"
@@ -356,7 +356,7 @@ export const GridView: Story = {
         hashrate="0.9 PH/s"
         efficiency="23.10 J/TH"
         power="20.8 kW"
-        temperature="64°–75°"
+        temperature="64 °C – 75 °C"
       />
       <RackCard
         label="R-03"
@@ -372,7 +372,7 @@ export const GridView: Story = {
         hashrate="0.5 PH/s"
         efficiency="22.40 J/TH"
         power="11.2 kW"
-        temperature="55°–64°"
+        temperature="55 °C – 64 °C"
       />
       <RackCard
         label="R-04"
@@ -388,7 +388,7 @@ export const GridView: Story = {
         hashrate="6.9 PH/s"
         efficiency="21.20 J/TH"
         power="146.3 kW"
-        temperature="58°–74°"
+        temperature="58 °C – 74 °C"
       />
       <RackCard label="R-05" zone="Building 3" cols={5} rows={5} slots={makeSlots(25, 0)} statusSegments={[]} />
       <RackCard
@@ -401,7 +401,7 @@ export const GridView: Story = {
         hashrate="1.4 PH/s"
         efficiency="20.90 J/TH"
         power="29.3 kW"
-        temperature="55°–65°"
+        temperature="55 °C – 65 °C"
       />
     </RackCardGrid>
   ),

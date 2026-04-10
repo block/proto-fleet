@@ -4,6 +4,7 @@ import { DEFAULT_PAGE_SIZE, deviceSetColTitles, type DeviceSetColumn } from "./c
 import { createDeviceSetColConfig } from "./deviceSetColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -68,13 +69,17 @@ const DeviceSetList = ({
   emptyStateRow,
 }: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
+  const temperatureUnit = useTemperatureUnit();
 
   const items: DeviceSetListItem[] = useMemo(
     () => deviceSets.map((deviceSet) => ({ id: String(deviceSet.id), deviceSet, stats: statsMap.get(deviceSet.id) })),
     [deviceSets, statsMap],
   );
 
-  const colConfig = useMemo(() => createDeviceSetColConfig({ renderName, renderMiners }), [renderName, renderMiners]);
+  const colConfig = useMemo(
+    () => createDeviceSetColConfig({ renderName, renderMiners, temperatureUnit }),
+    [renderName, renderMiners, temperatureUnit],
+  );
 
   const handleNextPage = useCallback(() => {
     onNextPage?.();

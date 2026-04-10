@@ -698,12 +698,12 @@ export class MinersPage extends BasePage {
       const temperatureLocator = rows.nth(i).locator(`//td[@data-testid='temperature']`);
       await temperatureLocator.scrollIntoViewIfNeeded();
 
-      // Get temperature text
+      // Get temperature text — format is "65.2 °F" or "65.2 °C"
       const temperatureText = await temperatureLocator.innerText();
       const parts = temperatureText.split(" ");
-      expect(parts, `Expected temperature text to value and unit, but got: "${temperatureText}"`).toHaveLength(2);
+      expect(parts, `Expected temperature text to have value and unit, but got: "${temperatureText}"`).toHaveLength(2);
 
-      // Validate unit - C/F
+      // Validate unit - °C/°F
       const unit = parts[1];
       expect(unit).toBe(expectedUnit);
 

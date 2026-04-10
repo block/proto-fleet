@@ -5,7 +5,9 @@ import type { DeviceSetListItem } from "./DeviceSetList";
 import StatCell from "./StatCell";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import { type ColConfig } from "@/shared/components/List/types";
+import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
+import { formatTempRange } from "@/shared/utils/utility";
 
 const INACTIVE_PLACEHOLDER = "—";
 
@@ -15,18 +17,16 @@ const HEALTH_COLOR_MAP = {
   NA: "bg-core-accent-fill",
 };
 
-const formatTempRange = (min: number, max: number): string => {
-  return `${getDisplayValue(min)}°–${getDisplayValue(max)}°C`;
-};
-
 type CreateDeviceSetColConfigParams = {
   renderName: (item: DeviceSetListItem) => ReactNode;
   renderMiners: (item: DeviceSetListItem) => ReactNode;
+  temperatureUnit: TemperatureUnit;
 };
 
 const createDeviceSetColConfig = ({
   renderName,
   renderMiners,
+  temperatureUnit,
 }: CreateDeviceSetColConfigParams): ColConfig<DeviceSetListItem, string, DeviceSetColumn> => ({
   [deviceSetCols.name]: {
     component: (item: DeviceSetListItem) => renderName(item),
@@ -88,7 +88,7 @@ const createDeviceSetColConfig = ({
   [deviceSetCols.temperature]: {
     component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.temperatureReportingCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
-      return <span>{formatTempRange(item.stats.minTemperatureC, item.stats.maxTemperatureC)}</span>;
+      return <span>{formatTempRange(item.stats.minTemperatureC, item.stats.maxTemperatureC, temperatureUnit)}</span>;
     },
     width: "min-w-28",
   },

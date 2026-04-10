@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { copyToClipboard, debounce, deepClone, formatHashrateWithUnit, getRowLabel } from "./utility";
+import { copyToClipboard, debounce, deepClone, formatHashrateWithUnit, formatTempRange, getRowLabel } from "./utility";
 
 describe("deepClone", () => {
   test("should create a deep copy of an object", () => {
@@ -135,6 +135,23 @@ describe("formatHashrateWithUnit", () => {
 
   test("should handle undefined/null values", () => {
     expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
+  });
+});
+
+describe("formatTempRange", () => {
+  test("formats Celsius range with one decimal", () => {
+    expect(formatTempRange(20.1, 65.5, "C")).toBe("20.1 °C – 65.5 °C");
+  });
+
+  test("formats Fahrenheit range by converting from Celsius", () => {
+    expect(formatTempRange(0, 100, "F")).toBe("32.0 °F – 212.0 °F");
+  });
+
+  test("uses correct degree sign (U+00B0) and en dash", () => {
+    const result = formatTempRange(30, 40, "C");
+    expect(result).toContain("°"); // U+00B0 degree sign
+    expect(result).toContain("–"); // en dash
+    expect(result).not.toContain("º"); // not U+00BA ordinal indicator
   });
 });
 

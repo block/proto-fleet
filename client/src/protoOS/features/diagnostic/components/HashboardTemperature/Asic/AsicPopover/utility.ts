@@ -34,10 +34,10 @@ export const convertAndFormatTemperature = (
   }
 
   if (temperatureUnit === "F") {
-    return `${getDisplayValue(convertCtoF(tempC))}º${showUnits ? temperatureUnit : ""}`;
+    return `${getDisplayValue(convertCtoF(tempC))} °${showUnits ? temperatureUnit : ""}`;
   }
 
-  return `${getDisplayValue(tempC)}º${showUnits ? temperatureUnit : ""}`;
+  return `${getDisplayValue(tempC)} °${showUnits ? temperatureUnit : ""}`;
 };
 
 /**

@@ -5,7 +5,9 @@ import {
   SlotDeviceStatus,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { SlotStatus } from "@/protoFleet/features/rackManagement/components/RackCard/types";
+import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
+import { formatTempRange } from "@/shared/utils/utility";
 
 export const SLOT_STATUS_MAP: Record<SlotDeviceStatus, SlotStatus> = {
   [SlotDeviceStatus.UNSPECIFIED]: "empty",
@@ -49,21 +51,23 @@ export function mapSlotStatuses(slotStatuses: RackSlotStatus[], rows: number, co
   return grid;
 }
 
-const formatTempRange = (min: number, max: number): string => {
-  return `${getDisplayValue(min)}°–${getDisplayValue(max)}°C`;
-};
-
-export function formatRackCardStats(stats: DeviceSetStats) {
+export function formatRackCardStats(stats: DeviceSetStats, temperatureUnit: TemperatureUnit) {
   return {
     hashrate: stats.hashrateReportingCount > 0 ? `${getDisplayValue(stats.totalHashrateThs)} TH/s` : undefined,
     efficiency: stats.efficiencyReportingCount > 0 ? `${getDisplayValue(stats.avgEfficiencyJth)} J/TH` : undefined,
     power: stats.powerReportingCount > 0 ? `${getDisplayValue(stats.totalPowerKw)} kW` : undefined,
     temperature:
-      stats.temperatureReportingCount > 0 ? formatTempRange(stats.minTemperatureC, stats.maxTemperatureC) : undefined,
+      stats.temperatureReportingCount > 0
+        ? formatTempRange(stats.minTemperatureC, stats.maxTemperatureC, temperatureUnit)
+        : undefined,
   };
 }
 
-export function mapRackToCardProps(rack: DeviceSet, stats: DeviceSetStats | undefined) {
+export function mapRackToCardProps(
+  rack: DeviceSet,
+  stats: DeviceSetStats | undefined,
+  temperatureUnit: TemperatureUnit,
+) {
   const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
   const rows = rackInfo?.rows ?? 1;
   const cols = rackInfo?.columns ?? 1;
@@ -87,7 +91,7 @@ export function mapRackToCardProps(rack: DeviceSet, stats: DeviceSetStats | unde
 
   const statusSegments = stats.deviceCount === 0 ? [] : deriveStatusSegments(stats);
   const slots = mapSlotStatuses(stats.slotStatuses, rows, cols);
-  const { hashrate, efficiency, power, temperature } = formatRackCardStats(stats);
+  const { hashrate, efficiency, power, temperature } = formatRackCardStats(stats, temperatureUnit);
 
   return { zone, rows, cols, loading: false, statusSegments, slots, hashrate, efficiency, power, temperature };
 }

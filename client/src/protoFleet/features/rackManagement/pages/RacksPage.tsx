@@ -83,6 +83,7 @@ const RacksPage = () => {
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
+  const temperatureUnit = useFleetStore((s) => s.ui.temperatureUnit);
 
   // Fetch all rack zones once on mount
   const zonesRequestId = useRef(0);
@@ -471,7 +472,7 @@ const RacksPage = () => {
                 {racks.map((rack) => {
                   const stats = statsMap.get(rack.id);
                   const { zone, rows, cols, loading, statusSegments, slots, hashrate, efficiency, power, temperature } =
-                    mapRackToCardProps(rack, stats);
+                    mapRackToCardProps(rack, stats, temperatureUnit);
                   return (
                     <RackCard
                       key={rack.id.toString()}

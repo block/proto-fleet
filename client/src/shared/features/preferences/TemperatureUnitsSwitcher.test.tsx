@@ -32,8 +32,8 @@ describe("TemperatureUnitsSwitcher", () => {
 
   test("renders temperature unit options (Celsius and Fahrenheit)", () => {
     render(<TemperatureUnitsSwitcher {...defaultProps} />);
-    expect(screen.getByText("Celsius (\u00BAC)")).toBeDefined();
-    expect(screen.getByText("Fahrenheit (\u00BAF)")).toBeDefined();
+    expect(screen.getByText("Celsius (°C)")).toBeDefined();
+    expect(screen.getByText("Fahrenheit (°F)")).toBeDefined();
   });
 
   test("renders a 'Done' button that calls the dismiss handler", () => {

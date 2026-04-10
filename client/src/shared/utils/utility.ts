@@ -1,4 +1,5 @@
-import { padLeft } from "@/shared/utils/stringUtils";
+import type { TemperatureUnit } from "@/shared/features/preferences";
+import { getDisplayValue, padLeft } from "@/shared/utils/stringUtils";
 
 export const deepClone = (obj: any) => {
   const stringify = JSON.stringify(obj, (_, value) => (typeof value === "bigint" ? Number(value) : value));
@@ -66,6 +67,12 @@ export const formatHashrateWithUnit = (value: number = 0) => {
 
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
 export const convertFtoC = (value: number = 0) => ((value - 32) * 5) / 9;
+
+export const formatTempRange = (minC: number, maxC: number, temperatureUnit: TemperatureUnit): string => {
+  const min = temperatureUnit === "F" ? convertCtoF(minC) : minC;
+  const max = temperatureUnit === "F" ? convertCtoF(maxC) : maxC;
+  return `${getDisplayValue(min)} °${temperatureUnit} – ${getDisplayValue(max)} °${temperatureUnit}`;
+};
 
 export const getAsicTempValue = (avgAsicTemp: number | undefined, isFahrenheit: boolean) => {
   if (!avgAsicTemp) return "N/A"; // TODO: why not return undefined, so we can show skeleton, also 0 cound be falsey

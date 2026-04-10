@@ -42,7 +42,7 @@ const TemperatureUnitsSwitcher = ({
     >
       <SelectRow
         id={"C"}
-        text="Celsius (ºC)"
+        text="Celsius (°C)"
         isSelected={temperatureUnit === "C"}
         onChange={handleChange}
         type={selectTypes.radio}
@@ -50,7 +50,7 @@ const TemperatureUnitsSwitcher = ({
       />
       <SelectRow
         id={"F"}
-        text="Fahrenheit (ºF)"
+        text="Fahrenheit (°F)"
         isSelected={temperatureUnit === "F"}
         onChange={handleChange}
         type={selectTypes.radio}

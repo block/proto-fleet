@@ -9,11 +9,12 @@ import {
   normalizeHashrateToTHs,
   normalizePowerToKW,
 } from "@/protoFleet/features/dashboard/utils/metricNormalization";
-import { usePanelMetrics } from "@/protoFleet/store";
+import { usePanelMetrics, useTemperatureUnit } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
+import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
 
 interface DeviceSetPerformanceSectionProps {
   duration: FleetDuration;
@@ -126,9 +127,9 @@ function ChartPanel({
     const current = avgValues[avgValues.length - 1];
     const max = Math.max(...avgValues);
     const min = Math.min(...avgValues);
-    const fmt = (v: number) => Number(v.toFixed(1)).toString();
+    const fmt = (v: number) => `${Number(v.toFixed(1))} ${displayUnits}`;
     return { current: fmt(current), max: fmt(max), min: fmt(min) };
-  }, [chartData]);
+  }, [chartData, displayUnits]);
 
   if (metrics === undefined) {
     return (
@@ -173,9 +174,7 @@ function ChartPanel({
                   strokeLinecap="round"
                 />
               </svg>
-              <span>
-                {legendStats.current} {displayUnits}
-              </span>
+              <span>{legendStats.current}</span>
             </div>
             <div className="flex items-center gap-2">
               <svg width="24" height="4">
@@ -191,9 +190,7 @@ function ChartPanel({
                   strokeOpacity="0.5"
                 />
               </svg>
-              <span>
-                {legendStats.max} {displayUnits}
-              </span>
+              <span>{legendStats.max}</span>
             </div>
             <div className="flex items-center gap-2">
               <svg width="24" height="4">
@@ -209,9 +206,7 @@ function ChartPanel({
                   strokeOpacity="0.5"
                 />
               </svg>
-              <span>
-                {legendStats.min} {displayUnits}
-              </span>
+              <span>{legendStats.min}</span>
             </div>
           </div>
         )}
@@ -221,6 +216,9 @@ function ChartPanel({
 }
 
 export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSectionProps) {
+  const temperatureUnit = useTemperatureUnit();
+  const isFahrenheit = temperatureUnit === "F";
+
   const hashrateTransform = useMemo(
     () => (metrics: Metric[]) => {
       const chartData = transformMetrics(metrics, normalizeHashrateToTHs);
@@ -242,8 +240,22 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
   );
 
   const temperatureTransform = useMemo(
-    () => (metrics: Metric[]) => ({ chartData: transformTemperatureMetrics(metrics), units: "°C" }),
-    [],
+    () => (metrics: Metric[]) => {
+      const chartData = transformTemperatureMetrics(metrics);
+      if (isFahrenheit) {
+        return {
+          chartData: chartData.map((d) => ({
+            ...d,
+            avg: d.avg !== null ? convertCtoF(d.avg) : null,
+            max: d.max !== null ? convertCtoF(d.max) : null,
+            min: d.min !== null ? convertCtoF(d.min) : null,
+          })),
+          units: "°F",
+        };
+      }
+      return { chartData, units: "°C" };
+    },
+    [isFahrenheit],
   );
 
   const efficiencyTransform = useMemo(
@@ -266,14 +278,16 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
   );
 
   const temperatureFormatStat = useMemo(
-    () => (data: ChartData[]) => {
+    () => (data: ChartData[], units: string) => {
       const last = data[data.length - 1];
       const min = last?.min;
       const max = last?.max;
-      if (min !== null && min !== undefined && max !== null && max !== undefined) {
-        return { value: `${Math.round(Number(min))}° – ${Math.round(Number(max))}°C`, units: "" };
+      if (min === null || min === undefined || max === null || max === undefined) {
+        return { value: "N/A", units: "" };
       }
-      return { value: "N/A", units: "" };
+      const minFormatted = `${getDisplayValue(Number(min))} ${units}`;
+      const maxFormatted = `${getDisplayValue(Number(max))} ${units}`;
+      return { value: `${minFormatted} – ${maxFormatted}`, units: "" };
     },
     [],
   );
@@ -291,7 +305,7 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
       <ChartPanel
         label="Temperature"
         measurementType={MeasurementType.TEMPERATURE}
-        units="°C"
+        units={isFahrenheit ? "°F" : "°C"}
         duration={duration}
         transform={temperatureTransform}
         formatStat={temperatureFormatStat}
