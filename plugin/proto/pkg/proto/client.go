@@ -186,6 +186,8 @@ type systemInfoResponse struct {
 
 type systemInfoInner struct {
 	ProductName     string          `json:"product_name"`
+	Manufacturer    string          `json:"manufacturer"`
+	Model           string          `json:"model"`
 	CBSN            string          `json:"cb_sn"`
 	OS              *swInfo         `json:"os,omitempty"`
 	MiningDriverSW  *swInfo         `json:"mining_driver_sw,omitempty"`
@@ -556,16 +558,24 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	}
 
 	model := "Rig"
+	manufacturer := "Proto"
 	var sysResp systemInfoResponse
-	if err := c.doGet(ctx, "/api/v1/system", &sysResp); err == nil && sysResp.SystemInfo.ProductName != "" {
-		model = sysResp.SystemInfo.ProductName
+	if err := c.doGet(ctx, "/api/v1/system", &sysResp); err == nil {
+		if sysResp.SystemInfo.Model != "" {
+			model = sysResp.SystemInfo.Model
+		} else if sysResp.SystemInfo.ProductName != "" {
+			model = sysResp.SystemInfo.ProductName
+		}
+		if sysResp.SystemInfo.Manufacturer != "" {
+			manufacturer = sysResp.SystemInfo.Manufacturer
+		}
 	}
 
 	return &DeviceInfo{
 		SerialNumber: resp.CbSn,
 		MacAddress:   resp.Mac,
 		Model:        model,
-		Manufacturer: "Proto",
+		Manufacturer: manufacturer,
 	}, nil
 }
 

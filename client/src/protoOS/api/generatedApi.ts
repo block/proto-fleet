@@ -1597,13 +1597,26 @@ export interface SystemInfoSysteminfo {
   cb_sn?: string;
   /** Software component name and version information */
   hashboard_firmware?: SWInfo;
+  /**
+   * Device manufacturer name.
+   * @example "Proto"
+   */
+  manufacturer?: string;
   /** Software component name and version information */
   mining_driver_sw?: SWInfo;
+  /**
+   * Device model identifier (without manufacturer prefix).
+   * @example "Rig"
+   */
+  model?: string;
   /** Operating system information and version details */
   os?: OSInfo;
   /** Software component name and version information */
   pool_interface_sw?: SWInfo;
-  /** @example "Proto Rig" */
+  /**
+   * Product name reported by the device.
+   * @example "Proto Rig"
+   */
   product_name?: string;
   /** @example "STM32MP157F" */
   soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";

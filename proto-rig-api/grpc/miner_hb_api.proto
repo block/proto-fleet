@@ -46,6 +46,7 @@ enum HbErrorCode {
     HB_ERROR_CODE_OVER_VOLTAGE = 33;
     HB_ERROR_CODE_UNDER_VOLTAGE = 34;
     HB_ERROR_CODE_RECOVERY_IN_PROGRESS = 35;
+    HB_ERROR_CODE_CONNECT_FAILED = 36;
 }
 
 message HbError {
@@ -108,10 +109,18 @@ message HashboardPerformanceState {
     bool sent = 5;
 }
 
+// Recovery counter snapshot for a single error code.
+message RecoveryState {
+    HbErrorCode error_code = 1;
+    uint32 current_try_count = 2; // attempts so far in the current window
+    uint32 max_try_count     = 3; // limit before the board is disabled
+}
+
 message HashboardStatus {
     HashboardServiceState state = 1;
     uint32 up_time_ms = 2;
-    uint32 recovery_counter = 3;
+    // Snapshot of all active recovery counters (non-zero within the rolling window).
+    repeated RecoveryState recovery_states = 3;
     uint32 work_id = 4;
     uint64 difficulty = 5;
     HashboardPerformanceState performance_state = 6;
@@ -201,10 +210,6 @@ message SetWork {
     MinerWork work = 1;
 }
 
-message SetDifficulty {
-    uint64 difficulty = 1;
-}
-
 message HashboardControl {
     oneof req {
         StartMining start_mining = 1;
@@ -213,7 +218,6 @@ message HashboardControl {
         SetPowerThrottle set_power_throttle = 4;
         SetPllAlgorithm set_pll_algorithm = 5;
         SetWork set_work = 6;
-        SetDifficulty set_difficulty = 7;
     }
 }
 
@@ -264,4 +268,9 @@ message BoardInfo {
     fwpb.capabilities_rsp capabilities = 3;
     fwpb.firmware_metadata firmware = 4;
     PowerRange power_range = 5;
+}
+
+/// ASIC binning metadata published once to JetStream when the hashboard enters the Mining state.
+message HashboardAsicBinInfo {
+    repeated fwpb.asic_metadata asic_meta_data = 1;
 }

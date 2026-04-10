@@ -4271,7 +4271,18 @@
         "properties": {
           "product_name": {
             "type": "string",
+            "description": "Product name reported by the device.",
             "example": "Proto Rig"
+          },
+          "manufacturer": {
+            "type": "string",
+            "description": "Device manufacturer name.",
+            "example": "Proto"
+          },
+          "model": {
+            "type": "string",
+            "description": "Device model identifier (without manufacturer prefix).",
+            "example": "Rig"
           },
           "os": {
             "$ref": "#/components/schemas/OSInfo"
