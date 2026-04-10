@@ -1215,7 +1215,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         <thead data-testid="list-header">
           <tr
             className={clsx(
-              "sticky top-0 z-2 transition-shadow duration-500",
+              "sticky top-0 z-2 border-b border-border-5 transition-shadow duration-500",
               stickyBgColor,
               stickyState.vertical.isStuck
                 ? "shadow-[0_4px_6px_0_rgba(0,0,0,0.06)]"
