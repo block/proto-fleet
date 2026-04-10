@@ -93,52 +93,54 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
       onClick={() => !isExpanded && setIsExpanded(true)}
       data-testid="toaster-container"
     >
-      <div
-        className={clsx("cursor-pointer", {
-          "pb-2": isExpanded,
-        })}
-        onClick={() => setIsExpanded(!isExpanded)}
-        data-testid="grouped-toaster-header"
-      >
-        <div className="flex items-center">
-          <div className="flex flex-row items-center">
-            <AnimatePresence initial={false} mode="popLayout">
-              {!isExpanded && (
-                <motion.div
-                  initial={{ x: "-100%", opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: "-100%", opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="mr-3"
-                >
-                  {allCompleted ? (
-                    hasErrors ? (
-                      <Alert className="text-intent-critical-fill" data-testid="header-error-icon" />
+      {(!isExpanded || toasts.length > 1) && (
+        <div
+          className={clsx("cursor-pointer", {
+            "pb-2": isExpanded,
+          })}
+          onClick={() => setIsExpanded(!isExpanded)}
+          data-testid="grouped-toaster-header"
+        >
+          <div className="flex items-center">
+            <div className="flex flex-row items-center">
+              <AnimatePresence initial={false} mode="popLayout">
+                {!isExpanded && (
+                  <motion.div
+                    initial={{ x: "-100%", opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: "-100%", opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="mr-3"
+                  >
+                    {allCompleted ? (
+                      hasErrors ? (
+                        <Alert className="text-intent-critical-fill" data-testid="header-error-icon" />
+                      ) : (
+                        <Success className="text-intent-success-fill" data-testid="header-success-icon" />
+                      )
                     ) : (
-                      <Success className="text-intent-success-fill" data-testid="header-success-icon" />
-                    )
-                  ) : (
-                    <ProgressCircular indeterminate dataTestId="header-progress-circular" />
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <motion.div layout transition={{ duration: 0.3 }}>
-              <div className="flex flex-col">
-                <div className="text-emphasis-300 text-text-primary">
-                  {allCompleted
-                    ? toasts.length === 1
-                      ? toasts[0].message
-                      : `${toasts.length} updates complete`
-                    : toasts.length === 1
-                      ? toasts[0].message
-                      : `${toasts.length} updates in progress`}
+                      <ProgressCircular indeterminate dataTestId="header-progress-circular" />
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <motion.div layout transition={{ duration: 0.3 }}>
+                <div className="flex flex-col">
+                  <div className="text-emphasis-300 text-text-primary">
+                    {allCompleted
+                      ? toasts.length === 1
+                        ? toasts[0].message
+                        : `${toasts.length} updates complete`
+                      : toasts.length === 1
+                        ? toasts[0].message
+                        : `${toasts.length} updates in progress`}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
       <ResizeablePanel className="w-full" resizeOn={isExpanded ? toasts.length : false}>
         {isExpanded && (
           <>

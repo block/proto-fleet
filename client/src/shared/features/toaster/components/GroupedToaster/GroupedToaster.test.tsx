@@ -45,7 +45,7 @@ describe("Grouped toaster", () => {
     expect(progress).toHaveClass("animate-spin");
     fireEvent.click(headerElement);
 
-    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
+    expect(getAllByText(toasts[0].message)).toHaveLength(1);
     progress = getByTestId(loadingProgress);
     expect(progress).toBeInTheDocument();
     expect(progress).toHaveClass("animate-spin");
@@ -66,7 +66,7 @@ describe("Grouped toaster", () => {
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);
 
-    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
+    expect(getAllByText(toasts[0].message)).toHaveLength(1);
     expect(getByText("50% complete")).toBeInTheDocument();
     expect(getByTestId(progressingProgress)).toBeInTheDocument();
   });
@@ -85,9 +85,20 @@ describe("Grouped toaster", () => {
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);
 
-    expect(getAllByText(toasts[0].message).length).toBeGreaterThan(0);
+    expect(getAllByText(toasts[0].message)).toHaveLength(1);
     expect(getByText("Queued")).toBeInTheDocument();
     expect(getByTestId(queuedProgress)).toBeInTheDocument();
+  });
+
+  it("does not show duplicate message text when single toast is expanded", () => {
+    const toasts = [{ id: 1, message: "Blinking LEDs", status: STATUSES.loading }];
+
+    const { getAllByText, getByTestId, queryByTestId } = render(<GroupedToaster toasts={toasts} />);
+    const headerElement = getByTestId(header);
+    fireEvent.click(headerElement);
+
+    expect(getAllByText("Blinking LEDs")).toHaveLength(1);
+    expect(queryByTestId(header)).not.toBeInTheDocument();
   });
 
   it("calls custom onClose callback when toast is removed", async () => {
