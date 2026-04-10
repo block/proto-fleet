@@ -1,13 +1,12 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import { useMinerMacAddress } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerMacAddressProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerMacAddress = ({ deviceIdentifier }: MinerMacAddressProps) => {
-  const macAddress = useMinerMacAddress(deviceIdentifier);
-  return <span>{macAddress || INACTIVE_PLACEHOLDER}</span>;
+const MinerMacAddress = ({ miner }: MinerMacAddressProps) => {
+  return <span>{miner.macAddress || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerMacAddress;

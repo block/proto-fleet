@@ -2,12 +2,7 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RenameMinerDialog from "./RenameMinerDialog";
-import { useMinerName } from "@/protoFleet/store";
 import Input from "@/shared/components/Input";
-
-vi.mock("@/protoFleet/store", () => ({
-  useMinerName: vi.fn(() => "My Miner"),
-}));
 
 vi.mock("@/shared/components/Modal/Modal", () => ({
   default: vi.fn(
@@ -93,7 +88,6 @@ describe("RenameMinerDialog", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useMinerName).mockReturnValue("My Miner");
   });
 
   describe("Preview", () => {
@@ -102,6 +96,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -117,6 +112,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -136,6 +132,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -152,6 +149,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -166,12 +164,11 @@ describe("RenameMinerDialog", () => {
 
   describe("No-changes warning", () => {
     it("shows warning when saving a name equal to current name with surrounding whitespace", () => {
-      vi.mocked(useMinerName).mockReturnValue("  Padded Name  ");
-
       render(
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="  Padded Name  "
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -190,6 +187,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -207,6 +205,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -224,6 +223,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -244,6 +244,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,
@@ -265,6 +266,7 @@ describe("RenameMinerDialog", () => {
         <RenameMinerDialog
           open={true}
           deviceIdentifier="device-1"
+          currentMinerName="My Miner"
           onConfirm={mockOnConfirm}
           onDismiss={mockOnDismiss}
         />,

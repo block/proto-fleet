@@ -16,9 +16,11 @@ import RenameMinerDialog from "./RenameMinerDialog";
 import { type SecurityActionsProps } from "./useManageSecurityFlow";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
+import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -31,19 +33,26 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
+  deviceStatus?: DeviceStatus;
+  minerName?: string;
   onActionStart?: () => void;
   onActionComplete?: () => void;
   disabled?: boolean;
+  miners?: Record<string, MinerStateSnapshot>;
+  onRefetchMiners?: () => void;
 }
 
 const SingleMinerActionsMenu = ({
   deviceIdentifier,
+  deviceStatus,
+  minerName,
   onActionStart,
   onActionComplete,
   disabled = false,
+  miners,
+  onRefetchMiners,
 }: SingleMinerActionsMenuProps) => {
-  const deviceStatus = useMinerDeviceStatus(deviceIdentifier);
-
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
 
   const {
@@ -91,6 +100,11 @@ const SingleMinerActionsMenu = ({
     selectedMiners,
     // Single-miner actions always target a specific device, never "all devices"
     selectionMode: "subset",
+    startBatchOperation,
+    completeBatchOperation,
+    removeDevicesFromBatch,
+    miners,
+    onRefetchMiners,
     onActionStart,
     onActionComplete,
   });
@@ -222,6 +236,7 @@ const SingleMinerActionsMenu = ({
         handleUpdateGroup={handleUpdateGroup}
         handleSecurityModalClose={handleSecurityModalClose}
         deviceIdentifier={deviceIdentifier}
+        minerName={minerName}
         showRenameDialog={showRenameDialog}
         handleRenameConfirm={handleRenameConfirm}
         handleRenameDismiss={handleRenameDismiss}
@@ -264,6 +279,7 @@ type SingleMinerActionsMenuInnerProps = {
   handleUnsupportedMinersContinue: () => void;
   handleUnsupportedMinersDismiss: () => void;
   deviceIdentifier: string;
+  minerName?: string;
   showRenameDialog: boolean;
   handleRenameConfirm: (name: string) => void;
   handleRenameDismiss: () => void;
@@ -315,6 +331,7 @@ const SingleMinerActionsMenuInner = ({
   handleUpdateGroup,
   handleSecurityModalClose,
   deviceIdentifier,
+  minerName,
   showRenameDialog,
   handleRenameConfirm,
   handleRenameDismiss,
@@ -410,6 +427,7 @@ const SingleMinerActionsMenuInner = ({
         key={showRenameDialog ? deviceIdentifier : "closed"}
         open={currentAction === settingsActions.rename && showRenameDialog}
         deviceIdentifier={deviceIdentifier}
+        currentMinerName={minerName}
         onConfirm={handleRenameConfirm}
         onDismiss={handleRenameDismiss}
       />

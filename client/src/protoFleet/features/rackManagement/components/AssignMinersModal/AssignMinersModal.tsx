@@ -96,8 +96,8 @@ export default function AssignMinersModal({
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
 
   // Fetch all miners for display data (name, IP, model, etc.)
-  const { miners: minersMap } = useFleet({ scope: "local", pageSize: 1000 });
-  const allMiners = useMemo(() => (minersMap ?? {}) as Record<string, MinerStateSnapshot>, [minersMap]);
+  const { miners: minersMap } = useFleet({ pageSize: 1000 });
+  const allMiners = useMemo(() => minersMap as Record<string, MinerStateSnapshot>, [minersMap]);
 
   // Rack settings (can be updated via RackSettingsModal)
   const [rackSettings, setRackSettings] = useState<RackFormData>(initialRackSettings);

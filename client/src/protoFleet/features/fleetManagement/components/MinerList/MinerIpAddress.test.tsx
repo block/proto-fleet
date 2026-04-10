@@ -1,33 +1,49 @@
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { INACTIVE_PLACEHOLDER } from "./constants";
 import MinerIpAddress from "./MinerIpAddress";
-import * as storeModule from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
-vi.mock("@/protoFleet/store");
+function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
+  return {
+    deviceIdentifier: "test-device",
+    name: "",
+    macAddress: "",
+    serialNumber: "",
+    powerUsage: [],
+    temperature: [],
+    hashrate: [],
+    efficiency: [],
+    ipAddress: "",
+    url: "",
+    deviceStatus: 0,
+    pairingStatus: 0,
+    model: "",
+    manufacturer: "",
+    temperatureStatus: 0,
+    firmwareVersion: "",
+    groupLabels: [],
+    rackLabel: "",
+    driverName: "",
+    workerName: "",
+    ...overrides,
+  } as MinerStateSnapshot;
+}
 
 describe("MinerIpAddress", () => {
-  const deviceIdentifier = "test-device-id";
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("renders placeholder when IP address is not available", () => {
-    vi.mocked(storeModule.useMinerIpAddress).mockReturnValue(null as any);
-    vi.mocked(storeModule.useMinerUrl).mockReturnValue(null as any);
+    const miner = createMockMiner({ ipAddress: "" });
 
-    render(<MinerIpAddress deviceIdentifier={deviceIdentifier} />);
+    render(<MinerIpAddress miner={miner} />);
 
     expect(screen.getByText(INACTIVE_PLACEHOLDER)).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("renders non-clickable IP when there is no URL", () => {
-    vi.mocked(storeModule.useMinerIpAddress).mockReturnValue("192.168.1.100");
-    vi.mocked(storeModule.useMinerUrl).mockReturnValue(null as any);
+    const miner = createMockMiner({ ipAddress: "192.168.1.100", url: "" });
 
-    render(<MinerIpAddress deviceIdentifier={deviceIdentifier} />);
+    render(<MinerIpAddress miner={miner} />);
 
     expect(screen.getByText("192.168.1.100")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
@@ -35,10 +51,9 @@ describe("MinerIpAddress", () => {
 
   it("renders a link that opens in new tab for HTTP URLs", () => {
     const httpUrl = "http://192.168.1.100";
-    vi.mocked(storeModule.useMinerIpAddress).mockReturnValue("192.168.1.100");
-    vi.mocked(storeModule.useMinerUrl).mockReturnValue(httpUrl);
+    const miner = createMockMiner({ ipAddress: "192.168.1.100", url: httpUrl });
 
-    render(<MinerIpAddress deviceIdentifier={deviceIdentifier} />);
+    render(<MinerIpAddress miner={miner} />);
 
     const link = screen.getByRole("link", { name: "192.168.1.100" });
     expect(link).toHaveAttribute("href", httpUrl);
@@ -48,10 +63,9 @@ describe("MinerIpAddress", () => {
 
   it("renders a link that opens in new tab for HTTPS URLs", () => {
     const httpsUrl = "https://192.168.1.100";
-    vi.mocked(storeModule.useMinerIpAddress).mockReturnValue("192.168.1.100");
-    vi.mocked(storeModule.useMinerUrl).mockReturnValue(httpsUrl);
+    const miner = createMockMiner({ ipAddress: "192.168.1.100", url: httpsUrl });
 
-    render(<MinerIpAddress deviceIdentifier={deviceIdentifier} />);
+    render(<MinerIpAddress miner={miner} />);
 
     const link = screen.getByRole("link", { name: "192.168.1.100" });
     expect(link).toHaveAttribute("href", httpsUrl);

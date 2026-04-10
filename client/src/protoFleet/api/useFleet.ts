@@ -6,9 +6,10 @@ import {
   MinerListFilter,
   MinerListFilterSchema,
   MinerStateSnapshot,
+  MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type UseFleetOptions = {
@@ -26,15 +27,6 @@ type UseFleetOptions = {
   sort?: SortConfig;
   pageSize?: number;
   pairingStatuses?: PairingStatus[];
-  /**
-   * Scope determines where the fetched data is stored:
-   * - 'global': Updates the global Zustand store. Should only be used by MinerList.
-   * - 'local': Stores data in component-local state. Use for secondary views like
-   *            CompleteSetup or AuthenticateMiners that need to fetch filtered data
-   *            without affecting the main fleet view.
-   * @default 'global'
-   */
-  scope?: "global" | "local";
 };
 
 // Constants to prevent re-renders from unstable default values
@@ -49,20 +41,12 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
  *
  * @example
  * ```tsx
- * // Global scope - for main fleet view (MinerList)
- * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
- *   scope: 'global'
- * });
- *
- * // Local scope - for secondary views that shouldn't affect global state
  * const { minerIds, miners, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
- *   scope: 'local',
  *   filter: { status: [ComponentStatus.OK] }
  * });
  *
  * // With custom page size
- * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
- *   scope: 'global',
+ * const { minerIds, miners, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
  *   pageSize: 50
  * });
  *
@@ -82,22 +66,14 @@ const useFleet = (options: UseFleetOptions = {}) => {
     sort,
     pageSize = 20,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
-    scope = "local",
   } = options;
   const { handleAuthErrors } = useAuthErrors();
 
-  // Local state for 'local' scope
-  const [localMinerIds, setLocalMinerIds] = useState<string[]>([]);
-  const [localMiners, setLocalMiners] = useState<Record<string, MinerStateSnapshot>>({});
-  const [localTotalMiners, setLocalTotalMiners] = useState(0);
+  // All state is local to this hook instance
+  const [minerIds, setMinerIds] = useState<string[]>([]);
+  const [miners, setMiners] = useState<Record<string, MinerStateSnapshot>>({});
+  const [totalMiners, setTotalMiners] = useState(0);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-
-  // Choose state source based on scope
-  const globalMinerIds = useMinerIds();
-  const globalTotalMiners = useTotalMiners();
-
-  const minerIds = scope === "global" ? globalMinerIds : localMinerIds;
-  const totalMiners = scope === "global" ? globalTotalMiners : localTotalMiners;
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(0);
@@ -142,37 +118,38 @@ const useFleet = (options: UseFleetOptions = {}) => {
           sort: sort ? [sort] : undefined,
         });
 
-        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts, models } = response;
+        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, models } = response;
 
-        // Update state based on scope — always replace (never append) for page-based pagination
-        if (scope === "global") {
-          const store = useFleetStore.getState();
-          store.fleet.setMiners(miners);
-          store.fleet.setCursor(newCursor);
-          store.fleet.setTotalMiners(responseTotalMiners);
-          if (totalStateCounts) {
-            store.fleet.setDeviceStatusCounts(totalStateCounts);
-          }
+        // Always replace (never append) for page-based pagination
+        const ids = miners.map((miner) => miner.deviceIdentifier);
+        const minersMap: Record<string, MinerStateSnapshot> = {};
+        miners.forEach((miner) => {
+          minersMap[miner.deviceIdentifier] = miner;
+        });
 
-          // Update available models for filter dropdown
-          if (models && models.length > 0) {
-            setAvailableModels(models);
+        // Only update state if data actually changed — avoids unnecessary
+        // re-renders of MinerList/deviceItems on every poll when data is unchanged.
+        setMinerIds((prev) => {
+          if (prev.length !== ids.length) return ids;
+          for (let i = 0; i < ids.length; i++) {
+            if (prev[i] !== ids[i]) return ids;
           }
-        } else {
-          // Local scope: always replace
-          const ids = miners.map((miner) => miner.deviceIdentifier);
-          const minersMap: Record<string, MinerStateSnapshot> = {};
-          miners.forEach((miner) => {
-            minersMap[miner.deviceIdentifier] = miner;
-          });
-          setLocalMinerIds(ids);
-          setLocalMiners(minersMap);
-          setLocalTotalMiners(responseTotalMiners);
+          return prev;
+        });
+        setMiners((prev) => {
+          const prevKeys = Object.keys(prev);
+          if (prevKeys.length !== ids.length) return minersMap;
+          for (const miner of miners) {
+            const prevMiner = prev[miner.deviceIdentifier];
+            if (!prevMiner || !equals(MinerStateSnapshotSchema, prevMiner, miner)) return minersMap;
+          }
+          return prev;
+        });
+        setTotalMiners(responseTotalMiners);
 
-          // Update available models for filter dropdown
-          if (models && models.length > 0) {
-            setAvailableModels(models);
-          }
+        // Update available models for filter dropdown
+        if (models && models.length > 0) {
+          setAvailableModels(models);
         }
 
         // Store the response cursor for the next page
@@ -212,7 +189,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         }
       }
     },
-    [enabled, pairingStatuses, pageSize, scope, handleAuthErrors],
+    [enabled, pairingStatuses, pageSize, handleAuthErrors],
   );
 
   // Store fetchMinerList in a ref to avoid dependency issues
@@ -317,19 +294,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
   }, []);
 
-  // Set up refetch callback for the store (only for global scope)
-  useEffect(() => {
-    if (scope !== "global" || !enabled) {
-      return;
-    }
-
-    useFleetStore.getState().fleet.setRefetchCallback(refetch);
-
-    return () => {
-      useFleetStore.getState().fleet.setRefetchCallback(undefined);
-    };
-  }, [enabled, refetch, scope]);
-
   // Track if this is the initial load and previous filter/sort
   const hasLoadedRef = useRef(false);
   const wasEnabledRef = useRef(enabled);
@@ -385,6 +349,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   return {
     minerIds,
+    miners,
     totalMiners,
     hasMore,
     isLoading,
@@ -394,8 +359,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     hasPreviousPage: currentPage > 0,
     goToNextPage,
     goToPrevPage,
-    // Only return miners map for local scope (global scope uses store)
-    ...(scope === "local" && { miners: localMiners }),
     refetch,
     refreshCurrentPage,
     availableModels,

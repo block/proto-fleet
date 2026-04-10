@@ -1,14 +1,14 @@
 import MinerMeasurement from "./MinerMeasurement";
 import UnsupportedMetric from "./UnsupportedMetric";
-import { useMiner, useMinerEfficiency } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getMinerMeasurement } from "@/protoFleet/features/fleetManagement/utils/getMinerMeasurement";
 
 type MinerEfficiencyProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerEfficiency = ({ deviceIdentifier }: MinerEfficiencyProps) => {
-  const miner = useMiner(deviceIdentifier);
-  const efficiency = useMinerEfficiency(deviceIdentifier);
+const MinerEfficiency = ({ miner }: MinerEfficiencyProps) => {
+  const efficiency = getMinerMeasurement(miner, (m) => m.efficiency);
 
   // Check if miner doesn't support efficiency reporting
   const efficiencyReported = miner?.capabilities?.telemetry?.efficiencyReported;

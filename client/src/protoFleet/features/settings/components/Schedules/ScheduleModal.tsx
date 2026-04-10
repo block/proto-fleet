@@ -309,7 +309,6 @@ const ScheduleModal = ({
   const isEditMode = Boolean(schedule);
   const { listRacks } = useDeviceSets();
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
-    scope: "local",
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
   });

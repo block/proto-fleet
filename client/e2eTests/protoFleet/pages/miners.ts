@@ -776,6 +776,26 @@ export class MinersPage extends BasePage {
     await minerRow.getByTestId(testId).click();
   }
 
+  /**
+   * Click a miner cell's interactive element and wait for the status modal to open.
+   * Targets the button inside the cell (not the td itself) to avoid clicking
+   * empty cell padding. Retries if the click doesn't open the modal.
+   */
+  async clickMinerElementAndExpectModal(ipAddress: string, testId: string, minerName: string) {
+    const modalTitle = this.page.locator(
+      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${minerName} status']`,
+    );
+    await expect(async () => {
+      const minerRow = await this.getMinerRowByIp(ipAddress);
+      const cell = minerRow.getByTestId(testId);
+      // Click the button inside the cell if one exists, otherwise the cell itself
+      const button = cell.locator("button").first();
+      const target = (await button.isVisible().catch(() => false)) ? button : cell;
+      await target.click();
+      await expect(modalTitle).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: DEFAULT_TIMEOUT });
+  }
+
   async validateMinerIssuesModalOpened(minerName: string) {
     await this.validateTitleInModal(`${minerName} status`);
   }

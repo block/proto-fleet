@@ -29,7 +29,7 @@ import {
   StringAndCounterPropertySchema,
   StringPropertySchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { MinerStateSnapshot } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const formatCounter = (value: number, scale: number): string => value.toString().padStart(scale, "0");
 

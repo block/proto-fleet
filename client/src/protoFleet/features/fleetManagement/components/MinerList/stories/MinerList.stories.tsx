@@ -1,7 +1,7 @@
-import { useEffect } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import MinerListComponent from "../MinerList";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import {
@@ -9,7 +9,6 @@ import {
   allStatusMiners,
   errorMessages,
 } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/statusMocks";
-import { useFleetStore } from "@/protoFleet/store";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 const meta: Meta<typeof MinerListComponent> = {
@@ -20,26 +19,45 @@ const meta: Meta<typeof MinerListComponent> = {
 export default meta;
 type Story = StoryObj<typeof MinerListComponent>;
 
-// Helper component to set up store state
+const buildMinersRecord = (minerList: MinerStateSnapshot[]): Record<string, MinerStateSnapshot> =>
+  Object.fromEntries(minerList.map((m) => [m.deviceIdentifier, m]));
+
+const buildErrorsByDevice = (
+  minerList: MinerStateSnapshot[],
+  errors: ErrorMessage[],
+): Record<string, ErrorMessage[]> => {
+  const byDevice: Record<string, ErrorMessage[]> = {};
+  for (const m of minerList) {
+    byDevice[m.deviceIdentifier] = [];
+  }
+  for (const error of errors) {
+    if (error.deviceIdentifier && byDevice[error.deviceIdentifier]) {
+      byDevice[error.deviceIdentifier].push(error);
+    }
+  }
+  return byDevice;
+};
+
+// Helper component to render MinerList with props derived from mock data
 const MinerListWrapper = ({ minerList }: { minerList: MinerStateSnapshot[] }) => {
-  const setMiners = useFleetStore((state) => state.fleet.setMiners);
-  const setErrors = useFleetStore((state) => state.fleet.setErrors);
-
-  useEffect(() => {
-    setMiners(minerList);
-    // Add error messages to normalized store
-    const deviceIds = minerList.map((m) => m.deviceIdentifier);
-    setErrors(errorMessages, "devices", deviceIds);
-  }, [setMiners, setErrors, minerList]);
-
   const minerIds = minerList.map((miner) => miner.deviceIdentifier);
+  const minersRecord = buildMinersRecord(minerList);
+  const errorsByDevice = buildErrorsByDevice(minerList, errorMessages);
 
   return (
     <div>
       <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />
       </div>
-      <MinerListComponent title="Miners" minerIds={minerIds} onAddMiners={action("onAddMiners")} />
+      <MinerListComponent
+        title="Miners"
+        minerIds={minerIds}
+        miners={minersRecord}
+        errorsByDevice={errorsByDevice}
+        errorsLoaded={true}
+        getActiveBatches={() => []}
+        onAddMiners={action("onAddMiners")}
+      />
     </div>
   );
 };
@@ -73,7 +91,16 @@ export const OperationalMinerList: Story = {
 export const EmptyMinerList: Story = {
   render: () => (
     <div>
-      <MinerListComponent title="Miners" minerIds={[]} totalMiners={0} onAddMiners={action("onAddMiners")} />
+      <MinerListComponent
+        title="Miners"
+        minerIds={[]}
+        miners={{}}
+        errorsByDevice={{}}
+        errorsLoaded={true}
+        getActiveBatches={() => []}
+        totalMiners={0}
+        onAddMiners={action("onAddMiners")}
+      />
     </div>
   ),
 };

@@ -141,8 +141,7 @@ test.describe("Miner Issues Tests", () => {
       const name = testMiners[0].name;
       await minersPage.validateMinerIcon(ip, "issues", IssueIcon.CONTROL_BOARD);
       await minersPage.validateMinerIcon(ip, "name", IssueIcon.GENERAL_ALERT);
-      await minersPage.clickMinerElementByTestId(ip, "issues");
-      await minersPage.validateMinerIssuesModalOpened(name);
+      await minersPage.clickMinerElementAndExpectModal(ip, "issues", name);
       await minersPage.validateTitleInModal("Control board failure");
       await minersPage.validateErrorInModal(errorControlBoard, IssueIcon.CONTROL_BOARD);
       await minersPage.clickCloseStatusModal();
@@ -153,8 +152,7 @@ test.describe("Miner Issues Tests", () => {
       const name = testMiners[1].name;
       await minersPage.validateMinerIcon(ip, "issues", IssueIcon.HASH_BOARD);
       await minersPage.validateMinerIcon(ip, "name", IssueIcon.GENERAL_ALERT);
-      await minersPage.clickMinerElementByTestId(ip, "issues");
-      await minersPage.validateMinerIssuesModalOpened(name);
+      await minersPage.clickMinerElementAndExpectModal(ip, "issues", name);
       await minersPage.validateTitleInModal("Hashboard failure");
       await minersPage.validateErrorInModal(errorHashBoard, IssueIcon.HASH_BOARD);
       await minersPage.clickCloseStatusModal();
@@ -165,8 +163,7 @@ test.describe("Miner Issues Tests", () => {
       const name = testMiners[2].name;
       await minersPage.validateMinerIcon(ip, "issues", IssueIcon.PSU);
       await minersPage.validateMinerIcon(ip, "name", IssueIcon.GENERAL_ALERT);
-      await minersPage.clickMinerElementByTestId(ip, "issues");
-      await minersPage.validateMinerIssuesModalOpened(name);
+      await minersPage.clickMinerElementAndExpectModal(ip, "issues", name);
       await minersPage.validateTitleInModal("PSU failure");
       await minersPage.validateErrorInModal(errorPsu, IssueIcon.PSU);
       await minersPage.clickCloseStatusModal();
@@ -177,8 +174,8 @@ test.describe("Miner Issues Tests", () => {
       const name = testMiners[3].name;
       await minersPage.validateMinerIcon(ip, "issues", IssueIcon.FAN);
       await minersPage.validateMinerIcon(ip, "name", IssueIcon.GENERAL_ALERT);
-      await minersPage.clickMinerElementByTestId(ip, "issues");
-      await minersPage.validateMinerIssuesModalOpened(name);
+
+      await minersPage.clickMinerElementAndExpectModal(ip, "issues", name);
       await minersPage.validateTitleInModal("Fan failure");
       await minersPage.validateErrorInModal(errorFan, IssueIcon.FAN);
       await minersPage.clickCloseStatusModal();
@@ -189,8 +186,7 @@ test.describe("Miner Issues Tests", () => {
       const name = testMiners[4].name;
       await minersPage.validateMinerIcon(ip, "issues", IssueIcon.GENERAL_ALERT);
       await minersPage.validateMinerIcon(ip, "name", IssueIcon.GENERAL_ALERT);
-      await minersPage.clickMinerElementByTestId(ip, "issues");
-      await minersPage.validateMinerIssuesModalOpened(name);
+      await minersPage.clickMinerElementAndExpectModal(ip, "issues", name);
       await minersPage.validateTitleInModal("Multiple failures");
       await minersPage.validateErrorInModal(errorControlBoard, IssueIcon.CONTROL_BOARD);
       await minersPage.validateErrorInModal(errorHashBoard, IssueIcon.HASH_BOARD);
@@ -204,22 +200,19 @@ test.describe("Miner Issues Tests", () => {
 
     await test.step("Validate modal can be opened from alert icon", async () => {
       // From general alert icon
-      await minersPage.clickMinerElementByTestId(firstMinerIp, "alert-icon");
-      await minersPage.validateMinerIssuesModalOpened(firstMinerName);
+      await minersPage.clickMinerElementAndExpectModal(firstMinerIp, "alert-icon", firstMinerName);
       await minersPage.clickCloseStatusModal();
     });
 
     await test.step("Validate modal can be opened from status column", async () => {
       // From status column
-      await minersPage.clickMinerElementByTestId(firstMinerIp, "status");
-      await minersPage.validateMinerIssuesModalOpened(firstMinerName);
+      await minersPage.clickMinerElementAndExpectModal(firstMinerIp, "status", firstMinerName);
       await minersPage.clickCloseStatusModal();
     });
 
     await test.step("Validate modal can be opened from issues column", async () => {
       // From issues column
-      await minersPage.clickMinerElementByTestId(firstMinerIp, "issues");
-      await minersPage.validateMinerIssuesModalOpened(firstMinerName);
+      await minersPage.clickMinerElementAndExpectModal(firstMinerIp, "issues", firstMinerName);
       await minersPage.clickCloseStatusModal();
     });
   });

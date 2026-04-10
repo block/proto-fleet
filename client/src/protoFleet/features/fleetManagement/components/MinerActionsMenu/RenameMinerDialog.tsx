@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 
-import { useMinerName } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
@@ -12,12 +11,19 @@ const maxNameLength = 100;
 interface RenameMinerDialogProps {
   open: boolean;
   deviceIdentifier: string;
+  currentMinerName?: string;
   onConfirm: (name: string) => void;
   onDismiss: () => void;
 }
 
-const RenameMinerDialog = ({ open, deviceIdentifier, onConfirm, onDismiss }: RenameMinerDialogProps) => {
-  const currentName = useMinerName(deviceIdentifier) || deviceIdentifier;
+const RenameMinerDialog = ({
+  open,
+  deviceIdentifier,
+  currentMinerName,
+  onConfirm,
+  onDismiss,
+}: RenameMinerDialogProps) => {
+  const currentName = currentMinerName || deviceIdentifier;
   const [inputValue, setInputValue] = useState(currentName);
   const [showNoChangesWarning, setShowNoChangesWarning] = useState(false);
 

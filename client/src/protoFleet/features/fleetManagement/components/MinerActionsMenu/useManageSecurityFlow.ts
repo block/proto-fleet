@@ -5,6 +5,7 @@ import { type MinerGroup } from "./ManageSecurity";
 import {
   type MinerListFilter,
   type MinerModelGroup,
+  type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceFilterSchema,
@@ -14,14 +15,12 @@ import {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import { useFleetStore } from "@/protoFleet/store";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type PendingActionCallback = (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void;
 
-function groupMinersByModel(deviceIds: string[]): MinerGroup[] {
-  const miners = useFleetStore.getState().fleet.miners;
+function groupMinersByModel(deviceIds: string[], miners: Record<string, MinerStateSnapshot>): MinerGroup[] {
   const groupMap = new Map<string, MinerGroup>();
 
   deviceIds.forEach((id) => {
@@ -120,6 +119,8 @@ interface UseManageSecurityFlowParams {
   setCurrentAction: (action: SupportedAction | null) => void;
   fleetCredentials: { username: string; password: string } | undefined;
   resetAuthState: () => void;
+  miners?: Record<string, MinerStateSnapshot>;
+  currentFilter?: MinerListFilter;
 }
 
 export const useManageSecurityFlow = ({
@@ -135,6 +136,8 @@ export const useManageSecurityFlow = ({
   setCurrentAction,
   fleetCredentials,
   resetAuthState,
+  miners = {} as Record<string, MinerStateSnapshot>,
+  currentFilter,
 }: UseManageSecurityFlowParams) => {
   const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
   const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -154,10 +157,10 @@ export const useManageSecurityFlow = ({
       const deviceIdsToUse = filteredDeviceIds ?? deviceIdentifiers;
       setSecurityFilteredDeviceIds(filteredDeviceIds);
       setCurrentAction(settingsActions.security);
-      setMinerGroups(groupMinersByModel(deviceIdsToUse));
+      setMinerGroups(groupMinersByModel(deviceIdsToUse, miners));
       setShowManageSecurityModal(true);
     });
-  }, [withCapabilityCheck, deviceIdentifiers, setCurrentAction]);
+  }, [withCapabilityCheck, deviceIdentifiers, setCurrentAction, miners]);
 
   // Called by useMinerActions once fleet auth completes with purpose="security".
   // Credentials are not needed here — they're read from the fleetCredentials param at confirm time.
@@ -165,9 +168,8 @@ export const useManageSecurityFlow = ({
     async (_username: string, _password: string) => {
       if (selectionMode === "all") {
         // For "all" selection, query backend for accurate model groups across the full fleet
-        const currentFilter = useFleetStore.getState().fleet.currentFilter;
         try {
-          const groups = await getMinerModelGroups(currentFilter);
+          const groups = await getMinerModelGroups(currentFilter ?? null);
           setMinerGroups(
             groups.map((g) => {
               const normalizedManufacturer = g.manufacturer.toLowerCase();
@@ -190,7 +192,7 @@ export const useManageSecurityFlow = ({
         await openSecurityModalViaCapabilityCheck();
       }
     },
-    [selectionMode, getMinerModelGroups, openSecurityModalViaCapabilityCheck],
+    [selectionMode, getMinerModelGroups, openSecurityModalViaCapabilityCheck, currentFilter],
   );
 
   const handleUpdateGroup = useCallback((group: MinerGroup) => {
@@ -217,7 +219,6 @@ export const useManageSecurityFlow = ({
         // For "all" selection, use a model-scoped all_devices selector so the command
         // targets every fleet miner of this model, not just the visible page.
         // Note: error_component_types filter has no equivalent in DeviceFilter and is not applied here.
-        const currentFilter = useFleetStore.getState().fleet.currentFilter;
         selectorToUse = create(DeviceSelectorSchema, {
           selectionType: {
             case: "allDevices",
@@ -306,6 +307,7 @@ export const useManageSecurityFlow = ({
       onActionComplete,
       startBatchOperation,
       setCurrentAction,
+      currentFilter,
     ],
   );
 

@@ -39,7 +39,7 @@ describe("useAuthNeededMiners", () => {
     expect(useFleet).toHaveBeenCalledWith(
       expect.objectContaining({
         enabled: true,
-        scope: "local",
+
         pageSize: 100,
         pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
       }),
@@ -52,7 +52,7 @@ describe("useAuthNeededMiners", () => {
     expect(useFleet).toHaveBeenCalledWith(
       expect.objectContaining({
         enabled: true,
-        scope: "local",
+
         pageSize: 50,
         pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
       }),
@@ -63,14 +63,6 @@ describe("useAuthNeededMiners", () => {
     const { result } = renderHook(() => useAuthNeededMiners());
 
     expect(result.current).toEqual(mockUseFleetReturn);
-  });
-
-  it("uses local scope to avoid conflicting with global fleet view", () => {
-    renderHook(() => useAuthNeededMiners());
-
-    const callArgs = vi.mocked(useFleet).mock.calls[0]?.[0];
-    expect(callArgs).toBeDefined();
-    expect(callArgs?.scope).toBe("local");
   });
 
   it("filters for AUTHENTICATION_NEEDED pairing status only", () => {

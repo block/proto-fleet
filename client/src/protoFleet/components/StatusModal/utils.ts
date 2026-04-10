@@ -8,7 +8,7 @@ import {
 } from "./constants";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import type { MinerStateSnapshot } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type {
   ComponentMetadata,
   ComponentMetric,

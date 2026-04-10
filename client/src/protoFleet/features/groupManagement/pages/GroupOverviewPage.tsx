@@ -330,6 +330,7 @@ const GroupOverviewPage = () => {
               </Button>
               <DeviceSetActionsMenu
                 memberDeviceIds={memberDeviceIds ?? []}
+                deviceSetId={group?.id}
                 onEdit={() => setShowEditModal(true)}
                 onActionComplete={() => resolveGroup(label, group?.id)}
               />

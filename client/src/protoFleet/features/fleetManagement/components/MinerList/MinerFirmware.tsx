@@ -1,13 +1,12 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import { useMinerFirmwareVersion } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerFirmwareProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerFirmware = ({ deviceIdentifier }: MinerFirmwareProps) => {
-  const firmwareVersion = useMinerFirmwareVersion(deviceIdentifier);
-  return <span>{firmwareVersion ?? INACTIVE_PLACEHOLDER}</span>;
+const MinerFirmware = ({ miner }: MinerFirmwareProps) => {
+  return <span>{miner.firmwareVersion ?? INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerFirmware;

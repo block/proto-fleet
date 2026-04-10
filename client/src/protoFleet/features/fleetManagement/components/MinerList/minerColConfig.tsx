@@ -1,3 +1,4 @@
+import type { MutableRefObject } from "react";
 import { minerCols, type MinerColumn } from "./constants";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerFirmware from "./MinerFirmware";
@@ -14,79 +15,88 @@ import MinerTemperature from "./MinerTemperature";
 import MinerWorkerName from "./MinerWorkerName";
 import { type DeviceListItem } from "./types";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { type ColConfig } from "@/shared/components/List/types";
 
 type CreateMinerColConfigParams = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
   availableGroups: DeviceSet[];
+  errorsLoaded: boolean;
+  /** Ref to avoid recreating the column config on every miners change. Read at render time. */
+  minersRef: MutableRefObject<Record<string, MinerStateSnapshot>>;
+  /** Ref to avoid recreating the column config on every callback change. Read at render time. */
+  onRefetchMinersRef: MutableRefObject<(() => void) | undefined>;
 };
 
 const createMinerColConfig = ({
   onOpenStatusFlow,
   availableGroups,
+  errorsLoaded,
+  minersRef,
+  onRefetchMinersRef,
 }: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
     component: (device: DeviceListItem) => (
-      <MinerName deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
+      <MinerName
+        miner={device.miner}
+        errors={device.errors}
+        onOpenStatusFlow={onOpenStatusFlow}
+        miners={minersRef.current}
+        onRefetchMiners={onRefetchMinersRef.current}
+      />
     ),
     width: "w-[208px]",
   },
   [minerCols.workerName]: {
-    component: (device: DeviceListItem) => <MinerWorkerName deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,
     width: "w-[120px]",
   },
   [minerCols.model]: {
-    component: (device: DeviceListItem) => <MinerModel deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerModel miner={device.miner} />,
     width: "w-[176px]",
   },
   [minerCols.macAddress]: {
-    component: (device: DeviceListItem) => <MinerMacAddress deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerMacAddress miner={device.miner} />,
     width: "w-[160px]",
   },
   [minerCols.ipAddress]: {
-    component: (device: DeviceListItem) => <MinerIpAddress deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerIpAddress miner={device.miner} />,
     width: "w-24",
   },
   [minerCols.status]: {
-    component: (device: DeviceListItem, selectedItems: string[]) => (
-      <MinerStatusCell
-        deviceIdentifier={device.deviceIdentifier}
-        selectedItems={selectedItems}
-        onOpenStatusFlow={onOpenStatusFlow}
-      />
+    component: (device: DeviceListItem) => (
+      <MinerStatusCell device={device} errorsLoaded={errorsLoaded} onOpenStatusFlow={onOpenStatusFlow} />
     ),
     width: "w-[200px]",
   },
   [minerCols.issues]: {
     component: (device: DeviceListItem) => (
-      <MinerIssuesCell deviceIdentifier={device.deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />
+      <MinerIssuesCell device={device} errorsLoaded={errorsLoaded} onOpenStatusFlow={onOpenStatusFlow} />
     ),
     width: "w-[200px]",
   },
   [minerCols.hashrate]: {
-    component: (device: DeviceListItem) => <MinerHashrate deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerHashrate miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.efficiency]: {
-    component: (device: DeviceListItem) => <MinerEfficiency deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerEfficiency miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.powerUsage]: {
-    component: (device: DeviceListItem) => <MinerPowerUsage deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerPowerUsage miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.temperature]: {
-    component: (device: DeviceListItem) => <MinerTemperature deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerTemperature miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.firmware]: {
-    component: (device: DeviceListItem) => <MinerFirmware deviceIdentifier={device.deviceIdentifier} />,
+    component: (device: DeviceListItem) => <MinerFirmware miner={device.miner} />,
     width: "w-[120px]",
   },
   [minerCols.groups]: {
-    component: (device: DeviceListItem) => (
-      <MinerGroups deviceIdentifier={device.deviceIdentifier} availableGroups={availableGroups} />
-    ),
+    component: (device: DeviceListItem) => <MinerGroups miner={device.miner} availableGroups={availableGroups} />,
     width: "w-[160px]",
   },
 });

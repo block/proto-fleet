@@ -1,13 +1,12 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import { useMinerModel } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerModelProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerModel = ({ deviceIdentifier }: MinerModelProps) => {
-  const model = useMinerModel(deviceIdentifier);
-  return <span>{model || INACTIVE_PLACEHOLDER}</span>;
+const MinerModel = ({ miner }: MinerModelProps) => {
+  return <span>{miner.model || INACTIVE_PLACEHOLDER}</span>;
 };
 
 export default MinerModel;

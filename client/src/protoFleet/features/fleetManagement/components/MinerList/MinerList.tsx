@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
-import { useShallow } from "zustand/react/shallow";
 import {
   componentIssues,
   deviceStatusFilterStates,
@@ -21,9 +20,11 @@ import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -32,14 +33,15 @@ import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
-
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+
 import {
   encodeFilterToURL,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
-import { useFleetStore, useUsername } from "@/protoFleet/store";
+import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Slider } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -68,6 +70,12 @@ type MinerModalFlow =
 type MinerListProps = {
   title: string;
   minerIds: string[];
+  miners: Record<string, MinerStateSnapshot>;
+  errorsByDevice: Record<string, ErrorMessage[]>;
+  errorsLoaded: boolean;
+  getActiveBatches: (deviceId: string) => BatchOperation[];
+  /** Monotonic counter — changes when batch state mutates, used to invalidate deviceItems memo. */
+  batchStateVersion?: number;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -151,6 +159,10 @@ type MinerListProps = {
   currentFilter?: MinerListFilter;
   /** Current server-side sort — forwarded for bulk actions that depend on table order. */
   currentSortConfig?: SortConfig;
+  /** Callback to trigger a miner list refresh (e.g., after rename or unpair). */
+  onRefetchMiners?: () => void;
+  /** Callback to notify that pairing/auth completed (triggers pool polling in CompleteSetup). */
+  onPairingCompleted?: () => void;
 };
 
 type ScopedMinerListBodyProps = {
@@ -185,6 +197,9 @@ type ScopedMinerListBodyProps = {
   handlePrevPage: () => void;
   handleNextPage: () => void;
   onRowClick: (item: DeviceListItem, index: number) => void;
+  miners?: Record<string, MinerStateSnapshot>;
+  minerIds?: string[];
+  onRefetchMiners?: () => void;
 };
 
 const ScopedMinerListBody = ({
@@ -219,6 +234,9 @@ const ScopedMinerListBody = ({
   handlePrevPage,
   handleNextPage,
   onRowClick,
+  miners: minersProp,
+  minerIds: minerIdsProp,
+  onRefetchMiners,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -287,6 +305,9 @@ const ScopedMinerListBody = ({
               totalCount={totalSelectable}
               currentFilter={currentFilter}
               currentSort={currentSortConfig}
+              miners={minersProp}
+              minerIds={minerIdsProp}
+              onRefetchMiners={onRefetchMiners}
             />
           </div>
         )}
@@ -355,6 +376,11 @@ const ScopedMinerListBody = ({
 const MinerList = ({
   title,
   minerIds = [],
+  miners,
+  errorsByDevice,
+  errorsLoaded,
+  getActiveBatches,
+  batchStateVersion,
   listClassName,
   paddingLeft,
   overflowContainer = true,
@@ -379,6 +405,8 @@ const MinerList = ({
   exportCsvLoading = false,
   currentFilter,
   currentSortConfig,
+  onRefetchMiners,
+  onPairingCompleted,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -405,17 +433,26 @@ const MinerList = ({
     onPrevPage?.();
   }, [scrollToTop, onPrevPage]);
 
-  const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
-
-  const disabledMinerIds = useFleetStore(
-    useShallow((state) =>
-      minerIds.filter((deviceIdentifier) => {
-        const miner = state.fleet.miners[deviceIdentifier];
-        return miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-      }),
-    ),
+  const deviceItems: DeviceListItem[] = useMemo(
+    () =>
+      minerIds
+        .filter((id) => miners[id]) // skip if miner not yet loaded
+        .map((id) => ({
+          deviceIdentifier: id,
+          miner: miners[id],
+          errors: errorsByDevice[id] ?? [],
+          activeBatches: getActiveBatches(id),
+        })),
+    // getActiveBatches identity changes on every dispatch but batchStateVersion
+    // is the canonical trigger — suppress the lint warning for the unstable callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [minerIds, miners, errorsByDevice, batchStateVersion],
   );
-  const disabledMinerIdSet = useMemo(() => new Set(disabledMinerIds), [disabledMinerIds]);
+
+  const disabledMinerIdSet = useMemo(
+    () => new Set(minerIds.filter((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED)),
+    [minerIds, miners],
+  );
   const isRowDisabled = useCallback(
     (item: DeviceListItem) => disabledMinerIdSet.has(item.deviceIdentifier),
     [disabledMinerIdSet],
@@ -423,33 +460,44 @@ const MinerList = ({
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
+  // Refs for values that change frequently but are only read at call/render time.
+  // Keeps callbacks and minerColConfig stable across polls.
+  const minersRef = useRef(miners);
+  minersRef.current = miners;
+  const onRefetchMinersRef = useRef(onRefetchMiners);
+  onRefetchMinersRef.current = onRefetchMiners;
+
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
   }, []);
 
-  const handleOpenStatusFlow = useCallback((deviceIdentifier: string) => {
-    const miner = useFleetStore.getState().fleet.miners[deviceIdentifier];
-    if (!miner) return;
+  const handleOpenStatusFlow = useCallback(
+    (deviceIdentifier: string) => {
+      const miner = minersRef.current[deviceIdentifier];
+      if (!miner) return;
 
-    const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-    const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
+      const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+      const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-    if (needsAuthentication) {
-      setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
-      return;
-    }
+      if (needsAuthentication) {
+        setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
+        return;
+      }
 
-    if (needsMiningPool) {
-      setModalFlow({
-        kind: "authenticate-fleet",
-        deviceIdentifier,
-        deviceStatus: miner.deviceStatus,
-      });
-      return;
-    }
+      if (needsMiningPool) {
+        setModalFlow({
+          kind: "authenticate-fleet",
+          deviceIdentifier,
+          deviceStatus: miner.deviceStatus,
+        });
+        return;
+      }
 
-    setModalFlow({ kind: "status-modal", deviceIdentifier });
-  }, []);
+      setModalFlow({ kind: "status-modal", deviceIdentifier });
+    },
+    // minersRef is stable — read at call time, not memoization time
+    [],
+  );
 
   const handleFleetAuthenticated = useCallback((username: string, password: string) => {
     setModalFlow((current) => {
@@ -467,9 +515,8 @@ const MinerList = ({
   }, []);
 
   const handleRowClick = useCallback((item: DeviceListItem) => {
-    const url = useFleetStore.getState().fleet.miners[item.deviceIdentifier]?.url;
-    if (url) {
-      window.open(url, "_blank", "noopener,noreferrer");
+    if (item.miner.url) {
+      window.open(item.miner.url, "_blank", "noopener,noreferrer");
     }
   }, []);
   const sortColumnFromUrl = useMemo(() => {
@@ -479,8 +526,17 @@ const MinerList = ({
   const activeSortColumn = currentSort?.field ?? sortColumnFromUrl;
 
   const minerColConfig = useMemo(
-    () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow, availableGroups }),
-    [handleOpenStatusFlow, availableGroups],
+    () =>
+      createMinerColConfig({
+        onOpenStatusFlow: handleOpenStatusFlow,
+        availableGroups,
+        errorsLoaded,
+        minersRef,
+        onRefetchMinersRef,
+      }),
+    // handleOpenStatusFlow is stable (reads from minersRef) — only recreate for groups/errors changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [availableGroups, errorsLoaded],
   );
   const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
@@ -770,6 +826,9 @@ const MinerList = ({
           handlePrevPage={handlePrevPage}
           handleNextPage={handleNextPage}
           onRowClick={handleRowClick}
+          miners={miners}
+          minerIds={minerIds}
+          onRefetchMiners={onRefetchMiners}
         />
       )}
 
@@ -781,7 +840,14 @@ const MinerList = ({
         />
       ) : null}
 
-      {modalFlow.kind === "authenticate-miners" && <AuthenticateMiners open onClose={closeModalFlow} />}
+      {modalFlow.kind === "authenticate-miners" && (
+        <AuthenticateMiners
+          open
+          onClose={closeModalFlow}
+          onRefetchMiners={onRefetchMiners}
+          onPairingCompleted={onPairingCompleted}
+        />
+      )}
 
       {modalFlow.kind === "authenticate-fleet" && (
         <AuthenticateFleetModal
@@ -811,7 +877,12 @@ const MinerList = ({
       )}
 
       {modalFlow.kind === "status-modal" && (
-        <ProtoFleetStatusModal open onClose={closeModalFlow} deviceId={modalFlow.deviceIdentifier} />
+        <ProtoFleetStatusModal
+          open
+          onClose={closeModalFlow}
+          deviceId={modalFlow.deviceIdentifier}
+          miner={miners[modalFlow.deviceIdentifier]}
+        />
       )}
     </>
   );

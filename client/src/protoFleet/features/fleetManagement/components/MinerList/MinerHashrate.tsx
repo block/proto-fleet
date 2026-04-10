@@ -1,12 +1,13 @@
 import MinerMeasurement from "./MinerMeasurement";
-import { useMinerHashrate } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getMinerMeasurement } from "@/protoFleet/features/fleetManagement/utils/getMinerMeasurement";
 
 type MinerHashrateProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerHashrate = ({ deviceIdentifier }: MinerHashrateProps) => {
-  const hashrate = useMinerHashrate(deviceIdentifier);
+const MinerHashrate = ({ miner }: MinerHashrateProps) => {
+  const hashrate = getMinerMeasurement(miner, (m) => m.hashrate);
 
   return <MinerMeasurement measurement={hashrate} unit="TH/s" />;
 };

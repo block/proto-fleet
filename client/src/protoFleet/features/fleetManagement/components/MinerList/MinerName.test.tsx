@@ -2,17 +2,42 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import MinerName from "./MinerName";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import * as storeModule from "@/protoFleet/store";
+import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import * as useNeedsAttentionModule from "@/shared/hooks/useNeedsAttention";
 
-vi.mock("@/protoFleet/store");
 vi.mock("@/shared/hooks/useNeedsAttention");
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu", () => ({
   default: () => <div data-testid="actions-menu">Actions Menu</div>,
 }));
+
+function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
+  return {
+    deviceIdentifier: "test-device-id",
+    name: "Test Miner",
+    macAddress: "",
+    serialNumber: "",
+    powerUsage: [],
+    temperature: [],
+    hashrate: [],
+    efficiency: [],
+    ipAddress: "",
+    url: "",
+    deviceStatus: DeviceStatus.ONLINE,
+    pairingStatus: PairingStatus.PAIRED,
+    model: "",
+    manufacturer: "",
+    temperatureStatus: 0,
+    firmwareVersion: "",
+    groupLabels: [],
+    rackLabel: "",
+    driverName: "",
+    workerName: "",
+    ...overrides,
+  } as MinerStateSnapshot;
+}
 
 describe("MinerName", () => {
   const deviceIdentifier = "test-device-id";
@@ -20,65 +45,47 @@ describe("MinerName", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    vi.mocked(storeModule.useMiner).mockReturnValue({
-      deviceIdentifier,
-      name: minerName,
-      pairingStatus: PairingStatus.PAIRED,
-    } as any);
-    vi.mocked(storeModule.useMinerDeviceStatus).mockReturnValue(DeviceStatus.ONLINE);
-    vi.mocked(storeModule.useMinerName).mockReturnValue(minerName);
-    vi.mocked(storeModule.useFleetStore).mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector({
-          fleet: {
-            selectErrorsByDevice: () => [],
-          },
-        });
-      }
-      return {};
-    });
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
   });
 
   it("renders miner name in a button with title attribute for tooltip", () => {
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+    const miner = createMockMiner();
+
+    render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
     const nameButton = screen.getByRole("button", { name: minerName });
     expect(nameButton).toHaveAttribute("title", minerName);
   });
 
   it("falls back to device identifier when no custom name is set", () => {
-    vi.mocked(storeModule.useMinerName).mockReturnValue("");
+    const miner = createMockMiner({ name: "" });
 
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+    render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: deviceIdentifier })).toBeInTheDocument();
   });
 
   it("hides alert icon when authentication is required", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
-    vi.mocked(storeModule.useMiner).mockReturnValue({
-      deviceIdentifier,
-      name: minerName,
-      pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
-    } as any);
+    const miner = createMockMiner({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED });
 
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+    render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
   it("hides alert icon when no attention is needed", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
+    const miner = createMockMiner();
 
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />);
+    render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
   it("toggles checkbox and stops propagation when name is clicked with enabled checkbox", async () => {
     const user = userEvent.setup();
+    const miner = createMockMiner();
 
     render(
       <table>
@@ -88,7 +95,7 @@ describe("MinerName", () => {
               <input type="checkbox" data-testid="row-checkbox" />
             </td>
             <td>
-              <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
+              <MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />
             </td>
           </tr>
         </tbody>
@@ -106,6 +113,7 @@ describe("MinerName", () => {
   it("lets click propagate when checkbox is disabled (for row navigation)", async () => {
     const user = userEvent.setup();
     const rowClickHandler = vi.fn();
+    const miner = createMockMiner();
 
     render(
       <table>
@@ -115,7 +123,7 @@ describe("MinerName", () => {
               <input type="checkbox" disabled />
             </td>
             <td>
-              <MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={vi.fn()} />
+              <MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />
             </td>
           </tr>
         </tbody>
@@ -131,8 +139,9 @@ describe("MinerName", () => {
     const user = userEvent.setup();
     const onOpenStatusFlow = vi.fn();
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
+    const miner = createMockMiner();
 
-    render(<MinerName deviceIdentifier={deviceIdentifier} onOpenStatusFlow={onOpenStatusFlow} />);
+    render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={onOpenStatusFlow} />);
 
     await user.click(screen.getByRole("button", { name: /view issues/i }));
 

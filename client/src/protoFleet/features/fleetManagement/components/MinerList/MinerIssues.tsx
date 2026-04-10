@@ -1,16 +1,17 @@
 import { ReactNode, useMemo } from "react";
-import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useGroupedErrors } from "@/protoFleet/components/StatusModal/hooks/useStatusModalHooks";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
-import { useFleetStore, useMiner, useMinerDeviceStatus } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useMinerIssues } from "@/shared/hooks/useStatusSummary";
 
 type MinerIssuesProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
+  errors: ErrorMessage[];
+  errorsLoaded: boolean;
   onClick?: () => void;
 };
 
@@ -22,19 +23,48 @@ const componentTypeMap: Record<string, ErrorComponentType> = {
   controlBoard: ErrorComponentType.CONTROL_BOARD,
 };
 
-const MinerIssues = ({ deviceIdentifier, onClick }: MinerIssuesProps) => {
-  const miner = useMiner(deviceIdentifier);
-  const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
-  const errorsLoaded = useFleetStore((state) => state.fleet.errors.metadata.lastFetchedAt !== null);
+/** Group errors by component type (same logic as useGroupedErrors but pure) */
+function groupErrors(errors: ErrorMessage[]) {
+  const grouped = {
+    hashboard: [] as ErrorMessage[],
+    psu: [] as ErrorMessage[],
+    fan: [] as ErrorMessage[],
+    controlBoard: [] as ErrorMessage[],
+    other: [] as ErrorMessage[],
+  };
+  errors.forEach((error) => {
+    switch (error.componentType) {
+      case ErrorComponentType.HASH_BOARD:
+        grouped.hashboard.push(error);
+        break;
+      case ErrorComponentType.PSU:
+        grouped.psu.push(error);
+        break;
+      case ErrorComponentType.FAN:
+        grouped.fan.push(error);
+        break;
+      case ErrorComponentType.CONTROL_BOARD:
+        grouped.controlBoard.push(error);
+        break;
+      default:
+        grouped.other.push(error);
+        break;
+    }
+  });
+  return grouped;
+}
 
-  // Get errors from normalized store using existing hook
-  const groupedErrors = useGroupedErrors(deviceIdentifier);
+const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps) => {
+  const deviceStatus = miner.deviceStatus;
+
+  // Group errors by component type
+  const groupedErrors = useMemo(() => groupErrors(errors), [errors]);
 
   // Compute issue flags
-  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
-  const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
-  const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
+  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
+  const isUpdating = deviceStatus === DeviceStatus.UPDATING;
+  const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
 
   // Transform errors to shared format using existing utility
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);

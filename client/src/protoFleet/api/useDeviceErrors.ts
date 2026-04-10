@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { errorQueryClient } from "@/protoFleet/api/clients";
 import {
@@ -7,37 +7,53 @@ import {
   QueryRequestSchema,
   ResultView,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseDeviceErrorsReturn {
-  errors: Record<string, DeviceError>;
+  errorsByDevice: Record<string, ErrorMessage[]>;
   isLoading: boolean;
+  /** True once at least one successful fetch has completed. */
+  hasLoaded: boolean;
   error: Error | null;
-  refetch: (deviceIds: string[]) => Promise<void>;
+  refetch: () => Promise<void>;
 }
 
 /**
  * Hook to fetch device errors for a list of miner IDs.
- * Returns error status mapped by device ID.
- * Uses the normalized error store for state management.
+ * Returns errors grouped by device ID. All state is local to this hook.
  */
 export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
   const { handleAuthErrors } = useAuthErrors();
-  const [errors, setErrors] = useState<Record<string, DeviceError>>({});
+  const [errorsByDevice, setErrorsByDevice] = useState<Record<string, ErrorMessage[]>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  // Ref mirror of hasLoaded — used inside fetchDeviceErrors to gate isLoading
+  const hasLoadedRef = useRef(false);
 
-  // Get store actions
-  const setNormalizedErrors = useFleetStore((state) => state.fleet.setErrors);
+  // Keep a ref to deviceIds so refetch() always uses the latest value
+  const deviceIdsRef = useRef(deviceIds);
+  deviceIdsRef.current = deviceIds;
+
+  // Request sequencing — ignore responses from stale requests
+  const requestIdRef = useRef(0);
 
   const fetchDeviceErrors = useCallback(
     async (ids: string[]) => {
+      // Bump counter before any early return so in-flight requests for the
+      // previous device set are discarded when they resolve.
+      const thisRequestId = ++requestIdRef.current;
+
       if (!ids || ids.length === 0) {
-        setErrors({});
+        setErrorsByDevice({});
+        setIsLoading(false);
         return;
       }
 
-      setIsLoading(true);
+      // Only show loading state on initial fetch, not on poll refreshes
+      if (!hasLoadedRef.current) {
+        setIsLoading(true);
+      }
       setError(null);
 
       try {
@@ -45,35 +61,55 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
           resultView: ResultView.DEVICE,
           filter: {
             simple: {
-              deviceIdentifiers: ids, // Use string device IDs directly
+              deviceIdentifiers: ids,
             },
             includeClosed: false,
           },
-          pageSize: 1000, // Should be enough for all device errors
+          pageSize: 1000,
         });
 
         const response = await errorQueryClient.query(request);
 
-        const errorMap: Record<string, DeviceError> = {};
-        const allErrorMessages: ErrorMessage[] = [];
+        // Discard if a newer request has been issued since this one started
+        if (thisRequestId !== requestIdRef.current) return;
+
+        const byDevice: Record<string, ErrorMessage[]> = {};
 
         if (response.result?.case === "devices" && response.result.value) {
           const deviceErrors = response.result.value.items;
 
-          deviceErrors.forEach((deviceError) => {
+          deviceErrors.forEach((deviceError: DeviceError) => {
             const deviceId = deviceError.deviceIdentifier;
-            if (deviceId) {
-              errorMap[deviceId] = deviceError;
-              if (deviceError.errors) {
-                allErrorMessages.push(...deviceError.errors);
-              }
+            if (deviceId && deviceError.errors) {
+              byDevice[deviceId] = [...deviceError.errors];
             }
           });
         }
 
-        setErrors(errorMap);
-        setNormalizedErrors(allErrorMessages, "devices", ids);
+        // Only update state if error data actually changed — avoids unnecessary
+        // re-renders of MinerList/deviceItems on every poll when errors are unchanged.
+        setErrorsByDevice((prev) => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(byDevice);
+          if (prevKeys.length !== nextKeys.length) return byDevice;
+          for (const key of nextKeys) {
+            const prevErrors = prev[key];
+            const nextErrors = byDevice[key];
+            if (!prevErrors || prevErrors.length !== nextErrors.length) return byDevice;
+            // Compare error IDs to catch type/content changes at the same count
+            for (let i = 0; i < nextErrors.length; i++) {
+              if (prevErrors[i].errorId !== nextErrors[i].errorId) return byDevice;
+            }
+          }
+          return prev;
+        });
+
+        hasLoadedRef.current = true;
+        setHasLoaded(true);
       } catch (err) {
+        // Discard errors from stale requests
+        if (thisRequestId !== requestIdRef.current) return;
+
         handleAuthErrors({
           error: err,
           onError: (error) => {
@@ -82,23 +118,43 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
           },
         });
       } finally {
-        setIsLoading(false);
+        if (thisRequestId === requestIdRef.current) {
+          setIsLoading(false);
+        }
       }
     },
-    [handleAuthErrors, setNormalizedErrors],
+    [handleAuthErrors],
   );
+
+  // Track the previous deviceIds to detect meaningful changes (not just poll refreshes)
+  const prevDeviceIdsRef = useRef<string[]>(deviceIds);
 
   // Fetch errors when device IDs change
   useEffect(() => {
+    // Reset loading state when the device list actually changes (pagination/filter),
+    // but not on the same list (poll refreshes are handled by refetch which skips loading).
+    const prevIds = prevDeviceIdsRef.current;
+    const idsChanged = prevIds.length !== deviceIds.length || deviceIds.some((id, i) => id !== prevIds[i]);
+    if (idsChanged) {
+      hasLoadedRef.current = false;
+      setHasLoaded(false);
+    }
+    prevDeviceIdsRef.current = deviceIds;
+
     fetchDeviceErrors(deviceIds);
-    // Only depend on deviceIds - the store actions are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceIds]);
 
+  // Stable refetch that uses the latest deviceIds
+  const refetch = useCallback(async () => {
+    await fetchDeviceErrors(deviceIdsRef.current);
+  }, [fetchDeviceErrors]);
+
   return {
-    errors,
+    errorsByDevice,
     isLoading,
+    hasLoaded,
     error,
-    refetch: fetchDeviceErrors,
+    refetch,
   };
 };

@@ -46,6 +46,7 @@ import {
 import {
   DeviceSelectorSchema,
   type MinerListFilter,
+  type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useRenameMiners from "@/protoFleet/api/useRenameMiners";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -53,12 +54,7 @@ import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
 } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
-import {
-  useAuthErrors,
-  useBulkRenamePreferences,
-  useFleetStore,
-  useSetBulkRenamePreferences,
-} from "@/protoFleet/store";
+import { useAuthErrors, useBulkRenamePreferences, useSetBulkRenamePreferences } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
@@ -71,6 +67,9 @@ interface BulkRenameModalProps {
   totalCount?: number;
   currentFilter?: MinerListFilter;
   currentSort?: SortConfig;
+  miners: Record<string, MinerStateSnapshot>;
+  minerIds: string[];
+  onRefetchMiners?: () => void;
   onDismiss: () => void;
 }
 
@@ -121,13 +120,13 @@ const BulkRenameModal = ({
   totalCount,
   currentFilter,
   currentSort,
+  miners: minersById,
+  minerIds,
+  onRefetchMiners,
   onDismiss,
 }: BulkRenameModalProps) => {
   const bulkRenamePreferences = useBulkRenamePreferences();
   const setBulkRenamePreferences = useSetBulkRenamePreferences();
-  const minerIds = useFleetStore((state) => state.fleet.minerIds);
-  const minersById = useFleetStore((state) => state.fleet.miners);
-  const refetchMiners = useFleetStore((state) => state.fleet.refetchMiners);
   const { handleAuthErrors } = useAuthErrors();
   const { renameMiners } = useRenameMiners();
   const { isPhone, isTablet } = useWindowDimensions();
@@ -434,7 +433,7 @@ const BulkRenameModal = ({
 
     try {
       const response = await renameMiners(deviceSelector, config, currentSort);
-      refetchMiners?.();
+      onRefetchMiners?.();
 
       if (response.renamedCount > 0 || response.unchangedCount > 0) {
         updateToast(toastId, {
@@ -466,7 +465,7 @@ const BulkRenameModal = ({
     bulkRenamePreferences,
     currentFilter,
     onDismiss,
-    refetchMiners,
+    onRefetchMiners,
     renameMiners,
     currentSort,
     selectedMinerIds,

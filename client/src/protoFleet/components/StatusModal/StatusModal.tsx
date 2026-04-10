@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { useGroupedErrors, useMinerData } from "./hooks";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
 import {
   buildComponentStatusProps,
@@ -9,14 +8,14 @@ import {
   transformErrorsForModal,
   transformFleetErrorsToShared,
 } from "./utils";
-import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import { useFleetStore } from "@/protoFleet/store";
+
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
 import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
@@ -50,6 +49,7 @@ const ProtoFleetStatusModal = ({
   open,
   onClose,
   deviceId,
+  miner,
   componentAddress,
   showBackButton = true,
 }: ProtoFleetStatusModalProps) => {
@@ -58,35 +58,46 @@ const ProtoFleetStatusModal = ({
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
-  // Fetch errors on-demand when modal opens (errors are no longer pre-fetched with miner list)
-  // Use stable empty array to avoid triggering useDeviceErrors internal clear/fetch on every render
-  const { refetch: fetchErrors } = useDeviceErrors(EMPTY_DEVICE_IDS);
-  // Track which deviceId we've fetched for to avoid re-fetching on every render
-  const fetchedForDeviceRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (isVisible && deviceId && fetchedForDeviceRef.current !== deviceId) {
-      fetchedForDeviceRef.current = deviceId;
-      fetchErrors([deviceId]);
-    }
-    // Reset when modal closes so we re-fetch if opened again
-    if (!isVisible) {
-      fetchedForDeviceRef.current = null;
-    }
-  }, [isVisible, deviceId, fetchErrors]);
+  // Fetch errors for this device when modal is visible
+  const modalDeviceIds = useMemo(() => (isVisible && deviceId ? [deviceId] : EMPTY_DEVICE_IDS), [isVisible, deviceId]);
+  const { errorsByDevice } = useDeviceErrors(modalDeviceIds);
 
   const handleClose = useCallback(() => {
     setComponent(componentAddress);
     onClose();
   }, [componentAddress, onClose]);
 
-  // ProtoFleet store hooks
-  const miner = useMinerData(deviceId);
-  const groupedErrors = useGroupedErrors(deviceId);
-
-  // Get errors from normalized store for component status
-  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
-  const allErrors = selectErrorsByDevice(deviceId);
+  // Derive errors from the local fetch (not the store)
+  const allErrors = useMemo(() => (deviceId ? (errorsByDevice[deviceId] ?? []) : []), [errorsByDevice, deviceId]);
+  const groupedErrors = useMemo(() => {
+    const grouped = {
+      hashboard: [] as ErrorMessage[],
+      psu: [] as ErrorMessage[],
+      fan: [] as ErrorMessage[],
+      controlBoard: [] as ErrorMessage[],
+      other: [] as ErrorMessage[],
+    };
+    allErrors.forEach((error) => {
+      switch (error.componentType) {
+        case ErrorComponentType.HASH_BOARD:
+          grouped.hashboard.push(error);
+          break;
+        case ErrorComponentType.PSU:
+          grouped.psu.push(error);
+          break;
+        case ErrorComponentType.FAN:
+          grouped.fan.push(error);
+          break;
+        case ErrorComponentType.CONTROL_BOARD:
+          grouped.controlBoard.push(error);
+          break;
+        default:
+          grouped.other.push(error);
+          break;
+      }
+    });
+    return grouped;
+  }, [allErrors]);
 
   // Wake miner functionality
   const { startMining } = useMinerCommand();

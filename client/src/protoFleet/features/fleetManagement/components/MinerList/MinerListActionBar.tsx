@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
-import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type {
+  MinerListFilter,
+  MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 import { useSetActionBarVisible } from "@/protoFleet/store";
@@ -16,6 +19,9 @@ interface MinerListActionBarProps {
   totalCount?: number;
   currentFilter?: MinerListFilter;
   currentSort?: SortConfig;
+  miners?: Record<string, MinerStateSnapshot>;
+  minerIds?: string[];
+  onRefetchMiners?: () => void;
 }
 
 const MinerListActionBar = ({
@@ -27,6 +33,9 @@ const MinerListActionBar = ({
   totalCount,
   currentFilter,
   currentSort,
+  miners,
+  minerIds,
+  onRefetchMiners,
 }: MinerListActionBarProps) => {
   const setActionBarVisible = useSetActionBarVisible();
   const selectedMinersCountRef = useRef(selectedMiners.length);
@@ -87,6 +96,9 @@ const MinerListActionBar = ({
           totalCount={totalCount}
           currentFilter={currentFilter}
           currentSort={currentSort}
+          miners={miners}
+          minerIds={minerIds}
+          onRefetchMiners={onRefetchMiners}
           onActionStart={() => {
             setHidden(true);
             setActionBarVisible(false);

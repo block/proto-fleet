@@ -1,25 +1,26 @@
 import React from "react";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
-import { useFleetStore, useMiner, useMinerDeviceStatus, useMinerName } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 
 type MinerNameProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
+  errors: ErrorMessage[];
   onOpenStatusFlow: (deviceIdentifier: string) => void;
+  miners?: Record<string, MinerStateSnapshot>;
+  onRefetchMiners?: () => void;
 };
 
-const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
-  const name = useMinerName(deviceIdentifier) || deviceIdentifier;
-  const miner = useMiner(deviceIdentifier);
-  const deviceStatus = useMinerDeviceStatus(deviceIdentifier || "");
+const MinerName = ({ miner, errors, onOpenStatusFlow, miners, onRefetchMiners }: MinerNameProps) => {
+  const deviceIdentifier = miner.deviceIdentifier;
+  const name = miner.name || deviceIdentifier;
+  const deviceStatus = miner.deviceStatus;
 
-  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
-  const errors = selectErrorsByDevice(deviceIdentifier);
-
-  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const hasFirmwareStatus = deviceStatus === DeviceStatus.UPDATING || deviceStatus === DeviceStatus.REBOOT_REQUIRED;
   const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, false, hasFirmwareStatus);
@@ -60,7 +61,14 @@ const MinerName = ({ deviceIdentifier, onOpenStatusFlow }: MinerNameProps) => {
             <Alert width="w-4" className="text-red-500" />
           </button>
         )}
-        <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} disabled={needsAuthentication} />
+        <SingleMinerActionsMenu
+          deviceIdentifier={deviceIdentifier}
+          deviceStatus={deviceStatus}
+          minerName={name}
+          disabled={needsAuthentication}
+          miners={miners}
+          onRefetchMiners={onRefetchMiners}
+        />
       </div>
     </div>
   );

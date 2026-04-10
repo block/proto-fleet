@@ -9,12 +9,12 @@ import MinerList from "./MinerList";
 import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
 import {
+  type MinerStateSnapshot,
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { DeviceStatus, MinerStateCountsSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import type { MinerStateSnapshot } from "@/protoFleet/store/slices/fleetSlice";
-import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
 const { mockMinerListActionBar } = vi.hoisted(() => ({
   mockMinerListActionBar: vi.fn(
@@ -62,13 +62,59 @@ vi.mock("./MinerListActionBar", () => ({
   default: mockMinerListActionBar,
 }));
 
-const renderMinerList = (props: Parameters<typeof MinerList>[0], initialEntries?: string[]) => {
+// useMinerActions (used by SingleMinerActionsMenu/MinerActionsMenu in column
+// config) imports batch operation hooks from the store that were removed during
+// the fleet slice refactor. Mock the hook so tests don't crash.
+// MinerActionsMenu components import hooks from the removed fleet store slice.
+// Mock the entire menu components so they don't render real action menus.
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
+  default: () => null,
+}));
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu", () => ({
+  default: () => null,
+}));
+
+const mockGetActiveBatches = vi.fn(() => []);
+
+const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier,
+    name: deviceIdentifier,
+    macAddress: "",
+    ipAddress: "",
+    deviceStatus: DeviceStatus.ONLINE,
+    pairingStatus,
+    hashrate: [],
+    efficiency: [],
+    powerUsage: [],
+    temperature: [],
+    url: "",
+    model: "",
+    firmwareVersion: "",
+  });
+
+/** Auto-generates miners map from minerIds when miners prop is not provided. */
+const autoMiners = (minerIds: string[]): Record<string, MinerStateSnapshot> =>
+  Object.fromEntries(minerIds.map((id) => [id, createMinerSnapshot(id)]));
+
+const renderMinerList = (
+  props: Omit<Parameters<typeof MinerList>[0], "miners" | "errorsByDevice" | "errorsLoaded" | "getActiveBatches"> &
+    Partial<Pick<Parameters<typeof MinerList>[0], "miners" | "errorsByDevice" | "errorsLoaded" | "getActiveBatches">>,
+  initialEntries?: string[],
+) => {
   const Router = initialEntries ? MemoryRouter : BrowserRouter;
   const routerProps = initialEntries ? { initialEntries } : {};
+  const fullProps = {
+    errorsByDevice: {} as Record<string, never[]>,
+    errorsLoaded: true,
+    getActiveBatches: mockGetActiveBatches,
+    ...props,
+    miners: props.miners ?? autoMiners(props.minerIds ?? []),
+  };
 
   return render(
     <Router {...routerProps}>
-      <MinerList {...props} />
+      <MinerList {...fullProps} />
     </Router>,
   );
 };
@@ -99,23 +145,6 @@ const PreferenceStorageKeyProbe = ({ username }: { username: string }) => {
 };
 
 describe("MinerList", () => {
-  const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
-    create(MinerStateSnapshotSchema, {
-      deviceIdentifier,
-      name: deviceIdentifier,
-      macAddress: "",
-      ipAddress: "",
-      deviceStatus: DeviceStatus.ONLINE,
-      pairingStatus,
-      hashrate: [],
-      efficiency: [],
-      powerUsage: [],
-      temperature: [],
-      url: "",
-      model: "",
-      firmwareVersion: "",
-    });
-
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.pushState({}, "", "/");
@@ -124,13 +153,6 @@ describe("MinerList", () => {
       auth: {
         ...state.auth,
         username: "",
-      },
-      fleet: {
-        ...state.fleet,
-        miners: {},
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: create(MinerStateCountsSchema, {}),
       },
     }));
   });
@@ -268,7 +290,17 @@ describe("MinerList", () => {
 
       const { rerender } = render(
         <BrowserRouter>
-          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
         </BrowserRouter>,
       );
 
@@ -282,7 +314,17 @@ describe("MinerList", () => {
 
       rerender(
         <BrowserRouter>
-          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
         </BrowserRouter>,
       );
 
@@ -396,7 +438,17 @@ describe("MinerList", () => {
 
       render(
         <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
-          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
           <LocationDisplay />
         </MemoryRouter>,
       );
@@ -431,7 +483,17 @@ describe("MinerList", () => {
 
       render(
         <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
-          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
           <LocationDisplay />
         </MemoryRouter>,
       );
@@ -463,7 +525,17 @@ describe("MinerList", () => {
 
       render(
         <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
-          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
           <LocationDisplay />
         </MemoryRouter>,
       );
@@ -875,6 +947,10 @@ describe("MinerList", () => {
           <MinerList
             title="Miners"
             minerIds={["m3", "m4"]}
+            miners={autoMiners(["m3", "m4"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
             totalMiners={4}
             currentPage={1}
             pageSize={2}
@@ -891,6 +967,10 @@ describe("MinerList", () => {
           <MinerList
             title="Miners"
             minerIds={["m1", "m2"]}
+            miners={autoMiners(["m1", "m2"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
             totalMiners={4}
             currentPage={0}
             pageSize={2}
@@ -906,19 +986,15 @@ describe("MinerList", () => {
     it("recomputes selectable miners when a row becomes disabled between renders", async () => {
       const user = userEvent.setup();
 
-      useFleetStore.setState((state) => ({
-        fleet: {
-          ...state.fleet,
-          miners: {
-            m1: createMinerSnapshot("m1"),
-            m2: createMinerSnapshot("m2"),
-          },
-        },
-      }));
+      const initialMiners = {
+        m1: createMinerSnapshot("m1"),
+        m2: createMinerSnapshot("m2"),
+      };
 
-      renderMinerList({
+      const { rerender } = renderMinerList({
         title: "Miners",
         minerIds: ["m1", "m2"],
+        miners: initialMiners,
         totalMiners: 2,
         totalDisabledMiners: 0,
         currentPage: 0,
@@ -929,16 +1005,29 @@ describe("MinerList", () => {
       const rowCheckboxes = screen.getAllByTestId("checkbox");
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
+      const updatedMiners = {
+        ...initialMiners,
+        m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
+      };
+
       await act(async () => {
-        useFleetStore.setState((state) => ({
-          fleet: {
-            ...state.fleet,
-            miners: {
-              ...state.fleet.miners,
-              m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
-            },
-          },
-        }));
+        rerender(
+          <BrowserRouter>
+            <MinerList
+              title="Miners"
+              minerIds={["m1", "m2"]}
+              miners={updatedMiners}
+              errorsByDevice={{}}
+              errorsLoaded={true}
+              getActiveBatches={mockGetActiveBatches}
+              totalMiners={2}
+              totalDisabledMiners={0}
+              currentPage={0}
+              onAddMiners={vi.fn()}
+              loading={false}
+            />
+          </BrowserRouter>,
+        );
       });
 
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
@@ -955,18 +1044,10 @@ describe("MinerList", () => {
       const snapshot = createMinerSnapshot("m1");
       snapshot.url = "https://192.168.1.100";
 
-      useFleetStore.setState((state) => ({
-        fleet: {
-          ...state.fleet,
-          miners: {
-            m1: snapshot,
-          },
-        },
-      }));
-
       renderMinerList({
         title: "Miners",
         minerIds: ["m1"],
+        miners: { m1: snapshot },
         totalMiners: 1,
         onAddMiners: vi.fn(),
         loading: false,
@@ -983,18 +1064,10 @@ describe("MinerList", () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-      useFleetStore.setState((state) => ({
-        fleet: {
-          ...state.fleet,
-          miners: {
-            m1: createMinerSnapshot("m1"),
-          },
-        },
-      }));
-
       renderMinerList({
         title: "Miners",
         minerIds: ["m1"],
+        miners: { m1: createMinerSnapshot("m1") },
         totalMiners: 1,
         onAddMiners: vi.fn(),
         loading: false,
@@ -1082,7 +1155,17 @@ describe("MinerList", () => {
 
       render(
         <MemoryRouter initialEntries={["/?status=hashing&issues=control-board&sort=name&dir=desc"]}>
-          <MinerList title="Miners" minerIds={[]} totalMiners={0} totalUnfilteredMiners={14} onAddMiners={vi.fn()} />
+          <MinerList
+            title="Miners"
+            minerIds={[]}
+            miners={{}}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={0}
+            totalUnfilteredMiners={14}
+            onAddMiners={vi.fn()}
+          />
           <LocationDisplay />
         </MemoryRouter>,
       );
@@ -1114,7 +1197,17 @@ describe("MinerList", () => {
     it("shows filtered empty state when items are empty but totalMiners is non-zero", () => {
       render(
         <MemoryRouter initialEntries={["/?group=1"]}>
-          <MinerList title="Miners" minerIds={[]} totalMiners={8} totalUnfilteredMiners={8} onAddMiners={vi.fn()} />
+          <MinerList
+            title="Miners"
+            minerIds={[]}
+            miners={{}}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={8}
+            totalUnfilteredMiners={8}
+            onAddMiners={vi.fn()}
+          />
         </MemoryRouter>,
       );
 
@@ -1129,7 +1222,17 @@ describe("MinerList", () => {
 
       render(
         <MemoryRouter initialEntries={["/?status=hashing&group=1,2&sort=name&dir=desc"]}>
-          <MinerList title="Miners" minerIds={[]} totalMiners={0} totalUnfilteredMiners={14} onAddMiners={vi.fn()} />
+          <MinerList
+            title="Miners"
+            minerIds={[]}
+            miners={{}}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={0}
+            totalUnfilteredMiners={14}
+            onAddMiners={vi.fn()}
+          />
           <LocationDisplay />
         </MemoryRouter>,
       );

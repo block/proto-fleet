@@ -3,6 +3,7 @@
  */
 
 import type { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 /**
  * Component address for navigation to ComponentStatusModal
@@ -31,6 +32,9 @@ export interface ProtoFleetStatusModalProps {
 
   /** The device identifier (miner ID) to show status for */
   deviceId: string;
+
+  /** Optional miner data — if not provided, status info will be limited */
+  miner?: MinerStateSnapshot;
 
   /** Optional initial component to display (defaults to miner view) */
   componentAddress?: ComponentAddress;

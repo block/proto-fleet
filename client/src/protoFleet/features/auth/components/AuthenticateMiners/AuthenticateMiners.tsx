@@ -10,7 +10,6 @@ import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { ids } from "@/protoFleet/features/auth/components/AuthenticateMiners/constants";
 import { Credentials, UnauthenticatedMiner } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
-import { useFleetStore, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
@@ -41,9 +40,17 @@ type AuthenticateMinersProps = {
   open?: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onPairingCompleted?: () => void;
+  onRefetchMiners?: () => void;
 };
 
-const AuthenticateMiners = ({ open, onClose, onSuccess }: AuthenticateMinersProps) => {
+const AuthenticateMiners = ({
+  open,
+  onClose,
+  onSuccess,
+  onPairingCompleted,
+  onRefetchMiners,
+}: AuthenticateMinersProps) => {
   const isVisible = open ?? true;
   // Component fetches its own data
   const {
@@ -55,7 +62,6 @@ const AuthenticateMiners = ({ open, onClose, onSuccess }: AuthenticateMinersProp
   });
   const { pair } = useMinerPairing();
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus({ enabled: isVisible });
-  const notifyPairingCompleted = useNotifyPairingCompleted();
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
@@ -230,14 +236,14 @@ const AuthenticateMiners = ({ open, onClose, onSuccess }: AuthenticateMinersProp
   const handleAuthenticationComplete = useCallback(
     (successCount: number) => {
       refetchOnboardingStatus();
-      useFleetStore.getState().fleet.refetchMiners?.();
+      onRefetchMiners?.();
       refetchAuthNeededMiners();
-      notifyPairingCompleted();
+      onPairingCompleted?.();
       if (successCount > 0) {
         onSuccess?.();
       }
     },
-    [refetchOnboardingStatus, refetchAuthNeededMiners, notifyPairingCompleted, onSuccess],
+    [refetchOnboardingStatus, onRefetchMiners, refetchAuthNeededMiners, onPairingCompleted, onSuccess],
   );
 
   const authenticateMiners = useCallback(() => {

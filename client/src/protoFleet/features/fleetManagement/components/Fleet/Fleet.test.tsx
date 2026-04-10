@@ -28,37 +28,17 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   })),
 }));
 
-vi.mock("@/protoFleet/store", () => {
-  const useFleetStore = Object.assign(
-    vi.fn(() => ({
-      fleet: {
-        isLoading: false,
-        minerIds: [],
-        totalMiners: 0,
-        deviceStatusCounts: {},
-        setRefetchCallback: vi.fn(),
-      },
-    })),
-    {
-      getState: vi.fn(() => ({
-        fleet: { setCurrentFilter: vi.fn() },
-      })),
-    },
-  );
-  return {
-    useFleetStore,
-    useFleetMiners: vi.fn(() => []),
-    useIsLoading: vi.fn(() => false),
-    useMinerIds: vi.fn(() => []),
-    useTotalMiners: vi.fn(() => 0),
-    useDeviceStatusCounts: vi.fn(() => ({})),
-    useSetRefetchCallback: vi.fn(() => vi.fn()),
-    useCleanupStaleBatches: vi.fn(() => vi.fn()),
-    useNotifyPairingCompleted: vi.fn(() => vi.fn()),
-    useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
-    useTemperatureUnit: vi.fn(() => "C"),
-  };
-});
+vi.mock("@/protoFleet/store", () => ({
+  useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
+  useTemperatureUnit: vi.fn(() => "C"),
+  useBatchStateVersion: vi.fn(() => 0),
+  useStartBatchOperation: vi.fn(() => vi.fn()),
+  useCompleteBatchOperation: vi.fn(() => vi.fn()),
+  useRemoveDevicesFromBatch: vi.fn(() => vi.fn()),
+  useCleanupStaleBatches: vi.fn(() => vi.fn()),
+  getActiveBatches: vi.fn(() => []),
+  getAllBatches: vi.fn(() => []),
+}));
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: vi.fn(() => ({
@@ -96,94 +76,6 @@ const renderFleet = () => {
   );
 };
 
-describe("Fleet - Stale Batch Cleanup", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("should setup cleanup interval on mount", async () => {
-    const { useCleanupStaleBatches } = await import("@/protoFleet/store");
-    const cleanupStaleBatches = vi.fn();
-    vi.mocked(useCleanupStaleBatches).mockReturnValue(cleanupStaleBatches);
-
-    renderFleet();
-
-    // Advance time by poll interval
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(1);
-  });
-
-  it("should call cleanup at poll interval", async () => {
-    const { useCleanupStaleBatches } = await import("@/protoFleet/store");
-    const cleanupStaleBatches = vi.fn();
-    vi.mocked(useCleanupStaleBatches).mockReturnValue(cleanupStaleBatches);
-
-    renderFleet();
-
-    // First interval
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(1);
-
-    // Second interval
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(2);
-
-    // Third interval
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(3);
-  });
-
-  it("should cleanup interval on unmount", async () => {
-    const { useCleanupStaleBatches } = await import("@/protoFleet/store");
-    const cleanupStaleBatches = vi.fn();
-    vi.mocked(useCleanupStaleBatches).mockReturnValue(cleanupStaleBatches);
-
-    const { unmount } = renderFleet();
-
-    // Advance time
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(1);
-
-    // Unmount component
-    unmount();
-
-    // Advance time again - should not call cleanup after unmount
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches).toHaveBeenCalledTimes(1); // Still 1, not 2
-  });
-
-  it("should handle cleanup function changes", async () => {
-    const { useCleanupStaleBatches } = await import("@/protoFleet/store");
-    const cleanupStaleBatches1 = vi.fn();
-    const cleanupStaleBatches2 = vi.fn();
-
-    vi.mocked(useCleanupStaleBatches).mockReturnValue(cleanupStaleBatches1);
-
-    const { rerender } = renderFleet();
-
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    expect(cleanupStaleBatches1).toHaveBeenCalledTimes(1);
-
-    // Update the mock to return a new function
-    vi.mocked(useCleanupStaleBatches).mockReturnValue(cleanupStaleBatches2);
-    rerender(
-      <MemoryRouter>
-        <Fleet />
-      </MemoryRouter>,
-    );
-
-    vi.advanceTimersByTime(POLL_INTERVAL_MS);
-    // After rerender, the new cleanup function should be called
-    expect(cleanupStaleBatches2).toHaveBeenCalled();
-  });
-});
-
 describe("Fleet - Polling", () => {
   let mockRefreshCurrentPage: ReturnType<typeof vi.fn>;
 
@@ -204,6 +96,7 @@ describe("Fleet - Polling", () => {
 
     vi.mocked(useFleetModule.default).mockReturnValue({
       minerIds: ["miner1"],
+      miners: {},
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
@@ -231,6 +124,7 @@ describe("Fleet - Polling", () => {
 
     vi.mocked(useFleetModule.default).mockReturnValue({
       minerIds: [],
+      miners: {},
       totalMiners: 0,
       hasMore: false,
       hasInitialLoadCompleted: false,
@@ -258,6 +152,7 @@ describe("Fleet - Polling", () => {
 
     vi.mocked(useFleetModule.default).mockReturnValue({
       minerIds: ["miner1"],
+      miners: {},
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
@@ -289,6 +184,7 @@ describe("Fleet - Polling", () => {
 
     vi.mocked(useFleetModule.default).mockReturnValue({
       minerIds: ["miner1"],
+      miners: {},
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: true,
@@ -340,7 +236,6 @@ describe("Fleet - Component Integration", () => {
 
     expect(useFleet).toHaveBeenCalledWith(
       expect.objectContaining({
-        scope: "global",
         pageSize: 50,
       }),
     );
@@ -351,6 +246,7 @@ describe("Fleet - Component Integration", () => {
 
     vi.mocked(useFleetModule.default).mockReturnValue({
       minerIds: ["miner-1"],
+      miners: {},
       totalMiners: 1,
       hasMore: false,
       hasInitialLoadCompleted: false,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { MinerDiscoveryMode } from "./types";
@@ -15,7 +15,6 @@ import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { defaultTimeout } from "@/protoFleet/features/onboarding/constants";
-import { useFleetStore, useMinerIds, useNotifyPairingCompleted } from "@/protoFleet/store";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -37,9 +36,21 @@ type MinersPageProps = {
    * Only used when mode is 'pairing'
    */
   onExit?: () => void;
+  /** Already-paired miner IDs to filter out from discovery results */
+  pairedMinerIds?: string[];
+  /** Callback to notify that pairing completed (triggers CompleteSetup refresh) */
+  onPairingCompleted?: () => void;
+  /** Callback to refetch the fleet miner list */
+  onRefetchMiners?: () => void;
 };
 
-const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
+const MinersPage = ({
+  mode = "onboarding",
+  onExit,
+  pairedMinerIds = [],
+  onPairingCompleted,
+  onRefetchMiners,
+}: MinersPageProps) => {
   const navigate = useNavigate();
 
   const { data: networkInfo } = useNetworkInfo();
@@ -86,30 +97,20 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   }, []);
 
   const { refetch } = useOnboardedStatus();
-  const notifyPairingCompleted = useNotifyPairingCompleted();
-
-  // Get refetch callback from global store instead of creating a new useFleet instance
-  // This avoids overwriting the Fleet component's refetch callback
-  const refetchFleet = () => {
-    const callback = useFleetStore.getState().fleet.refetchMiners;
-    callback?.();
-  };
-
-  const notifyPairingCompletedFn = useNotifyPairingCompleted();
-  const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
+  const pairedMinerIdSet = useMemo(() => new Set(pairedMinerIds), [pairedMinerIds]);
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
         const newMiners = devices.filter(
           (device) =>
             !prevMiners.some((prevMiner) => prevMiner.deviceIdentifier === device.deviceIdentifier) &&
-            !minerIds.some((minerId) => minerId === device.deviceIdentifier),
+            !pairedMinerIdSet.has(device.deviceIdentifier),
         );
         return [...prevMiners, ...newMiners];
       });
     },
-    [minerIds],
+    [pairedMinerIdSet],
   );
 
   const handleDiscover = useCallback(
@@ -332,7 +333,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
         // Notify that pairing completed so CompleteSetup can refetch pool status
         if (successCount > 0) {
-          notifyPairingCompletedFn();
+          onPairingCompleted?.();
         }
 
         // If this was a Foreman import, create pools/groups/racks and assign devices before refreshing
@@ -361,9 +362,9 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
         // Wait for fleet data to refresh with updated firmware versions before navigating
         await refetch();
-        refetchFleet();
-        // Notify store that pairing completed so Dashboard and other components can refresh
-        notifyPairingCompleted();
+        onRefetchMiners?.();
+        // Notify that pairing completed so Dashboard and other components can refresh
+        onPairingCompleted?.();
         if (mode === "onboarding") {
           navigate("/");
         } else {

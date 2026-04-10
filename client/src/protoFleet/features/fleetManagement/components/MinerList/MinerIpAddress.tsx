@@ -1,25 +1,22 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import { useMinerIpAddress, useMinerUrl } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerIpAddressProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerIpAddress = ({ deviceIdentifier }: MinerIpAddressProps) => {
-  const ipAddress = useMinerIpAddress(deviceIdentifier);
-  const url = useMinerUrl(deviceIdentifier);
-
-  if (!ipAddress) {
+const MinerIpAddress = ({ miner }: MinerIpAddressProps) => {
+  if (!miner.ipAddress) {
     return <span>{INACTIVE_PLACEHOLDER}</span>;
   }
 
-  if (!url) {
-    return <span>{ipAddress}</span>;
+  if (!miner.url) {
+    return <span>{miner.ipAddress}</span>;
   }
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      {ipAddress}
+    <a href={miner.url} target="_blank" rel="noopener noreferrer">
+      {miner.ipAddress}
     </a>
   );
 };

@@ -1,26 +1,19 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create as createProto } from "@bufbuild/protobuf";
-import { create } from "zustand";
-import { immer } from "zustand/middleware/immer";
 import { deviceActions, performanceActions, settingsActions } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
   MinerListFilterSchema,
+  type MinerStateSnapshot,
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import type { FleetSlice } from "@/protoFleet/store/slices/fleetSlice";
-import { createFleetSlice } from "@/protoFleet/store/slices/fleetSlice";
-import type { UISlice } from "@/protoFleet/store/slices/uiSlice";
-import { createUISlice } from "@/protoFleet/store/slices/uiSlice";
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
-
-type TestStore = { fleet: FleetSlice; ui: UISlice };
 
 // Create mock functions at module level
 const mockStartBatchOperation = vi.fn();
@@ -39,7 +32,6 @@ const mockGetMinerModelGroups = vi.fn();
 const mockDownloadLogs = vi.fn();
 const mockGetCommandBatchLogBundle = vi.fn();
 const mockRenameSingleMiner = vi.fn();
-const mockUpdateMinerName = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -85,12 +77,6 @@ vi.mock("@/protoFleet/api/useRenameMiners", () => ({
   }),
 }));
 
-const { mockUseFleetStore } = vi.hoisted(() => {
-  const fn: any = vi.fn();
-  fn.getState = vi.fn();
-  return { mockUseFleetStore: fn };
-});
-
 vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
   default: () => ({
     getMinerModelGroups: mockGetMinerModelGroups,
@@ -98,11 +84,7 @@ vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
 }));
 
 vi.mock("@/protoFleet/store", () => ({
-  useFleetStore: mockUseFleetStore,
-  useStartBatchOperation: () => mockStartBatchOperation,
-  useCompleteBatchOperation: () => mockCompleteBatchOperation,
-  useRemoveDevicesFromBatch: () => mockRemoveDevicesFromBatch,
-  useUpdateMinerName: () => mockUpdateMinerName,
+  useFleetStore: vi.fn(),
   useAuthErrors: () => ({
     handleAuthErrors: vi.fn(({ onError }) => onError?.()),
   }),
@@ -120,34 +102,27 @@ vi.mock("@/shared/features/toaster", () => ({
 }));
 
 describe("useMinerActions", () => {
-  let store: any;
+  let testMiners: Record<string, MinerStateSnapshot>;
+
+  /** Shared batch-ops & miners params injected into every useMinerActions call. */
+  const batchOpsParams = () => ({
+    startBatchOperation: mockStartBatchOperation,
+    completeBatchOperation: mockCompleteBatchOperation,
+    removeDevicesFromBatch: mockRemoveDevicesFromBatch,
+    miners: testMiners,
+  });
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mockGetMinerModelGroups.mockResolvedValue([]);
-
-    // Create a fresh store for each test
-    store = create<TestStore>()(
-      immer((set, get, api) => ({
-        fleet: createFleetSlice(set as any, get as any, api as any),
-        ui: createUISlice(set as any, get as any, api as any),
-      })),
-    );
-
-    // Setup mock implementations: support both selector calls and getState()
-    mockUseFleetStore.mockImplementation((selector: any) => {
-      if (typeof selector === "function") {
-        return selector(store.getState());
-      }
-      return store.getState();
-    });
-    mockUseFleetStore.getState = vi.fn(() => store.getState());
+    testMiners = {};
   });
 
   describe("Basic hook initialization", () => {
     it("should initialize with correct default values", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -167,6 +142,7 @@ describe("useMinerActions", () => {
     it("should calculate displayCount correctly for 'all' selection mode", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1" }, { deviceIdentifier: "device-2" }],
           selectionMode: "all",
           totalCount: 100,
@@ -180,6 +156,7 @@ describe("useMinerActions", () => {
     it("should calculate displayCount correctly for 'subset' selection mode", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1" }, { deviceIdentifier: "device-2" }],
           selectionMode: "subset",
           totalCount: 100,
@@ -193,6 +170,7 @@ describe("useMinerActions", () => {
     it("should include all expected actions in popoverActions", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -216,6 +194,7 @@ describe("useMinerActions", () => {
     it("should show both sleep and wake up actions for bulk selection with mixed status", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.INACTIVE },
@@ -234,6 +213,7 @@ describe("useMinerActions", () => {
     it("should show only wake up action for single inactive device", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.INACTIVE }],
           selectionMode: "subset",
         }),
@@ -248,6 +228,7 @@ describe("useMinerActions", () => {
     it("should show only sleep action for single active device", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -262,6 +243,7 @@ describe("useMinerActions", () => {
     it("should show both actions when device status is undefined (bulk with different statuses)", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ERROR },
@@ -283,6 +265,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -304,6 +287,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -325,6 +309,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.INACTIVE }],
           selectionMode: "subset",
           onActionStart,
@@ -346,6 +331,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -367,6 +353,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -393,6 +380,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -419,6 +407,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -533,6 +522,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -557,6 +547,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -586,6 +577,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -615,6 +607,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -639,6 +632,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -665,6 +659,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -697,6 +692,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -740,6 +736,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -790,6 +787,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -823,6 +821,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.INACTIVE }],
           selectionMode: "subset",
         }),
@@ -853,6 +852,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -896,6 +896,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -931,6 +932,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -979,6 +981,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1016,6 +1019,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           currentFilter: activeFilter,
@@ -1046,6 +1050,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1076,6 +1081,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -1107,6 +1113,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -1127,6 +1134,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -1147,6 +1155,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1181,6 +1190,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -1298,33 +1308,32 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
       );
 
-      // Keep device OFFLINE to trigger polling
-      store.getState().fleet.setMiners([
-        {
-          deviceIdentifier: "device-1",
-          deviceStatus: DeviceStatus.OFFLINE,
-          pairingStatus: PairingStatus.PAIRED,
-          name: "device-1",
-          macAddress: "",
-          serialNumber: "",
-          model: "",
-          manufacturer: "",
-          ipAddress: "",
-          url: "",
-          firmwareVersion: "",
-          powerUsage: [],
-          temperature: [],
-          hashrate: [],
-          efficiency: [],
-          temperatureStatus: 0,
-          driverName: "",
-        },
-      ]);
+      // Keep device OFFLINE — previously triggered polling, now batch completes immediately
+      testMiners["device-1"] = {
+        deviceIdentifier: "device-1",
+        deviceStatus: DeviceStatus.OFFLINE,
+        pairingStatus: PairingStatus.PAIRED,
+        name: "device-1",
+        macAddress: "",
+        serialNumber: "",
+        model: "",
+        manufacturer: "",
+        ipAddress: "",
+        url: "",
+        firmwareVersion: "",
+        powerUsage: [],
+        temperature: [],
+        hashrate: [],
+        efficiency: [],
+        temperatureStatus: 0,
+        driverName: "",
+      } as unknown as MinerStateSnapshot;
 
       const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
 
@@ -1414,6 +1423,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1451,6 +1461,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1486,6 +1497,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1523,6 +1535,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1572,6 +1585,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1613,6 +1627,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1638,6 +1653,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1661,26 +1677,27 @@ describe("useMinerActions", () => {
     const setStoreMiners = (
       miners: Array<{ id: string; driverName: string; deviceStatus: number; pairingStatus: number }>,
     ) => {
-      const minerSnapshots = miners.map((m) => ({
-        deviceIdentifier: m.id,
-        driverName: m.driverName,
-        deviceStatus: m.deviceStatus,
-        pairingStatus: m.pairingStatus,
-        name: m.id,
-        macAddress: "",
-        serialNumber: "",
-        model: "",
-        manufacturer: "",
-        ipAddress: "",
-        url: "",
-        firmwareVersion: "",
-        powerUsage: [],
-        temperature: [],
-        hashrate: [],
-        efficiency: [],
-        temperatureStatus: 0,
-      }));
-      store.getState().fleet.setMiners(minerSnapshots);
+      miners.forEach((m) => {
+        testMiners[m.id] = {
+          deviceIdentifier: m.id,
+          driverName: m.driverName,
+          deviceStatus: m.deviceStatus,
+          pairingStatus: m.pairingStatus,
+          name: m.id,
+          macAddress: "",
+          serialNumber: "",
+          model: "",
+          manufacturer: "",
+          ipAddress: "",
+          url: "",
+          firmwareVersion: "",
+          powerUsage: [],
+          temperature: [],
+          hashrate: [],
+          efficiency: [],
+          temperatureStatus: 0,
+        } as unknown as MinerStateSnapshot;
+      });
     };
 
     it("should show auth-key-cleared message for single online paired Proto rig", () => {
@@ -1690,6 +1707,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1713,6 +1731,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.OFFLINE }],
           selectionMode: "subset",
         }),
@@ -1736,6 +1755,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1759,6 +1779,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1778,6 +1799,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1811,6 +1833,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.OFFLINE },
@@ -1829,6 +1852,7 @@ describe("useMinerActions", () => {
     it("should show generic message for 'all' selection mode", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1" }],
           selectionMode: "all",
           totalCount: 50,
@@ -1847,6 +1871,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1" }],
           selectionMode: "all",
           totalCount: 12,
@@ -1884,6 +1909,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.OFFLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.OFFLINE },
@@ -1904,6 +1930,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -1924,6 +1951,7 @@ describe("useMinerActions", () => {
     it("should show pool selection page after successful authentication", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -1963,6 +1991,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -1996,6 +2025,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -2041,6 +2071,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2064,16 +2095,36 @@ describe("useMinerActions", () => {
 
   describe("handlePasswordConfirm - action bar restoration", () => {
     const addMinersToStore = (
-      storeInstance: any,
+      _storeInstance: any,
       miners: Array<{ deviceIdentifier: string; manufacturer: string; model: string; name?: string }>,
     ) => {
-      storeInstance.getState().fleet.setMiners(miners);
+      miners.forEach((m) => {
+        testMiners[m.deviceIdentifier] = {
+          deviceIdentifier: m.deviceIdentifier,
+          manufacturer: m.manufacturer,
+          model: m.model,
+          name: m.name ?? m.model,
+          driverName: m.manufacturer,
+          deviceStatus: 0,
+          pairingStatus: 0,
+          macAddress: "",
+          serialNumber: "",
+          ipAddress: "",
+          url: "",
+          firmwareVersion: "",
+          powerUsage: [],
+          temperature: [],
+          hashrate: [],
+          efficiency: [],
+          temperatureStatus: 0,
+        } as unknown as MinerStateSnapshot;
+      });
     };
 
     it("sets group status to failed and keeps ManageSecurityModal open when API call fails", async () => {
       const onActionComplete = vi.fn();
 
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
       ]);
 
@@ -2083,6 +2134,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -2118,7 +2170,7 @@ describe("useMinerActions", () => {
     it("does NOT call onActionComplete during batch failure in ManageSecurityModal flow — proto-only selection", async () => {
       const onActionComplete = vi.fn();
 
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
       ]);
 
@@ -2143,6 +2195,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -2177,7 +2230,7 @@ describe("useMinerActions", () => {
     it("does NOT call onActionComplete during batch completion in ManageSecurityModal flow — modal handles it", async () => {
       const onActionComplete = vi.fn();
 
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
         { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
       ]);
@@ -2203,6 +2256,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2245,15 +2299,36 @@ describe("useMinerActions", () => {
 
   describe("Manage security action flow", () => {
     const addMinersToStore = (
-      storeInstance: any,
+      _storeInstance: any,
       miners: Array<{ deviceIdentifier: string; manufacturer: string; model: string; name?: string }>,
     ) => {
-      storeInstance.getState().fleet.setMiners(miners);
+      miners.forEach((m) => {
+        testMiners[m.deviceIdentifier] = {
+          deviceIdentifier: m.deviceIdentifier,
+          manufacturer: m.manufacturer,
+          model: m.model,
+          name: m.name ?? m.model,
+          driverName: m.manufacturer,
+          deviceStatus: 0,
+          pairingStatus: 0,
+          macAddress: "",
+          serialNumber: "",
+          ipAddress: "",
+          url: "",
+          firmwareVersion: "",
+          powerUsage: [],
+          temperature: [],
+          hashrate: [],
+          efficiency: [],
+          temperatureStatus: 0,
+        } as unknown as MinerStateSnapshot;
+      });
     };
 
     it("shows auth modal when security action is triggered", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2270,13 +2345,14 @@ describe("useMinerActions", () => {
     });
 
     it("shows ManageSecurityModal after auth when all miners are proto rigs", async () => {
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
         { deviceIdentifier: "device-2", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig 2" },
       ]);
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2300,13 +2376,14 @@ describe("useMinerActions", () => {
     });
 
     it("shows ManageSecurityModal after auth when miners include non-proto devices", async () => {
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
         { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
       ]);
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2330,13 +2407,14 @@ describe("useMinerActions", () => {
     });
 
     it("handleUpdateGroup opens UpdatePasswordModal for the selected group", async () => {
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
         { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
       ]);
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2366,12 +2444,13 @@ describe("useMinerActions", () => {
 
     it("handleSecurityModalClose resets all security state and calls onActionComplete", async () => {
       const onActionComplete = vi.fn();
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
       ]);
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -2412,13 +2491,14 @@ describe("useMinerActions", () => {
         });
       });
 
-      addMinersToStore(store, [
+      addMinersToStore(null, [
         { deviceIdentifier: "device-1", manufacturer: "proto", model: "Proto Rig", name: "Proto Rig" },
         { deviceIdentifier: "device-2", manufacturer: "bitmain", model: "S19", name: "Antminer S19" },
       ]);
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2463,6 +2543,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
         }),
@@ -2479,6 +2560,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
         }),
@@ -2497,6 +2579,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
         }),
@@ -2512,12 +2595,29 @@ describe("useMinerActions", () => {
     it("falls back to capability check path when getMinerModelGroups throws", async () => {
       mockGetMinerModelGroups.mockRejectedValue(new Error("Network error"));
 
-      store
-        .getState()
-        .fleet.setMiners([{ deviceIdentifier: "device-1", manufacturer: "proto", model: "Rig", name: "Proto Rig" }]);
+      testMiners["device-1"] = {
+        deviceIdentifier: "device-1",
+        manufacturer: "proto",
+        model: "Rig",
+        name: "Proto Rig",
+        driverName: "proto",
+        deviceStatus: 0,
+        pairingStatus: 0,
+        macAddress: "",
+        serialNumber: "",
+        ipAddress: "",
+        url: "",
+        firmwareVersion: "",
+        powerUsage: [],
+        temperature: [],
+        hashrate: [],
+        efficiency: [],
+        temperatureStatus: 0,
+      } as unknown as MinerStateSnapshot;
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
         }),
@@ -2537,6 +2637,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
         }),
@@ -2575,6 +2676,7 @@ describe("useMinerActions", () => {
     it("should include downloadLogs in popoverActions", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2589,6 +2691,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionStart,
@@ -2606,6 +2709,7 @@ describe("useMinerActions", () => {
     it("should show loading toast when download begins", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2626,6 +2730,7 @@ describe("useMinerActions", () => {
     it("should call downloadLogs API with the correct deviceSelector", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2656,6 +2761,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2702,6 +2808,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2738,6 +2845,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2774,6 +2882,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2807,6 +2916,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2845,6 +2955,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -2885,6 +2996,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2921,6 +3033,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -2966,6 +3079,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -3000,6 +3114,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -3024,6 +3139,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -3043,6 +3159,7 @@ describe("useMinerActions", () => {
     it("should expose a rename opener that opens the single-miner dialog", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3063,6 +3180,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3080,6 +3198,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3100,6 +3219,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3120,6 +3240,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3144,6 +3265,7 @@ describe("useMinerActions", () => {
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
           onActionComplete,
@@ -3168,6 +3290,7 @@ describe("useMinerActions", () => {
     it("uses the canonical settings icon for the firmware action", () => {
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "subset",
         }),
@@ -3179,17 +3302,17 @@ describe("useMinerActions", () => {
     });
 
     it("should show error toast and not open modal when selected miners have mixed models", async () => {
-      store
-        .getState()
-        .fleet.setMiners([
-          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" }),
-          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "Proto Rig" }),
-        ]);
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        model: "Proto Rig",
+      });
 
       const onActionComplete = vi.fn();
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
@@ -3217,15 +3340,12 @@ describe("useMinerActions", () => {
     });
 
     it("should open modal when all selected miners have the same model", async () => {
-      store
-        .getState()
-        .fleet.setMiners([
-          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" }),
-          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" }),
-        ]);
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" });
 
       const { result } = renderHook(() =>
         useMinerActions({
+          ...batchOpsParams(),
           selectedMiners: [
             { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
             { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },

@@ -1,8 +1,10 @@
 import { ReactNode, useMemo } from "react";
 import { statusColumnLoadingMessages } from "../MinerActionsMenu/constants";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
-import { useFleetStore, useMiner, useMinerActiveBatches, useMinerDeviceStatus } from "@/protoFleet/store";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
@@ -26,23 +28,18 @@ const StatusWrapper = ({ onClick, children }: StatusWrapperProps) => {
 };
 
 type MinerStatusProps = {
-  deviceIdentifier: string;
-  selectedItems?: string[];
+  miner: MinerStateSnapshot;
+  errors: ErrorMessage[];
+  activeBatches: BatchOperation[];
+  errorsLoaded: boolean;
   onClick?: () => void;
 };
 
-const MinerStatus = ({ deviceIdentifier, onClick }: MinerStatusProps) => {
-  const miner = useMiner(deviceIdentifier);
-  const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
-  const activeBatches = useMinerActiveBatches(deviceIdentifier);
-
-  // Get errors from normalized store
-  const selectErrorsByDevice = useFleetStore((state) => state.fleet.selectErrorsByDevice);
-  const errors = selectErrorsByDevice(deviceIdentifier);
-  const errorsLoaded = useFleetStore((state) => state.fleet.errors.metadata.lastFetchedAt !== null);
+const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: MinerStatusProps) => {
+  const deviceStatusFromStore = miner.deviceStatus;
 
   // Compute status flags
-  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
   // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
   // (could be sleeping OR showing as inactive because we can't authenticate)

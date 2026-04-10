@@ -29,6 +29,22 @@ export {
 export { useCheckAuthentication } from "./hooks/useAuthentication";
 
 // =============================================================================
+// Batch Hooks
+// =============================================================================
+
+export {
+  useBatchStateVersion,
+  useStartBatchOperation,
+  useCompleteBatchOperation,
+  useRemoveDevicesFromBatch,
+  useCleanupStaleBatches,
+  getActiveBatches,
+  getAllBatches,
+} from "./hooks/useBatch";
+
+export type { BatchOperation, BatchOperationInput } from "./slices/batchSlice";
+
+// =============================================================================
 // UI Hooks
 // =============================================================================
 
@@ -46,52 +62,6 @@ export {
   useSetBulkRenamePreferences,
   useSetActionBarVisible,
 } from "./hooks/useUI";
-
-// =============================================================================
-// Fleet Hooks
-// =============================================================================
-
-export {
-  useMiner,
-  useMinerIds,
-  useTotalMiners,
-  useDeviceStatusCounts,
-  useFleetMiners,
-  useIsLoading,
-  useMinerName,
-  useMinerMacAddress,
-  useMinerIpAddress,
-  useMinerModel,
-  useMinerFirmwareVersion,
-  useMinerWorkerName,
-  useMinerDeviceStatus,
-  useMinerRackLabel,
-  useMinerGroupLabels,
-  useMinerHashrate,
-  useMinerEfficiency,
-  useMinerPowerUsage,
-  useMinerTemperature,
-  useMinerUrl,
-  useDeviceErrors,
-  useMinerData,
-  useMinerActiveBatches,
-  useSetMiners,
-  useAppendMiners,
-  useSetTotalMiners,
-  useSetDeviceStatusCounts,
-  useSetRefetchCallback,
-  useUpdateMinerTimestamp,
-  useUpdateMinerName,
-  useSetLoading,
-  useSetCursor,
-  useLastPairingCompletedAt,
-  useNotifyPairingCompleted,
-  useStartBatchOperation,
-  useCompleteBatchOperation,
-  useRemoveDevicesFromBatch,
-  useCleanupStaleBatches,
-  useBatchOperationCount,
-} from "./hooks/useFleet";
 
 // =============================================================================
 // Onboarding Hooks
@@ -135,4 +105,3 @@ export {
 // =============================================================================
 
 export type { Theme, ThemeColor, TemperatureUnit } from "@/shared/features/preferences";
-export type { MinerStateSnapshot } from "./slices/fleetSlice";

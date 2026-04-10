@@ -1,64 +1,56 @@
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import MinerModel from "./MinerModel";
-import { useMinerModel } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
-vi.mock("@/protoFleet/store", () => ({
-  useMinerModel: vi.fn(),
-}));
-
-const mockUseMinerModel = vi.mocked(useMinerModel);
+function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
+  return {
+    deviceIdentifier: "test-device",
+    name: "",
+    macAddress: "",
+    serialNumber: "",
+    powerUsage: [],
+    temperature: [],
+    hashrate: [],
+    efficiency: [],
+    ipAddress: "",
+    url: "",
+    deviceStatus: 0,
+    pairingStatus: 0,
+    model: "",
+    manufacturer: "",
+    temperatureStatus: 0,
+    firmwareVersion: "",
+    groupLabels: [],
+    rackLabel: "",
+    driverName: "",
+    workerName: "",
+    ...overrides,
+  } as MinerStateSnapshot;
+}
 
 describe("MinerModel", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("renders the model name when available", () => {
-    mockUseMinerModel.mockReturnValue("Proto Rig");
+    const miner = createMockMiner({ model: "Proto Rig" });
 
-    render(<MinerModel deviceIdentifier="test-device-1" />);
+    render(<MinerModel miner={miner} />);
 
     expect(screen.getByText("Proto Rig")).toBeInTheDocument();
   });
 
-  it("renders placeholder when model is null", () => {
-    mockUseMinerModel.mockReturnValue(null as any);
-
-    render(<MinerModel deviceIdentifier="test-device-2" />);
-
-    expect(screen.getByText("—")).toBeInTheDocument();
-  });
-
-  it("renders placeholder when model is undefined", () => {
-    mockUseMinerModel.mockReturnValue(undefined as any);
-
-    render(<MinerModel deviceIdentifier="test-device-3" />);
-
-    expect(screen.getByText("—")).toBeInTheDocument();
-  });
-
   it("renders placeholder when model is empty string", () => {
-    mockUseMinerModel.mockReturnValue("");
+    const miner = createMockMiner({ model: "" });
 
-    render(<MinerModel deviceIdentifier="test-device-4" />);
+    render(<MinerModel miner={miner} />);
 
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("renders Bitmain model names", () => {
-    mockUseMinerModel.mockReturnValue("Antminer S19");
+    const miner = createMockMiner({ model: "Antminer S19" });
 
-    render(<MinerModel deviceIdentifier="test-device-5" />);
+    render(<MinerModel miner={miner} />);
 
     expect(screen.getByText("Antminer S19")).toBeInTheDocument();
-  });
-
-  it("calls useMinerModel with correct deviceIdentifier", () => {
-    mockUseMinerModel.mockReturnValue("Proto Rig");
-
-    render(<MinerModel deviceIdentifier="specific-miner-id" />);
-
-    expect(mockUseMinerModel).toHaveBeenCalledWith("specific-miner-id");
   });
 });

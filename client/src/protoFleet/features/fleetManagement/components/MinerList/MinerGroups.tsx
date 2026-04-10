@@ -2,15 +2,15 @@ import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { useMinerGroupLabels } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerGroupsProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
   availableGroups: DeviceSet[];
 };
 
-const MinerGroups = ({ deviceIdentifier, availableGroups }: MinerGroupsProps) => {
-  const groupLabels = useMinerGroupLabels(deviceIdentifier);
+const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
+  const groupLabels = miner.groupLabels;
   const triggerRef = useRef<HTMLSpanElement>(null);
   const [popoverRect, setPopoverRect] = useState<DOMRect | null>(null);
   const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);

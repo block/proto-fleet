@@ -1,17 +1,20 @@
 import MinerStatus from "./MinerStatus";
+import type { DeviceListItem } from "./types";
 
 type MinerStatusCellProps = {
-  deviceIdentifier: string;
-  selectedItems?: string[];
+  device: DeviceListItem;
+  errorsLoaded: boolean;
   onOpenStatusFlow: (deviceIdentifier: string) => void;
 };
 
-const MinerStatusCell = ({ deviceIdentifier, selectedItems, onOpenStatusFlow }: MinerStatusCellProps) => {
+const MinerStatusCell = ({ device, errorsLoaded, onOpenStatusFlow }: MinerStatusCellProps) => {
   return (
     <MinerStatus
-      deviceIdentifier={deviceIdentifier}
-      selectedItems={selectedItems}
-      onClick={() => onOpenStatusFlow(deviceIdentifier)}
+      miner={device.miner}
+      errors={device.errors}
+      activeBatches={device.activeBatches}
+      errorsLoaded={errorsLoaded}
+      onClick={() => onOpenStatusFlow(device.deviceIdentifier)}
     />
   );
 };

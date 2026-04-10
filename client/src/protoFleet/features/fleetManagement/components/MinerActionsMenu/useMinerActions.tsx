@@ -23,6 +23,7 @@ import {
   DeviceSelectorSchema,
   type MinerListFilter,
   MinerListFilterSchema,
+  type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
@@ -55,15 +56,8 @@ import {
   BulkAction,
   type UnsupportedMinersInfo,
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
-import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import {
-  useCompleteBatchOperation,
-  useFleetStore,
-  useRemoveDevicesFromBatch,
-  useStartBatchOperation,
-  useUpdateMinerName,
-} from "@/protoFleet/store";
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
@@ -99,6 +93,16 @@ interface UseMinerActionsParams {
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
+  /** Start tracking a batch operation (from useBatchOperations) */
+  startBatchOperation?: (batch: BatchOperationInput) => void;
+  /** Complete a batch operation (from useBatchOperations) */
+  completeBatchOperation?: (batchIdentifier: string) => void;
+  /** Remove devices from a batch (from useBatchOperations) */
+  removeDevicesFromBatch?: (batchIdentifier: string, deviceIds: string[]) => void;
+  /** The miners map — used for firmware model checks, unpair subtitle, and security grouping */
+  miners?: Record<string, MinerStateSnapshot>;
+  /** Replaces store-based refetchMiners — called after unpair completes */
+  onRefetchMiners?: () => void;
 }
 
 /**
@@ -120,8 +124,10 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.firmwareUpdate]: { description: "Firmware updates", commandType: CommandType.FIRMWARE_UPDATE },
 };
 
-function getUniqueModels(deviceIds: string[]): { models: Set<string>; hasMissing: boolean } {
-  const miners = useFleetStore.getState().fleet.miners;
+function getUniqueModels(
+  deviceIds: string[],
+  miners: Record<string, MinerStateSnapshot>,
+): { models: Set<string>; hasMissing: boolean } {
   const models = new Set<string>();
   let hasMissing = false;
   for (const id of deviceIds) {
@@ -247,6 +253,8 @@ const buildUnpairConfirmationSubtitle = (
   return parts.join(" ");
 };
 
+const noop = () => {};
+
 export const useMinerActions = ({
   selectedMiners,
   selectionMode,
@@ -254,6 +262,11 @@ export const useMinerActions = ({
   currentFilter,
   onActionStart,
   onActionComplete,
+  startBatchOperation = noop as (batch: BatchOperationInput) => void,
+  completeBatchOperation = noop as (batchIdentifier: string) => void,
+  removeDevicesFromBatch = noop as (batchIdentifier: string, deviceIds: string[]) => void,
+  miners = {} as Record<string, MinerStateSnapshot>,
+  onRefetchMiners,
 }: UseMinerActionsParams) => {
   const {
     startMining,
@@ -271,10 +284,6 @@ export const useMinerActions = ({
     getCommandBatchLogBundle,
   } = useMinerCommand();
 
-  const startBatchOperation = useStartBatchOperation();
-  const completeBatchOperation = useCompleteBatchOperation();
-  const removeDevicesFromBatch = useRemoveDevicesFromBatch();
-  const updateMinerName = useUpdateMinerName();
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
   const { renameSingleMiner } = useRenameMiners();
@@ -298,9 +307,6 @@ export const useMinerActions = ({
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
     useState<UnsupportedMinersState>(initialUnsupportedMinersState);
 
-  // Read miners from store reactively so unpair confirmation subtitle updates
-  const fleetMiners = useFleetStore((s) => s.fleet.miners);
-
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
   // Display count for confirmation dialogs - use totalCount when in "all" mode
@@ -314,8 +320,8 @@ export const useMinerActions = ({
 
   // Contextual subtitle for unpair confirmation dialog (per RFC Option C)
   const unpairConfirmationSubtitle = useMemo(
-    () => buildUnpairConfirmationSubtitle(selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter),
-    [selectedMiners, selectionMode, displayCount, fleetMiners, currentFilter],
+    () => buildUnpairConfirmationSubtitle(selectedMiners, selectionMode, displayCount, miners, currentFilter),
+    [selectedMiners, selectionMode, displayCount, miners, currentFilter],
   );
 
   // Create device selector based on selection mode (undefined when nothing selected)
@@ -478,67 +484,29 @@ export const useMinerActions = ({
 
         onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
-        // Immediately remove failed devices from batch (revert to their original status)
+        // Remove failed devices from batch (revert to their original status)
         if (failureDeviceIds.length > 0) {
           removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
         }
 
-        // Keep loading state until we can confirm the action has taken effect
-        // For actions that change device state, wait for status confirmation on successful devices only
-        const shouldWaitForStatusChange =
-          (action === settingsActions.miningPool ||
-            action === deviceActions.shutdown ||
-            action === deviceActions.wakeUp ||
-            action === deviceActions.reboot) &&
-          successDeviceIds.length > 0;
-
-        if (shouldWaitForStatusChange) {
-          // Wait for device status to change to expected state
-          // Polls every 3 seconds for successful devices only. Stale batch cleanup (5 minutes) handles stuck cases.
-          const checkInterval = 3000;
-
-          let pollCount = 0;
-          const maxPolls = 60; // 3 minutes max (60 * 3000ms)
-
-          const waitForStatusChange = () => {
-            const store = useFleetStore.getState();
-            pollCount++;
-
-            // Get batch startedAt for time-based checks (e.g., minimum reboot duration)
-            const batchOperation = store.fleet.batchOperations.byBatchId[batchIdentifier];
-            const batchStartedAt = batchOperation?.startedAt;
-
-            // Check status for all successfully queued devices (from successDeviceIds array)
-            // Note: For "select all" operations, only visible/paginated device IDs are stored client-side.
-            // This is intentional - polling will update status for all devices, but we only track
-            // loading states for devices in the current view. Non-visible devices will show updated
-            // status when they scroll into view.
-            const allSuccessfulDevicesUpdated = successDeviceIds.every((deviceId) => {
-              const miner = store.fleet.miners[deviceId];
-              if (!miner) return false;
-
-              return hasReachedExpectedStatus(action, miner.deviceStatus, batchStartedAt);
-            });
-
-            if (allSuccessfulDevicesUpdated) {
-              completeBatchOperation(batchIdentifier);
-            } else if (pollCount >= maxPolls) {
-              // After 3 minutes, complete batch to avoid stuck loading states
-              // Stale batch cleanup (5 minutes) will handle any truly stuck cases
-              completeBatchOperation(batchIdentifier);
-            } else {
-              setTimeout(waitForStatusChange, checkInterval);
-            }
-          };
-
-          waitForStatusChange();
-        } else {
-          // Complete batch immediately for actions that don't change device state (blink, etc.)
+        // Actions that change device status (reboot, shutdown, wake-up, pool, firmware)
+        // are handled by hasReachedExpectedStatus — keep the batch active so the spinner
+        // stays until the device transitions. Stale cleanup (5 min) is the safety net.
+        // For actions that don't change status (blink LEDs, cooling, security, etc.),
+        // complete the batch immediately so the spinner clears.
+        const statusChangingActions = new Set<SupportedAction>([
+          settingsActions.miningPool,
+          deviceActions.shutdown,
+          deviceActions.wakeUp,
+          deviceActions.reboot,
+          deviceActions.firmwareUpdate,
+        ]);
+        if (!statusChangingActions.has(action)) {
           completeBatchOperation(batchIdentifier);
         }
       });
     },
-    [streamCommandBatchUpdates, completeBatchOperation, removeDevicesFromBatch],
+    [streamCommandBatchUpdates, removeDevicesFromBatch, completeBatchOperation],
   );
 
   const handleError = useCallback((originalToastId: number, error: string) => {
@@ -658,14 +626,11 @@ export const useMinerActions = ({
           let successCount = 0;
           let totalCount = 0;
           let failureIds: string[] = [];
-          let successIds: string[] = [];
           let completionHandled = false;
 
           const handleCompletion = () => {
             if (completionHandled) return;
             completionHandled = true;
-
-            const successDeviceIds = successIds;
 
             if (successCount > 0) {
               updateToast(toastId, {
@@ -683,15 +648,10 @@ export const useMinerActions = ({
               removeDevicesFromBatch(value.batchIdentifier, failureIds);
             }
 
-            useFleetStore.setState((state) => {
-              successDeviceIds.forEach((id) => {
-                if (state.fleet.miners[id]) {
-                  state.fleet.miners[id].deviceStatus = DeviceStatus.REBOOT_REQUIRED;
-                }
-              });
-            });
-
-            completeBatchOperation(value.batchIdentifier);
+            // Don't complete batch — let hasReachedExpectedStatus hide the
+            // spinner once the device reports REBOOT_REQUIRED. Stale cleanup
+            // handles eventual state cleanup.
+            onRefetchMiners?.();
             onActionComplete?.();
           };
 
@@ -705,7 +665,7 @@ export const useMinerActions = ({
               successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
               const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
               failureIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
-              successIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
+              // successDeviceIdentifiers no longer needed — optimistic mutation removed
               const completed = successCount + failureCount;
               const progress = totalCount > 0 ? Math.round((completed / totalCount) * 100) : 0;
 
@@ -757,11 +717,11 @@ export const useMinerActions = ({
       deviceSelector,
       firmwareUpdate,
       startBatchOperation,
-      completeBatchOperation,
       removeDevicesFromBatch,
       streamCommandBatchUpdates,
       deviceIdentifiers,
       onActionComplete,
+      onRefetchMiners,
     ],
   );
 
@@ -844,15 +804,15 @@ export const useMinerActions = ({
 
       try {
         await renameSingleMiner(deviceIdentifier, name);
-        updateMinerName(deviceIdentifier, name);
         updateToast(id, { message: successMessages[settingsActions.rename], status: TOAST_STATUSES.success });
+        onRefetchMiners?.();
       } catch {
         updateToast(id, { message: "Failed to rename miner", status: TOAST_STATUSES.error });
       } finally {
         onActionComplete?.();
       }
     },
-    [selectedMiners, renameSingleMiner, updateMinerName, onActionComplete],
+    [selectedMiners, renameSingleMiner, onActionComplete, onRefetchMiners],
   );
 
   const handleRenameDismiss = useCallback(() => {
@@ -925,6 +885,8 @@ export const useMinerActions = ({
     setCurrentAction,
     fleetCredentials,
     resetAuthState,
+    miners,
+    currentFilter,
   });
 
   handleSecurityAuthRef.current = handleSecurityAuthenticated;
@@ -1012,7 +974,7 @@ export const useMinerActions = ({
                 message: `${successMessages[deviceActions.unpair]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
                 status: TOAST_STATUSES.success,
               });
-              useFleetStore.getState().fleet.refetchMiners?.();
+              onRefetchMiners?.();
               onActionComplete?.();
             },
             onError: (error) => {
@@ -1065,6 +1027,7 @@ export const useMinerActions = ({
       completeBatchOperation,
       deviceIdentifiers,
       currentFilter,
+      onRefetchMiners,
     ],
   );
 
@@ -1323,7 +1286,9 @@ export const useMinerActions = ({
       await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
         const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
         const { models, hasMissing } =
-          idsToCheck.length > 0 ? getUniqueModels(idsToCheck) : { models: new Set<string>(), hasMissing: false };
+          idsToCheck.length > 0
+            ? getUniqueModels(idsToCheck, miners)
+            : { models: new Set<string>(), hasMissing: false };
 
         if (models.size === 0) {
           pushToast({
@@ -1540,6 +1505,7 @@ export const useMinerActions = ({
     unpairConfirmationSubtitle,
     startManageSecurity,
     startAuthentication,
+    miners,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)

@@ -1,13 +1,12 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import { useMinerWorkerName } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type MinerWorkerNameProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerWorkerName = ({ deviceIdentifier }: MinerWorkerNameProps) => {
-  const workerName = useMinerWorkerName(deviceIdentifier);
-  const normalizedWorkerName = workerName?.trim() ?? "";
+const MinerWorkerName = ({ miner }: MinerWorkerNameProps) => {
+  const normalizedWorkerName = miner.workerName?.trim() ?? "";
 
   return <span>{normalizedWorkerName || INACTIVE_PLACEHOLDER}</span>;
 };

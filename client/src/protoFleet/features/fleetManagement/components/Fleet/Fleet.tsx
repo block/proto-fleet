@@ -21,12 +21,13 @@ import {
   getColumnForSortField,
   getSortField,
 } from "@/protoFleet/features/fleetManagement/components/MinerList/sortConfig";
+import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
-import { useCleanupStaleBatches, useNotifyPairingCompleted } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -79,7 +80,6 @@ const Fleet = () => {
 
   // Fetch unfiltered total count for the "X of Y miners" header display
   const { totalMiners: totalUnfilteredMiners } = useFleet({
-    scope: "local",
     pageSize: 1,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
@@ -87,6 +87,7 @@ const Fleet = () => {
   // Fetch all devices (both paired and unpaired) with a single API call
   const {
     minerIds,
+    miners,
     totalMiners,
     hasMore,
     hasInitialLoadCompleted,
@@ -98,28 +99,38 @@ const Fleet = () => {
     goToNextPage,
     goToPrevPage,
   } = useFleet({
-    scope: "global",
     pageSize: MINERS_PAGE_SIZE,
     filter: currentFilter,
     sort: currentSortConfig,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
 
-  // Fetch errors for all loaded miners to populate the error store
-  // This enables MinerIssues to show detailed error info (e.g., "Hashboard 1 failure")
-  useDeviceErrors(minerIds);
+  // Fetch errors for all loaded miners
+  const { errorsByDevice, hasLoaded: errorsLoaded, refetch: refetchErrors } = useDeviceErrors(minerIds);
 
-  // Poll for updates to keep data fresh on the current page
+  // Batch operations (ephemeral UI state)
+  const {
+    completeBatchOperation,
+    removeDevicesFromBatch,
+    cleanupStaleBatches,
+    getAllBatches,
+    getActiveBatches,
+    batchStateVersion,
+  } = useBatchOperations();
+
+  // Poll for miner and error updates to keep data fresh on the current page.
+  // Both are needed: minerIds is stabilized (same-content → same reference),
+  // so the useDeviceErrors effect won't re-fire from polling alone.
   useEffect(() => {
     if (!hasInitialLoadCompleted) return;
     const intervalId = setInterval(() => {
       refreshCurrentPage();
+      refetchErrors();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [hasInitialLoadCompleted, refreshCurrentPage]);
+  }, [hasInitialLoadCompleted, refreshCurrentPage, refetchErrors]);
 
   // Cleanup stale batch operations at the same interval as polling
-  const cleanupStaleBatches = useCleanupStaleBatches();
   useEffect(() => {
     const interval = setInterval(() => {
       cleanupStaleBatches();
@@ -127,7 +138,31 @@ const Fleet = () => {
     return () => clearInterval(interval);
   }, [cleanupStaleBatches]);
 
-  const notifyPairingCompleted = useNotifyPairingCompleted();
+  // Remove devices from batches once they've reached expected status.
+  // Only checks visible devices (useFleet keeps one page in memory).
+  // Off-page devices stay in the batch until they become visible or stale cleanup runs.
+  useEffect(() => {
+    for (const batch of getAllBatches()) {
+      const transitionedIds = batch.deviceIdentifiers.filter((id) => {
+        const miner = miners[id];
+        return miner && hasReachedExpectedStatus(batch.action, miner.deviceStatus, batch.startedAt);
+      });
+      if (transitionedIds.length === 0) continue;
+
+      if (transitionedIds.length === batch.deviceIdentifiers.length) {
+        // All devices transitioned — complete the entire batch
+        completeBatchOperation(batch.batchIdentifier);
+      } else {
+        // Only some devices transitioned — remove them, keep batch for the rest
+        removeDevicesFromBatch(batch.batchIdentifier, transitionedIds);
+      }
+    }
+  }, [miners, batchStateVersion, getAllBatches, completeBatchOperation, removeDevicesFromBatch]);
+
+  // Pairing coordination (local state, replaces fleet slice)
+  const [lastPairingCompletedAt, setLastPairingCompletedAt] = useState(0);
+  const notifyPairingCompleted = useCallback(() => setLastPairingCompletedAt(Date.now()), []);
+
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 
   const handleAddMinersClose = () => {
@@ -154,11 +189,21 @@ const Fleet = () => {
 
   return (
     <>
-      <CompleteSetup className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6" />
+      <CompleteSetup
+        className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6"
+        lastPairingCompletedAt={lastPairingCompletedAt}
+        onRefetchMiners={refetch}
+        onPairingCompleted={notifyPairingCompleted}
+      />
       <ErrorBoundary>
         <MinerList
           title="Miners"
           minerIds={minerIds}
+          miners={miners}
+          errorsByDevice={errorsByDevice}
+          errorsLoaded={errorsLoaded}
+          getActiveBatches={getActiveBatches}
+          batchStateVersion={batchStateVersion}
           totalMiners={totalMiners}
           totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalAuthNeededMiners}
@@ -185,10 +230,20 @@ const Fleet = () => {
           currentSortConfig={currentSortConfig}
           onExportCsv={exportCsv}
           exportCsvLoading={isExportingCsv}
+          onRefetchMiners={refetch}
+          onPairingCompleted={notifyPairingCompleted}
         />
       </ErrorBoundary>
 
-      {showAddMinersModal && <Miners mode="pairing" onExit={handleAddMinersClose} />}
+      {showAddMinersModal && (
+        <Miners
+          mode="pairing"
+          onExit={handleAddMinersClose}
+          pairedMinerIds={minerIds}
+          onPairingCompleted={notifyPairingCompleted}
+          onRefetchMiners={refetch}
+        />
+      )}
     </>
   );
 };

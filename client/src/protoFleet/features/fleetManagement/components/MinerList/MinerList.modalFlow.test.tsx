@@ -8,20 +8,9 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 
 let minersById: Record<string, { pairingStatus: PairingStatus; deviceStatus: DeviceStatus }> = {};
 
-const mockStoreState = () => ({
-  fleet: {
-    miners: minersById,
-  },
-});
-
-vi.mock("@/protoFleet/store", () => {
-  const useFleetStore = (selector: any) => selector(mockStoreState());
-  useFleetStore.getState = () => mockStoreState();
-  return {
-    useFleetStore,
-    useUsername: () => "",
-  };
-});
+vi.mock("@/protoFleet/store", () => ({
+  useUsername: () => "",
+}));
 
 vi.mock("./minerColConfig", () => ({
   default: ({ onOpenStatusFlow }: { onOpenStatusFlow: (deviceIdentifier: string) => void }) => ({
@@ -108,7 +97,16 @@ vi.mock("@/shared/hooks/useReactiveLocalStorage", () => ({
 const renderMinerList = () =>
   render(
     <MemoryRouter>
-      <MinerList title="Miners" minerIds={["miner-1"]} totalMiners={1} onAddMiners={vi.fn()} />
+      <MinerList
+        title="Miners"
+        minerIds={["miner-1"]}
+        miners={minersById as any}
+        errorsByDevice={{}}
+        errorsLoaded={true}
+        getActiveBatches={() => []}
+        totalMiners={1}
+        onAddMiners={vi.fn()}
+      />
     </MemoryRouter>,
   );
 

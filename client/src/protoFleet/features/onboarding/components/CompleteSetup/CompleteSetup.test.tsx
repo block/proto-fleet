@@ -6,24 +6,11 @@ import CompleteSetup from "./CompleteSetup";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import usePoolNeededCount from "@/protoFleet/api/usePoolNeededCount";
-import { useLastPairingCompletedAt } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/useAuthNeededMiners");
 vi.mock("@/protoFleet/api/usePoolNeededCount");
 vi.mock("@/protoFleet/api/useMinerCommand");
 const mockRefetchMiners = vi.fn();
-vi.mock("@/protoFleet/store", () => ({
-  useLastPairingCompletedAt: vi.fn(),
-  useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
-  useFleetStore: (selector: any) => {
-    const state = {
-      fleet: {
-        refetchMiners: mockRefetchMiners,
-      },
-    };
-    return selector ? selector(state) : state;
-  },
-}));
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
 vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
   default: ({
@@ -99,8 +86,6 @@ beforeEach(async () => {
     getCommandBatchLogBundle: vi.fn(),
   });
 
-  vi.mocked(useLastPairingCompletedAt).mockReturnValue(0);
-
   // Mock localStorage to return both values used in CompleteSetup
   const { useReactiveLocalStorage } = await import("@/shared/hooks/useReactiveLocalStorage");
   vi.mocked(useReactiveLocalStorage).mockImplementation((key: string) => {
@@ -115,10 +100,13 @@ beforeEach(async () => {
 });
 
 describe("CompleteSetup", () => {
-  const renderCompleteSetup = () => {
+  const renderCompleteSetup = (props: { lastPairingCompletedAt?: number; onRefetchMiners?: () => void } = {}) => {
     return render(
       <MemoryRouter>
-        <CompleteSetup />
+        <CompleteSetup
+          lastPairingCompletedAt={props.lastPairingCompletedAt}
+          onRefetchMiners={props.onRefetchMiners ?? mockRefetchMiners}
+        />
       </MemoryRouter>,
     );
   };
@@ -619,13 +607,12 @@ describe("CompleteSetup", () => {
       mockRefetchAuthNeededMiners.mockClear();
       mockRefetchPoolNeededCount.mockClear();
 
-      // Simulate pairing completion by updating the timestamp
+      // Simulate pairing completion by updating the timestamp prop
       const timestamp = Date.now();
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
 
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -661,15 +648,13 @@ describe("CompleteSetup", () => {
         refetch: mockRefetchPoolNeededCount,
       });
 
-      const { rerender } = renderCompleteSetup();
+      const timestamp = Date.now();
+      const { rerender } = renderCompleteSetup({ lastPairingCompletedAt: undefined });
 
       // Simulate pairing completion
-      const timestamp = Date.now();
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
-
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -692,7 +677,7 @@ describe("CompleteSetup", () => {
       // Rerender with new pool count
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -703,7 +688,6 @@ describe("CompleteSetup", () => {
     });
 
     it("does not refetch when pairing timestamp is 0", () => {
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(0);
       vi.mocked(useAuthNeededMiners).mockReturnValue({
         minerIds: ["miner1"],
         miners: {},
@@ -736,9 +720,8 @@ describe("CompleteSetup", () => {
       });
 
       const timestamp = Date.now();
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
 
-      const { rerender } = renderCompleteSetup();
+      const { rerender } = renderCompleteSetup({ lastPairingCompletedAt: timestamp });
 
       await waitFor(
         () => {
@@ -752,7 +735,7 @@ describe("CompleteSetup", () => {
       // Rerender with same timestamp should not trigger new polling
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -805,11 +788,10 @@ describe("CompleteSetup", () => {
       // Trigger pool assignment success by simulating the pairing timestamp update
       // which triggers polling
       const timestamp = Date.now();
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
 
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -841,11 +823,10 @@ describe("CompleteSetup", () => {
 
       // Trigger polling
       const timestamp = Date.now();
-      vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
 
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -867,7 +848,7 @@ describe("CompleteSetup", () => {
 
       rerender(
         <MemoryRouter>
-          <CompleteSetup />
+          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
         </MemoryRouter>,
       );
 
@@ -895,11 +876,10 @@ describe("CompleteSetup", () => {
 
         // Trigger polling via pairing completion
         const timestamp = Date.now();
-        vi.mocked(useLastPairingCompletedAt).mockReturnValue(timestamp);
 
         rerender(
           <MemoryRouter>
-            <CompleteSetup />
+            <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
           </MemoryRouter>,
         );
 

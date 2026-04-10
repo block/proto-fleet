@@ -1,5 +1,7 @@
 import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
 
+import { fleetManagementClient } from "@/protoFleet/api/clients";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
@@ -23,6 +25,7 @@ import {
   UpdateMinerPasswordModal,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManageSecurity";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
+import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -32,9 +35,13 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
+type DeviceSetType = "group" | "rack";
+
 interface DeviceSetActionsMenuProps {
   memberDeviceIds?: string[];
   deviceSetId?: bigint;
+  /** Whether this menu is for a group or a rack. Affects the filter used for miner snapshot fetches. */
+  deviceSetType?: DeviceSetType;
   onEdit: () => void;
   /** Label for the edit action in the popover menu (e.g., "Edit group", "Edit rack"). */
   editLabel?: string;
@@ -62,6 +69,7 @@ const DeviceSetActionsMenu = (props: DeviceSetActionsMenuProps) => {
 const DeviceSetActionsMenuInner = ({
   memberDeviceIds: propMemberDeviceIds,
   deviceSetId,
+  deviceSetType = "group",
   onEdit,
   editLabel = "Edit group",
   onView,
@@ -73,12 +81,17 @@ const DeviceSetActionsMenuInner = ({
   actionActiveRef,
 }: DeviceSetActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
+  const batchOps = useBatchOperations();
   const [isOpen, setIsOpen] = useState(false);
 
   // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
   const [fetchedMemberIds, setFetchedMemberIds] = useState<string[] | null>(null);
   const [fetchingMembers, setFetchingMembers] = useState(false);
   const { listGroupMembers } = useDeviceSets();
+
+  // Lazy-fetched miner snapshots for firmware model checks
+  const [fetchedMiners, setFetchedMiners] = useState<Record<string, MinerStateSnapshot>>({});
+  const [fetchingMiners, setFetchingMiners] = useState(false);
 
   const memberDeviceIds = useMemo(
     () => propMemberDeviceIds ?? fetchedMemberIds ?? [],
@@ -99,28 +112,53 @@ const DeviceSetActionsMenuInner = ({
     ignoreSelectors: [".popover-content"],
   });
 
-  // Lazy fetch member IDs when opening the menu in table context
+  // Lazy fetch member IDs and miner snapshots when opening the menu
   // Always refetch on open so membership changes are picked up
   const handleOpen = useCallback(() => {
     setIsOpen((prev) => {
       const opening = !prev;
-      if (opening && !propMemberDeviceIds && deviceSetId && !fetchingMembers) {
-        setFetchedMemberIds(null);
-        setFetchingMembers(true);
-        listGroupMembers({
-          deviceSetId,
-          onSuccess: (ids) => {
-            setFetchedMemberIds(ids);
-            setFetchingMembers(false);
-          },
-          onError: () => {
-            setFetchingMembers(false);
-          },
-        });
+      if (opening && deviceSetId) {
+        // Fetch member IDs if not provided as props
+        if (!propMemberDeviceIds && !fetchingMembers) {
+          setFetchedMemberIds(null);
+          setFetchingMembers(true);
+          listGroupMembers({
+            deviceSetId,
+            onSuccess: (ids) => {
+              setFetchedMemberIds(ids);
+              setFetchingMembers(false);
+            },
+            onError: () => {
+              setFetchingMembers(false);
+            },
+          });
+        }
+
+        // Fetch miner snapshots for firmware model checks
+        const filter = deviceSetType === "rack" ? { rackIds: [deviceSetId] } : { groupIds: [deviceSetId] };
+        setFetchingMiners(true);
+        fleetManagementClient
+          .listMinerStateSnapshots({
+            pageSize: 1000,
+            filter,
+          })
+          .then((response) => {
+            const map: Record<string, MinerStateSnapshot> = {};
+            response.miners.forEach((m) => {
+              map[m.deviceIdentifier] = m;
+            });
+            setFetchedMiners(map);
+          })
+          .catch(() => {
+            // Non-critical — firmware update will show a warning instead
+          })
+          .finally(() => {
+            setFetchingMiners(false);
+          });
       }
       return opening;
     });
-  }, [propMemberDeviceIds, deviceSetId, fetchingMembers, listGroupMembers]);
+  }, [propMemberDeviceIds, deviceSetId, deviceSetType, fetchingMembers, listGroupMembers]);
 
   const selectedMinersWithStatus = useMemo(
     () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),
@@ -163,6 +201,10 @@ const DeviceSetActionsMenuInner = ({
   } = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode: "subset" as SelectionMode,
+    startBatchOperation: batchOps.startBatchOperation,
+    completeBatchOperation: batchOps.completeBatchOperation,
+    removeDevicesFromBatch: batchOps.removeDevicesFromBatch,
+    miners: fetchedMiners,
     onActionComplete,
   });
 
@@ -277,7 +319,7 @@ const DeviceSetActionsMenuInner = ({
           onClick={handleOpen}
         />
         {isOpen &&
-          (fetchingMembers ? (
+          (fetchingMembers || fetchingMiners ? (
             <div
               className={`popover-content absolute right-0 z-10 flex items-center justify-center rounded-2xl bg-surface-overlay p-6 shadow-elevation-200 ${popoverClassName ?? ""}`}
             >

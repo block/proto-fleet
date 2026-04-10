@@ -3,6 +3,21 @@ import { describe, expect, test, vi } from "vitest";
 import ActionBar from ".";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 
+// MinerActionsMenu imports hooks from the removed fleet store slice.
+// Mock it so the test that renders it directly doesn't crash.
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
+  default: ({ onActionStart }: { onActionStart?: () => void }) => (
+    <div>
+      <span>More</span>
+      <button data-testid="actions-menu-button" onClick={onActionStart}>
+        <button data-testid="reboot-popover-button" onClick={onActionStart}>
+          Reboot
+        </button>
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("@/protoFleet/api/usePools", () => ({
   default: () => ({
     pools: [],

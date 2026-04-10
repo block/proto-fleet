@@ -68,7 +68,6 @@ const useAuthNeededMiners = (options: UseAuthNeededMinersOptions = {}): UseAuthN
 
   return useFleet({
     enabled,
-    scope: "local", // Use local state to avoid conflicts with global fleet view
     pageSize,
     filter,
     pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],

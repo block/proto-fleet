@@ -15,16 +15,6 @@ vi.mock("@/shared/features/toaster");
 
 const mockRefetchMiners = vi.fn();
 const mockNotifyPairingCompleted = vi.fn();
-vi.mock("@/protoFleet/store", () => ({
-  useFleetStore: {
-    getState: () => ({
-      fleet: {
-        refetchMiners: mockRefetchMiners,
-      },
-    }),
-  },
-  useNotifyPairingCompleted: () => mockNotifyPairingCompleted,
-}));
 
 const mockUnpairedMiners = {
   miner1: {
@@ -114,7 +104,14 @@ describe("AuthenticateMiners", () => {
   const mockPassword = "test1234";
 
   it("renders with all miners selected by default", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -122,7 +119,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("toggles between showing and hiding miner list", () => {
-    const { getByText, queryByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText, queryByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     expect(queryByText("IP Address")).not.toBeInTheDocument();
 
@@ -134,7 +138,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("allows entering bulk credentials", async () => {
-    const { getByLabelText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByLabelText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     const usernameInput = getByLabelText(bulkUsernameLabel);
     const passwordInput = getByLabelText(bulkPasswordLabel);
@@ -147,14 +158,28 @@ describe("AuthenticateMiners", () => {
   });
 
   it("autofocuses the bulk username input on mount", () => {
-    const { getByLabelText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByLabelText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     const usernameInput = getByLabelText(bulkUsernameLabel);
     expect(usernameInput).toHaveFocus();
   });
 
   it("shows error when authenticating without credentials", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText("Authenticate"));
 
@@ -163,7 +188,12 @@ describe("AuthenticateMiners", () => {
 
   it("shows individual credential inputs for each miner", async () => {
     const { getByText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -177,7 +207,12 @@ describe("AuthenticateMiners", () => {
 
   it("populates individual miner inputs with bulk credentials", async () => {
     const { getByText, getByLabelText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -204,7 +239,12 @@ describe("AuthenticateMiners", () => {
 
   it("toggles password visibility", async () => {
     const { getByText, getByLabelText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -222,7 +262,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("allows selecting and deselecting all miners", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -234,7 +281,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("filters miners by model", async () => {
-    const { getByText, getAllByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText, getAllByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -253,7 +307,12 @@ describe("AuthenticateMiners", () => {
 
   it("disables inputs during authentication", async () => {
     const { getByText, getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -274,7 +333,12 @@ describe("AuthenticateMiners", () => {
 
   it("clears individual credentials when toggling miner list", async () => {
     const { getByText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -294,7 +358,12 @@ describe("AuthenticateMiners", () => {
 
   it("calls pair API with bulk credentials when authenticate is clicked", async () => {
     const { getByText, getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -329,7 +398,12 @@ describe("AuthenticateMiners", () => {
 
   it("groups miners with same credentials into single pair request", async () => {
     const { getByText, getByLabelText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -358,7 +432,12 @@ describe("AuthenticateMiners", () => {
 
   it("calls refetch after successful authentication", async () => {
     const { getByText, getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
     );
 
     mockPair.mockImplementation(({ onSuccess }) => {
@@ -383,13 +462,27 @@ describe("AuthenticateMiners", () => {
   });
 
   it("displays correct total devices count", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     expect(getByText("3 miners remaining")).toBeInTheDocument();
   });
 
   it("disables authenticate button when no miners are selected", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
     fireEvent.click(getByText("Select none"));
@@ -399,7 +492,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("enables authenticate button when miners are selected", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -409,7 +509,14 @@ describe("AuthenticateMiners", () => {
   });
 
   it("re-enables authenticate button after selecting miners", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -426,7 +533,14 @@ describe("AuthenticateMiners", () => {
 
   describe("selection persistence", () => {
     it("preserves empty selection when user deselects all miners", async () => {
-      const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+      const { getByText } = render(
+        <AuthenticateMiners
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+          onPairingCompleted={mockNotifyPairingCompleted}
+          onRefetchMiners={mockRefetchMiners}
+        />,
+      );
 
       fireEvent.click(getByText(showMinersLabel));
 
@@ -448,7 +562,14 @@ describe("AuthenticateMiners", () => {
 
     it("does not reset selection to all when miner list updates", async () => {
       const mockRefetch = vi.fn();
-      const { getByText, rerender } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+      const { getByText, rerender } = render(
+        <AuthenticateMiners
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+          onPairingCompleted={mockNotifyPairingCompleted}
+          onRefetchMiners={mockRefetchMiners}
+        />,
+      );
 
       fireEvent.click(getByText(showMinersLabel));
 
@@ -477,7 +598,14 @@ describe("AuthenticateMiners", () => {
       });
 
       // Trigger re-render with updated miner list
-      rerender(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+      rerender(
+        <AuthenticateMiners
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+          onPairingCompleted={mockNotifyPairingCompleted}
+          onRefetchMiners={mockRefetchMiners}
+        />,
+      );
 
       // Selection should NOT reset to "all miners" - should remain empty
       // Before the fix, this would show "1 miner selected"
@@ -500,7 +628,14 @@ describe("AuthenticateMiners", () => {
         refetch: vi.fn(),
       });
 
-      const { getByText, rerender } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+      const { getByText, rerender } = render(
+        <AuthenticateMiners
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+          onPairingCompleted={mockNotifyPairingCompleted}
+          onRefetchMiners={mockRefetchMiners}
+        />,
+      );
 
       // No miners loaded yet - should show 0
       expect(getByText("0 miners remaining")).toBeInTheDocument();
@@ -518,7 +653,14 @@ describe("AuthenticateMiners", () => {
         refetch: vi.fn(),
       });
 
-      rerender(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+      rerender(
+        <AuthenticateMiners
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+          onPairingCompleted={mockNotifyPairingCompleted}
+          onRefetchMiners={mockRefetchMiners}
+        />,
+      );
 
       fireEvent.click(getByText(showMinersLabel));
 

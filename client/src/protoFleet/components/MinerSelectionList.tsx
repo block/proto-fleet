@@ -190,7 +190,6 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage,
       availableModels,
     } = useFleet({
-      scope: "local",
       filter,
       sort: sortConfig,
       pageSize: PAGE_SIZE,

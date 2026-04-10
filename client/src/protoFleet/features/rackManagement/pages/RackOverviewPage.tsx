@@ -431,6 +431,8 @@ const RackOverviewPage = () => {
               </Button>
               <DeviceSetActionsMenu
                 memberDeviceIds={memberDeviceIds ?? []}
+                deviceSetId={rack?.id}
+                deviceSetType="rack"
                 onEdit={() => setShowEditModal(true)}
                 editLabel="Edit rack"
                 onActionComplete={() => rack && resolveRack(rack.id)}

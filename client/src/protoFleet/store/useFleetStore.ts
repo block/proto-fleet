@@ -2,8 +2,8 @@ import { create } from "zustand";
 import { devtools, persist, PersistStorage, StorageValue, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
+import { type BatchSlice, createBatchSlice } from "./slices/batchSlice";
 import { createDashboardSlice, type DashboardSlice } from "./slices/dashboardSlice";
-import { createFleetSlice, type FleetSlice } from "./slices/fleetSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
 import { normalizeBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
@@ -14,8 +14,8 @@ import { normalizeBulkRenamePreferences } from "@/protoFleet/features/fleetManag
 
 export interface FleetStore {
   auth: AuthSlice;
+  batch: BatchSlice;
   ui: UISlice;
-  fleet: FleetSlice;
   onboarding: OnboardingSlice;
   dashboard: DashboardSlice;
 }
@@ -118,8 +118,8 @@ export const useFleetStore = create<FleetStore>()(
       persist(
         immer((set, get, api) => ({
           auth: createAuthSlice(set as any, get as any, api as any),
+          batch: createBatchSlice(set as any, get as any, api as any),
           ui: createUISlice(set as any, get as any, api as any),
-          fleet: createFleetSlice(set as any, get as any, api as any),
           onboarding: createOnboardingSlice(set as any, get as any, api as any),
           dashboard: createDashboardSlice(set as any, get as any, api as any),
         })),

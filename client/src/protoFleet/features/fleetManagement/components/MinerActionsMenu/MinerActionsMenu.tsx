@@ -11,8 +11,12 @@ import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
-import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type {
+  MinerListFilter,
+  MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
+import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ChevronDown, Edit } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -29,6 +33,12 @@ interface MinerActionsMenuProps {
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;
+  /** Miner data keyed by device identifier, forwarded to BulkRenameModal */
+  miners?: Record<string, MinerStateSnapshot>;
+  /** Ordered list of miner device identifiers, forwarded to BulkRenameModal */
+  minerIds?: string[];
+  /** Callback to refetch miners after bulk rename */
+  onRefetchMiners?: () => void;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
@@ -39,9 +49,13 @@ const MinerActionsMenu = ({
   totalCount,
   currentFilter,
   currentSort,
+  miners = {},
+  minerIds = [],
+  onRefetchMiners,
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
@@ -93,6 +107,11 @@ const MinerActionsMenu = ({
     selectionMode,
     totalCount,
     currentFilter,
+    startBatchOperation,
+    completeBatchOperation,
+    removeDevicesFromBatch,
+    miners,
+    onRefetchMiners,
     onActionStart,
     onActionComplete,
   });
@@ -251,6 +270,9 @@ const MinerActionsMenu = ({
         totalCount={totalCount}
         currentFilter={currentFilter}
         currentSort={currentSort}
+        miners={miners}
+        minerIds={minerIds}
+        onRefetchMiners={onRefetchMiners}
         onDismiss={() => {
           setShowBulkRenameModal(false);
           onActionComplete?.();

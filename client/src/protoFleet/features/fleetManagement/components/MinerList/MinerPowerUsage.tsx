@@ -1,14 +1,14 @@
 import MinerMeasurement from "./MinerMeasurement";
 import UnsupportedMetric from "./UnsupportedMetric";
-import { useMiner, useMinerPowerUsage } from "@/protoFleet/store";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getMinerMeasurement } from "@/protoFleet/features/fleetManagement/utils/getMinerMeasurement";
 
 type MinerPowerUsageProps = {
-  deviceIdentifier: string;
+  miner: MinerStateSnapshot;
 };
 
-const MinerPowerUsage = ({ deviceIdentifier }: MinerPowerUsageProps) => {
-  const miner = useMiner(deviceIdentifier);
-  const powerUsage = useMinerPowerUsage(deviceIdentifier);
+const MinerPowerUsage = ({ miner }: MinerPowerUsageProps) => {
+  const powerUsage = getMinerMeasurement(miner, (m) => m.powerUsage);
 
   // Check if miner doesn't support power usage reporting or capability is not available yet
   const powerUsageReported = miner?.capabilities?.telemetry?.powerUsageReported;

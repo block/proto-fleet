@@ -9,7 +9,6 @@ import usePoolNeededCount from "@/protoFleet/api/usePoolNeededCount";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
-import { useFleetStore, useLastPairingCompletedAt } from "@/protoFleet/store";
 import { Alert, Dismiss, MiningPools } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
@@ -68,9 +67,13 @@ const TaskCard = ({
 const AuthenticateMinersCard = ({
   count,
   onAuthenticationSuccess,
+  onRefetchMiners,
+  onPairingCompleted,
 }: {
   count: number;
   onAuthenticationSuccess: () => void;
+  onRefetchMiners?: () => void;
+  onPairingCompleted?: () => void;
 }) => {
   const [showAuthMinersModal, setShowAuthMinersModal] = useState(false);
 
@@ -87,6 +90,8 @@ const AuthenticateMinersCard = ({
         open={showAuthMinersModal}
         onClose={() => setShowAuthMinersModal(false)}
         onSuccess={onAuthenticationSuccess}
+        onRefetchMiners={onRefetchMiners}
+        onPairingCompleted={onPairingCompleted}
       />
     </>
   );
@@ -124,9 +129,25 @@ const ConfigurePoolCard = ({
 
 type CompleteSetupProps = {
   className?: string;
+  lastPairingCompletedAt?: number;
+  onRefetchMiners?: () => void;
+  onPairingCompleted?: () => void;
 };
 
-const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
+const CompleteSetup = ({
+  className = "",
+  lastPairingCompletedAt: externalPairingTimestamp = 0,
+  onRefetchMiners,
+  onPairingCompleted: externalOnPairingCompleted,
+}: CompleteSetupProps) => {
+  // Internal pairing state for callers that don't wire external callbacks (e.g., Dashboard).
+  // Uses whichever timestamp is newer: external prop or internal state.
+  const [internalPairingTimestamp, setInternalPairingTimestamp] = useState(0);
+  const lastPairingCompletedAt = Math.max(externalPairingTimestamp, internalPairingTimestamp);
+  const onPairingCompleted = useCallback(() => {
+    externalOnPairingCompleted?.();
+    setInternalPairingTimestamp(Date.now());
+  }, [externalOnPairingCompleted]);
   const [completSetupDismissed, setCompletSetupDismissed] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
   const handleDismiss = () => {
@@ -162,7 +183,7 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
   const poolCountWhenPollingStartedRef = useRef<number | null>(null);
   // Store target count for pool assignment operation (used for toast message when complete)
   const pendingPoolAssignmentRef = useRef<{ targetCount: number; failureCount: number } | null>(null);
-  const refetchMiners = useFleetStore((state) => state.fleet.refetchMiners);
+  const refetchMiners = onRefetchMiners;
 
   // Track latest poolNeededCount to avoid stale closure in callbacks
   const poolNeededCountRef = useRef(poolNeededCount);
@@ -353,7 +374,6 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
   }, []);
 
   // Watch for pairing operations completing and start polling
-  const lastPairingCompletedAt = useLastPairingCompletedAt();
   const lastProcessedPairingTimestampRef = useRef(0);
 
   useEffect(() => {
@@ -425,7 +445,12 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 0.2, ease: "easeOut" }}
                   >
-                    <AuthenticateMinersCard count={authNeededCount} onAuthenticationSuccess={refetchAuthNeededMiners} />
+                    <AuthenticateMinersCard
+                      count={authNeededCount}
+                      onAuthenticationSuccess={refetchAuthNeededMiners}
+                      onRefetchMiners={refetchMiners}
+                      onPairingCompleted={onPairingCompleted}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>

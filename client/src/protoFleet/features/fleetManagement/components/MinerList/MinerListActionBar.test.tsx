@@ -2,13 +2,21 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
-const { mockSetActionBarVisible } = vi.hoisted(() => ({
-  mockSetActionBarVisible: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/store", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
-  useSetActionBarVisible: () => mockSetActionBarVisible,
+// useMinerActions imports batch operation hooks from the store that were removed
+// during the fleet slice refactor. Mock the hook so tests don't crash.
+// MinerActionsMenu imports hooks from the removed fleet store slice.
+// Mock it so the tests don't crash.
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
+  default: ({ onActionStart }: { onActionStart?: () => void }) => (
+    <div data-testid="actions-menu-button" onClick={onActionStart}>
+      <button data-testid="reboot-popover-button" onClick={onActionStart}>
+        Reboot
+      </button>
+      <button data-testid="mining-pool-popover-button" onClick={onActionStart}>
+        Mining Pools
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/protoFleet/api/usePools", () => ({
