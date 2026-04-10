@@ -21,7 +21,7 @@ import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/comm
 import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
+import { ArrowRight, Edit, Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -119,7 +119,7 @@ const SingleMinerActionsMenu = ({
     const viewMinerAction: BulkAction<SingleMinerAction> = {
       action: "viewMiner",
       title: "View miner",
-      icon: <Eye />,
+      icon: <ArrowRight className="text-text-primary" />,
       actionHandler: handleViewMiner,
       requiresConfirmation: false,
       showGroupDivider: true,

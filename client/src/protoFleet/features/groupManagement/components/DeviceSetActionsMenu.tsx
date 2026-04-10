@@ -26,7 +26,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManageSecurity";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { Edit, Ellipsis, Eye } from "@/shared/assets/icons";
+import { ArrowRight, Edit, Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -237,7 +237,7 @@ const DeviceSetActionsMenuInner = ({
       ? {
           action: "view-group",
           title: viewLabel,
-          icon: <Eye />,
+          icon: <ArrowRight className="text-text-primary" />,
           actionHandler: () => {
             setIsOpen(false);
             onView();
