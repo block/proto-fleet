@@ -17,7 +17,10 @@ const mockStoreState = () => ({
 vi.mock("@/protoFleet/store", () => {
   const useFleetStore = (selector: any) => selector(mockStoreState());
   useFleetStore.getState = () => mockStoreState();
-  return { useFleetStore };
+  return {
+    useFleetStore,
+    useUsername: () => "",
+  };
 });
 
 vi.mock("./minerColConfig", () => ({

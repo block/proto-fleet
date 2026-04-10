@@ -1,10 +1,13 @@
+import { useLayoutEffect, useRef } from "react";
 import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import MinerList from "./MinerList";
+import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
+import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
 import {
   MinerStateSnapshotSchema,
   PairingStatus,
@@ -76,6 +79,25 @@ const LocationDisplay = () => {
   return <div data-testid="location-display">{location.search}</div>;
 };
 
+const isModelColumnVisible = (preferences: { columns: { id: string; visible: boolean }[] }) =>
+  preferences.columns.find((column) => column.id === "model")?.visible ?? false;
+
+const PreferenceStorageKeyProbe = ({ username }: { username: string }) => {
+  const { preferences, setPreferences } = useMinerTableColumnPreferences(username);
+  const previousUsername = useRef(username);
+
+  useLayoutEffect(() => {
+    if (previousUsername.current === username) {
+      return;
+    }
+
+    previousUsername.current = username;
+    setPreferences(preferences);
+  }, [preferences, setPreferences, username]);
+
+  return <div data-testid="preference-probe-model-visible">{String(isModelColumnVisible(preferences))}</div>;
+};
+
 describe("MinerList", () => {
   const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
     create(MinerStateSnapshotSchema, {
@@ -97,7 +119,12 @@ describe("MinerList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.pushState({}, "", "/");
+    localStorage.clear();
     useFleetStore.setState((state) => ({
+      auth: {
+        ...state.auth,
+        username: "",
+      },
       fleet: {
         ...state.fleet,
         miners: {},
@@ -107,6 +134,12 @@ describe("MinerList", () => {
       },
     }));
   });
+
+  const getColumnHeaders = () =>
+    within(screen.getByTestId("list-header"))
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent?.trim() ?? "")
+      .filter(Boolean);
 
   describe("miner count subtitle", () => {
     it("shows total miner count", () => {
@@ -199,6 +232,391 @@ describe("MinerList", () => {
       );
 
       expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+    });
+  });
+
+  describe("manage columns", () => {
+    it("opens the manage columns modal", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+
+      expect(screen.getByTestId("manage-columns-modal")).toBeInTheDocument();
+      expect(
+        screen.getByText("Choose which data to display and rearrange columns to match your workflow."),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("manage-columns-reorder-model").firstChild).toHaveClass("w-4", "h-4", "shrink-0");
+    });
+
+    it("saves hidden columns for the current user and reapplies them on rerender", async () => {
+      const user = userEvent.setup();
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      const { rerender } = render(
+        <BrowserRouter>
+          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+        </BrowserRouter>,
+      );
+
+      expect(getColumnHeaders()).toContain("Model");
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(getColumnHeaders()).not.toContain("Model");
+
+      rerender(
+        <BrowserRouter>
+          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+        </BrowserRouter>,
+      );
+
+      expect(getColumnHeaders()).not.toContain("Model");
+    });
+
+    it("keeps the modal draft in sync when the active user changes while it is open", async () => {
+      const user = userEvent.setup();
+
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      expect(screen.getByRole("checkbox", { name: "Toggle Model column" })).not.toBeChecked();
+
+      act(() => {
+        useFleetStore.setState((state) => ({
+          auth: {
+            ...state.auth,
+            username: "bob",
+          },
+        }));
+      });
+
+      expect(screen.getByRole("checkbox", { name: "Toggle Model column" })).toBeChecked();
+
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(localStorage.getItem(getMinerTableColumnPreferencesStorageKey("bob"))).toBeNull();
+    });
+
+    it("switches to the new user's preferences before layout effects can resave stale state", () => {
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      const { rerender } = render(<PreferenceStorageKeyProbe username="alice" />);
+
+      expect(screen.getByTestId("preference-probe-model-visible")).toHaveTextContent("false");
+
+      rerender(<PreferenceStorageKeyProbe username="bob" />);
+
+      expect(screen.getByTestId("preference-probe-model-visible")).toHaveTextContent("true");
+      expect(localStorage.getItem(getMinerTableColumnPreferencesStorageKey("bob"))).toBeNull();
+    });
+
+    it("keeps the table usable when persistence writes fail while saving preferences", async () => {
+      const user = userEvent.setup();
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
+
+      const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+
+      try {
+        await user.click(screen.getByRole("button", { name: "Save" }));
+      } finally {
+        setItemSpy.mockRestore();
+      }
+
+      expect(getColumnHeaders()).not.toContain("Model");
+    });
+
+    it("clears the active sort when the saved preferences hide the sorted column", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
+          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByTestId("location-display")).toHaveTextContent("?sort=model&dir=asc");
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(getColumnHeaders()).not.toContain("Model");
+      expect(screen.getByTestId("location-display").textContent).toBe("");
+    });
+
+    it("clears a hidden URL sort when stored preferences load on first render", async () => {
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      render(
+        <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
+          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("location-display").textContent).toBe("");
+      });
+
+      expect(getColumnHeaders()).not.toContain("Model");
+    });
+
+    it("clears a hidden URL sort when the active user changes", async () => {
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("bob"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      render(
+        <MemoryRouter initialEntries={["/?sort=model&dir=asc"]}>
+          <MinerList title="Miners" minerIds={["m1"]} totalMiners={1} onAddMiners={vi.fn()} loading={false} />
+          <LocationDisplay />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByTestId("location-display")).toHaveTextContent("?sort=model&dir=asc");
+      expect(getColumnHeaders()).toContain("Model");
+
+      act(() => {
+        useFleetStore.setState((state) => ({
+          auth: {
+            ...state.auth,
+            username: "bob",
+          },
+        }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("location-display").textContent).toBe("");
+      });
+
+      expect(getColumnHeaders()).not.toContain("Model");
+    });
+
+    it("resets column preferences back to the default layout", async () => {
+      const user = userEvent.setup();
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      expect(getColumnHeaders()).not.toContain("Model");
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(getColumnHeaders()).toContain("Model");
+    });
+
+    it("keeps the table usable when clearing persisted defaults fails", async () => {
+      const user = userEvent.setup();
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
+
+      const removeItemSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+        throw new Error("storage denied");
+      });
+
+      try {
+        await user.click(screen.getByRole("button", { name: "Save" }));
+      } finally {
+        removeItemSpy.mockRestore();
+      }
+
+      expect(getColumnHeaders()).toContain("Model");
+    });
+
+    it("loads column preferences per user without leaking between accounts", async () => {
+      localStorage.setItem(
+        getMinerTableColumnPreferencesStorageKey("alice"),
+        JSON.stringify({
+          columns: [
+            { id: "groups", visible: true },
+            { id: "model", visible: false },
+          ],
+        }),
+      );
+
+      useFleetStore.setState((state) => ({
+        auth: {
+          ...state.auth,
+          username: "alice",
+        },
+      }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      expect(getColumnHeaders()).not.toContain("Model");
+
+      act(() => {
+        useFleetStore.setState((state) => ({
+          auth: {
+            ...state.auth,
+            username: "bob",
+          },
+        }));
+      });
+
+      expect(getColumnHeaders()).toContain("Model");
+
+      act(() => {
+        useFleetStore.setState((state) => ({
+          auth: {
+            ...state.auth,
+            username: "alice",
+          },
+        }));
+      });
+
+      expect(getColumnHeaders()).not.toContain("Model");
     });
   });
 

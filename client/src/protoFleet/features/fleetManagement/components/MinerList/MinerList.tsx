@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -12,9 +12,12 @@ import {
   type MinerColumn,
   MINERS_PAGE_SIZE,
 } from "./constants";
+import ManageColumnsModal from "./ManageColumnsModal";
 import createMinerColConfig from "./minerColConfig";
-import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
+import { buildActiveMinerColumns, type MinerTableColumnPreferences } from "./minerTableColumnPreferences";
+import { getColumnForSortField, getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
+import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -35,9 +38,10 @@ import {
   encodeFilterToURL,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
-import { useFleetStore } from "@/protoFleet/store";
+import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
+import { useFleetStore, useUsername } from "@/protoFleet/store";
 
-import { ChevronDown, LogoAlt } from "@/shared/assets/icons";
+import { ChevronDown, LogoAlt, Slider } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
@@ -149,25 +153,8 @@ type MinerListProps = {
   currentSortConfig?: SortConfig;
 };
 
-// TODO: move this to state when we
-// implement row customization
-const activeCols: MinerColumn[] = [
-  minerCols.name,
-  minerCols.groups,
-  minerCols.model,
-  minerCols.macAddress,
-  minerCols.ipAddress,
-  minerCols.status,
-  minerCols.issues,
-  minerCols.hashrate,
-  minerCols.efficiency,
-  minerCols.powerUsage,
-  minerCols.temperature,
-  minerCols.firmware,
-  minerCols.workerName,
-];
-
 type ScopedMinerListBodyProps = {
+  activeCols: MinerColumn[];
   deviceItems: DeviceListItem[];
   minerColConfig: ReturnType<typeof createMinerColConfig>;
   filters: FilterItem[];
@@ -183,6 +170,7 @@ type ScopedMinerListBodyProps = {
   onAddMiners: () => void;
   onExportCsv?: () => void | Promise<void>;
   exportCsvLoading?: boolean;
+  onOpenManageColumns: () => void;
   handleClearFilters: () => void;
   isRowDisabled: (item: DeviceListItem) => boolean;
   currentFilter?: MinerListFilter;
@@ -200,6 +188,7 @@ type ScopedMinerListBodyProps = {
 };
 
 const ScopedMinerListBody = ({
+  activeCols,
   deviceItems,
   minerColConfig,
   filters,
@@ -215,6 +204,7 @@ const ScopedMinerListBody = ({
   onAddMiners,
   onExportCsv,
   exportCsvLoading = false,
+  onOpenManageColumns,
   handleClearFilters,
   isRowDisabled,
   currentFilter,
@@ -267,6 +257,15 @@ const ScopedMinerListBody = ({
         headerControls={
           <div className="flex items-center gap-2">
             <Button
+              ariaLabel="Manage columns"
+              ariaHasPopup="dialog"
+              variant={variants.secondary}
+              size={sizes.compact}
+              prefixIcon={<Slider width="w-4" />}
+              onClick={onOpenManageColumns}
+              testId="manage-columns-button"
+            />
+            <Button
               text="Export CSV"
               variant={variants.secondary}
               size={sizes.compact}
@@ -292,7 +291,7 @@ const ScopedMinerListBody = ({
           </div>
         )}
         containerClassName={listClassName}
-        tableClassName="mb-4 w-max !table-auto"
+        tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
         overflowContainer={overflowContainer}
@@ -383,8 +382,12 @@ const MinerList = ({
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const username = useUsername();
+  const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
+    useMinerTableColumnPreferences(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
+  const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
 
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -469,11 +472,17 @@ const MinerList = ({
       window.open(url, "_blank", "noopener,noreferrer");
     }
   }, []);
+  const sortColumnFromUrl = useMemo(() => {
+    const parsedSort = parseSortFromURL(searchParams);
+    return parsedSort ? getColumnForSortField(parsedSort.field) : undefined;
+  }, [searchParams]);
+  const activeSortColumn = currentSort?.field ?? sortColumnFromUrl;
 
   const minerColConfig = useMemo(
     () => createMinerColConfig({ onOpenStatusFlow: handleOpenStatusFlow, availableGroups }),
     [handleOpenStatusFlow, availableGroups],
   );
+  const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
   const hasActiveFilters = useMemo(() => {
     return (
@@ -484,6 +493,20 @@ const MinerList = ({
       searchParams.has("rack")
     );
   }, [searchParams]);
+  useEffect(() => {
+    if (!sortColumnFromUrl || activeCols.includes(sortColumnFromUrl)) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams);
+    if (!params.has("sort") && !params.has("dir")) {
+      return;
+    }
+
+    encodeSortToURL(params, undefined);
+    navigate({ search: params.toString() ? `?${params.toString()}` : "" }, { replace: true });
+  }, [activeCols, navigate, searchParams, sortColumnFromUrl]);
+
   const selectionFilterKey = useMemo(() => {
     const params = new URLSearchParams();
     ["status", "issues", "model"].forEach((key) => {
@@ -637,6 +660,29 @@ const MinerList = ({
     },
     [navigate, searchParams],
   );
+  const handleOpenManageColumns = useCallback(() => {
+    setShowManageColumnsModal(true);
+  }, []);
+  const handleCloseManageColumns = useCallback(() => {
+    setShowManageColumnsModal(false);
+  }, []);
+  const handleSaveManageColumns = useCallback(
+    (preferences: MinerTableColumnPreferences) => {
+      const activeColumns = buildActiveMinerColumns(preferences);
+
+      setColumnPreferences(preferences);
+
+      if (activeSortColumn && !activeColumns.includes(activeSortColumn)) {
+        const params = new URLSearchParams(searchParams);
+        encodeSortToURL(params, undefined);
+        navigate({ search: params.toString() ? `?${params.toString()}` : "" }, { replace: true });
+      }
+
+      setShowManageColumnsModal(false);
+    },
+    [activeSortColumn, navigate, searchParams, setColumnPreferences],
+  );
+
   // Show null state when no miners are paired and not loading
   const showNullState = !loading && totalMiners === 0 && !hasActiveFilters;
 
@@ -693,6 +739,7 @@ const MinerList = ({
       ) : (
         <ScopedMinerListBody
           key={selectionScopeKey}
+          activeCols={activeCols}
           deviceItems={deviceItems}
           minerColConfig={minerColConfig}
           filters={filters}
@@ -708,6 +755,7 @@ const MinerList = ({
           onAddMiners={onAddMiners}
           onExportCsv={onExportCsv}
           exportCsvLoading={exportCsvLoading}
+          onOpenManageColumns={handleOpenManageColumns}
           handleClearFilters={handleClearFilters}
           isRowDisabled={isRowDisabled}
           currentFilter={currentFilter}
@@ -724,6 +772,14 @@ const MinerList = ({
           onRowClick={handleRowClick}
         />
       )}
+
+      {showManageColumnsModal ? (
+        <ManageColumnsModal
+          preferences={columnPreferences}
+          onDismiss={handleCloseManageColumns}
+          onSave={handleSaveManageColumns}
+        />
+      ) : null}
 
       {modalFlow.kind === "authenticate-miners" && <AuthenticateMiners open onClose={closeModalFlow} />}
 

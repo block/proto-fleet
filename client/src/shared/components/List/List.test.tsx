@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
 import { defaultListFilter } from "@/shared/components/List/constants";
@@ -24,6 +24,24 @@ beforeAll(() => {
 describe("List", () => {
   const activeCols = [testCols.name, testCols.status, testCols.value, testCols.timestamp] as (keyof TestItem)[];
   type TestItemKey = TestItem["id"];
+
+  const setListDimensions = (
+    container: HTMLElement,
+    dimensions: { clientWidth: number; tableWidth: number; overflowPaddingWidth?: number },
+  ) => {
+    const scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
+    const table = container.querySelector("table") as HTMLTableElement;
+
+    Object.defineProperty(scrollContainer, "clientWidth", { configurable: true, value: dimensions.clientWidth });
+    Object.defineProperty(table, "offsetWidth", {
+      configurable: true,
+      get: () => {
+        const lastHeaderCell = screen.getByText(testColTitles.timestamp).closest("th");
+        const hasOverflowPadding = lastHeaderCell?.classList.contains("desktop:pr-(--list-padding-right-desktop)");
+        return dimensions.tableWidth + (hasOverflowPadding ? (dimensions.overflowPaddingWidth ?? 0) : 0);
+      },
+    });
+  };
 
   it("renders cols correctly", () => {
     render(
@@ -72,7 +90,7 @@ describe("List", () => {
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
   });
 
-  it("applies trailing padding classes to the last column when paddingRight is provided", () => {
+  it("does not apply trailing padding classes when the last column is already reachable", () => {
     render(
       <List<TestItem, TestItemKey>
         activeCols={activeCols}
@@ -89,10 +107,177 @@ describe("List", () => {
       />,
     );
 
+    expect(screen.getByText(testColTitles.timestamp).closest("th")).not.toHaveClass(
+      "desktop:pr-(--list-padding-right-desktop)",
+    );
+    expect(screen.getAllByTestId(testCols.timestamp)[0]).not.toHaveClass("desktop:pr-(--list-padding-right-desktop)");
+  });
+
+  it("applies trailing padding classes when the last column requires horizontal scrolling", () => {
+    const { container } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        paddingRight={{
+          phone: "24px",
+          tablet: "24px",
+          laptop: "40px",
+          desktop: "40px",
+        }}
+      />,
+    );
+
+    setListDimensions(container, { clientWidth: 200, tableWidth: 360, overflowPaddingWidth: 40 });
+
+    fireEvent(window, new Event("resize"));
+
     expect(screen.getByText(testColTitles.timestamp).closest("th")).toHaveClass(
       "desktop:pr-(--list-padding-right-desktop)",
     );
     expect(screen.getAllByTestId(testCols.timestamp)[0]).toHaveClass("desktop:pr-(--list-padding-right-desktop)");
+  });
+
+  it("clears horizontal overflow after the table shrinks below the container width", () => {
+    const { container } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        paddingRight={{
+          phone: "24px",
+          tablet: "24px",
+          laptop: "40px",
+          desktop: "40px",
+        }}
+      />,
+    );
+
+    const scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
+
+    setListDimensions(container, { clientWidth: 400, tableWidth: 440, overflowPaddingWidth: 40 });
+    fireEvent(window, new Event("resize"));
+    expect(scrollContainer).toHaveClass("overflow-x-auto");
+
+    setListDimensions(container, { clientWidth: 400, tableWidth: 390, overflowPaddingWidth: 40 });
+    fireEvent(window, new Event("resize"));
+
+    expect(scrollContainer).toHaveClass("overflow-x-hidden");
+  });
+
+  it("extends row dividers to the container edge when the table does not overflow horizontally", () => {
+    const { container } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+      />,
+    );
+
+    expect(container.querySelectorAll('[data-testid="row-divider-extension"]')).toHaveLength(testItems.length);
+  });
+
+  it("does not extend row dividers when the table overflows horizontally", () => {
+    const { container } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+      />,
+    );
+
+    setListDimensions(container, { clientWidth: 200, tableWidth: 400 });
+
+    fireEvent(window, new Event("resize"));
+
+    expect(container.querySelector('[data-testid="row-divider-extension"]')).not.toBeInTheDocument();
+  });
+
+  it("matches the sticky shadow mask to the configured sticky background", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        stickyBgColor="bg-surface-elevated-base"
+      />,
+    );
+
+    expect(screen.getByText(testColTitles.name).closest("th")).toHaveStyle({
+      "--list-sticky-shadow-mask-bg": "var(--color-surface-elevated-base)",
+    });
+  });
+
+  it("recomputes horizontal overflow when the table size changes without a window resize", () => {
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    let resizeObserverCallback: (() => void) | undefined;
+
+    globalThis.ResizeObserver = class ResizeObserver {
+      constructor(callback: (...args: unknown[]) => void) {
+        resizeObserverCallback = () => callback([], this);
+      }
+
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+        />,
+      );
+
+      const scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
+
+      setListDimensions(container, { clientWidth: 200, tableWidth: 400 });
+      fireEvent(window, new Event("resize"));
+      act(() => {
+        resizeObserverCallback?.();
+      });
+
+      expect(scrollContainer).toHaveClass("overflow-x-auto");
+    } finally {
+      globalThis.ResizeObserver = OriginalResizeObserver;
+    }
+  });
+
+  it("does not register a resize listener when horizontal overflow handling is disabled", () => {
+    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+    let resizeListenerCount: number;
+
+    try {
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          overflowContainer={false}
+        />,
+      );
+      resizeListenerCount = addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === "resize").length;
+    } finally {
+      addEventListenerSpy.mockRestore();
+    }
+
+    expect(resizeListenerCount).toBe(0);
   });
 
   it("shows item count by default", () => {
@@ -1029,13 +1214,17 @@ describe("List", () => {
       expect(rows[1].className).not.toContain("opacity-50");
 
       // Cell content in the first (disabled) row should have opacity-50
-      const disabledRowCellContents = Array.from(rows[0].querySelectorAll("td > div"));
+      const disabledRowCellContents = Array.from(
+        rows[0].querySelectorAll("td > div:not([data-testid='row-divider-extension'])"),
+      );
       disabledRowCellContents.forEach((content) => {
         expect(content.className).toContain("opacity-50");
       });
 
       // Enabled row content should not have opacity-50
-      const enabledRowCellContents = Array.from(rows[1].querySelectorAll("td > div"));
+      const enabledRowCellContents = Array.from(
+        rows[1].querySelectorAll("td > div:not([data-testid='row-divider-extension'])"),
+      );
       enabledRowCellContents.forEach((content) => {
         expect(content.className).not.toContain("opacity-50");
       });
@@ -1795,6 +1984,44 @@ describe("List", () => {
 
       const row = screen.getAllByTestId("list-row")[0];
       expect(row.className).toContain("cursor-pointer");
+    });
+
+    it("uses a hover overlay on clickable row cells so sticky cells stay opaque", () => {
+      const handleRowClick = vi.fn();
+      render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          onRowClick={handleRowClick}
+        />,
+      );
+
+      const row = screen.getAllByTestId("list-row")[0];
+      const checkboxCell = screen.getAllByTestId("checkbox")[0];
+      const stickyDataCell = row.querySelectorAll("td")[1];
+      const nonStickyDataCell = row.querySelectorAll("td")[2];
+      const rowDividerExtension = row.querySelector('[data-testid="row-divider-extension"]');
+
+      expect(row.className).not.toContain("dark:hover:bg-core-primary-5");
+      expect(checkboxCell.className).toContain(
+        "dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+      );
+      expect(stickyDataCell?.className).toContain(
+        "dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+      );
+      expect(stickyDataCell?.className).toContain(
+        "dark:group-hover:before:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+      );
+      expect(nonStickyDataCell?.className).toContain(
+        "dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+      );
+      expect(rowDividerExtension?.className).toContain(
+        "dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]",
+      );
     });
 
     it("does not add cursor-pointer class when onRowClick is not provided", () => {

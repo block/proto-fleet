@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   type CSSProperties,
   type MouseEvent,
+  type MutableRefObject,
   ReactNode,
   Ref,
   useCallback,
@@ -53,6 +54,37 @@ import { useStickyState } from "@/shared/hooks/useStickyState";
 
 const INTERACTIVE_ELEMENT_SELECTOR =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+
+const getCssPixelValue = (variable: string) => {
+  const value = window.getComputedStyle(document.body).getPropertyValue(variable);
+  const parsedValue = Number.parseFloat(value);
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+};
+
+const getActiveBreakpoint = (): Breakpoint => {
+  const width = window.innerWidth;
+  const phoneMaxWidth = getCssPixelValue("--phone-max-width");
+  const tabletMaxWidth = getCssPixelValue("--tablet-max-width");
+  const laptopMaxWidth = getCssPixelValue("--laptop-max-width");
+
+  if (width > laptopMaxWidth) return breakpoints.desktop;
+  if (width > tabletMaxWidth) return breakpoints.laptop;
+  if (width > phoneMaxWidth) return breakpoints.tablet;
+  return breakpoints.phone;
+};
+
+const getOverflowMeasurementWidth = (
+  table: HTMLTableElement,
+  paddingRight: Partial<Record<Breakpoint, string>> | undefined,
+  hasHorizontalOverflow: boolean,
+) => {
+  if (!paddingRight || !hasHorizontalOverflow) {
+    return table.offsetWidth;
+  }
+
+  const activePadding = Number.parseFloat(paddingRight[getActiveBreakpoint()] ?? "0");
+  return table.offsetWidth - (Number.isFinite(activePadding) ? activePadding : 0);
+};
 
 type SelectionMode = "none" | "all" | "subset";
 
@@ -291,6 +323,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   columnShadowVisibleClassList: string;
   stickyStateHorizontalIsStuck: boolean;
   applyColumnWidthsToCells: boolean;
+  extendRowDividerToContainerEdge: boolean;
   rightPaddingClasses: string;
   paddingCssVariables: Record<string, string>;
   tdPaddingClassList: string;
@@ -333,6 +366,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   columnShadowVisibleClassList,
   stickyStateHorizontalIsStuck,
   applyColumnWidthsToCells,
+  extendRowDividerToContainerEdge,
   rightPaddingClasses,
   paddingCssVariables,
   tdPaddingClassList,
@@ -359,11 +393,14 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       ? variants.secondaryDanger
       : variants.secondary;
   const rowKey = item[itemKey] as ItemKeyValueType;
+  const isActionColumnVisible = actions.length > 0;
+  const shouldExtendDividerForDataCell =
+    extendRowDividerToContainerEdge && !isActionColumnVisible && activeCols.length > 0;
 
   return (
     <tr
       key={rowKey as string | number}
-      className={clsx(rowClassName, onRowClick && "cursor-pointer hover:bg-core-primary-5")}
+      className={clsx(rowClassName, onRowClick && "group cursor-pointer")}
       ref={(element) => {
         itemRef?.(rowKey, element);
         rowRef?.(element);
@@ -399,7 +436,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
     >
       {itemSelectable && (
         <td
-          className={clsx(tdClassList, firstStickyClasses, "w-9")}
+          className={clsx(tdClassList, firstStickyClasses, "w-9", onRowClick && rowHoverOverlayClassList)}
           style={paddingCssVariables}
           data-testid="checkbox"
           data-no-row-click
@@ -446,10 +483,12 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           <td
             className={clsx(
               tdClassList,
+              onRowClick && rowHoverOverlayClassList,
               columnIndex === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
               columnIndex === 0 && stickyFirstColumn && columnShadowBaseClassList,
               columnIndex === 0 && stickyFirstColumn && stickyStateHorizontalIsStuck && columnShadowVisibleClassList,
               columnIndex === 0 && stickyFirstColumn && "border-r border-border-5 phone:border-r-0",
+              columnIndex === activeCols.length - 1 && shouldExtendDividerForDataCell && "relative",
               applyColumnWidthsToCells && columnWidthClass,
               columnIndex === activeCols.length - 1 && rightPaddingClasses,
             )}
@@ -486,6 +525,9 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                 content
               )}
             </div>
+            {columnIndex === activeCols.length - 1 && shouldExtendDividerForDataCell ? (
+              <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
+            ) : null}
           </td>
         );
       })}
@@ -494,6 +536,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
         <td
           className={clsx(tdClassList, {
             "opacity-50": rowDisabled,
+            relative: extendRowDividerToContainerEdge,
           })}
           data-testid="action"
           data-no-row-click
@@ -507,11 +550,15 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               disabled={singleVisibleActionDisabled}
             />
           </div>
+          {extendRowDividerToContainerEdge ? (
+            <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
+          ) : null}
         </td>
       ) : visibleActions.length > 1 ? (
         <td
           className={clsx(tdClassList, {
             "opacity-50": rowDisabled,
+            relative: extendRowDividerToContainerEdge,
           })}
           data-testid="action"
           data-no-row-click
@@ -521,16 +568,23 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               <ListActions<ListItem> item={item} actions={visibleActions} disabled={rowDisabled} />
             </PopoverProvider>
           </div>
+          {extendRowDividerToContainerEdge ? (
+            <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
+          ) : null}
         </td>
       ) : actions.length > 0 ? (
         <td
           className={clsx(tdClassList, {
             "opacity-50": rowDisabled,
+            relative: extendRowDividerToContainerEdge,
           })}
           data-testid="action"
           data-no-row-click
         >
           <div className={clsx("w-11", tdPaddingClassList)} />
+          {extendRowDividerToContainerEdge ? (
+            <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
+          ) : null}
         </td>
       ) : null}
     </tr>
@@ -579,15 +633,24 @@ const SortableListRow = <ListItem, ItemKeyValueType, ColKey extends string = key
 
 const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
+const rowHoverOverlayClassList =
+  "group-hover:bg-[linear-gradient(var(--color-surface-5),var(--color-surface-5))] dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]";
+const rowDividerExtensionClassList = `pointer-events-none absolute top-0 left-full h-full w-[100vw] border-b border-border-5 bg-transparent ${rowHoverOverlayClassList}`;
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
 const baseStickyClassList = "tablet:sticky laptop:sticky desktop:sticky z-1";
 const tdClassList = "text-left text-300";
 const tdPaddingClassList = "px-2 py-3";
+const stickyShadowMaskColors: Record<string, string> = {
+  "bg-surface-base": "var(--color-surface-base)",
+  "bg-surface-elevated-base": "var(--color-surface-elevated-base)",
+  "bg-surface-5": "var(--color-surface-5)",
+};
 // use after element for shadow (hidden on phone since column isn't sticky)
-// after pseudo-element is always present with opacity-0, transitions to visible when stuck
+// use before element as an opaque mask and after element as the shadow so
+// horizontally scrolled content cannot bleed through at the sticky edge
 const columnShadowBaseClassList =
-  "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)] after:opacity-0 after:transition-opacity after:duration-500 phone:after:content-none";
-const columnShadowVisibleClassList = "after:opacity-100";
+  "before:content-[''] before:absolute before:top-0 before:right-[-6px] before:bottom-[-1px] before:w-[9px] before:bg-[var(--list-sticky-shadow-mask-bg)] before:opacity-0 before:transition-opacity before:duration-500 group-hover:before:bg-[linear-gradient(var(--color-surface-5),var(--color-surface-5))] dark:group-hover:before:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))] after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)] after:opacity-0 after:transition-opacity after:duration-500 phone:before:content-none phone:after:content-none";
+const columnShadowVisibleClassList = "before:opacity-100 after:opacity-100";
 
 const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
   activeCols,
@@ -648,6 +711,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  const internalScrollRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
 
   const radioGroupName = useId();
@@ -655,11 +720,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const [hoveredHeader, setHoveredHeader] = useState<ColKey | null>(null);
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
   const prevCustomSelectedLengthRef = useRef<number | undefined>(undefined);
   const currentSelectionMode = customSelectionMode ?? selectionMode;
   const currentSelectedItems = customSelectedItems ?? selectedItems;
   const rowDragEnabled = !!onRowReorder && filteredItems.length > 1;
+  const activeColsKey = useMemo(() => activeCols.join("|"), [activeCols]);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -955,8 +1022,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       style[`--list-padding-${breakpoint}`] = paddingLeft?.[breakpoint] || "0px";
       style[`--list-padding-right-${breakpoint}`] = paddingRight?.[breakpoint] || "0px";
     });
+    style["--list-sticky-shadow-mask-bg"] = stickyShadowMaskColors[stickyBgColor] ?? "var(--color-surface-base)";
     return style;
-  }, [paddingLeft, paddingRight]);
+  }, [paddingLeft, paddingRight, stickyBgColor]);
 
   const paddingClasses = clsx(
     paddingLeft
@@ -970,7 +1038,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const rightPaddingClasses = clsx(
-    paddingRight
+    overflowContainer && hasHorizontalOverflow && paddingRight
       ? [
           "phone:pr-(--list-padding-right-phone)",
           "tablet:pr-(--list-padding-right-tablet)",
@@ -979,6 +1047,60 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         ]
       : "",
   );
+
+  const setCombinedScrollRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      internalScrollRef.current = node;
+
+      if (!scrollRef) return;
+
+      if (typeof scrollRef === "function") {
+        scrollRef(node);
+        return;
+      }
+
+      (scrollRef as MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [scrollRef],
+  );
+
+  useEffect(() => {
+    if (!overflowContainer) {
+      setHasHorizontalOverflow(false);
+      return;
+    }
+
+    const scrollContainer = internalScrollRef.current;
+    const table = tableRef.current;
+    if (!scrollContainer || !table) return;
+
+    const updateOverflowState = () => {
+      const measuredTableWidth = getOverflowMeasurementWidth(table, paddingRight, hasHorizontalOverflow);
+      setHasHorizontalOverflow(measuredTableWidth > scrollContainer.clientWidth + 1);
+    };
+
+    updateOverflowState();
+    window.addEventListener("resize", updateOverflowState);
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => updateOverflowState()) : undefined;
+    resizeObserver?.observe(scrollContainer);
+    resizeObserver?.observe(table);
+
+    return () => {
+      window.removeEventListener("resize", updateOverflowState);
+      resizeObserver?.disconnect();
+    };
+  }, [
+    activeColsKey,
+    filteredItems.length,
+    itemSelectable,
+    actions.length,
+    hasHorizontalOverflow,
+    overflowContainer,
+    paddingRight,
+    tableClassName,
+  ]);
 
   const firstStickyClasses = clsx(
     baseStickyClassList,
@@ -1058,6 +1180,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       columnShadowVisibleClassList,
       stickyStateHorizontalIsStuck: stickyState.horizontal.isStuck,
       applyColumnWidthsToCells,
+      extendRowDividerToContainerEdge: overflowContainer && !hasHorizontalOverflow,
       rightPaddingClasses,
       paddingCssVariables,
       tdPaddingClassList,
@@ -1088,7 +1211,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         <div ref={refs.horizontal.start} />
         <div ref={refs.horizontal.end} />
       </div>
-      <table className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
+      <table ref={tableRef} className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
         <thead data-testid="list-header">
           <tr
             className={clsx(
@@ -1234,7 +1357,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         </div>
       )}
       <div className={clsx("flex flex-col", containerClassName)}>
-        <div ref={scrollRef} className={clsx({ "overflow-x-auto": overflowContainer })}>
+        <div
+          ref={setCombinedScrollRef}
+          className={clsx({
+            "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
+            "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
+          })}
+        >
           {!noDataElement || (items && items.length > 0) ? (
             rowDragEnabled ? (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>

@@ -64,7 +64,7 @@ const SortablePropertyRow = ({ property, onOpenOptions, onToggleEnabled }: Sorta
           {...attributes}
           {...listeners}
         >
-          <Grip width="w-4" />
+          <Grip width="w-4" className="h-4 shrink-0" />
         </button>
 
         <button

@@ -44,7 +44,7 @@ const FleetPoolRow = ({ pool, priorityNumber, onUpdate, onTestConnection, onRemo
             className="cursor-grab touch-none text-text-primary-50 hover:text-text-primary active:cursor-grabbing"
             data-testid={`reorder-handle`}
           >
-            <Grip width="w-5" />
+            <Grip width="w-5" className="h-5 shrink-0" />
           </div>
 
           {/* Pool info */}
