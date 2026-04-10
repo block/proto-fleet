@@ -14,7 +14,6 @@ const WarnBackupPoolDialog = ({ onAddBackupPool, onContinueWithoutBackup, open }
       open={open}
       title="Continue without a backup pool?"
       subtitle="Adding a backup pool will help this miner keep mining if your default pool fails."
-      titleSize="text-heading-200"
       testId="warn-backup-pool-dialog"
       buttonGroupVariant={groupVariants.stack}
       buttons={[

@@ -15,7 +15,6 @@ const DeactivateUserDialog = ({ open, username, onConfirm, onDismiss, isSubmitti
     <Dialog
       open={open}
       title="Deactivate member?"
-      titleSize="text-heading-300"
       onDismiss={onDismiss}
       icon={
         <DialogIcon intent="critical">

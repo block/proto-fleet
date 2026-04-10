@@ -140,33 +140,25 @@ const General = () => {
         <h3 className="mb-2 text-heading-100">Preferences</h3>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Theme</h4>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              setShowThemeSwitcher(true);
-            }}
-            className="text-300 text-intent-warning-fill hover:underline"
-          >
-            {convertToSentenceCase(theme)}
-          </a>
+          <Button
+            variant={variants.textOnly}
+            onClick={() => setShowThemeSwitcher(true)}
+            textColor="text-intent-warning-fill"
+            text={convertToSentenceCase(theme)}
+          />
           {showThemeSwitcher && (
             <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
           )}
         </Row>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Temperature</h4>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              setShowTemperatureUnitsSwitcher(true);
-            }}
-            className="text-300 text-intent-warning-fill hover:underline"
-            data-testid="temperature-button"
-          >
-            {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
-          </a>
+          <Button
+            variant={variants.textOnly}
+            onClick={() => setShowTemperatureUnitsSwitcher(true)}
+            textColor="text-intent-warning-fill"
+            text={temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
+            testId="temperature-button"
+          />
           {showTemperatureUnitsSwitcher && (
             <TemperatureUnitsSwitcher
               onClickDone={() => setShowTemperatureUnitsSwitcher(false)}

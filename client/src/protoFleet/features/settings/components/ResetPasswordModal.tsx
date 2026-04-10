@@ -47,7 +47,6 @@ const ResetPasswordModal = ({
       <Dialog
         open={open}
         title="Reset member password?"
-        titleSize="text-heading-300"
         onDismiss={onDismiss}
         icon={
           <DialogIcon>

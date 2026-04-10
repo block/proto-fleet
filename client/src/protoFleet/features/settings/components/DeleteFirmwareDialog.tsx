@@ -15,7 +15,6 @@ const DeleteFirmwareDialog = ({ open, filename, onConfirm, onDismiss, isSubmitti
     <Dialog
       open={open}
       title="Delete firmware file?"
-      titleSize="text-heading-300"
       testId="delete-firmware-dialog"
       onDismiss={onDismiss}
       icon={

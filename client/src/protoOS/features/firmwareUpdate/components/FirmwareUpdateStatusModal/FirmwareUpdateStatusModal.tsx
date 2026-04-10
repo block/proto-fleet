@@ -213,7 +213,6 @@ const FirmwareUpdateStatusModal = ({
       open={open}
       icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
       title={statusConfig.title}
-      titleSize="text-heading-300"
       buttons={statusConfig.getButtons({
         onUpdate,
         onDismiss,

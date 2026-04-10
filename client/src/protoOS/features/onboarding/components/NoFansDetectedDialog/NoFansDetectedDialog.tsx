@@ -20,7 +20,6 @@ const NoFansDetectedDialog = ({
       open={open}
       title="No fans detected"
       subtitle="No fans are detected for this miner, will it be configured to use immersion cooling?"
-      titleSize="text-heading-300"
       subtitleSize="text-300"
       icon={
         <DialogIcon>

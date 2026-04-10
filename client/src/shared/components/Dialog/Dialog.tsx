@@ -43,7 +43,7 @@ const Dialog = ({
   subtitleSize = "text-heading-100",
   testId,
   title,
-  titleSize = "text-heading-100",
+  titleSize = "text-heading-300",
   headerClassName,
   buttonGroupVariant = groupVariants.justifyBetween,
   buttons,

@@ -41,7 +41,6 @@ const RenameMinerDialog = ({ open, deviceIdentifier, onConfirm, onDismiss }: Ren
       <Dialog
         open={open}
         title="You haven't made any changes"
-        titleSize="text-heading-200"
         subtitle="You can continue to retain your existing miner names, or keep editing. Do you want to continue anyway?"
         subtitleSize="text-300"
         subtitleClassName="text-text-primary-70"

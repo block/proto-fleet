@@ -133,7 +133,6 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       open={isVisible}
       testId="modal"
       title="Member added"
-      titleSize="text-heading-300"
       subtitle="Save this password and share it with the user securely. It won't be shown again."
       subtitleSize="text-300"
       onDismiss={handleDone}

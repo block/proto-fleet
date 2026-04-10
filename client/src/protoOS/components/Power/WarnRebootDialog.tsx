@@ -13,7 +13,6 @@ const WarnRebootDialog = ({ onClose, onSubmit, open }: WarnRebootDialogProps) =>
       open={open}
       title="Reboot miner?"
       preventScroll
-      titleSize="text-heading-200"
       subtitle="Rebooting your miner will take a few minutes. Do not repair or unplug the miner while it's rebooting."
       subtitleSize="text-300"
       testId="warn-reboot-dialog"

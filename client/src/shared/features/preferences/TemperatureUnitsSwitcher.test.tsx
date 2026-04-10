@@ -25,15 +25,15 @@ describe("TemperatureUnitsSwitcher", () => {
     setTemperatureUnit: vi.fn(),
   };
 
-  test("renders a Modal with title 'Temperature'", () => {
+  test("renders with title 'Temperature'", () => {
     render(<TemperatureUnitsSwitcher {...defaultProps} />);
     expect(screen.getByText("Temperature")).toBeDefined();
   });
 
   test("renders temperature unit options (Celsius and Fahrenheit)", () => {
     render(<TemperatureUnitsSwitcher {...defaultProps} />);
-    expect(screen.getByText("Celsius (°C)")).toBeDefined();
-    expect(screen.getByText("Fahrenheit (°F)")).toBeDefined();
+    expect(screen.getByText("Celsius (ºC)")).toBeDefined();
+    expect(screen.getByText("Fahrenheit (ºF)")).toBeDefined();
   });
 
   test("renders a 'Done' button that calls the dismiss handler", () => {
@@ -47,9 +47,7 @@ describe("TemperatureUnitsSwitcher", () => {
 
   test("marks the current temperature unit as selected", () => {
     render(<TemperatureUnitsSwitcher {...defaultProps} temperatureUnit="F" />);
-    // Content is rendered via createPortal, so use document.body instead of container
     const radioInputs = document.body.querySelectorAll('input[type="radio"]');
-    // Two temperature options: Celsius, Fahrenheit (in order)
     expect(radioInputs).toHaveLength(2);
     expect((radioInputs[0] as HTMLInputElement).checked).toBe(false); // Celsius
     expect((radioInputs[1] as HTMLInputElement).checked).toBe(true); // Fahrenheit

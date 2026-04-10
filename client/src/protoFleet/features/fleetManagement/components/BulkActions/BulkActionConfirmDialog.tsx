@@ -23,7 +23,6 @@ const BulkActionConfirmDialog = ({
       className="visible"
       title={actionConfirmation.title}
       preventScroll
-      titleSize="text-heading-200"
       subtitle={actionConfirmation.subtitle}
       subtitleSize="text-300"
       testId={testId}

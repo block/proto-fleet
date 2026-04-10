@@ -13,7 +13,6 @@ const WarnSleepDialog = ({ onClose, onSubmit, open }: WarnSleepDialogProps) => {
       open={open}
       title="Enter sleep mode?"
       preventScroll
-      titleSize="text-heading-200"
       subtitle="Your miner will stop hashing when in sleep mode but will still be powered on. Do not repair a miner when it's in sleep mode."
       subtitleSize="text-300"
       testId="warn-sleep-dialog"

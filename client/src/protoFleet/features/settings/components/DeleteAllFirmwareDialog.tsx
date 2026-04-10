@@ -21,7 +21,6 @@ const DeleteAllFirmwareDialog = ({
     <Dialog
       open={open}
       title="Delete all firmware files?"
-      titleSize="text-heading-300"
       testId="delete-all-firmware-dialog"
       onDismiss={onDismiss}
       icon={

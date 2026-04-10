@@ -363,7 +363,7 @@ const PoolSelectionPage = ({
         <Header
           className="sticky top-0 z-10 pb-14"
           title="Assign pools"
-          titleSize="text-heading-100"
+          titleSize="text-heading-300"
           icon={
             <DismissCircleDark
               ariaLabel="Close assign pools"

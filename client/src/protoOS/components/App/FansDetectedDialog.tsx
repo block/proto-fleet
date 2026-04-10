@@ -15,7 +15,6 @@ const FansDetectedDialog = ({ onContinue, onSwitchToAirCooled, isLoading = false
     <Dialog
       open={open}
       title="Fans are disabled"
-      titleSize="text-heading-300"
       subtitle="While in immersion mode, fans and fan errors will be disabled. To use fans to cool this miner, switch to air cooling mode."
       subtitleSize="text-300"
       icon={

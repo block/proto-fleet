@@ -32,7 +32,6 @@ const ValidationErrorDialog = ({
           ? "Review and fix these entries or continue without them."
           : "Review and fix these entries to continue."
       }
-      titleSize="text-heading-200"
       subtitleSize="text-300"
       buttons={[
         {

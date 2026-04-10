@@ -204,7 +204,7 @@ const Miners = ({
           <Header
             className="sticky top-0 z-10 pb-14"
             title="Add miners"
-            titleSize="text-heading-200"
+            titleSize="text-heading-300"
             {...(pairingPending
               ? {
                   icon: <Dismiss />,

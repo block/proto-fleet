@@ -15,7 +15,6 @@ const RevokeApiKeyDialog = ({ open, keyName, onConfirm, onDismiss, isSubmitting 
     <Dialog
       open={open}
       title="Revoke API key?"
-      titleSize="text-heading-300"
       onDismiss={onDismiss}
       icon={
         <DialogIcon intent="critical">

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import clsx from "clsx";
 import { type TemperatureUnit } from "./types";
 
 import { variants } from "@/shared/components/Button";
@@ -29,7 +30,7 @@ const TemperatureUnitsSwitcher = ({
 
   return (
     <Modal
-      title="Temperature"
+      contentHeader="Temperature"
       onDismiss={onClickDone}
       buttons={[
         {
@@ -39,23 +40,34 @@ const TemperatureUnitsSwitcher = ({
         },
       ]}
       size="small"
+      divider={false}
     >
-      <SelectRow
-        id={"C"}
-        text="Celsius (°C)"
-        isSelected={temperatureUnit === "C"}
-        onChange={handleChange}
-        type={selectTypes.radio}
-        data-testid="celsius-option"
-      />
-      <SelectRow
-        id={"F"}
-        text="Fahrenheit (°F)"
-        isSelected={temperatureUnit === "F"}
-        onChange={handleChange}
-        type={selectTypes.radio}
-        data-testid="fahrenheit-option"
-      />
+      <div className="mt-6 flex flex-col gap-4">
+        <SelectRow
+          id={"C"}
+          text="Celsius (ºC)"
+          isSelected={temperatureUnit === "C"}
+          onChange={handleChange}
+          divider={false}
+          className={clsx("border-1 border-border-5", {
+            "border-border-20": temperatureUnit === "C",
+          })}
+          type={selectTypes.radio}
+          data-testid="celsius-option"
+        />
+        <SelectRow
+          id={"F"}
+          text="Fahrenheit (ºF)"
+          isSelected={temperatureUnit === "F"}
+          onChange={handleChange}
+          divider={false}
+          className={clsx("border-1 border-border-5", {
+            "border-border-20": temperatureUnit === "F",
+          })}
+          type={selectTypes.radio}
+          data-testid="fahrenheit-option"
+        />
+      </div>
     </Modal>
   );
 };

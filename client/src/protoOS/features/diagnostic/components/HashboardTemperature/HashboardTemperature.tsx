@@ -117,7 +117,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         iconOnClick={close}
         inline={true}
         title="Hashboards"
-        titleSize="text-heading-200"
+        titleSize="text-heading-300"
         buttons={[
           {
             text: "Done",

@@ -317,10 +317,11 @@ const RackSettingsModal = ({
   return (
     <Modal
       open={show}
-      title="Rack settings"
+      contentHeader="Rack settings"
       size="small"
       phoneSheet
       onDismiss={onDismiss}
+      divider={false}
       buttons={[
         {
           text: isEditMode ? (isSubmitting ? "Saving..." : "Save") : "Continue",

@@ -9,7 +9,6 @@ const EnteringSleepDialog = ({ open }: EnteringSleepDialogProps) => {
     <Dialog
       open={open}
       title="Entering sleep mode"
-      titleSize="text-heading-300"
       preventScroll
       subtitle="Your miner is entering sleep mode. This may take a few seconds."
       subtitleSize="text-300"

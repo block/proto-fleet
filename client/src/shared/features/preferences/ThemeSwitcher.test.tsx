@@ -25,7 +25,7 @@ describe("ThemeSwitcher", () => {
     setTheme: vi.fn(),
   };
 
-  test("renders a Modal with title 'Theme'", () => {
+  test("renders with title 'Theme'", () => {
     render(<ThemeSwitcher {...defaultProps} />);
     expect(screen.getByText("Theme")).toBeDefined();
   });
@@ -48,11 +48,8 @@ describe("ThemeSwitcher", () => {
 
   test("marks the current theme as selected", () => {
     render(<ThemeSwitcher {...defaultProps} theme="dark" />);
-    // Content is rendered via createPortal, so use document.body instead of container
     const radioInputs = document.body.querySelectorAll('input[type="radio"]');
-    // Three theme options: system, light, dark (in order)
     expect(radioInputs).toHaveLength(3);
-    // "dark" is the third option
     expect((radioInputs[0] as HTMLInputElement).checked).toBe(false); // system
     expect((radioInputs[1] as HTMLInputElement).checked).toBe(false); // light
     expect((radioInputs[2] as HTMLInputElement).checked).toBe(true); // dark

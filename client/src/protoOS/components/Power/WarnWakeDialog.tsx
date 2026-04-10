@@ -13,7 +13,6 @@ const WarnWakeDialog = ({ onClose, onSubmit, open }: WarnWakeDialogProps) => {
       open={open}
       title="Wake up miner?"
       preventScroll
-      titleSize="text-heading-200"
       subtitle="This miner is asleep and not hashing. Waking it up will resume normal hashing activity."
       subtitleSize="text-300"
       testId="warn-wake-up-dialog"

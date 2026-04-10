@@ -204,7 +204,6 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
     <Dialog
       open={isVisible}
       title="API key created"
-      titleSize="text-heading-300"
       subtitle="Copy this key now and store it securely. It won't be shown again."
       subtitleSize="text-300"
       onDismiss={handleDone}

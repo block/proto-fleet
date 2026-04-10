@@ -140,7 +140,7 @@ const Modal = ({
             <Header
               title={title}
               description={description}
-              titleSize="text-heading-200"
+              titleSize="text-heading-300"
               {...headerIconProps}
               buttonSize={buttonSize}
               buttonsWrapperClassName={hasPhoneFooterButtons ? "phone:hidden" : undefined}
@@ -157,7 +157,7 @@ const Modal = ({
         {contentHeader && (
           <div
             className={clsx(
-              "mb-1 text-heading-200 text-text-primary",
+              "mb-1 text-heading-300 text-text-primary",
               { "phone:mb-0": hideHeaderOnPhone },
               contentHeaderClassName,
             )}

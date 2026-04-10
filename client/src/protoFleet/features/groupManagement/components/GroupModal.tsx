@@ -8,6 +8,7 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
+import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -149,10 +150,6 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
         size="extraLarge"
         className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
         bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
-        title={isEditMode ? "Edit group" : "Add group"}
-        description={
-          isEditMode ? "Rename your group or update its miners." : "Name your group and assign miners to it."
-        }
         buttons={[
           ...(isEditMode
             ? [
@@ -175,7 +172,14 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
         ]}
         divider={false}
       >
-        <div className="flex h-full min-h-0 flex-col">
+        <Header
+          title={isEditMode ? "Edit group" : "Add group"}
+          titleSize="text-heading-300"
+          description={
+            isEditMode ? "Rename your group or update its miners." : "Name your group and assign miners to it."
+          }
+        />
+        <div className="mt-4 flex h-full min-h-0 flex-col">
           {errorMsg ? (
             <Callout
               className="mb-4 shrink-0"
