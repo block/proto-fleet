@@ -265,7 +265,7 @@ test.describe("Groups", () => {
     });
 
     await test.step("Validate duplicate group name error", async () => {
-      await groupsPage.validateErrorMessage("a collection with this name already exists");
+      await groupsPage.validateErrorMessage("A group with this name already exists");
     });
 
     await test.step("Finish creating a second valid group", async () => {

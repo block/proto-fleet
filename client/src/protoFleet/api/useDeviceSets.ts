@@ -203,6 +203,13 @@ function buildDeviceSelector(deviceIdentifiers: string[] | undefined, allDevices
   return undefined;
 }
 
+function getDeviceSetErrorMessage(err: unknown, kind: "group" | "rack"): string {
+  if (err instanceof ConnectError && err.code === Code.AlreadyExists) {
+    return `A ${kind} with this name already exists`;
+  }
+  return getErrorMessage(err);
+}
+
 const useDeviceSets = () => {
   const { handleAuthErrors } = useAuthErrors();
 
@@ -228,8 +235,8 @@ const useDeviceSets = () => {
       } catch (err) {
         handleAuthErrors({
           error: err,
-          onError: () => {
-            onError?.(getErrorMessage(err));
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "group"));
           },
         });
       } finally {
@@ -260,8 +267,8 @@ const useDeviceSets = () => {
       } catch (err) {
         handleAuthErrors({
           error: err,
-          onError: () => {
-            onError?.(getErrorMessage(err));
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "group"));
           },
         });
       } finally {
@@ -532,8 +539,8 @@ const useDeviceSets = () => {
       } catch (err) {
         handleAuthErrors({
           error: err,
-          onError: () => {
-            onError?.(getErrorMessage(err));
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "rack"));
           },
         });
       } finally {
@@ -666,8 +673,8 @@ const useDeviceSets = () => {
       } catch (err) {
         handleAuthErrors({
           error: err,
-          onError: () => {
-            onError?.(getErrorMessage(err));
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "rack"));
           },
         });
       } finally {
@@ -803,8 +810,8 @@ const useDeviceSets = () => {
       } catch (err) {
         handleAuthErrors({
           error: err,
-          onError: () => {
-            onError?.(getErrorMessage(err));
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "rack"));
           },
         });
       } finally {
