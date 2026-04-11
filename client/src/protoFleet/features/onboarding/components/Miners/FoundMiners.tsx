@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { MinerWithModel } from "./types";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
@@ -11,7 +11,10 @@ import Row from "@/shared/components/Row";
 type FoundMinersProps = {
   miners: Device[];
   deselectedMiners: Device["deviceIdentifier"][];
+  /** Whether a network scan is actively in progress (controls title text). */
   isScanning?: boolean;
+  /** Whether to show skeleton loading rows (may outlast isScanning due to min display time). */
+  showSkeleton?: boolean;
   className?: string;
 };
 
@@ -48,7 +51,50 @@ function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
   return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
 }
 
-const FoundMiners = ({ miners, deselectedMiners, isScanning, className }: FoundMinersProps) => {
+const SKELETON_INDICES = [0, 1, 2];
+
+const SkeletonMinerRows = () => (
+  <>
+    {SKELETON_INDICES.map((index) => (
+      <div key={index} className="flex items-center justify-between py-3" data-testid="skeleton-row">
+        <div className="flex items-center gap-4">
+          <div className="size-5 animate-pulse rounded-full bg-core-primary-20" />
+          <div className="flex flex-col gap-3">
+            <div className="h-3 w-24 animate-pulse rounded-sm bg-core-primary-20" />
+            <div className="h-3 w-60 animate-pulse rounded-sm bg-core-primary-20" />
+          </div>
+        </div>
+        <div className="h-3 w-12 animate-pulse rounded-sm bg-core-primary-20" />
+      </div>
+    ))}
+  </>
+);
+
+const CollapsibleSkeleton = ({ visible, showDivider }: { visible: boolean; showDivider: boolean }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (visible && contentRef.current) {
+      setHeight(contentRef.current.scrollHeight);
+    }
+  }, [visible, showDivider]);
+
+  return (
+    <div
+      className="overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out"
+      style={{ maxHeight: visible ? height : 0, opacity: visible ? 1 : 0 }}
+    >
+      <div ref={contentRef}>
+        <SkeletonMinerRows />
+        {showDivider && <Divider />}
+      </div>
+    </div>
+  );
+};
+
+const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, className }: FoundMinersProps) => {
+  const skeletonVisible = showSkeleton ?? !!isScanning;
   // Derive minersByModel directly from miners prop
   const minersByModel = useMemo(() => {
     const _minersByModel: MinersByModel = {};
@@ -77,32 +123,38 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, className }: FoundM
     return _minersByModel;
   }, [miners]);
 
+  const modelEntries = Object.values(minersByModel);
+
   return (
     <div className={clsx("mx-auto flex flex-col gap-6", className)}>
       <div className="mb-4">
         <Header
           inline
           title={(() => {
-            const totalMinerCount = Object.values(minersByModel).reduce((total, item) => total + item.miners.length, 0);
+            const totalMinerCount = modelEntries.reduce((total, item) => total + item.miners.length, 0);
+            if (miners.length === 0 && skeletonVisible) return "Finding miners on your network";
             if (miners.length === 0) return "No miners found";
             if (isScanning) return `Finding miners on your network... ${totalMinerCount} found so far`;
             return `${totalMinerCount} miners found on your network`;
           })()}
           titleSize="text-heading-300"
           description={
-            <>
-              {miners.length === 0
-                ? "Try rescanning or check that your miners are powered on and connected to the network."
-                : "Specify which miners to add to your fleet. All miners are selected by default."}
-              <br className="phone:hidden" />
-              You can always add more miners to this network later.
-            </>
+            miners.length === 0 && skeletonVisible ? undefined : (
+              <>
+                {miners.length === 0
+                  ? "Try rescanning or check that your miners are powered on and connected to the network."
+                  : "Specify which miners to add to your fleet. All miners are selected by default."}
+                <br className="phone:hidden" />
+                You can always add more miners to this network later.
+              </>
+            )
           }
         />
       </div>
       <div className="rounded-3xl border-1 border-core-primary-5 p-6" data-testid="found-miners-list">
         <div>
-          {Object.values(minersByModel).map((model, index) => (
+          <CollapsibleSkeleton visible={skeletonVisible} showDivider={modelEntries.length > 0} />
+          {modelEntries.map((model, index) => (
             <Fragment key={index}>
               <Row divider={false} className="flex items-center justify-between" testId="miner-model-row">
                 <div className="flex gap-4">
@@ -123,7 +175,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, className }: FoundM
                   {model.miners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier)).length} miners
                 </div>
               </Row>
-              {Object.values(minersByModel).length > index + 1 && <Divider />}
+              {modelEntries.length > index + 1 && <Divider />}
             </Fragment>
           ))}
         </div>

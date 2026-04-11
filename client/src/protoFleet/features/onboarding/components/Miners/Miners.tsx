@@ -370,54 +370,24 @@ const Miners = ({
           )}
           {activeStep === "pairing" && (
             <div className="mx-auto max-w-4xl">
+              <FoundMiners
+                miners={displayMiners}
+                deselectedMiners={deselectedMiners}
+                className=""
+                isScanning={discoveryPending}
+                showSkeleton={showLoadingSkeleton}
+              />
               {displayMiners.length > 0 && (
-                <>
-                  <FoundMiners
-                    miners={displayMiners}
-                    deselectedMiners={deselectedMiners}
-                    className=""
-                    isScanning={discoveryPending}
-                  />
-                  <FoundMinersModal
-                    open={showFoundMinersModal}
-                    setDeselectedMiners={setDeselectedMiners}
-                    miners={displayMiners.map((miner) => ({
-                      ...miner,
-                      selected: !deselectedMiners.includes(miner.deviceIdentifier),
-                    }))}
-                    models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
-                    onDismiss={() => setShowFoundMinersModal(false)}
-                  />
-                </>
-              )}
-              {showLoadingSkeleton && (
-                <>
-                  {displayMiners.length === 0 && (
-                    <Header
-                      title="Finding miners on your network"
-                      titleSize="text-heading-300"
-                      inline
-                      className="mb-6"
-                    />
-                  )}
-                  <div className="flex flex-col gap-5">
-                    {Array.from({ length: 3 }).map((_, index) => (
-                      <div key={index} className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="size-5 animate-pulse rounded-full bg-core-primary-20"></div>
-                          <div className="flex flex-col gap-3">
-                            <div className="h-3 w-24 animate-pulse rounded-sm bg-core-primary-20"></div>
-                            <div className="h-3 w-60 animate-pulse rounded-sm bg-core-primary-20"></div>
-                          </div>
-                        </div>
-                        <div className="h-3 w-12 animate-pulse rounded-sm bg-core-primary-20"></div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {!showLoadingSkeleton && displayMiners.length === 0 && (
-                <FoundMiners miners={[]} deselectedMiners={[]} className="" />
+                <FoundMinersModal
+                  open={showFoundMinersModal}
+                  setDeselectedMiners={setDeselectedMiners}
+                  miners={displayMiners.map((miner) => ({
+                    ...miner,
+                    selected: !deselectedMiners.includes(miner.deviceIdentifier),
+                  }))}
+                  models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
+                  onDismiss={() => setShowFoundMinersModal(false)}
+                />
               )}
             </div>
           )}

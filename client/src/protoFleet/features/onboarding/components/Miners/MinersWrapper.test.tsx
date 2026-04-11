@@ -211,6 +211,41 @@ describe("MinersWrapper", () => {
       resolveDiscover();
     });
 
+    it("renders skeleton rows alongside discovered miners while scan is in progress", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      let resolveDiscover!: () => void;
+      mockDiscover.mockImplementationOnce(
+        ({ onStreamData }: { onStreamData: (devices: ReturnType<typeof createDiscoveredMiner>[]) => void }) =>
+          new Promise<void>((resolve) => {
+            resolveDiscover = resolve;
+            onStreamData([createDiscoveredMiner("miner-1", "192.168.1.101")]);
+          }),
+      );
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      const findMinersButton = screen.getByTestId("section-scan-network").querySelector("button")!;
+      fireEvent.click(findMinersButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("found-miners-list")).toBeInTheDocument();
+      });
+
+      // Real miner row and skeleton placeholders should both be visible
+      expect(screen.getByTestId("miner-model-row")).toBeInTheDocument();
+      const skeletonRows = screen.getByTestId("found-miners-list").querySelectorAll('[data-testid="skeleton-row"]');
+      expect(skeletonRows.length).toBeGreaterThan(0);
+
+      resolveDiscover();
+    });
+
     it("deduplicates duplicate discoveries in the add-miners UI count", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
