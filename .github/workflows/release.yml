@@ -130,7 +130,7 @@ jobs:
           echo "Building Go plugins for ${{ matrix.arch }}..."
           go build -o server/proto-plugin-${{ matrix.arch }} ./plugin/proto
           go build -o server/antminer-plugin-${{ matrix.arch }} ./plugin/antminer
-          go build -o server/virtual-plugin-${{ matrix.arch }} ./plugin/virtual
+          CGO_ENABLED=0 go build -o server/virtual-plugin-${{ matrix.arch }} ./plugin/virtual
           cp plugin/virtual/config.json server/virtual-config.json
           chmod +x server/proto-plugin-* server/antminer-plugin-* server/virtual-plugin-*
 

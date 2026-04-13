@@ -20,10 +20,17 @@ import (
 )
 
 func main() {
-	// Config file is in the same directory as the plugin binary
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Failed to get executable path: %v", err)
+	// Config file is in the same directory as the plugin binary.
+	// Use os.Args[0] (set by go-plugin to the absolute binary path) because
+	// os.Executable() reads /proc/self/exe which resolves to the ELF interpreter
+	// (/lib/ld-linux-aarch64.so.1) on Alpine+gcompat, giving the wrong directory.
+	execPath := os.Args[0]
+	if !filepath.IsAbs(execPath) {
+		var err error
+		execPath, err = os.Executable()
+		if err != nil {
+			log.Fatalf("Failed to get executable path: %v", err)
+		}
 	}
 	configPath := filepath.Join(filepath.Dir(execPath), "config.json")
 
