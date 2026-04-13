@@ -130,7 +130,9 @@ jobs:
           echo "Building Go plugins for ${{ matrix.arch }}..."
           go build -o server/proto-plugin-${{ matrix.arch }} ./plugin/proto
           go build -o server/antminer-plugin-${{ matrix.arch }} ./plugin/antminer
-          chmod +x server/proto-plugin-* server/antminer-plugin-*
+          go build -o server/virtual-plugin-${{ matrix.arch }} ./plugin/virtual
+          cp plugin/virtual/config.json server/virtual-config.json
+          chmod +x server/proto-plugin-* server/antminer-plugin-* server/virtual-plugin-*
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -155,6 +157,8 @@ jobs:
             antminer-plugin-${{ matrix.arch }} \
             asicrs-plugin-${{ matrix.arch }} \
             asicrs-config.yaml \
+            virtual-plugin-${{ matrix.arch }} \
+            virtual-config.json \
             version.txt
 
       - name: Upload server artifact for job use
