@@ -9,7 +9,7 @@ services:
     build:
       context: ./server
     environment:
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: "DEBUG"
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
