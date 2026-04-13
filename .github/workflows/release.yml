@@ -365,6 +365,7 @@ jobs:
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv asicrs-plugin-${{ matrix.arch }} asicrs-plugin
+          mv virtual-plugin-${{ matrix.arch }} virtual-plugin
           cd ../..
 
           # Extract client
