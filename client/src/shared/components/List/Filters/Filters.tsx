@@ -138,7 +138,7 @@ const Filters = <ItemType,>({
   );
 
   return (
-    <div className={clsx("sticky left-0 flex w-full flex-col gap-2", className)}>
+    <div className={clsx("flex w-full flex-col gap-2", className)}>
       {/* Filter buttons row */}
       <div className="flex flex-row flex-wrap items-center gap-2">
         {filterItems.map((filter) => {

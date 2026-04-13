@@ -58,7 +58,7 @@ const DropdownFilterPopover = ({
           : undefined
       }
     >
-      <div ref={popoverRef} className="space-y-0">
+      <div ref={popoverRef} className="max-h-80 space-y-0 overflow-y-auto">
         {showSelectAll && (
           <>
             <div

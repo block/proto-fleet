@@ -78,7 +78,6 @@ type MinerListProps = {
   batchStateVersion?: number;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
-  overflowContainer?: boolean;
   onAddMiners: () => void;
   totalMiners?: number;
   /**
@@ -174,7 +173,6 @@ type ScopedMinerListBodyProps = {
   initialActiveFilters: ActiveFilters;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
-  overflowContainer: boolean;
   totalMiners?: number;
   totalDisabledMiners: number;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
@@ -211,7 +209,6 @@ const ScopedMinerListBody = ({
   initialActiveFilters,
   listClassName,
   paddingLeft,
-  overflowContainer,
   totalMiners,
   totalDisabledMiners,
   itemRef,
@@ -315,7 +312,7 @@ const ScopedMinerListBody = ({
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
-        overflowContainer={overflowContainer}
+        overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
         totalDisabled={totalDisabledMiners}
@@ -340,7 +337,7 @@ const ScopedMinerListBody = ({
 
       {shouldRenderPagination && (
         <div
-          className={clsx("flex flex-col items-center gap-4 pt-6", {
+          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
             "pb-24": selectionMode !== "none",
             "pb-6": selectionMode === "none",
           })}
@@ -383,7 +380,6 @@ const MinerList = ({
   batchStateVersion,
   listClassName,
   paddingLeft,
-  overflowContainer = true,
   onAddMiners,
   totalMiners,
   totalUnfilteredMiners,
@@ -803,7 +799,6 @@ const MinerList = ({
           initialActiveFilters={initialActiveFilters}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
-          overflowContainer={overflowContainer}
           totalMiners={totalMiners}
           totalDisabledMiners={totalDisabledMiners}
           itemRef={itemRef}

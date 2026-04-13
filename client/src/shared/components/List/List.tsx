@@ -1039,7 +1039,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const rightPaddingClasses = clsx(
-    overflowContainer && hasHorizontalOverflow && paddingRight
+    (!overflowContainer || hasHorizontalOverflow) && paddingRight
       ? [
           "phone:pr-(--list-padding-right-phone)",
           "tablet:pr-(--list-padding-right-tablet)",
@@ -1119,19 +1119,17 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const filtersElement = (filters?.length || headerControls) && (
-    <div className={clsx("relative sticky left-0 z-3 flex w-full")}>
-      <Filters<ListItem>
-        key={JSON.stringify(initialActiveFilters ?? null)}
-        className={clsx("gap-4 py-6", paddingClasses)}
-        filterItems={filters ?? []}
-        filterSize={filterSize}
-        items={items}
-        onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
-        isServerSide={isServerSideFiltering}
-        headerControls={headerControls}
-        initialActiveFilters={initialActiveFilters}
-      />
-    </div>
+    <Filters<ListItem>
+      key={JSON.stringify(initialActiveFilters ?? null)}
+      className={clsx("gap-4 py-6", paddingClasses)}
+      filterItems={filters ?? []}
+      filterSize={filterSize}
+      items={items}
+      onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
+      isServerSide={isServerSideFiltering}
+      headerControls={headerControls}
+      initialActiveFilters={initialActiveFilters}
+    />
   );
 
   const visibleItemKeys = useMemo(
@@ -1347,43 +1345,46 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   return (
-    <div style={paddingCssVariables}>
-      {filtersElement}
-
-      {!hideTotal && total !== undefined && (
-        <div className="sticky left-0 flex">
-          <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
-            {total} {total === 1 ? itemName.singular : itemName.plural}
-          </div>
-        </div>
-      )}
-      <div className={clsx("flex flex-col", containerClassName)}>
-        <div
-          ref={setCombinedScrollRef}
-          className={clsx({
-            "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
-            "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
-          })}
-        >
-          {!noDataElement || (items && items.length > 0) ? (
-            rowDragEnabled ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
-                {listContent}
-              </DndContext>
-            ) : (
-              listContent
-            )
-          ) : (
-            noDataElement
-          )}
-        </div>
-        {renderActionBar && (
-          <div className="w-full">
-            {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
+    <>
+      <div style={paddingCssVariables} className="sticky left-0 z-3">
+        {filtersElement}
+      </div>
+      <div style={paddingCssVariables}>
+        {!hideTotal && total !== undefined && (
+          <div className="sticky left-0 flex">
+            <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
+              {total} {total === 1 ? itemName.singular : itemName.plural}
+            </div>
           </div>
         )}
+        <div className={clsx("flex flex-col", containerClassName)}>
+          <div
+            ref={setCombinedScrollRef}
+            className={clsx({
+              "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
+              "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
+            })}
+          >
+            {!noDataElement || (items && items.length > 0) ? (
+              rowDragEnabled ? (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
+                  {listContent}
+                </DndContext>
+              ) : (
+                listContent
+              )
+            ) : (
+              noDataElement
+            )}
+          </div>
+          {renderActionBar && (
+            <div className="w-full">
+              {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

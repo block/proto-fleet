@@ -1,4 +1,3 @@
-import React from "react";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -25,32 +24,11 @@ const MinerName = ({ miner, errors, onOpenStatusFlow, miners, onRefetchMiners }:
   const hasFirmwareStatus = deviceStatus === DeviceStatus.UPDATING || deviceStatus === DeviceStatus.REBOOT_REQUIRED;
   const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, false, hasFirmwareStatus);
 
-  const handleNameClick = (e: React.MouseEvent) => {
-    const row = (e.currentTarget as HTMLElement).closest("tr");
-    const checkbox = row?.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (checkbox && !checkbox.disabled) {
-      checkbox.dispatchEvent(
-        new MouseEvent("click", {
-          bubbles: true,
-          cancelable: true,
-          shiftKey: e.shiftKey,
-          ctrlKey: e.ctrlKey,
-          metaKey: e.metaKey,
-        }),
-      );
-    }
-  };
-
   return (
     <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
-      <button
-        type="button"
-        className="min-w-0 cursor-pointer truncate text-left"
-        title={name}
-        onClick={handleNameClick}
-      >
+      <div className="min-w-0 truncate text-left" title={name}>
         {name}
-      </button>
+      </div>
       <div className="flex items-center gap-2">
         {needsAttention && !needsAuthentication && (
           <button

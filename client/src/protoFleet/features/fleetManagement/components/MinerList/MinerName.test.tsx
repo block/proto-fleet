@@ -48,13 +48,13 @@ describe("MinerName", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(false);
   });
 
-  it("renders miner name in a button with title attribute for tooltip", () => {
+  it("renders miner name with title attribute for tooltip", () => {
     const miner = createMockMiner();
 
     render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
-    const nameButton = screen.getByRole("button", { name: minerName });
-    expect(nameButton).toHaveAttribute("title", minerName);
+    const nameElement = screen.getByTitle(minerName);
+    expect(nameElement).toHaveTextContent(minerName);
   });
 
   it("falls back to device identifier when no custom name is set", () => {
@@ -62,7 +62,7 @@ describe("MinerName", () => {
 
     render(<MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: deviceIdentifier })).toBeInTheDocument();
+    expect(screen.getByTitle(deviceIdentifier)).toBeInTheDocument();
   });
 
   it("hides alert icon when authentication is required", () => {
@@ -83,14 +83,15 @@ describe("MinerName", () => {
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
-  it("toggles checkbox and stops propagation when name is clicked with enabled checkbox", async () => {
+  it("propagates click to row handler for navigation", async () => {
     const user = userEvent.setup();
+    const rowClickHandler = vi.fn();
     const miner = createMockMiner();
 
     render(
       <table>
         <tbody>
-          <tr>
+          <tr onClick={rowClickHandler}>
             <td>
               <input type="checkbox" data-testid="row-checkbox" />
             </td>
@@ -102,37 +103,11 @@ describe("MinerName", () => {
       </table>,
     );
 
-    const checkbox = screen.getByTestId("row-checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: minerName }));
-
-    expect(checkbox.checked).toBe(true);
-  });
-
-  it("lets click propagate when checkbox is disabled (for row navigation)", async () => {
-    const user = userEvent.setup();
-    const rowClickHandler = vi.fn();
-    const miner = createMockMiner();
-
-    render(
-      <table>
-        <tbody>
-          <tr onClick={rowClickHandler}>
-            <td>
-              <input type="checkbox" disabled />
-            </td>
-            <td>
-              <MinerName miner={miner} errors={[]} onOpenStatusFlow={vi.fn()} />
-            </td>
-          </tr>
-        </tbody>
-      </table>,
-    );
-
-    await user.click(screen.getByRole("button", { name: minerName }));
+    await user.click(screen.getByTitle(minerName));
 
     expect(rowClickHandler).toHaveBeenCalledTimes(1);
+    const checkbox = screen.getByTestId("row-checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
   });
 
   it("calls onOpenStatusFlow when the alert icon is clicked", async () => {
