@@ -472,6 +472,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       {activeCols.map((row, columnIndex) => {
         const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
         const columnWidthClass = colConfig[row]?.width;
+        const allowWrap = colConfig[row]?.allowWrap ?? false;
         const content = colConfig[row]?.component
           ? colConfig[row].component(item, currentSelectedItems)
           : typeof item === "object" && item !== null && row in item
@@ -498,7 +499,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           >
             <div
               className={clsx(
-                "truncate overflow-hidden",
+                allowWrap ? "overflow-hidden" : "truncate overflow-hidden",
                 tdPaddingClassList,
                 applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
                 {

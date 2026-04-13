@@ -10,6 +10,7 @@ export type ColConfig<ListItem, ItemKey, ColKey extends string = keyof ListItem 
   [K in ColKey]?: {
     component?: (item: ListItem, selectedItems: ItemKey[]) => ReactNode;
     width: string;
+    allowWrap?: boolean;
   };
 };
 

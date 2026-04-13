@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import clsx from "clsx";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { getActivityIcon } from "@/protoFleet/features/activity/utils/activityIcons";
@@ -35,16 +36,17 @@ const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableP
           const isFailed = entry.result === "failure";
           const Icon = isFailed ? Alert : getActivityIcon(entry.eventType);
           return (
-            <div className="flex items-center gap-2">
-              <div className={isFailed ? "text-intent-critical" : "text-text-primary"}>
+            <div className="flex items-start gap-2">
+              <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
                 <Icon width="w-4" />
               </div>
-              <span>{entry.description}</span>
-              {isFailed && <span className="text-intent-critical text-200">Failed</span>}
+              <span className="min-w-0 break-words">{entry.description}</span>
+              {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
             </div>
           );
         },
-        width: "w-80",
+        width: "min-w-80",
+        allowWrap: true,
       },
       scope: {
         component: (entry) => (
