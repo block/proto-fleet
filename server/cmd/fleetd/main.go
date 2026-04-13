@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
@@ -386,6 +387,30 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
+
+	if config.HTTP.PprofAddr != "" {
+		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
+		if err != nil {
+			return fmt.Errorf("pprof debug server: %w", err)
+		}
+		pprofServer := &http.Server{
+			Handler:           http.DefaultServeMux,
+			ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
+		}
+		go func() {
+			slog.Info("Starting pprof debug server", "addr", config.HTTP.PprofAddr)
+			if err := pprofServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+				slog.Error("pprof debug server failed", "error", err)
+			}
+		}()
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			if err := pprofServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("Failed to shutdown pprof debug server", "error", err)
+			}
+		}()
+	}
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {

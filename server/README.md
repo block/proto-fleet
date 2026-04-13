@@ -16,6 +16,35 @@ just rebuild-all    # Clean rebuild (wipes all data)
 just rebuild-fleet-api  # Rebuild just fleet-api
 ```
 
+### Profiling
+
+In `docker-compose.base.yaml`, uncomment `HTTP_PPROF_ADDR` and the matching `ports` entry under `fleet-api` (the port mapping binds to host loopback only), then restart:
+
+```bash
+just rebuild-fleet-api
+```
+
+Capture profiles while the server is running:
+
+```bash
+# CPU (30s sample) — open interactive flame graph in browser
+curl "http://localhost:6060/debug/pprof/profile?seconds=30" > cpu.pprof
+go tool pprof -http=:8000 cpu.pprof
+
+# Heap allocations
+curl http://localhost:6060/debug/pprof/heap > heap.pprof
+go tool pprof -http=:8000 heap.pprof
+
+# Goroutine trace — shows GC pauses, scheduler latency, I/O stalls
+curl "http://localhost:6060/debug/pprof/trace?seconds=5" > trace.out
+go tool trace trace.out
+
+# Live goroutine dump (useful for detecting leaks or deadlocks)
+curl "http://localhost:6060/debug/pprof/goroutine?debug=2"
+```
+
+> **Note:** pprof exposes sensitive runtime data. Only bind to loopback (`127.0.0.1`) unless you intentionally want remote access. Never enable in production.
+
 ### Testing and Quality
 
 ```bash
