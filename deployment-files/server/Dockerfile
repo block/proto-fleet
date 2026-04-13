@@ -7,7 +7,7 @@ WORKDIR /app
 COPY fleetd /app/
 
 RUN mkdir -p /app/plugins
-COPY proto-plugin antminer-plugin asicrs-plugin asicrs-config.yaml /app/plugins/
+COPY proto-plugin antminer-plugin asicrs-plugin asicrs-config.yaml virtual-plugin config.json /app/plugins/
 
 RUN chmod 755 /app/fleetd /app/plugins/*-plugin
 
