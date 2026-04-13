@@ -305,7 +305,7 @@ func defaultProfiles() []MinerProfile {
 		{
 			Name:                "s19-pro",
 			Weight:              3,
-			Model:               "Virtual S19 Pro",
+			Model:               "S19 Pro",
 			Manufacturer:        "Virtual",
 			Hashboards:          3,
 			ASICsPerBoard:       76,
@@ -319,7 +319,7 @@ func defaultProfiles() []MinerProfile {
 		{
 			Name:                "t21",
 			Weight:              2,
-			Model:               "Virtual T21",
+			Model:               "T21",
 			Manufacturer:        "Virtual",
 			Hashboards:          4,
 			ASICsPerBoard:       84,
@@ -333,7 +333,7 @@ func defaultProfiles() []MinerProfile {
 		{
 			Name:                "s21",
 			Weight:              2,
-			Model:               "Virtual S21",
+			Model:               "S21",
 			Manufacturer:        "Virtual",
 			Hashboards:          3,
 			ASICsPerBoard:       114,
@@ -347,7 +347,7 @@ func defaultProfiles() []MinerProfile {
 		{
 			Name:                "s19-degraded",
 			Weight:              1,
-			Model:               "Virtual S19 (Degraded)",
+			Model:               "S19 (Degraded)",
 			Manufacturer:        "Virtual",
 			Hashboards:          3,
 			ASICsPerBoard:       76,
@@ -380,7 +380,7 @@ func validateAndSetDefaults(m *VirtualMinerConfig) error {
 		m.Port = defaultPort
 	}
 	if m.Model == "" {
-		m.Model = "Virtual Miner"
+		m.Model = "Miner"
 	}
 	if m.Manufacturer == "" {
 		m.Manufacturer = "Virtual"

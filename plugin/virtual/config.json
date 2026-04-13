@@ -8,7 +8,7 @@
       {
         "name": "s19-pro",
         "weight": 3,
-        "model": "Virtual S19 Pro",
+        "model": "S19 Pro",
         "manufacturer": "Virtual",
         "hashboards": 3,
         "asics_per_board": 76,
@@ -22,7 +22,7 @@
       {
         "name": "t21",
         "weight": 2,
-        "model": "Virtual T21",
+        "model": "T21",
         "manufacturer": "Virtual",
         "hashboards": 4,
         "asics_per_board": 84,
@@ -36,7 +36,7 @@
       {
         "name": "s21",
         "weight": 2,
-        "model": "Virtual S21",
+        "model": "S21",
         "manufacturer": "Virtual",
         "hashboards": 3,
         "asics_per_board": 114,
@@ -50,7 +50,7 @@
       {
         "name": "s19-degraded",
         "weight": 1,
-        "model": "Virtual S19 (Degraded)",
+        "model": "S19 (Degraded)",
         "manufacturer": "Virtual",
         "hashboards": 3,
         "asics_per_board": 76,
