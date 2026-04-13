@@ -10,7 +10,7 @@ services:
       context: ./server
     environment:
       LOG_LEVEL: "DEBUG"
-      HTTP_PPROF_ADDR: "127.0.0.1:6060"
+      HTTP_PPROF_ADDR: "0.0.0.0:6060"
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
