@@ -366,6 +366,7 @@ jobs:
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv asicrs-plugin-${{ matrix.arch }} asicrs-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin
+          mv virtual-config.json config.json
           cd ../..
 
           # Extract client
