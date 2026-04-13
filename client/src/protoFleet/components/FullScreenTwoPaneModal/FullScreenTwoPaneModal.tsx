@@ -14,7 +14,7 @@ import { useKeyDown } from "@/shared/hooks/useKeyDown";
 const defaultPaneContainerClassName =
   "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10 desktop:px-10 desktop:grid desktop:min-h-0 desktop:grid-cols-2";
 const defaultPrimaryPaneClassName =
-  "order-2 flex flex-col phone:pl-6 tablet:pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto desktop:order-1 desktop:min-h-0 desktop:overflow-y-auto";
+  "order-2 flex flex-col phone:pl-6 tablet:pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto laptop:pl-1 desktop:order-1 desktop:min-h-0 desktop:overflow-y-auto desktop:pl-1";
 const defaultSecondaryPaneClassName =
   "order-1 flex flex-col self-stretch bg-surface-overlay phone:mb-6 phone:max-h-[50vh] phone:overflow-y-auto tablet:mb-6 tablet:max-h-[50vh] tablet:overflow-y-auto laptop:order-2 laptop:min-h-0 laptop:rounded-xl laptop:pl-6 desktop:order-2 desktop:min-h-0 desktop:rounded-xl desktop:pl-6";
 
