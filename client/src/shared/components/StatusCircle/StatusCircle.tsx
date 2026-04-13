@@ -18,18 +18,25 @@ const StatusCircle = ({
   variant = "primary",
   removeMargin = false,
   isSelected = false,
+  testId,
 }: StatusCircleProps) => {
   const colorClass = isSelected ? "text-intent-info-fill" : statusColors[status];
+  const indicator =
+    variant == "simple" ? (
+      <Circle className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
+    ) : (
+      <ConcentricCircles className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
+    );
 
-  return (
-    <>
-      {variant == "simple" ? (
-        <Circle className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
-      ) : (
-        <ConcentricCircles className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
-      )}
-    </>
-  );
+  if (testId) {
+    return (
+      <span className="contents" data-status={status} data-testid={testId}>
+        {indicator}
+      </span>
+    );
+  }
+
+  return indicator;
 };
 
 export default StatusCircle;

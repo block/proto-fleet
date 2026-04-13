@@ -490,10 +490,11 @@ export const useMinerActions = ({
         }
 
         // Actions that change device status (reboot, shutdown, wake-up, pool, firmware)
-        // are handled by hasReachedExpectedStatus — keep the batch active so the spinner
-        // stays until the device transitions. Stale cleanup (5 min) is the safety net.
-        // For actions that don't change status (blink LEDs, cooling, security, etc.),
-        // complete the batch immediately so the spinner clears.
+        // are handled by hasReachedExpectedStatus — keep the batch active so the
+        // in-progress state stays until the device transitions. Stale cleanup
+        // (5 min) is the safety net. For actions that don't change status
+        // (blink LEDs, cooling, security, etc.), complete the batch immediately
+        // so the transient state clears.
         const statusChangingActions = new Set<SupportedAction>([
           settingsActions.miningPool,
           deviceActions.shutdown,
@@ -648,9 +649,9 @@ export const useMinerActions = ({
               removeDevicesFromBatch(value.batchIdentifier, failureIds);
             }
 
-            // Don't complete batch — let hasReachedExpectedStatus hide the
-            // spinner once the device reports REBOOT_REQUIRED. Stale cleanup
-            // handles eventual state cleanup.
+            // Don't complete batch — let hasReachedExpectedStatus clear the
+            // in-progress state once the device reports REBOOT_REQUIRED.
+            // Stale cleanup handles eventual state cleanup.
             onRefetchMiners?.();
             onActionComplete?.();
           };

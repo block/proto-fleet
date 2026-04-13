@@ -598,6 +598,27 @@ export class MinersPage extends BasePage {
     await this.validateAllMinersStatus(status, false);
   }
 
+  async validateAllMinersStatusSettled(status: string) {
+    await this.waitForColumnValuesToLoad("status");
+    // To avoid miner actions hiding some valuable data in screenshots
+    await this.uncheckSelectAllCheckbox();
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+    // Start from last row to avoid extremely long tests due to lazy loading
+    for (let i = rowCount - 1; i >= 0; i--) {
+      await rows.nth(i).scrollIntoViewIfNeeded();
+      const statusCell = rows.nth(i).locator(`//td[@data-testid='status']`);
+      const statusIndicator = statusCell.getByTestId("miner-status-indicator");
+
+      await expect(statusCell).toContainText(status, {
+        timeout: PROLONGED_TIMEOUT,
+      });
+      await expect(statusIndicator).toHaveAttribute("data-status", /^(?!pending$).+/, {
+        timeout: PROLONGED_TIMEOUT,
+      });
+    }
+  }
+
   async getMinerStatus(ipAddress: string): Promise<string> {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     return await minerRow.locator(`//td[@data-testid='status']`).innerText();
@@ -608,9 +629,7 @@ export class MinersPage extends BasePage {
       try {
         const minerRow = await this.getMinerRowByIp(ipAddress);
         const statusCell = minerRow.locator(`//td[@data-testid='status']`);
-        const spinner = statusCell.locator('[class*="animate-spin"]');
 
-        await expect(spinner).toBeHidden({ timeout: DEFAULT_INTERVAL });
         await expect(statusCell).toHaveText(expectedStatus, { timeout: DEFAULT_INTERVAL });
       } catch (error) {
         await this.reloadPage();
@@ -623,19 +642,26 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: PROLONGED_TIMEOUT });
   }
 
-  async waitForAllStatusSpinnersToDisappear() {
-    await this.waitForColumnValuesToLoad("status");
-    const rows = this.page.getByTestId("list-body").locator("tr");
-    const rowCount = await rows.count();
+  async validateMinerStatusSettled(ipAddress: string, expectedStatus: string) {
+    await expect(async () => {
+      try {
+        const minerRow = await this.getMinerRowByIp(ipAddress);
+        const statusCell = minerRow.locator(`//td[@data-testid='status']`);
+        const statusIndicator = statusCell.getByTestId("miner-status-indicator");
 
-    for (let i = 0; i < rowCount; i++) {
-      await rows.nth(i).scrollIntoViewIfNeeded();
-      const statusCell = rows.nth(i).locator(`//td[@data-testid='status']`);
-      const spinner = statusCell.locator('[class*="animate-spin"]');
+        await expect(statusCell).toHaveText(expectedStatus, { timeout: DEFAULT_INTERVAL });
+        await expect(statusIndicator).toHaveAttribute("data-status", /^(?!pending$).+/, {
+          timeout: DEFAULT_INTERVAL,
+        });
+      } catch (error) {
+        await this.reloadPage();
+        const minerRow = await this.getMinerRowByIp(ipAddress);
+        const statusCell = minerRow.locator(`//td[@data-testid='status']`);
 
-      // Wait for spinner to be hidden for this specific row
-      await expect(spinner).toBeHidden({ timeout: PROLONGED_TIMEOUT });
-    }
+        await expect(statusCell).toBeVisible();
+        throw error;
+      }
+    }).toPass({ timeout: PROLONGED_TIMEOUT });
   }
 
   async validateAllMinersIssues(issue: string, expected: boolean = true) {
@@ -736,9 +762,47 @@ export class MinersPage extends BasePage {
     return await rows.count();
   }
 
+  async hasAnyMinerWithStatus(status: string): Promise<boolean> {
+    await this.waitForColumnValuesToLoad("status");
+    const rows = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("status").getByText(status, { exact: true }) });
+    return (await rows.count()) > 0;
+  }
+
   async getMinerIpAddressByIndex(index: number): Promise<string> {
     const rows = this.page.getByTestId("list-body").locator("tr");
     const row = rows.nth(index);
+    return await row.getByTestId("ipAddress").innerText();
+  }
+
+  async getMinerIpAddressByStatus(status: string): Promise<string> {
+    await this.waitForColumnValuesToLoad("status");
+    const rows = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("status").getByText(status, { exact: true }) });
+    const rowCount = await rows.count();
+    if (rowCount === 0) {
+      const allRows = this.page.getByTestId("list-body").locator("tr");
+      const allRowCount = await allRows.count();
+      const visibleStatuses: string[] = [];
+
+      for (let i = 0; i < allRowCount; i++) {
+        const statusCell = allRows.nth(i).getByTestId("status");
+        const statusText = (await statusCell.innerText()).trim();
+        if (statusText) {
+          visibleStatuses.push(statusText);
+        }
+      }
+
+      throw new Error(
+        `No visible miner with status "${status}". Visible statuses: ${visibleStatuses.join(", ") || "none"}`,
+      );
+    }
+
+    const row = rows.first();
     return await row.getByTestId("ipAddress").innerText();
   }
 

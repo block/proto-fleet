@@ -91,7 +91,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   if (hasActiveBatch && batchLoadingMessage && !deviceHasReachedExpectedStatus) {
     const content = (
       <>
-        <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" />
+        <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
       </>
     );
@@ -103,7 +103,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   if (isUpdating) {
     return (
       <StatusWrapper onClick={onClick}>
-        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
+        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
         <ProgressCircular size={14} indeterminate />
         Updating firmware
       </StatusWrapper>
@@ -113,7 +113,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   if (isRebootRequired) {
     return (
       <StatusWrapper onClick={onClick}>
-        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
+        <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
         Reboot required
       </StatusWrapper>
     );
@@ -127,7 +127,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
 
   return (
     <StatusWrapper onClick={onClick}>
-      <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" />
+      <StatusCircle status={circleStatus} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
       {status}
     </StatusWrapper>
   );

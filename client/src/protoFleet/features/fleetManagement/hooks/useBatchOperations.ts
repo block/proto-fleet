@@ -14,7 +14,7 @@ export type { BatchOperation, BatchOperationInput } from "@/protoFleet/store/sli
 /**
  * Manages ephemeral batch operation state for the fleet page.
  * Tracks in-progress operations (firmware updates, reboots, etc.) so
- * MinerStatus can show a loading spinner while an action is running.
+ * MinerStatus can show an in-progress state while an action is running.
  *
  * State is stored in the Zustand batch slice so it survives route navigation
  * (e.g., rebooting from Groups page then navigating to Miners page).

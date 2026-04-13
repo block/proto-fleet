@@ -5,6 +5,22 @@ import { CommonSteps } from "../helpers/commonSteps";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 
+async function ensureRigMinersAwake(minersPage: MinersPage) {
+  const hasSleepingMiners = await minersPage.hasAnyMinerWithStatus("Sleeping");
+  const hasWakingMiners = await minersPage.hasAnyMinerWithStatus("Waking");
+
+  if (!hasSleepingMiners && !hasWakingMiners) {
+    return;
+  }
+
+  await minersPage.clickSelectAllCheckbox();
+  await minersPage.clickActionsMenuButton();
+  await minersPage.clickWakeUpButton();
+  await minersPage.clickWakeUpConfirm();
+  await minersPage.validateNoMinerWithStatus("Sleeping");
+  await minersPage.validateNoMinerWithStatus("Waking");
+}
+
 test.describe("Miners SLEEP - WAKE actions", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -50,12 +66,13 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     await test.step("Filter Proto miners as a workaround", async () => {
       // Workaround: Antminer miners don't support SLEEP action
       await minersPage.filterRigMiners();
+      await ensureRigMinersAwake(minersPage);
     });
 
     let minerIp: string;
 
     await test.step("Select first miner and shut it down", async () => {
-      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickShutdownButton();
       await minersPage.clickShutdownConfirm();
@@ -67,7 +84,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
 
     await test.step("Validate miner is sleeping", async () => {
-      await minersPage.validateMinerStatus(minerIp, "Sleeping");
+      await minersPage.validateMinerStatusSettled(minerIp, "Sleeping");
     });
 
     await test.step("Select all miners and wake them up", async () => {
@@ -82,7 +99,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
 
     await test.step("Validate none of the miners are sleeping", async () => {
-      await minersPage.validateMinerStatus(minerIp, "Hashing");
+      await minersPage.validateMinerStatusSettled(minerIp, "Hashing");
       await minersPage.validateNoMinerWithStatus("Sleeping");
       await minersPage.validateNoMinerWithStatus("Waking");
     });
@@ -95,6 +112,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     await test.step("Filter Proto miners as a workaround", async () => {
       // Workaround: Antminer miners don't support SLEEP action
       await minersPage.filterRigMiners();
+      await ensureRigMinersAwake(minersPage);
     });
 
     let minerCount: number;
@@ -113,8 +131,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
 
     await test.step("Validate all miners are sleeping", async () => {
-      await minersPage.waitForAllStatusSpinnersToDisappear();
-      await minersPage.validateAllMinersStatus("Sleeping");
+      await minersPage.validateAllMinersStatusSettled("Sleeping");
     });
 
     await test.step("Select all miners and wake them up", async () => {
@@ -130,7 +147,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
 
     await test.step("Validate all miners are awake", async () => {
-      await minersPage.validateAllMinersStatus("Hashing");
+      await minersPage.validateAllMinersStatusSettled("Hashing");
     });
   });
 });

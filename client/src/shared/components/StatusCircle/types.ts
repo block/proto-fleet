@@ -6,4 +6,5 @@ export type StatusCircleProps = {
   variant?: keyof typeof variants;
   removeMargin?: boolean;
   isSelected?: boolean;
+  testId?: string;
 };
