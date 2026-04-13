@@ -2555,7 +2555,7 @@ describe("useMinerActions", () => {
       expect(result.current.showManageSecurityModal).toBe(true);
     });
 
-    it("names Proto Rig groups as manufacturer + model and normalizes manufacturer to lowercase", async () => {
+    it("names Proto Rig groups as manufacturer + model and preserves original manufacturer casing", async () => {
       mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
 
       const { result } = renderHook(() =>
@@ -2570,7 +2570,7 @@ describe("useMinerActions", () => {
 
       const group = result.current.minerGroups[0];
       expect(group.name).toBe("Proto Rig");
-      expect(group.manufacturer).toBe("proto");
+      expect(group.manufacturer).toBe("Proto");
       expect(group.count).toBe(6);
     });
 
@@ -2589,7 +2589,7 @@ describe("useMinerActions", () => {
 
       const group = result.current.minerGroups[0];
       expect(group.name).toBe("Antminer S19");
-      expect(group.manufacturer).toBe("bitmain");
+      expect(group.manufacturer).toBe("Bitmain");
     });
 
     it("falls back to capability check path when getMinerModelGroups throws", async () => {
@@ -2629,7 +2629,7 @@ describe("useMinerActions", () => {
       expect(result.current.minerGroups.length).toBeGreaterThan(0);
     });
 
-    it("uses allDevices selector with model filter in handlePasswordConfirm", async () => {
+    it("uses allDevices selector with model and manufacturer filter in handlePasswordConfirm", async () => {
       mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
       mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-security-all" });
@@ -2656,6 +2656,7 @@ describe("useMinerActions", () => {
       const callArgs = mockUpdateMinerPassword.mock.calls[0][0];
       expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
       expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
+      expect(callArgs.deviceSelector.selectionType.value.manufacturers).toEqual(["Proto"]);
     });
   });
 

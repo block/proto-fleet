@@ -27,7 +27,7 @@ function groupMinersByModel(deviceIds: string[], miners: Record<string, MinerSta
     const miner = miners[id];
     if (!miner) return;
 
-    const manufacturer = miner.manufacturer?.toLowerCase() || "unknown";
+    const manufacturer = miner.manufacturer || "";
     const model = miner.model || "Unknown Model";
     const key = `${manufacturer}-${model}`;
 
@@ -172,12 +172,11 @@ export const useManageSecurityFlow = ({
           const groups = await getMinerModelGroups(currentFilter ?? null);
           setMinerGroups(
             groups.map((g) => {
-              const normalizedManufacturer = g.manufacturer.toLowerCase();
-              const isProto = normalizedManufacturer === minerTypes.protoRig;
+              const isProto = g.manufacturer.toLowerCase() === minerTypes.protoRig;
               return {
                 name: isProto ? `${g.manufacturer} ${g.model}`.trim() : g.model,
                 model: g.model,
-                manufacturer: normalizedManufacturer,
+                manufacturer: g.manufacturer,
                 count: g.count,
                 deviceIdentifiers: [],
                 status: "pending" as const,
@@ -197,7 +196,7 @@ export const useManageSecurityFlow = ({
 
   const handleUpdateGroup = useCallback((group: MinerGroup) => {
     setCurrentGroupForUpdate(group);
-    setHasThirdPartyMiners(group.manufacturer !== minerTypes.protoRig);
+    setHasThirdPartyMiners(group.manufacturer.toLowerCase() !== minerTypes.protoRig);
     setShowUpdatePasswordModal(true);
   }, []);
 
@@ -224,6 +223,7 @@ export const useManageSecurityFlow = ({
             case: "allDevices",
             value: create(DeviceFilterSchema, {
               models: [currentGroupForUpdate.model],
+              ...(currentGroupForUpdate.manufacturer ? { manufacturers: [currentGroupForUpdate.manufacturer] } : {}),
               deviceStatus: currentFilter?.deviceStatus ?? [],
               pairingStatus: currentFilter?.pairingStatuses ?? [],
             }),

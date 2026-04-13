@@ -558,6 +558,7 @@ WHERE d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
     AND (sqlc.narg('device_status')::text IS NULL OR ds.status::text = sqlc.narg('device_status')::text)
     AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+    AND (sqlc.narg('manufacturer_filter')::text IS NULL OR dd.manufacturer = ANY(string_to_array(sqlc.narg('manufacturer_filter'), ',')))
 ORDER BY d.id;
 
 -- name: GetDeviceInfoForCapabilityCheck :many

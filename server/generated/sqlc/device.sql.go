@@ -799,14 +799,16 @@ WHERE d.org_id = $1
     AND d.deleted_at IS NULL
     AND ($3::text IS NULL OR ds.status::text = $3::text)
     AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
+    AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
 ORDER BY d.id
 `
 
 type GetFilteredDeviceIdsParams struct {
-	OrgID         int64
-	PairingStatus sql.NullString
-	DeviceStatus  sql.NullString
-	ModelFilter   sql.NullString
+	OrgID              int64
+	PairingStatus      sql.NullString
+	DeviceStatus       sql.NullString
+	ModelFilter        sql.NullString
+	ManufacturerFilter sql.NullString
 }
 
 // Returns device IDs filtered by pairing status and optional device status.
@@ -817,6 +819,7 @@ func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDevic
 		arg.PairingStatus,
 		arg.DeviceStatus,
 		arg.ModelFilter,
+		arg.ManufacturerFilter,
 	)
 	if err != nil {
 		return nil, err

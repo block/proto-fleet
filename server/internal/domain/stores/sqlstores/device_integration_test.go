@@ -1316,6 +1316,128 @@ func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
 	require.NotContains(t, deviceIDs, int64(4))
 }
 
+// TestGetFilteredDeviceIds_WithManufacturerFilter verifies manufacturer-based filtering
+// prevents cross-manufacturer command targeting when model names collide.
+func TestGetFilteredDeviceIds_WithManufacturerFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	queries := sqlc.New(conn)
+
+	setupManufacturerFilterTestData(t, conn)
+
+	tests := []struct {
+		name               string
+		modelFilter        sql.NullString
+		manufacturerFilter sql.NullString
+		expectedIDs        []int64
+	}{
+		{
+			name:               "Manufacturer-only filter returns only that manufacturer's devices",
+			manufacturerFilter: sql.NullString{String: "Virtual", Valid: true},
+			modelFilter:        sql.NullString{Valid: false},
+			expectedIDs:        []int64{1},
+		},
+		{
+			name:               "Model-only filter returns all manufacturers with that model",
+			manufacturerFilter: sql.NullString{Valid: false},
+			modelFilter:        sql.NullString{String: "S21", Valid: true},
+			expectedIDs:        []int64{1, 2},
+		},
+		{
+			name:               "Combined manufacturer+model filter prevents cross-manufacturer collision",
+			manufacturerFilter: sql.NullString{String: "Bitmain", Valid: true},
+			modelFilter:        sql.NullString{String: "S21", Valid: true},
+			expectedIDs:        []int64{2},
+		},
+		{
+			name:               "No filters returns all paired devices",
+			manufacturerFilter: sql.NullString{Valid: false},
+			modelFilter:        sql.NullString{Valid: false},
+			expectedIDs:        []int64{1, 2, 3},
+		},
+		{
+			name:               "Multiple manufacturers in filter",
+			manufacturerFilter: sql.NullString{String: "Virtual,Bitmain", Valid: true},
+			modelFilter:        sql.NullString{Valid: false},
+			expectedIDs:        []int64{1, 2, 3},
+		},
+		{
+			name:               "Non-existent manufacturer returns empty",
+			manufacturerFilter: sql.NullString{String: "NonExistent", Valid: true},
+			modelFilter:        sql.NullString{Valid: false},
+			expectedIDs:        []int64{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := sqlc.GetFilteredDeviceIdsParams{
+				OrgID:              1,
+				DeviceStatus:       sql.NullString{Valid: false},
+				PairingStatus:      sql.NullString{Valid: false},
+				ModelFilter:        tt.modelFilter,
+				ManufacturerFilter: tt.manufacturerFilter,
+			}
+
+			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
+			require.NoError(t, err)
+			require.ElementsMatch(t, tt.expectedIDs, deviceIDs)
+		})
+	}
+}
+
+// setupManufacturerFilterTestData creates test data with multiple manufacturers
+// sharing model names to test cross-manufacturer filtering.
+func setupManufacturerFilterTestData(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+	`)
+	require.NoError(t, err)
+
+	devices := []struct {
+		id           int64
+		identifier   string
+		ipAddress    string
+		model        string
+		manufacturer string
+	}{
+		{1, "device-001", "192.168.1.101", "S21", "Virtual"},
+		{2, "device-002", "192.168.1.102", "S21", "Bitmain"},
+		{3, "device-003", "192.168.1.103", "S19", "Bitmain"},
+	}
+
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+			VALUES ($1, 1, $2, $3, $4, 'test-driver', $5, '50051', 'grpc', TRUE)
+		`, d.id, d.identifier, d.model, d.manufacturer, d.ipAddress)
+		require.NoError(t, err)
+	}
+
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES ($1, 1, $2, $3, 'AA:BB:CC:DD:EE:FF')
+		`, d.id, d.id, d.identifier)
+		require.NoError(t, err)
+	}
+
+	for _, d := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, 'PAIRED', NOW())
+		`, d.id)
+		require.NoError(t, err)
+	}
+}
+
 // =============================================================================
 // Test Helpers for GetFilteredDeviceIds
 // =============================================================================

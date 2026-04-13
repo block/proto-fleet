@@ -282,6 +282,7 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 			var deviceStatus sql.NullString
 			var pairingStatus sql.NullString
 			var modelFilter sql.NullString
+			var manufacturerFilter sql.NullString
 
 			if len(filter.DeviceStatus) > 0 {
 				deviceStatus = sql.NullString{
@@ -304,11 +305,19 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 				}
 			}
 
+			if len(filter.Manufacturers) > 0 {
+				manufacturerFilter = sql.NullString{
+					String: strings.Join(filter.Manufacturers, ","),
+					Valid:  true,
+				}
+			}
+
 			return q.GetFilteredDeviceIds(ctx, sqlc.GetFilteredDeviceIdsParams{
-				OrgID:         info.OrganizationID,
-				DeviceStatus:  deviceStatus,
-				PairingStatus: pairingStatus,
-				ModelFilter:   modelFilter,
+				OrgID:              info.OrganizationID,
+				DeviceStatus:       deviceStatus,
+				PairingStatus:      pairingStatus,
+				ModelFilter:        modelFilter,
+				ManufacturerFilter: manufacturerFilter,
 			})
 		})
 	case *pb.DeviceSelector_IncludeDevices:

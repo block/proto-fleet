@@ -11,6 +11,7 @@ message DeviceFilter {
   repeated fleetmanagement.v1.DeviceStatus device_status = 1;
   repeated fleetmanagement.v1.PairingStatus pairing_status = 2;
   repeated string models = 3;
+  repeated string manufacturers = 4;
 }
 
 message DeviceSelector {

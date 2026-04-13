@@ -35,8 +35,10 @@ const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDo
   const sortedGroups = useMemo(() => {
     return [...minerGroups].sort((a, b) => {
       // Proto rigs always come first
-      if (a.manufacturer === minerTypes.protoRig && b.manufacturer !== minerTypes.protoRig) return -1;
-      if (a.manufacturer !== minerTypes.protoRig && b.manufacturer === minerTypes.protoRig) return 1;
+      if (a.manufacturer.toLowerCase() === minerTypes.protoRig && b.manufacturer.toLowerCase() !== minerTypes.protoRig)
+        return -1;
+      if (a.manufacturer.toLowerCase() !== minerTypes.protoRig && b.manufacturer.toLowerCase() === minerTypes.protoRig)
+        return 1;
       // Otherwise sort alphabetically by model
       return a.model.localeCompare(b.model);
     });
@@ -50,7 +52,7 @@ const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDo
         </div>
       );
     }
-    if (group.manufacturer === minerTypes.protoRig) {
+    if (group.manufacturer.toLowerCase() === minerTypes.protoRig) {
       return <LogoAlt width={iconSizes.medium} />;
     }
     return <Fleet width={iconSizes.medium} />;
