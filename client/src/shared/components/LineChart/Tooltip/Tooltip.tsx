@@ -1,6 +1,7 @@
 import { ComponentType, type CSSProperties } from "react";
 import clsx from "clsx";
 
+import type { ChartData } from "../types";
 import TooltipItem from "./TooltipItem";
 import StatusCircle, { statuses, variants } from "@/shared/components/StatusCircle";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -22,13 +23,55 @@ export type TooltipData = {
   y: number;
 };
 
+function hasDisplayableValue(point: ChartData, keysToShow: string[]): boolean {
+  return keysToShow.some((key) => point[key] !== null && point[key] !== undefined);
+}
+
+function findNearestDisplayablePoint(
+  chartData: ChartData[],
+  currentDatetime: number,
+  keysToShow: string[],
+): ChartData | undefined {
+  let firstDisplayable: ChartData | undefined;
+  let lastDisplayable: ChartData | undefined;
+  let nearest: ChartData | undefined;
+  let minDistance = Infinity;
+
+  for (const point of chartData) {
+    if (!hasDisplayableValue(point, keysToShow)) continue;
+
+    if (!firstDisplayable) firstDisplayable = point;
+    lastDisplayable = point;
+
+    const distance = Math.abs(point.datetime - currentDatetime);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearest = point;
+    }
+  }
+
+  if (
+    !firstDisplayable ||
+    !lastDisplayable ||
+    currentDatetime < firstDisplayable.datetime ||
+    currentDatetime > lastDisplayable.datetime
+  ) {
+    return undefined;
+  }
+
+  return nearest;
+}
+
 interface ChartTooltipProps {
   aggregateLabel?: string;
   aggregateKey?: string;
   colorMap?: { [key: string]: string };
   activeKeys?: string[];
+  chartData?: ChartData[] | null;
   chartWidth?: number;
+  connectNulls?: boolean;
   coordinate?: { x: number; y: number };
+  label?: number | string;
   sortingFn?: (a: [string, TooltipDisplayValue], b: [string, TooltipDisplayValue]) => number;
   payload?: PayloadType[];
   units?: string;
@@ -44,8 +87,11 @@ const ChartTooltip = ({
   aggregateKey,
   colorMap,
   activeKeys = [],
+  chartData,
   chartWidth = 0,
+  connectNulls,
   coordinate = { x: 0, y: 0 },
+  label,
   sortingFn,
   payload: payloads,
   units,
@@ -59,8 +105,30 @@ const ChartTooltip = ({
   const keysToShow = activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : [];
   const showAggregate = aggregateKey ? keysToShow.includes(aggregateKey) : false;
 
-  // filter payload to include only active keys
-  const payload = payloads?.[0]?.payload;
+  const rawPayload = payloads?.[0]?.payload;
+
+  // When connectNulls is enabled and the hovered point has no displayable
+  // values (or Recharts stripped all null-valued lines from the payload),
+  // fall back to the nearest data point with real values so the tooltip
+  // stays visible while hovering over interpolated line regions.
+  // Recharts always passes `label` (the x-axis datetime) even when
+  // payload entries are filtered out, so we use it as a position fallback.
+  const currentDatetime = rawPayload?.datetime ?? (typeof label === "number" ? label : undefined);
+
+  const hasNoDisplayableValues =
+    connectNulls &&
+    currentDatetime !== undefined &&
+    !keysToShow.some((key) => {
+      const value = rawPayload?.[key];
+      return typeof value === "number" || typeof value === "string";
+    });
+
+  const fallbackPayload =
+    hasNoDisplayableValues && chartData
+      ? findNearestDisplayablePoint(chartData, currentDatetime, keysToShow)
+      : undefined;
+
+  const payload = (fallbackPayload as typeof rawPayload) ?? rawPayload;
   const filteredEntries = payload
     ? Object.entries(payload).filter((entry): entry is [string, TooltipDisplayValue] => {
         const [key, value] = entry;

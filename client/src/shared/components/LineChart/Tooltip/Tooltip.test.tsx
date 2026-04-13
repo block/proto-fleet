@@ -141,4 +141,174 @@ describe("ChartTooltip", () => {
 
     expect(container.firstChild).toBeNull();
   });
+
+  it("falls back to nearest non-null data point when connectNulls is true and payload has null values", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: 10 },
+      { datetime: 1_700_000_300_000, total: null },
+      { datetime: 1_700_000_600_000, total: 20 },
+    ];
+
+    render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        connectNulls={true}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_300_000,
+              total: null,
+            },
+          },
+        ]}
+        segmentsLabel="Hashboards"
+      />,
+    );
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByText("10.0")).toBeInTheDocument();
+  });
+
+  it("falls back via label when connectNulls is true and Recharts strips null lines from payload", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: 10 },
+      { datetime: 1_700_000_300_000, total: null },
+      { datetime: 1_700_000_600_000, total: 20 },
+    ];
+
+    render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        connectNulls={true}
+        label={1_700_000_300_000}
+        payload={[]}
+        segmentsLabel="Hashboards"
+      />,
+    );
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByText("10.0")).toBeInTheDocument();
+  });
+
+  it("picks the closer neighbor when distances are unequal", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: 10 },
+      { datetime: 1_700_000_100_000, total: null },
+      { datetime: 1_700_000_200_000, total: null },
+      { datetime: 1_700_000_300_000, total: 30 },
+    ];
+
+    render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        connectNulls={true}
+        label={1_700_000_250_000}
+        payload={[]}
+        segmentsLabel="Hashboards"
+      />,
+    );
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByText("30.0")).toBeInTheDocument();
+  });
+
+  it("does not fall back when hovering before the first non-null data point", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: null },
+      { datetime: 1_700_000_300_000, total: null },
+      { datetime: 1_700_000_600_000, total: 10 },
+      { datetime: 1_700_000_900_000, total: 20 },
+    ];
+
+    const { container } = render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        connectNulls={true}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_000_000,
+              total: null,
+            },
+          },
+        ]}
+        segmentsLabel="Hashboards"
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("does not fall back when hovering after the last non-null data point", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: 10 },
+      { datetime: 1_700_000_300_000, total: 20 },
+      { datetime: 1_700_000_600_000, total: null },
+      { datetime: 1_700_000_900_000, total: null },
+    ];
+
+    const { container } = render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        connectNulls={true}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_900_000,
+              total: null,
+            },
+          },
+        ]}
+        segmentsLabel="Hashboards"
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("does not fall back to nearest point when connectNulls is false", () => {
+    const chartData = [
+      { datetime: 1_700_000_000_000, total: 10 },
+      { datetime: 1_700_000_300_000, total: null },
+      { datetime: 1_700_000_600_000, total: 20 },
+    ];
+
+    const { container } = render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total"]}
+        chartData={chartData}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_300_000,
+              total: null,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
 });

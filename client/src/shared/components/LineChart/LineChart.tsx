@@ -344,19 +344,31 @@ const LineChart = ({
   }, [chartBoundingRect.width]);
 
   // Generate evenly-spaced tick timestamps across the full domain so labels
-  // are distributed across the chart instead of clustering where data exists
+  // are distributed across the chart instead of clustering where data exists.
+  // Uses actual container width (via useMeasure) so charts in multi-column
+  // layouts get fewer ticks instead of overlapping labels.
   const xAxisTicks = useMemo(() => {
     if (!xAxisDomainOverride) return undefined;
     const [start, end] = xAxisDomainOverride;
-    const count = isDesktop
-      ? X_AXIS_TICK_COUNT_DESKTOP
-      : isLaptop
-        ? X_AXIS_TICK_COUNT_LAPTOP
-        : isTablet
-          ? X_AXIS_TICK_COUNT_TABLET
-          : X_AXIS_TICK_COUNT_PHONE;
+
+    let count: number;
+    const chartWidth = chartBoundingRect.width;
+    if (chartWidth > 0) {
+      const hasDateLabels = end - start >= TWENTY_FOUR_HOURS_MS;
+      const minSlotWidth = hasDateLabels ? 100 : 60;
+      count = Math.max(3, Math.min(X_AXIS_TICK_COUNT_DESKTOP, Math.floor(chartWidth / minSlotWidth)));
+    } else {
+      count = isDesktop
+        ? X_AXIS_TICK_COUNT_DESKTOP
+        : isLaptop
+          ? X_AXIS_TICK_COUNT_LAPTOP
+          : isTablet
+            ? X_AXIS_TICK_COUNT_TABLET
+            : X_AXIS_TICK_COUNT_PHONE;
+    }
+
     return Array.from({ length: count }, (_, i) => Math.round(start + ((end - start) * i) / (count - 1)));
-  }, [xAxisDomainOverride, isDesktop, isLaptop, isTablet]);
+  }, [xAxisDomainOverride, chartBoundingRect.width, isDesktop, isLaptop, isTablet]);
 
   const tooltipTickValue = useMemo(() => {
     if (tooltipDatetime === undefined) return undefined;
@@ -436,6 +448,19 @@ const LineChart = ({
 
   const yAxisLineStyle = useMemo(() => ({ stroke: corePrimary10 }), [corePrimary10]);
 
+  const displayableRange = useMemo(() => {
+    if (!connectNulls || !chartData?.length) return undefined;
+    let first: number | undefined;
+    let last: number | undefined;
+    for (const datum of chartData) {
+      if (tooltipKeysToShow.some((key) => datum[key] !== null && datum[key] !== undefined)) {
+        if (first === undefined) first = datum.datetime;
+        last = datum.datetime;
+      }
+    }
+    return first !== undefined && last !== undefined ? { first, last } : undefined;
+  }, [chartData, connectNulls, tooltipKeysToShow]);
+
   const getTooltipDatetimeFromState = useCallback(
     (state: MouseHandlerDataParam) => {
       const rawTooltipIndex = state.activeTooltipIndex;
@@ -455,13 +480,24 @@ const LineChart = ({
         return undefined;
       }
 
+      if (connectNulls) {
+        if (
+          !displayableRange ||
+          hoveredDatum.datetime < displayableRange.first ||
+          hoveredDatum.datetime > displayableRange.last
+        ) {
+          return undefined;
+        }
+        return hoveredDatum.datetime;
+      }
+
       const hasDisplayableTooltipValue = tooltipKeysToShow.some((key) => {
         const value = hoveredDatum[key];
         return value !== null && value !== undefined;
       });
       return hasDisplayableTooltipValue ? hoveredDatum.datetime : undefined;
     },
-    [chartData, tooltipKeysToShow],
+    [chartData, connectNulls, displayableRange, tooltipKeysToShow],
   );
 
   const handleChartTooltipMove = useCallback(
@@ -475,13 +511,17 @@ const LineChart = ({
     scheduleTooltipDatetime(undefined);
   }, [scheduleTooltipDatetime]);
 
+  const tooltipChartData = connectNulls ? chartData : undefined;
+
   const tooltipContent = useMemo(
     () => (
       <ChartTooltip
         aggregateKey={aggregateKey}
         aggregateLabel="Summary"
         activeKeys={tooltipKeysToShow}
+        chartData={tooltipChartData}
         chartWidth={chartBoundingRect.width}
+        connectNulls={connectNulls}
         units={units}
         segmentsLabel={segmentsLabel}
         colorMap={colorMap}
@@ -494,7 +534,9 @@ const LineChart = ({
     [
       aggregateKey,
       tooltipKeysToShow,
+      tooltipChartData,
       chartBoundingRect.width,
+      connectNulls,
       units,
       segmentsLabel,
       colorMap,
@@ -543,6 +585,7 @@ const LineChart = ({
               content={tooltipContent}
               cursor={LINE_CURSOR}
               isAnimationActive={false}
+              filterNull={connectNulls ? false : undefined}
             />
 
             {(activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : []).map(

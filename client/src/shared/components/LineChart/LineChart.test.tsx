@@ -57,16 +57,18 @@ vi.mock("recharts", () => ({
   ReferenceLine: () => <div data-testid="reference-line" />,
   Tooltip: ({
     content,
+    filterNull,
     offset,
     position,
     wrapperStyle,
   }: {
     content: ReactNode;
+    filterNull?: boolean;
     offset?: number;
     position?: unknown;
     wrapperStyle?: { pointerEvents?: string };
   }) => (
-    <div data-testid="tooltip">
+    <div data-testid="tooltip" data-filter-null={filterNull === undefined ? "" : String(filterNull)}>
       <span data-testid="tooltip-pointer-events">{wrapperStyle?.pointerEvents ?? ""}</span>
       <span data-testid="tooltip-offset">{String(offset ?? "")}</span>
       <span data-testid="tooltip-position">{position ? "set" : "none"}</span>
@@ -251,6 +253,76 @@ describe("LineChart", () => {
     });
 
     expect(screen.getByTestId("time-x-axis-tick")).toHaveAttribute("data-tooltip-datetime", "");
+  });
+
+  it("sets hovered timestamp for null-only tooltip buckets when connectNulls is true", () => {
+    const sparseChartData = [
+      { datetime: 1_700_000_000_000, total: 10, seriesA: 4 },
+      { datetime: 1_700_000_300_000, total: null, seriesA: null },
+      { datetime: 1_700_000_600_000, total: 14, seriesA: 8 },
+    ];
+
+    render(
+      <LineChart
+        chartData={sparseChartData}
+        aggregateKey="total"
+        activeKeys={["total", "seriesA"]}
+        connectNulls={true}
+      />,
+    );
+
+    act(() => {
+      latestOnMouseMove?.({ activeTooltipIndex: 1, isTooltipActive: true });
+    });
+
+    act(() => {
+      flushAnimationFrame();
+    });
+
+    expect(screen.getByTestId("time-x-axis-tick")).toHaveAttribute(
+      "data-tooltip-datetime",
+      String(sparseChartData[1].datetime),
+    );
+  });
+
+  it("does not set hovered timestamp for leading null buckets outside displayable range when connectNulls is true", () => {
+    const paddedChartData = [
+      { datetime: 1_700_000_000_000, total: null, seriesA: null },
+      { datetime: 1_700_000_300_000, total: null, seriesA: null },
+      { datetime: 1_700_000_600_000, total: 10, seriesA: 4 },
+      { datetime: 1_700_000_900_000, total: 14, seriesA: 8 },
+    ];
+
+    render(
+      <LineChart
+        chartData={paddedChartData}
+        aggregateKey="total"
+        activeKeys={["total", "seriesA"]}
+        connectNulls={true}
+      />,
+    );
+
+    act(() => {
+      latestOnMouseMove?.({ activeTooltipIndex: 0, isTooltipActive: true });
+    });
+
+    act(() => {
+      flushAnimationFrame();
+    });
+
+    expect(screen.getByTestId("time-x-axis-tick")).toHaveAttribute("data-tooltip-datetime", "");
+  });
+
+  it("disables filterNull on Recharts Tooltip when connectNulls is true", () => {
+    render(<LineChart chartData={chartData} aggregateKey="total" activeKeys={["total"]} connectNulls={true} />);
+
+    expect(screen.getByTestId("tooltip")).toHaveAttribute("data-filter-null", "false");
+  });
+
+  it("preserves default filterNull when connectNulls is false", () => {
+    render(<LineChart chartData={chartData} aggregateKey="total" activeKeys={["total"]} />);
+
+    expect(screen.getByTestId("tooltip")).toHaveAttribute("data-filter-null", "");
   });
 
   it("keeps hovered timestamp for partially populated tooltip buckets", () => {
