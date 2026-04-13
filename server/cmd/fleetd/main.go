@@ -8,6 +8,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
+	"runtime"
 	"time"
 	_ "time/tzdata"
 
@@ -110,6 +111,8 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
+	runtime.SetMutexProfileFraction(1)
+	runtime.SetBlockProfileRate(1)
 
 	conn, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {

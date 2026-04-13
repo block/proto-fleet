@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -1065,4 +1066,29 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, remainingDevices, 3)
 	})
+}
+
+func BenchmarkFetchDevices(b *testing.B) {
+	for _, n := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("%d_devices", n), func(b *testing.B) {
+			config := Config{MaxConsecutiveFailures: 10}
+			ctx := context.Background()
+			ids := make([]models.DeviceIdentifier, n)
+			for i := range n {
+				ids[i] = models.DeviceIdentifier(fmt.Sprintf("device-%d", i))
+			}
+
+			b.ResetTimer()
+			for range b.N {
+				// Arrange
+				s := NewScheduler(config)
+				for _, id := range ids {
+					_ = s.AddNewDevices(ctx, id)
+				}
+
+				// Act
+				_, _ = s.FetchDevices(ctx, time.Now())
+			}
+		})
+	}
 }

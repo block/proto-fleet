@@ -215,7 +215,9 @@ _build-go-plugins-native outdir:
   mkdir -p {{outdir}}
   (cd plugin/proto && go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && go build -o ../../{{outdir}}/antminer-plugin .)
-  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  (cd plugin/virtual && go build -o ../../{{outdir}}/virtual-plugin .)
+  cp plugin/virtual/config.json {{outdir}}/
+  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin {{outdir}}/virtual-plugin
 
 _build-go-plugins-cross goos goarch outdir:
   #!/usr/bin/env bash
@@ -226,7 +228,9 @@ _build-go-plugins-cross goos goarch outdir:
   mkdir -p {{outdir}}
   (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
-  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  (cd plugin/virtual && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/virtual-plugin .)
+  cp plugin/virtual/config.json {{outdir}}/
+  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin {{outdir}}/virtual-plugin
 
 _build-go-plugins-multi-arch:
   #!/usr/bin/env bash

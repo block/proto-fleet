@@ -337,12 +337,14 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			fetchStart := time.Now()
 			lookback := time.Now().Add(s.lookBackDuration)
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
 			if err != nil {
 				slog.Error("failed to fetch devices for telemetry", "error", err)
 				continue
 			}
+			slog.Debug("telemetry batch fetched", "count", len(devices), "took", time.Since(fetchStart))
 			for _, device := range devices {
 				s.tasks <- device
 			}
@@ -484,6 +486,11 @@ func (s *TelemetryService) worker(ctx context.Context) {
 // Connection errors during status fetch are converted to MinerStatusOffline (not errors),
 // so the flow continues. Only auth failures and other non-connection errors cause early return.
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
+	start := time.Now()
+	defer func() {
+		slog.Debug("processed device", "deviceID", device.ID, "took", time.Since(start))
+	}()
+
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
 	metricsStatus, hasMetricsStatus, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
