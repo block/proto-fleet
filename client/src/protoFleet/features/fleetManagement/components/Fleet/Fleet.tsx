@@ -79,7 +79,12 @@ const Fleet = () => {
   });
 
   // Fetch unfiltered total count for the "X of Y miners" header display
-  const { totalMiners: totalUnfilteredMiners } = useFleet({
+  // and to guard CompleteSetup rendering (hide when no miners are paired)
+  const {
+    totalMiners: totalUnfilteredMiners,
+    refreshCurrentPage: refreshUnfilteredCount,
+    hasInitialLoadCompleted: unfilteredCountLoaded,
+  } = useFleet({
     pageSize: 1,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
@@ -163,10 +168,15 @@ const Fleet = () => {
   const [lastPairingCompletedAt, setLastPairingCompletedAt] = useState(0);
   const notifyPairingCompleted = useCallback(() => setLastPairingCompletedAt(Date.now()), []);
 
+  const refetchAll = useCallback(() => {
+    refetch();
+    refreshUnfilteredCount();
+  }, [refetch, refreshUnfilteredCount]);
+
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 
   const handleAddMinersClose = () => {
-    refetch();
+    refetchAll();
     notifyPairingCompleted();
     setShowAddMinersModal(false);
   };
@@ -189,12 +199,14 @@ const Fleet = () => {
 
   return (
     <>
-      <CompleteSetup
-        className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6"
-        lastPairingCompletedAt={lastPairingCompletedAt}
-        onRefetchMiners={refetch}
-        onPairingCompleted={notifyPairingCompleted}
-      />
+      {(!unfilteredCountLoaded || totalUnfilteredMiners > 0 || totalMiners > 0) && (
+        <CompleteSetup
+          className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6"
+          lastPairingCompletedAt={lastPairingCompletedAt}
+          onRefetchMiners={refetchAll}
+          onPairingCompleted={notifyPairingCompleted}
+        />
+      )}
       <ErrorBoundary>
         <MinerList
           title="Miners"
@@ -230,7 +242,7 @@ const Fleet = () => {
           currentSortConfig={currentSortConfig}
           onExportCsv={exportCsv}
           exportCsvLoading={isExportingCsv}
-          onRefetchMiners={refetch}
+          onRefetchMiners={refetchAll}
           onPairingCompleted={notifyPairingCompleted}
         />
       </ErrorBoundary>
@@ -241,7 +253,7 @@ const Fleet = () => {
           onExit={handleAddMinersClose}
           pairedMinerIds={minerIds}
           onPairingCompleted={notifyPairingCompleted}
-          onRefetchMiners={refetch}
+          onRefetchMiners={refetchAll}
         />
       )}
     </>

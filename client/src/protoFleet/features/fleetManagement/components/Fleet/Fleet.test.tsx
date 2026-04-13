@@ -67,6 +67,24 @@ vi.mock("@/protoFleet/features/onboarding/components/Miners", () => ({
   default: () => <div data-testid="miners">Miners</div>,
 }));
 
+const createFleetMock = (overrides: Record<string, unknown> = {}) => ({
+  minerIds: [] as string[],
+  miners: {},
+  totalMiners: 0,
+  hasMore: false,
+  hasInitialLoadCompleted: false,
+  isLoading: false,
+  refetch: vi.fn() as () => void,
+  refreshCurrentPage: vi.fn() as () => void,
+  loadMore: vi.fn() as () => void,
+  availableModels: [] as string[],
+  currentPage: 0,
+  hasPreviousPage: false,
+  goToNextPage: vi.fn() as () => void,
+  goToPrevPage: vi.fn() as () => void,
+  ...overrides,
+});
+
 // Helper to render Fleet with Router context
 const renderFleet = () => {
   return render(
@@ -94,22 +112,15 @@ describe("Fleet - Polling", () => {
   it("should setup polling interval after initial load completes", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useFleetModule.default).mockReturnValue({
-      minerIds: ["miner1"],
-      miners: {},
-      totalMiners: 1,
-      hasMore: false,
-      hasInitialLoadCompleted: true,
-      isLoading: false,
-      refetch: vi.fn() as () => void,
-      refreshCurrentPage: mockRefreshCurrentPage as () => void,
-      loadMore: vi.fn() as () => void,
-      availableModels: [],
-      currentPage: 1,
-      hasPreviousPage: false,
-      goToNextPage: vi.fn() as () => void,
-      goToPrevPage: vi.fn() as () => void,
-    });
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner1"],
+        totalMiners: 1,
+        hasInitialLoadCompleted: true,
+        refreshCurrentPage: mockRefreshCurrentPage as () => void,
+        currentPage: 1,
+      }),
+    );
 
     renderFleet();
 
@@ -122,22 +133,12 @@ describe("Fleet - Polling", () => {
   it("should not poll before initial load completes", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useFleetModule.default).mockReturnValue({
-      minerIds: [],
-      miners: {},
-      totalMiners: 0,
-      hasMore: false,
-      hasInitialLoadCompleted: false,
-      isLoading: false,
-      refetch: vi.fn() as () => void,
-      refreshCurrentPage: mockRefreshCurrentPage as () => void,
-      loadMore: vi.fn() as () => void,
-      availableModels: [],
-      currentPage: 1,
-      hasPreviousPage: false,
-      goToNextPage: vi.fn() as () => void,
-      goToPrevPage: vi.fn() as () => void,
-    });
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        refreshCurrentPage: mockRefreshCurrentPage as () => void,
+        currentPage: 1,
+      }),
+    );
 
     renderFleet();
 
@@ -150,22 +151,15 @@ describe("Fleet - Polling", () => {
   it("should poll repeatedly at the configured interval", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useFleetModule.default).mockReturnValue({
-      minerIds: ["miner1"],
-      miners: {},
-      totalMiners: 1,
-      hasMore: false,
-      hasInitialLoadCompleted: true,
-      isLoading: false,
-      refetch: vi.fn() as () => void,
-      refreshCurrentPage: mockRefreshCurrentPage as () => void,
-      loadMore: vi.fn() as () => void,
-      availableModels: [],
-      currentPage: 1,
-      hasPreviousPage: false,
-      goToNextPage: vi.fn() as () => void,
-      goToPrevPage: vi.fn() as () => void,
-    });
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner1"],
+        totalMiners: 1,
+        hasInitialLoadCompleted: true,
+        refreshCurrentPage: mockRefreshCurrentPage as () => void,
+        currentPage: 1,
+      }),
+    );
 
     renderFleet();
 
@@ -182,22 +176,15 @@ describe("Fleet - Polling", () => {
   it("should cleanup polling interval on unmount", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useFleetModule.default).mockReturnValue({
-      minerIds: ["miner1"],
-      miners: {},
-      totalMiners: 1,
-      hasMore: false,
-      hasInitialLoadCompleted: true,
-      isLoading: false,
-      refetch: vi.fn() as () => void,
-      refreshCurrentPage: mockRefreshCurrentPage as () => void,
-      loadMore: vi.fn() as () => void,
-      availableModels: [],
-      currentPage: 1,
-      hasPreviousPage: false,
-      goToNextPage: vi.fn() as () => void,
-      goToPrevPage: vi.fn() as () => void,
-    });
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner1"],
+        totalMiners: 1,
+        hasInitialLoadCompleted: true,
+        refreshCurrentPage: mockRefreshCurrentPage as () => void,
+        currentPage: 1,
+      }),
+    );
 
     const { unmount } = renderFleet();
 
@@ -215,6 +202,7 @@ describe("Fleet - Polling", () => {
 
 describe("Fleet - Component Integration", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockMinerList.mockClear();
   });
 
@@ -223,7 +211,56 @@ describe("Fleet - Component Integration", () => {
     expect(getByTestId("miner-list")).toBeInTheDocument();
   });
 
-  it("should render CompleteSetup component", () => {
+  it("should render CompleteSetup component when miners exist", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner1"],
+        totalMiners: 1,
+        hasInitialLoadCompleted: true,
+      }),
+    );
+
+    const { getByTestId } = renderFleet();
+    expect(getByTestId("complete-setup")).toBeInTheDocument();
+  });
+
+  it("should not render CompleteSetup when there are no miners", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+
+    vi.mocked(useFleetModule.default).mockReturnValue(createFleetMock({ hasInitialLoadCompleted: true }));
+
+    const { queryByTestId } = renderFleet();
+    expect(queryByTestId("complete-setup")).not.toBeInTheDocument();
+  });
+
+  it("should render CompleteSetup when filters yield 0 results but miners exist", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+
+    vi.mocked(useFleetModule.default).mockImplementation((options: any) => {
+      if (options.pageSize === 1) {
+        return createFleetMock({ totalMiners: 5, hasInitialLoadCompleted: true });
+      }
+      return createFleetMock({ totalMiners: 0, hasInitialLoadCompleted: true });
+    });
+
+    const { getByTestId } = renderFleet();
+    expect(getByTestId("complete-setup")).toBeInTheDocument();
+  });
+
+  it("should render CompleteSetup when unfiltered count fails but main fleet shows miners", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+
+    vi.mocked(useFleetModule.default).mockImplementation((options: any) => {
+      if (options.pageSize === 1) {
+        // Unfiltered count fetch failed: hasInitialLoadCompleted is true (set in finally)
+        // but totalMiners stayed at 0 (never updated on error)
+        return createFleetMock({ totalMiners: 0, hasInitialLoadCompleted: true });
+      }
+      return createFleetMock({ minerIds: ["m1"], totalMiners: 1, hasInitialLoadCompleted: true });
+    });
+
     const { getByTestId } = renderFleet();
     expect(getByTestId("complete-setup")).toBeInTheDocument();
   });
@@ -244,22 +281,13 @@ describe("Fleet - Component Integration", () => {
   it("shows the loading state during sort refetches even when miners are already present", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
-    vi.mocked(useFleetModule.default).mockReturnValue({
-      minerIds: ["miner-1"],
-      miners: {},
-      totalMiners: 1,
-      hasMore: false,
-      hasInitialLoadCompleted: false,
-      isLoading: true,
-      refetch: vi.fn() as () => void,
-      refreshCurrentPage: vi.fn() as () => void,
-      loadMore: vi.fn() as () => void,
-      availableModels: [],
-      currentPage: 0,
-      hasPreviousPage: false,
-      goToNextPage: vi.fn() as () => void,
-      goToPrevPage: vi.fn() as () => void,
-    });
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner-1"],
+        totalMiners: 1,
+        isLoading: true,
+      }),
+    );
 
     renderFleet();
 
