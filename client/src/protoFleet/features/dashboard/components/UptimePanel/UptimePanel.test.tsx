@@ -4,20 +4,12 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useUptimeStatusCounts } from "@/protoFleet/store";
 
 // Mock react-router-dom
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
 }));
-
-// Mock the store hooks
-vi.mock("@/protoFleet/store", () => ({
-  useUptimeStatusCounts: vi.fn(),
-}));
-
-const mockUseUptimeStatusCounts = vi.mocked(useUptimeStatusCounts);
 
 // Helper function to create proper UptimeStatusCount objects
 const createMockUptimeStatusCount = (
@@ -43,9 +35,7 @@ describe("UptimePanel", () => {
 
   it("renders loading state", () => {
     // undefined = not loaded yet (loading state)
-    mockUseUptimeStatusCounts.mockReturnValue(undefined);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={undefined} />);
 
     // Check for skeleton loading state
     expect(screen.getByText("Uptime")).toBeInTheDocument();
@@ -57,9 +47,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 5, 0),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCounts);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
@@ -76,9 +64,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCounts);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("20% not hashing")).toBeInTheDocument();
@@ -96,9 +82,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 3, 2),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCounts);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("40% not hashing")).toBeInTheDocument();
@@ -116,9 +100,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 5, 0),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCountsAllHashing);
-
-    const { rerender } = render(<UptimePanel duration={"24h"} />);
+    const { rerender } = render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCountsAllHashing} />);
 
     // Should not show button when count is 0
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -129,9 +111,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCountsWithNotHashing);
-
-    rerender(<UptimePanel duration={"24h"} />);
+    rerender(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCountsWithNotHashing} />);
 
     // Should show button with count when not hashing > 0
     expect(screen.getByRole("button")).toBeInTheDocument();
@@ -140,9 +120,7 @@ describe("UptimePanel", () => {
   });
 
   it("handles empty data", () => {
-    mockUseUptimeStatusCounts.mockReturnValue([]);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={[]} />);
 
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("No data")).toBeInTheDocument();
@@ -154,25 +132,23 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3 * 24 * 3600, 5, 0),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCounts);
-
-    const { rerender } = render(<UptimePanel duration={"1h"} />);
+    const { rerender } = render(<UptimePanel duration={"1h"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"24h"} />);
+    rerender(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"3d"} />);
+    rerender(<UptimePanel duration={"3d"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"10d"} />);
+    rerender(<UptimePanel duration={"10d"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"30d"} />);
+    rerender(<UptimePanel duration={"30d"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
   });
@@ -183,9 +159,7 @@ describe("UptimePanel", () => {
       createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
     ];
 
-    mockUseUptimeStatusCounts.mockReturnValue(uptimeStatusCounts);
-
-    render(<UptimePanel duration={"24h"} />);
+    render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
     // Find and click the "1 miner" button
     const button = screen.getByRole("button", { name: /1 miner/i });

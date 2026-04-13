@@ -5,6 +5,10 @@ import { GetMinerStateCountsRequestSchema } from "@/protoFleet/api/generated/fle
 import { MinerStateCounts } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
+interface UseFleetCountsOptions {
+  pollIntervalMs?: number;
+}
+
 type UseFleetCountsReturn = {
   /** Total number of miners */
   totalMiners: number;
@@ -12,8 +16,8 @@ type UseFleetCountsReturn = {
   stateCounts: MinerStateCounts | undefined;
   /** Whether the hook is currently loading data */
   isLoading: boolean;
-  /** Whether the initial load has completed */
-  hasInitialLoadCompleted: boolean;
+  /** Whether at least one successful fetch has completed */
+  hasLoaded: boolean;
   /** Refetch the counts */
   refetch: () => void;
 };
@@ -21,10 +25,11 @@ type UseFleetCountsReturn = {
 /**
  * Hook for fetching miner state counts without loading full miner data.
  * More efficient than useFleet when only counts are needed (e.g., Dashboard).
+ * Supports optional polling for periodic refresh.
  *
  * @example
  * ```tsx
- * const { totalMiners, stateCounts, isLoading } = useFleetCounts();
+ * const { totalMiners, stateCounts, isLoading } = useFleetCounts({ pollIntervalMs: 60000 });
  *
  * // Display counts
  * <div>Total: {totalMiners}</div>
@@ -32,24 +37,39 @@ type UseFleetCountsReturn = {
  * <div>Offline: {stateCounts?.offlineCount ?? 0}</div>
  * ```
  */
-const useFleetCounts = (): UseFleetCountsReturn => {
+const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn => {
   const { handleAuthErrors } = useAuthErrors();
 
   const [totalMiners, setTotalMiners] = useState(0);
   const [stateCounts, setStateCounts] = useState<MinerStateCounts | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  // Monotonic counter to discard stale responses from overlapping requests
+  const requestIdRef = useRef(0);
+  // Track whether we've loaded at least once to suppress loading flash on poll refreshes
+  const hasLoadedRef = useRef(false);
 
   const fetchCounts = useCallback(async () => {
-    setIsLoading(true);
+    const thisRequestId = ++requestIdRef.current;
+
+    // Only show loading spinner on first fetch, not subsequent poll refreshes
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
 
     try {
       const request = create(GetMinerStateCountsRequestSchema, {});
       const response = await fleetManagementClient.getMinerStateCounts(request);
 
+      // Discard stale response if a newer request was issued
+      if (thisRequestId !== requestIdRef.current) return;
+
       setTotalMiners(response.totalMiners);
       setStateCounts(response.stateCounts);
     } catch (error) {
+      if (thisRequestId !== requestIdRef.current) return;
+
       handleAuthErrors({
         error: error,
         onError: (err) => {
@@ -57,34 +77,42 @@ const useFleetCounts = (): UseFleetCountsReturn => {
         },
       });
     } finally {
-      setIsLoading(false);
-      setHasInitialLoadCompleted(true);
+      if (thisRequestId === requestIdRef.current) {
+        setIsLoading(false);
+        hasLoadedRef.current = true;
+        setHasLoaded(true);
+      }
     }
   }, [handleAuthErrors]);
 
-  // Track if this is the initial load
-  const hasLoadedRef = useRef(false);
-
-  // Fetch data on mount only - streaming provides real-time updates after that
+  // Fetch on mount only — polling handles subsequent refreshes
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    if (hasLoadedRef.current) {
-      return;
-    }
-    hasLoadedRef.current = true;
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
     void fetchCounts();
   }, [fetchCounts]);
 
-  const refetch = useCallback(() => {
-    if (!isLoading) {
+  // Polling
+  useEffect(() => {
+    if (!options?.pollIntervalMs) return;
+
+    const intervalId = setInterval(() => {
       void fetchCounts();
-    }
-  }, [isLoading, fetchCounts]);
+    }, options.pollIntervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [options?.pollIntervalMs, fetchCounts]);
+
+  const refetch = useCallback(() => {
+    void fetchCounts();
+  }, [fetchCounts]);
 
   return {
     totalMiners,
     stateCounts,
     isLoading,
-    hasInitialLoadCompleted,
+    hasLoaded,
     refetch,
   };
 };

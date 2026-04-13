@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { TemperaturePanel } from "./TemperaturePanel";
@@ -7,7 +7,6 @@ import {
   TemperatureStatusCountSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
-import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 // Helper to create mock temperature status counts
@@ -80,39 +79,9 @@ function MockTemperaturePanel({
     return counts;
   }, [duration, coldCount, okCount, hotCount, criticalCount]);
 
-  // Set mock data in the store
-  useEffect(() => {
-    useFleetStore.setState({
-      dashboard: {
-        metrics: undefined,
-        // Use undefined to indicate loading state (matches ProtoOS pattern)
-        temperatureStatusCounts: isLoading ? undefined : temperatureStatusCounts,
-        uptimeStatusCounts: undefined,
-        componentErrors: {
-          counts: {},
-          devicesByComponent: {},
-          errorIdsByDeviceAndComponent: {},
-        },
-        error: null,
-        setHistoricalMetrics: () => {},
-        appendStreamingMetrics: () => {},
-        setHistoricalTemperatureCounts: () => {},
-        appendStreamingTemperatureCounts: () => {},
-        setHistoricalUptimeCounts: () => {},
-        appendStreamingUptimeCounts: () => {},
-        setAllHistoricalData: () => {},
-        setMinerStateCounts: () => {},
-        clearMetrics: () => {},
-        setError: () => {},
-        setComponentErrorCounts: () => {},
-        handleComponentErrorStream: () => {},
-        clearComponentErrors: () => {},
-        minerStateCounts: undefined,
-      },
-    });
-  }, [temperatureStatusCounts, isLoading]);
-
-  return <TemperaturePanel duration={duration} />;
+  return (
+    <TemperaturePanel duration={duration} temperatureStatusCounts={isLoading ? undefined : temperatureStatusCounts} />
+  );
 }
 
 const meta = {

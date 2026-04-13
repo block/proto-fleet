@@ -1,23 +1,21 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { generateUptimeHeadline } from "./utils";
+import { type UptimeStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
-import { useUptimeStatusCounts } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface UptimePanelProps {
   duration: FleetDuration;
+  /** Uptime status counts — undefined = not loaded yet */
+  uptimeStatusCounts: UptimeStatusCount[] | undefined;
 }
 
-export function UptimePanel({ duration }: UptimePanelProps) {
+export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) {
   const navigate = useNavigate();
-
-  // Read uptime status counts from store - only subscribes to uptime updates
-  // undefined = not loaded yet, array = loaded (empty or populated)
-  const uptimeStatusCounts = useUptimeStatusCounts();
 
   // Uptime segment configuration with navigation handler
   const uptimeSegmentConfig: SegmentConfig = useMemo(

@@ -1,30 +1,22 @@
 import { useMemo } from "react";
 import { transformEfficiencyMetricsToChartData } from "./utils";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import useFleetCounts from "@/protoFleet/api/useFleetCounts";
+import { type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
-import { usePanelMetrics } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface EfficiencyPanelProps {
   duration: FleetDuration;
-  /** Override total miner count for "X of Y miners reporting" subtitle (e.g., group size) */
-  totalMiners?: number;
+  /** Efficiency metrics — undefined = not loaded yet, empty array = loaded but no data */
+  metrics: Metric[] | undefined;
+  /** Total miner count for "X of Y miners reporting" subtitle */
+  totalMiners: number;
 }
 
-export function EfficiencyPanel({ duration, totalMiners: totalMinersProp }: EfficiencyPanelProps) {
-  // Read efficiency metrics from store - only subscribes to EFFICIENCY updates
-  // undefined = not loaded yet, array = loaded (empty or populated)
-  const metrics = usePanelMetrics(MeasurementType.EFFICIENCY);
-
-  // Get total fleet size for "X of Y miners reporting" — use prop override when provided
-  const { totalMiners: fleetTotalMiners } = useFleetCounts();
-  const totalMiners = totalMinersProp ?? fleetTotalMiners;
-
+export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet

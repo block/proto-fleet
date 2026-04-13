@@ -37,12 +37,15 @@ const FleetHealthSkeleton = ({ title = "Your fleet" }: { title?: string }) => (
   </ChartWidget>
 );
 
+/** undefined = still loading (skeleton), null = loaded but no data (show mdash), number = show value */
+type MinerCount = number | null | undefined;
+
 interface FleetHealthProps {
-  fleetSize?: number;
-  healthyMiners?: number;
-  needsAttentionMiners?: number;
-  offlineMiners?: number;
-  sleepingMiners?: number;
+  fleetSize?: MinerCount;
+  healthyMiners?: MinerCount;
+  needsAttentionMiners?: MinerCount;
+  offlineMiners?: MinerCount;
+  sleepingMiners?: MinerCount;
   /** Override the default "Your fleet" title (e.g., group name) */
   title?: string;
   /** Extra URL search params to append to miner list links (e.g., "group=123") */
@@ -61,7 +64,7 @@ const FleetHealth = ({
   extraFilterParams,
   totalMinersLink,
 }: FleetHealthProps) => {
-  // Determine loading state - undefined means data hasn't loaded yet
+  // undefined = still loading (show skeleton), null = loaded but no data (show mdash)
   const isLoading =
     fleetSize === undefined ||
     healthyMiners === undefined ||
@@ -69,11 +72,19 @@ const FleetHealth = ({
     offlineMiners === undefined ||
     sleepingMiners === undefined;
 
+  // When any count is null, we've finished loading but have no data (e.g. API error)
+  const hasNoData =
+    fleetSize === null ||
+    healthyMiners === null ||
+    needsAttentionMiners === null ||
+    offlineMiners === null ||
+    sleepingMiners === null;
+
   // Create enhanced segments with filter URLs
   // Note: useMemo must be called unconditionally (Rules of Hooks)
   const segmentsWithFilters = useMemo(() => {
-    // Return empty array during loading to satisfy hook requirements
-    if (isLoading) return [];
+    // Return empty array during loading or no-data states to satisfy hook requirements
+    if (isLoading || hasNoData) return [];
 
     const totalMiners = fleetSize || 1; // prevent division by zero
 
@@ -134,7 +145,16 @@ const FleetHealth = ({
         percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
       };
     });
-  }, [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners, isLoading, extraFilterParams]);
+  }, [
+    fleetSize,
+    healthyMiners,
+    needsAttentionMiners,
+    offlineMiners,
+    sleepingMiners,
+    isLoading,
+    hasNoData,
+    extraFilterParams,
+  ]);
 
   // Extract basic segments for CompositionBar (without extra props)
   const segments = useMemo<Segment[]>(
@@ -199,6 +219,26 @@ const FleetHealth = ({
 
   if (isLoading) {
     return <FleetHealthSkeleton title={title} />;
+  }
+
+  if (hasNoData) {
+    return (
+      <ChartWidget
+        stats={[
+          { label: title, value: "\u2014" },
+          { label: "Healthy", value: "\u2014" },
+          { label: "Needs Attention", value: "\u2014" },
+          { label: "Offline", value: "\u2014" },
+          { label: "Sleeping", value: "\u2014" },
+        ]}
+        statsGrid="grid-cols-5 phone:grid-cols-2 phone:gap-y-6"
+        statsGap="gap-x-10 phone:gap-6"
+        statsPadding="pb-10"
+        statsSize="large"
+      >
+        {null}
+      </ChartWidget>
+    );
   }
 
   return (

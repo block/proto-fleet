@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { telemetryClient } from "@/protoFleet/api/clients";
 import {
@@ -19,18 +19,43 @@ interface TelemetryMetricsOptions {
   aggregations?: AggregationType[];
   duration: FleetDuration;
   enabled?: boolean;
+  pollIntervalMs?: number;
 }
 
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
   const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<GetCombinedMetricsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchMetrics = useCallback(async () => {
-    if (!options.enabled) return;
+  const requestIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
-    setIsLoading(true);
+  // Reset when scope changes — invalidate in-flight requests so stale responses can't land
+  const scopeKey = `${options.duration}-${options.deviceIds?.join(",") ?? "all"}`;
+  const prevScopeRef = useRef(scopeKey);
+  if (prevScopeRef.current !== scopeKey) {
+    prevScopeRef.current = scopeKey;
+    ++requestIdRef.current;
+    hasLoadedRef.current = false;
+    setHasLoaded(false);
+    setData(null);
+  }
+
+  const fetchMetrics = useCallback(async () => {
+    if (!options.enabled) {
+      ++requestIdRef.current;
+      setIsLoading(false);
+      return;
+    }
+
+    const thisRequestId = ++requestIdRef.current;
+
+    // Only show loading spinner on first fetch, not poll refreshes
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -68,19 +93,31 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
 
       const response = await telemetryClient.getCombinedMetrics(request);
 
+      // Discard stale responses
+      if (thisRequestId !== requestIdRef.current) return;
+
       setData(response);
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
     } catch (err) {
+      if (thisRequestId !== requestIdRef.current) return;
+
       handleAuthErrors({
         error: err,
         onError: () => {
           const errorObj = err instanceof Error ? err : new Error(String(err));
           setError(errorObj);
-          setData(null); // Clear old data when error occurs
+          // Only clear data on first-load failure; preserve last snapshot during poll errors
+          if (!hasLoadedRef.current) {
+            setData(null);
+          }
           console.error("Error fetching combined metrics:", errorObj);
         },
       });
     } finally {
-      setIsLoading(false);
+      if (thisRequestId === requestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [
     options.deviceIds,
@@ -91,9 +128,21 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
     handleAuthErrors,
   ]);
 
+  // Initial fetch + refetch on dependency change
   useEffect(() => {
     fetchMetrics();
   }, [fetchMetrics]);
 
-  return { data, isLoading, error, refetch: fetchMetrics };
+  // Polling
+  useEffect(() => {
+    if (!options.pollIntervalMs || !options.enabled) return;
+
+    const intervalId = setInterval(() => {
+      void fetchMetrics();
+    }, options.pollIntervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [options.pollIntervalMs, options.enabled, fetchMetrics]);
+
+  return { data, isLoading, hasLoaded, error, refetch: fetchMetrics };
 };

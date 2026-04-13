@@ -7,12 +7,8 @@ import {
   QueryRequestSchema,
   ResultView,
   type Summary,
-  WatchRequestSchema,
-  type WatchResponse,
-  WatchResponse_Kind,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
-import { streamCleanupManager } from "@/protoFleet/utils/streamCleanup";
 
 interface ComponentErrorCounts {
   controlBoardErrors: number;
@@ -23,7 +19,7 @@ interface ComponentErrorCounts {
 
 interface UseComponentErrorsReturn extends ComponentErrorCounts {
   isLoading: boolean;
-  isStreaming: boolean;
+  hasLoaded: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
 }
@@ -31,165 +27,96 @@ interface UseComponentErrorsReturn extends ComponentErrorCounts {
 interface UseComponentErrorsOptions {
   /** Optional device identifiers to scope errors to specific devices (e.g., a group's members) */
   deviceIdentifiers?: string[];
+  /** Optional polling interval in milliseconds */
+  pollIntervalMs?: number;
 }
 
 /**
- * Hook to fetch and stream component error counts for the dashboard.
- * Performs an initial query and then subscribes to real-time updates.
- * Uses the dashboard slice for component error count tracking.
- *
- * @param options.deviceIdentifiers - When provided, only errors for these devices are fetched/streamed.
+ * Hook to fetch component error counts.
+ * Manages its own local state — no dashboard store dependency.
+ * Supports optional polling for periodic refresh.
  */
 export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComponentErrorsReturn => {
   const deviceIdentifiers = options?.deviceIdentifiers;
-  // When an explicit empty array is provided, there are no devices to query — treat as empty scope
   const isEmptyScope = deviceIdentifiers !== undefined && deviceIdentifiers.length === 0;
-  // Stable key to detect when deviceIdentifiers change (avoids array reference issues).
-  // Use a sentinel to distinguish undefined (still loading) from [] (resolved empty group).
   const deviceIdentifiersKey = deviceIdentifiers === undefined ? "__undefined__" : deviceIdentifiers.join(",");
-  // Ref so startStreaming always reads the latest value without needing it as a dependency
-  const deviceIdentifiersRef = useRef(deviceIdentifiers);
-  deviceIdentifiersRef.current = deviceIdentifiers;
-  // Get auth loading state
+
   const authLoading = useFleetStore((state) => state.auth.authLoading);
-
-  // Dashboard store actions and state
-  const componentErrorCounts = useFleetStore((state) => state.dashboard.componentErrors.counts);
-  const setComponentErrorCounts = useFleetStore((state) => state.dashboard.setComponentErrorCounts);
-  const handleComponentErrorStream = useFleetStore((state) => state.dashboard.handleComponentErrorStream);
-  const clearComponentErrors = useFleetStore((state) => state.dashboard.clearComponentErrors);
-
-  // Get error counts from dashboard store
-  const errorCounts: ComponentErrorCounts = {
-    controlBoardErrors: componentErrorCounts[ComponentType.CONTROL_BOARD] || 0,
-    fanErrors: componentErrorCounts[ComponentType.FAN] || 0,
-    hashboardErrors: componentErrorCounts[ComponentType.HASH_BOARD] || 0,
-    psuErrors: componentErrorCounts[ComponentType.PSU] || 0,
-  };
-
-  // Loading and error states
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  // Abort controller for streaming
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Request versioning to guard against stale fetch responses
-  const fetchVersionRef = useRef(0);
-
-  // Auth error handler
   const { handleAuthErrors } = useAuthErrors();
 
-  // Process component errors and update dashboard store with counts
-  const processComponentErrors = useCallback(
-    (components: ComponentError[]) => {
-      // Track unique devices per component type using Sets
-      const devicesByComponentType: Partial<Record<ComponentType, Set<string>>> = {};
-      // Map of component -> device -> error IDs for proper tracking
-      const deviceErrorMap: Partial<Record<ComponentType, Record<string, string[]>>> = {};
+  // Ref so fetchComponentErrors reads latest deviceIdentifiers without needing it as a dependency
+  const deviceIdentifiersRef = useRef(deviceIdentifiers);
+  deviceIdentifiersRef.current = deviceIdentifiers;
 
-      components.forEach((component: ComponentError) => {
-        if (
-          component.componentType !== undefined &&
-          component.deviceIdentifier &&
-          component.errors &&
-          component.errors.length > 0
-        ) {
-          // Track unique devices per component type
-          if (!devicesByComponentType[component.componentType]) {
-            devicesByComponentType[component.componentType] = new Set();
-          }
-          devicesByComponentType[component.componentType]!.add(component.deviceIdentifier);
+  // Local state for error counts
+  const [counts, setCounts] = useState<Partial<Record<ComponentType, number>>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-          // Build device-error map for streaming update tracking
-          if (!deviceErrorMap[component.componentType]) {
-            deviceErrorMap[component.componentType] = {};
-          }
-          // Merge error IDs if device already has errors for this component type
-          const existingErrors = deviceErrorMap[component.componentType]![component.deviceIdentifier] || [];
-          const newErrors = component.errors.map((error) => error.errorId);
-          deviceErrorMap[component.componentType]![component.deviceIdentifier] = [...existingErrors, ...newErrors];
-        }
-      });
+  const requestIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
-      // Convert Sets to counts (number of unique devices per component type)
-      const counts: Partial<Record<ComponentType, number>> = {};
-      Object.entries(devicesByComponentType).forEach(([type, devices]) => {
-        counts[Number(type) as ComponentType] = devices.size;
-      });
+  // Reset on scope change — invalidate in-flight requests so stale responses can't land
+  const prevScopeRef = useRef(deviceIdentifiersKey);
+  if (prevScopeRef.current !== deviceIdentifiersKey) {
+    prevScopeRef.current = deviceIdentifiersKey;
+    ++requestIdRef.current;
+    hasLoadedRef.current = false;
+    setHasLoaded(false);
+    setCounts({});
+  }
 
-      // Update the dashboard store with counts and device-error map
-      setComponentErrorCounts(counts, deviceErrorMap);
-    },
-    [setComponentErrorCounts],
-  );
+  const errorCounts: ComponentErrorCounts = {
+    controlBoardErrors: counts[ComponentType.CONTROL_BOARD] || 0,
+    fanErrors: counts[ComponentType.FAN] || 0,
+    hashboardErrors: counts[ComponentType.HASH_BOARD] || 0,
+    psuErrors: counts[ComponentType.PSU] || 0,
+  };
 
-  // Process streaming updates (incremental changes)
-  const processStreamingUpdate = useCallback(
-    (response: WatchResponse, kind: WatchResponse_Kind) => {
-      if (!response.result?.value) return;
-
-      // Check if the result is components type
-      if (response.result.case !== "components") return;
-
-      // Get the component errors from the response
-      const components = response.result.value.items || [];
-
-      // Process each component's errors
-      components.forEach((component) => {
-        if (component.errors && component.componentType !== undefined && component.deviceIdentifier) {
-          component.errors.forEach((error) => {
-            // Map WatchResponse_Kind to our event type
-            let event: "OPENED" | "UPDATED" | "CLOSED";
-            if (kind === WatchResponse_Kind.OPENED) {
-              event = "OPENED";
-            } else if (kind === WatchResponse_Kind.UPDATED) {
-              event = "UPDATED";
-            } else if (kind === WatchResponse_Kind.CLOSED) {
-              event = "CLOSED";
-            } else {
-              return; // Skip unspecified kind
-            }
-
-            // Update the dashboard store with streaming event (now includes deviceId)
-            handleComponentErrorStream(event, component.deviceIdentifier, component.componentType, error.errorId);
-          });
-        }
-      });
-    },
-    [handleComponentErrorStream],
-  );
-
-  // Initial fetch function
   const fetchComponentErrors = useCallback(async () => {
-    const version = ++fetchVersionRef.current;
-    setIsLoading(true);
+    if (isEmptyScope) {
+      ++requestIdRef.current;
+      setCounts({});
+      setIsLoading(false);
+      return;
+    }
+
+    const thisRequestId = ++requestIdRef.current;
+
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
+      const currentDeviceIdentifiers = deviceIdentifiersRef.current;
       const request = create(QueryRequestSchema, {
         resultView: ResultView.COMPONENT,
         filter: {
           simple: {
-            ...(deviceIdentifiers && deviceIdentifiers.length > 0 && { deviceIdentifiers }),
+            ...(currentDeviceIdentifiers &&
+              currentDeviceIdentifiers.length > 0 && { deviceIdentifiers: currentDeviceIdentifiers }),
           },
           includeClosed: false,
         },
-        pageSize: 1000, // Should be enough for all component groups
+        pageSize: 1000,
       });
 
       const response = await errorQueryClient.query(request);
 
-      // Discard stale response if scope changed while fetching
-      if (version !== fetchVersionRef.current) return;
+      if (thisRequestId !== requestIdRef.current) return;
 
-      // Process the response based on result type
       if (response.result?.case === "components" && response.result.value) {
-        processComponentErrors(response.result.value.items);
+        const newCounts = processComponentErrorCounts(response.result.value.items);
+        setCounts(newCounts);
+      } else {
+        setCounts({});
       }
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
     } catch (err) {
-      if (version !== fetchVersionRef.current) return;
+      if (thisRequestId !== requestIdRef.current) return;
       handleAuthErrors({
         error: err,
         onError: (error) => {
@@ -198,138 +125,63 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
         },
       });
     } finally {
-      if (version === fetchVersionRef.current) {
+      if (thisRequestId === requestIdRef.current) {
         setIsLoading(false);
       }
     }
-  }, [handleAuthErrors, processComponentErrors, deviceIdentifiers]);
+  }, [handleAuthErrors, isEmptyScope]);
 
-  // Start streaming function - no dependencies to avoid infinite loops
-  const startStreaming = useCallback(async () => {
-    // Abort any existing stream
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    // Register with cleanup manager for page unload handling
-    streamCleanupManager.register(controller);
-
-    setIsStreaming(true);
-
-    try {
-      const currentDeviceIdentifiers = deviceIdentifiersRef.current;
-      const request = create(WatchRequestSchema, {
-        filter: {
-          simple: {
-            ...(currentDeviceIdentifiers &&
-              currentDeviceIdentifiers.length > 0 && { deviceIdentifiers: currentDeviceIdentifiers }),
-          },
-          includeClosed: false,
-        },
-      });
-
-      // Start the streaming loop
-      (async () => {
-        try {
-          for await (const response of errorQueryClient.watch(request, {
-            signal: controller.signal,
-          })) {
-            // Only process component view responses
-            if (response.result?.case === "components" && response.kind) {
-              processStreamingUpdate(response, response.kind);
-            }
-          }
-        } catch (streamError) {
-          if (!controller.signal.aborted) {
-            handleAuthErrors({
-              error: streamError,
-              onError: (error) => {
-                console.error("Error streaming component errors:", error);
-                // Don't automatically retry - let the user refresh if needed
-                // This prevents infinite retry loops on persistent errors
-              },
-            });
-          }
-        } finally {
-          if (abortControllerRef.current === controller) {
-            setIsStreaming(false);
-          }
-        }
-      })();
-    } catch (err) {
-      console.error("Error starting error stream:", err);
-      setIsStreaming(false);
-    }
-    // Remove dependencies to avoid infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Stop streaming function
-  const stopStreaming = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      streamCleanupManager.unregister(abortControllerRef.current);
-      abortControllerRef.current = null;
-    }
-    setIsStreaming(false);
-  }, []);
-
-  // Initial fetch on mount and when deviceIdentifiers change, but wait for auth to be ready
+  // Initial fetch + refetch on scope change
   useEffect(() => {
-    // Don't fetch if auth is still loading
-    if (authLoading) {
-      return;
-    }
-
-    // Clear component errors and fetch fresh data when dashboard mounts or device scope changes
-    clearComponentErrors();
-
-    // Skip fetch when scope is explicitly empty (e.g., a group with zero members)
-    if (!isEmptyScope) {
-      fetchComponentErrors();
-    } else {
-      // Bump fetch version to invalidate any in-flight requests from the previous scope
-      ++fetchVersionRef.current;
-      setIsLoading(false);
-    }
+    if (authLoading) return;
+    fetchComponentErrors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, deviceIdentifiersKey]);
 
-  // Start streaming after initial fetch completes, restart when device scope changes
+  // Polling
   useEffect(() => {
-    // Track if component is mounted to prevent state updates after unmount
-    let isMounted = true;
+    if (!options?.pollIntervalMs || authLoading) return;
 
-    // Don't start streaming if auth is still loading, data is still loading, or scope is empty
-    if (authLoading || isLoading || isEmptyScope) {
-      return;
-    }
+    const intervalId = setInterval(() => {
+      void fetchComponentErrors();
+    }, options.pollIntervalMs);
 
-    // Start stream asynchronously to avoid blocking render
-    (async () => {
-      if (isMounted) {
-        await startStreaming();
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-      stopStreaming();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isLoading, deviceIdentifiersKey]);
+    return () => clearInterval(intervalId);
+  }, [options?.pollIntervalMs, authLoading, fetchComponentErrors]);
 
   return {
     ...errorCounts,
     isLoading,
-    isStreaming,
+    hasLoaded,
     error,
     refetch: fetchComponentErrors,
   };
 };
+
+/** Count unique devices per component type from query response */
+function processComponentErrorCounts(components: ComponentError[]): Partial<Record<ComponentType, number>> {
+  const devicesByComponentType: Partial<Record<ComponentType, Set<string>>> = {};
+
+  components.forEach((component) => {
+    if (
+      component.componentType !== undefined &&
+      component.deviceIdentifier &&
+      component.errors &&
+      component.errors.length > 0
+    ) {
+      if (!devicesByComponentType[component.componentType]) {
+        devicesByComponentType[component.componentType] = new Set();
+      }
+      devicesByComponentType[component.componentType]!.add(component.deviceIdentifier);
+    }
+  });
+
+  const counts: Partial<Record<ComponentType, number>> = {};
+  Object.entries(devicesByComponentType).forEach(([type, devices]) => {
+    counts[Number(type) as ComponentType] = devices.size;
+  });
+  return counts;
+}
 
 // Additional types and hook for fetching specific component error details
 interface ComponentErrorDetailResult {
@@ -390,10 +242,8 @@ export const useComponentErrorDetail = (
             loading: false,
           });
         } else {
-          // No errors for this component - this is common with the mock API
-          // since it randomly generates errors and may not have errors for every component
           setResult({
-            summary: undefined, // No fallback - keep undefined if not from server
+            summary: undefined,
             componentError: undefined,
             loading: false,
           });

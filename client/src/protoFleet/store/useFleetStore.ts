@@ -3,7 +3,6 @@ import { devtools, persist, PersistStorage, StorageValue, subscribeWithSelector 
 import { immer } from "zustand/middleware/immer";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import { type BatchSlice, createBatchSlice } from "./slices/batchSlice";
-import { createDashboardSlice, type DashboardSlice } from "./slices/dashboardSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
 import { normalizeBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
@@ -17,7 +16,6 @@ export interface FleetStore {
   batch: BatchSlice;
   ui: UISlice;
   onboarding: OnboardingSlice;
-  dashboard: DashboardSlice;
 }
 
 // =============================================================================
@@ -121,7 +119,6 @@ export const useFleetStore = create<FleetStore>()(
           batch: createBatchSlice(set as any, get as any, api as any),
           ui: createUISlice(set as any, get as any, api as any),
           onboarding: createOnboardingSlice(set as any, get as any, api as any),
-          dashboard: createDashboardSlice(set as any, get as any, api as any),
         })),
         {
           name: "fleet-store",

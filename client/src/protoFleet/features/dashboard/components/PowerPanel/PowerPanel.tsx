@@ -1,30 +1,22 @@
 import { useMemo } from "react";
 import { transformPowerMetricsToChartData } from "./utils";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import useFleetCounts from "@/protoFleet/api/useFleetCounts";
+import { type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
-import { usePanelMetrics } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface PowerPanelProps {
   duration: FleetDuration;
-  /** Override total miner count for "X of Y miners reporting" subtitle (e.g., group size) */
-  totalMiners?: number;
+  /** Power metrics — undefined = not loaded yet, empty array = loaded but no data */
+  metrics: Metric[] | undefined;
+  /** Total miner count for "X of Y miners reporting" subtitle */
+  totalMiners: number;
 }
 
-export function PowerPanel({ duration, totalMiners: totalMinersProp }: PowerPanelProps) {
-  // Read power metrics from store - only subscribes to POWER updates
-  // undefined = not loaded yet, array = loaded (empty or populated)
-  const metrics = usePanelMetrics(MeasurementType.POWER);
-
-  // Get total fleet size for "X of Y miners reporting" — use prop override when provided
-  const { totalMiners: fleetTotalMiners } = useFleetCounts();
-  const totalMiners = totalMinersProp ?? fleetTotalMiners;
-
+export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet

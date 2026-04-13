@@ -1,88 +1,130 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
-import { fleetManagementClient } from "@/protoFleet/api/clients";
-import {
-  ListMinerStateSnapshotsRequestSchema,
-  MinerListFilterSchema,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { MinerStateCounts } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deviceSetClient } from "@/protoFleet/api/clients";
+import { type DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
-interface DeviceSetFilter {
-  groupIds?: bigint[];
-  rackIds?: bigint[];
+interface UseDeviceSetStateCountsOptions {
+  deviceSetId: bigint | undefined;
+  pollIntervalMs?: number;
+}
+
+interface StateCounts {
+  hashingCount: number;
+  brokenCount: number;
+  offlineCount: number;
+  sleepingCount: number;
 }
 
 interface UseDeviceSetStateCountsReturn {
   totalMiners: number;
-  stateCounts: MinerStateCounts | undefined;
-  hasInitialLoadCompleted: boolean;
+  stateCounts: StateCounts | undefined;
+  stats: DeviceSetStats | undefined;
+  isLoading: boolean;
+  hasLoaded: boolean;
+  refetch: () => void;
 }
 
-/**
- * Hook for fetching miner state counts scoped to a group or rack.
- * Uses ListMinerStateSnapshots with pageSize=1 and a group/rack filter
- * to efficiently retrieve just the totalStateCounts.
- *
- * Callers must memoize the filter object (e.g. via useMemo) so that
- * the effect only re-runs when the filter actually changes.
- */
-const useDeviceSetStateCounts = (filter: DeviceSetFilter | null): UseDeviceSetStateCountsReturn => {
+export const useDeviceSetStateCounts = ({
+  deviceSetId,
+  pollIntervalMs,
+}: UseDeviceSetStateCountsOptions): UseDeviceSetStateCountsReturn => {
   const { handleAuthErrors } = useAuthErrors();
 
-  const [totalMiners, setTotalMiners] = useState(0);
-  const [stateCounts, setStateCounts] = useState<MinerStateCounts | undefined>(undefined);
-  const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
+  const [stats, setStats] = useState<DeviceSetStats | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const requestIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
-  const fetchCounts = useCallback(
-    async (currentFilter: DeviceSetFilter, requestId: number) => {
-      try {
-        const request = create(ListMinerStateSnapshotsRequestSchema, {
-          pageSize: 1,
-          filter: create(MinerListFilterSchema, {
-            groupIds: currentFilter.groupIds ?? [],
-            rackIds: currentFilter.rackIds ?? [],
-          }),
-        });
-        const response = await fleetManagementClient.listMinerStateSnapshots(request);
+  // Reset on deviceSetId change — invalidate in-flight requests so stale responses can't land
+  const prevIdRef = useRef(deviceSetId);
+  if (prevIdRef.current !== deviceSetId) {
+    prevIdRef.current = deviceSetId;
+    ++requestIdRef.current;
+    hasLoadedRef.current = false;
+    setHasLoaded(false);
+    setStats(undefined);
+  }
 
-        if (requestIdRef.current !== requestId) return;
+  const fetchStats = useCallback(async () => {
+    if (deviceSetId === undefined) {
+      ++requestIdRef.current;
+      setStats(undefined);
+      setIsLoading(false);
+      return;
+    }
 
-        setTotalMiners(response.totalMiners);
-        setStateCounts(response.totalStateCounts);
-        setHasInitialLoadCompleted(true);
-      } catch (error) {
-        if (requestIdRef.current !== requestId) return;
+    const thisRequestId = ++requestIdRef.current;
 
-        handleAuthErrors({
-          error: error,
-          onError: (err: unknown) => {
-            console.error("Error fetching device set state counts:", err);
-          },
-        });
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
+
+    try {
+      const response = await deviceSetClient.getDeviceSetStats({
+        deviceSetIds: [deviceSetId],
+      });
+
+      if (thisRequestId !== requestIdRef.current) return;
+
+      const deviceSetStats = response.stats[0];
+      setStats(deviceSetStats);
+    } catch (error) {
+      if (thisRequestId !== requestIdRef.current) return;
+
+      handleAuthErrors({
+        error,
+        onError: (err) => {
+          console.error("Error fetching device set stats:", err);
+        },
+      });
+    } finally {
+      if (thisRequestId === requestIdRef.current) {
+        setIsLoading(false);
+        hasLoadedRef.current = true;
+        setHasLoaded(true);
       }
-    },
-    [handleAuthErrors],
+    }
+  }, [deviceSetId, handleAuthErrors]);
+
+  // Initial fetch + refetch on deviceSetId change
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  // Polling
+  useEffect(() => {
+    if (!pollIntervalMs || deviceSetId === undefined) return;
+
+    const intervalId = setInterval(() => {
+      void fetchStats();
+    }, pollIntervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [pollIntervalMs, deviceSetId, fetchStats]);
+
+  const stateCounts: StateCounts | undefined = useMemo(
+    () =>
+      stats
+        ? {
+            hashingCount: stats.hashingCount,
+            brokenCount: stats.brokenCount,
+            offlineCount: stats.offlineCount,
+            sleepingCount: stats.sleepingCount,
+          }
+        : undefined,
+    [stats],
   );
 
-  useEffect(() => {
-    if (!filter) return;
-
-    const requestId = ++requestIdRef.current;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Clearing stale state before async fetch; no cascade risk since these state vars are not in the dep array
-    setStateCounts(undefined);
-    setTotalMiners(0);
-    setHasInitialLoadCompleted(false);
-    void fetchCounts(filter, requestId);
-  }, [filter, fetchCounts]);
+  const totalMiners = stats?.deviceCount ?? 0;
 
   return {
     totalMiners,
     stateCounts,
-    hasInitialLoadCompleted,
+    stats,
+    isLoading,
+    hasLoaded,
+    refetch: fetchStats,
   };
 };
-
-export default useDeviceSetStateCounts;

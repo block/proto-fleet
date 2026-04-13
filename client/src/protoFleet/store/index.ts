@@ -79,28 +79,6 @@ export {
 } from "./hooks/useOnboarding";
 
 // =============================================================================
-// Dashboard Hooks
-// =============================================================================
-
-export {
-  usePanelMetrics,
-  useTemperatureStatusCounts,
-  useUptimeStatusCounts,
-  useMinerStateCounts,
-  useDashboardError,
-  useSetHistoricalMetrics,
-  useAppendStreamingMetrics,
-  useSetHistoricalTemperatureCounts,
-  useAppendStreamingTemperatureCounts,
-  useSetHistoricalUptimeCounts,
-  useAppendStreamingUptimeCounts,
-  useSetAllHistoricalData,
-  useSetMinerStateCounts,
-  useClearMetrics,
-  useSetDashboardError,
-} from "./hooks/useDashboard";
-
-// =============================================================================
 // Types
 // =============================================================================
 

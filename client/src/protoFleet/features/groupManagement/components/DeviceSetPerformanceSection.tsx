@@ -9,7 +9,7 @@ import {
   normalizeHashrateToTHs,
   normalizePowerToKW,
 } from "@/protoFleet/features/dashboard/utils/metricNormalization";
-import { usePanelMetrics, useTemperatureUnit } from "@/protoFleet/store";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -18,6 +18,8 @@ import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/util
 
 interface DeviceSetPerformanceSectionProps {
   duration: FleetDuration;
+  /** All metrics for the device set — undefined = not loaded, empty = no data */
+  metrics: Metric[] | undefined;
 }
 
 const COLOR_MAP = {
@@ -86,21 +88,19 @@ function computeReferenceLines(chartData: ChartData[]): { value: number; color: 
 
 function ChartPanel({
   label,
-  measurementType,
+  metrics,
   units,
   duration,
   transform,
   formatStat,
 }: {
   label: string;
-  measurementType: MeasurementType;
+  metrics: Metric[] | undefined;
   units: string;
   duration: FleetDuration;
   transform: (metrics: Metric[]) => { chartData: ChartData[]; units: string };
   formatStat: (data: ChartData[], units: string) => { value: string; units: string };
 }) {
-  const metrics = usePanelMetrics(measurementType);
-
   const { chartData, displayUnits } = useMemo(() => {
     if (metrics === undefined) return { chartData: undefined, displayUnits: units };
     if (metrics.length === 0) return { chartData: null, displayUnits: units };
@@ -215,10 +215,27 @@ function ChartPanel({
   );
 }
 
-export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSectionProps) {
+export function DeviceSetPerformanceSection({ duration, metrics: allMetrics }: DeviceSetPerformanceSectionProps) {
   const temperatureUnit = useTemperatureUnit();
   const isFahrenheit = temperatureUnit === "F";
 
+  // Filter metrics by measurement type — mirrors what usePanelMetrics did from the store
+  const hashrateMetrics = useMemo(
+    () => allMetrics?.filter((m) => m.measurementType === MeasurementType.HASHRATE),
+    [allMetrics],
+  );
+  const temperatureMetrics = useMemo(
+    () => allMetrics?.filter((m) => m.measurementType === MeasurementType.TEMPERATURE),
+    [allMetrics],
+  );
+  const efficiencyMetrics = useMemo(
+    () => allMetrics?.filter((m) => m.measurementType === MeasurementType.EFFICIENCY),
+    [allMetrics],
+  );
+  const powerMetrics = useMemo(
+    () => allMetrics?.filter((m) => m.measurementType === MeasurementType.POWER),
+    [allMetrics],
+  );
   const hashrateTransform = useMemo(
     () => (metrics: Metric[]) => {
       const chartData = transformMetrics(metrics, normalizeHashrateToTHs);
@@ -296,7 +313,7 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
     <div className="grid grid-cols-2 gap-1 phone:grid-cols-1">
       <ChartPanel
         label="Hashrate"
-        measurementType={MeasurementType.HASHRATE}
+        metrics={hashrateMetrics}
         units="TH/S"
         duration={duration}
         transform={hashrateTransform}
@@ -304,7 +321,7 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
       />
       <ChartPanel
         label="Temperature"
-        measurementType={MeasurementType.TEMPERATURE}
+        metrics={temperatureMetrics}
         units={isFahrenheit ? "°F" : "°C"}
         duration={duration}
         transform={temperatureTransform}
@@ -312,7 +329,7 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
       />
       <ChartPanel
         label="Avg efficiency"
-        measurementType={MeasurementType.EFFICIENCY}
+        metrics={efficiencyMetrics}
         units="J/TH"
         duration={duration}
         transform={efficiencyTransform}
@@ -320,7 +337,7 @@ export function DeviceSetPerformanceSection({ duration }: DeviceSetPerformanceSe
       />
       <ChartPanel
         label="Total power"
-        measurementType={MeasurementType.POWER}
+        metrics={powerMetrics}
         units="kW"
         duration={duration}
         transform={powerTransform}

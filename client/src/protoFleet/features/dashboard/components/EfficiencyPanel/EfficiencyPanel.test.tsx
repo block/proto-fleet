@@ -9,21 +9,6 @@ import {
   type Metric,
   MetricSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import useFleetCounts from "@/protoFleet/api/useFleetCounts";
-import { usePanelMetrics } from "@/protoFleet/store";
-
-// Mock the API hooks
-vi.mock("@/protoFleet/api/useFleetCounts", () => ({
-  default: vi.fn(),
-}));
-
-// Mock the store hooks
-vi.mock("@/protoFleet/store", () => ({
-  usePanelMetrics: vi.fn(),
-}));
-
-const mockUseFleetCounts = vi.mocked(useFleetCounts);
-const mockUsePanelMetrics = vi.mocked(usePanelMetrics);
 
 // Helper function to create mock Metric with device count
 const createMockMetric = (avgValue: number, deviceCount: number): Metric => {
@@ -51,17 +36,7 @@ describe("EfficiencyPanel", () => {
   it("shows subtitle when not all miners are reporting", () => {
     const metrics = [createMockMetric(25.5, 3)];
 
-    mockUsePanelMetrics.mockReturnValue(metrics);
-
-    mockUseFleetCounts.mockReturnValue({
-      totalMiners: 5,
-      stateCounts: undefined,
-      isLoading: false,
-      hasInitialLoadCompleted: true,
-      refetch: vi.fn(),
-    });
-
-    render(<EfficiencyPanel duration={"1h"} />);
+    render(<EfficiencyPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
 
     expect(screen.getByText("3 of 5 miners reporting")).toBeInTheDocument();
   });
@@ -69,34 +44,14 @@ describe("EfficiencyPanel", () => {
   it("hides subtitle when all miners are reporting", () => {
     const metrics = [createMockMetric(25.5, 5)];
 
-    mockUsePanelMetrics.mockReturnValue(metrics);
-
-    mockUseFleetCounts.mockReturnValue({
-      totalMiners: 5,
-      stateCounts: undefined,
-      isLoading: false,
-      hasInitialLoadCompleted: true,
-      refetch: vi.fn(),
-    });
-
-    render(<EfficiencyPanel duration={"1h"} />);
+    render(<EfficiencyPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
   });
 
   it("hides subtitle when device count is null", () => {
     // No metrics, so device count will be null
-    mockUsePanelMetrics.mockReturnValue([]);
-
-    mockUseFleetCounts.mockReturnValue({
-      totalMiners: 5,
-      stateCounts: undefined,
-      isLoading: false,
-      hasInitialLoadCompleted: true,
-      refetch: vi.fn(),
-    });
-
-    render(<EfficiencyPanel duration={"1h"} />);
+    render(<EfficiencyPanel duration={"1h"} metrics={[]} totalMiners={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
   });
@@ -104,34 +59,14 @@ describe("EfficiencyPanel", () => {
   it("shows subtitle with zero miners reporting", () => {
     const metrics = [createMockMetric(0, 0)];
 
-    mockUsePanelMetrics.mockReturnValue(metrics);
-
-    mockUseFleetCounts.mockReturnValue({
-      totalMiners: 5,
-      stateCounts: undefined,
-      isLoading: false,
-      hasInitialLoadCompleted: true,
-      refetch: vi.fn(),
-    });
-
-    render(<EfficiencyPanel duration={"1h"} />);
+    render(<EfficiencyPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
 
     expect(screen.getByText("0 of 5 miners reporting")).toBeInTheDocument();
   });
 
   it("renders loading state without subtitle", () => {
     // undefined = not loaded yet (loading state)
-    mockUsePanelMetrics.mockReturnValue(undefined);
-
-    mockUseFleetCounts.mockReturnValue({
-      totalMiners: 5,
-      stateCounts: undefined,
-      isLoading: false,
-      hasInitialLoadCompleted: true,
-      refetch: vi.fn(),
-    });
-
-    render(<EfficiencyPanel duration={"1h"} />);
+    render(<EfficiencyPanel duration={"1h"} metrics={undefined} totalMiners={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
   });

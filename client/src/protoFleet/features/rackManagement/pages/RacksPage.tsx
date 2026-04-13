@@ -5,6 +5,7 @@ import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   AssignMinersModal,
   type RackFormData,
@@ -25,8 +26,6 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
-
-const RACK_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_LIST_POLL_INTERVAL_MS) || 60000;
 
 const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: "name", label: "Name" },
@@ -236,7 +235,7 @@ const RacksPage = () => {
     if (!hasCompletedInitialFetch || isModalOpen) return;
     const intervalId = setInterval(() => {
       refreshCurrentPage();
-    }, RACK_POLL_INTERVAL_MS);
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
   }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
 

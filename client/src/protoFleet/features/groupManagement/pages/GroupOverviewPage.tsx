@@ -2,33 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import {
-  AggregationType,
-  GetCombinedMetricsResponse,
-  MeasurementType,
-} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import useDeviceSetStateCounts from "@/protoFleet/api/useDeviceSetStateCounts";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
-import {
-  useAppendStreamingMetrics,
-  useAppendStreamingTemperatureCounts,
-  useAppendStreamingUptimeCounts,
-  useClearMetrics,
-  useDuration,
-  useMinerStateCounts,
-  useSetAllHistoricalData,
-  useSetDashboardError,
-  useSetDuration,
-  useSetMinerStateCounts,
-} from "@/protoFleet/store";
+import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -129,7 +114,6 @@ const GroupOverviewPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [label]);
 
-  // Dashboard store hooks
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
@@ -138,7 +122,7 @@ const GroupOverviewPage = () => {
   // Pass undefined when no members yet (loading); pass empty array for truly empty groups
   // so useComponentErrors can distinguish "no scope" from "empty scope"
   const componentErrorsOptions = useMemo(
-    () => (memberDeviceIds ? { deviceIdentifiers: memberDeviceIds } : undefined),
+    () => (memberDeviceIds ? { deviceIdentifiers: memberDeviceIds, pollIntervalMs: POLL_INTERVAL_MS } : undefined),
     [memberDeviceIds],
   );
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
@@ -146,52 +130,21 @@ const GroupOverviewPage = () => {
   // Group size for "X of Y miners reporting" subtitles
   const groupSize = memberDeviceIds?.length ?? 0;
 
-  // Initial state counts scoped to this group (fallback until streaming delivers)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally keyed on group.id to avoid re-fetches when silent polling replaces the group object
-  const stateCountsFilter = useMemo(() => (group ? { groupIds: [group.id] } : null), [group?.id]);
+  // Scoped state counts via getDeviceSetStats API
   const {
-    totalMiners: initialTotalMiners,
-    stateCounts: initialStateCounts,
-    hasInitialLoadCompleted,
-  } = useDeviceSetStateCounts(stateCountsFilter);
+    totalMiners,
+    stateCounts,
+    hasLoaded: statsLoaded,
+    refetch: refetchStats,
+  } = useDeviceSetStateCounts({
+    deviceSetId: group?.id,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
-  const streamingStateCounts = useMinerStateCounts();
-  const setMinerStateCounts = useSetMinerStateCounts();
-
-  // Use streaming counts when available, fall back to initial scoped counts
-  const stateCounts = streamingStateCounts ?? initialStateCounts;
-  const totalMiners = streamingStateCounts
-    ? (streamingStateCounts.hashingCount ?? 0) +
-      (streamingStateCounts.brokenCount ?? 0) +
-      (streamingStateCounts.offlineCount ?? 0) +
-      (streamingStateCounts.sleepingCount ?? 0)
-    : hasInitialLoadCompleted
-      ? initialTotalMiners
-      : groupSize;
-
-  // Store action hooks
-  const setAllHistoricalData = useSetAllHistoricalData();
-  const appendStreamingMetrics = useAppendStreamingMetrics();
-  const appendStreamingTemperatureCounts = useAppendStreamingTemperatureCounts();
-  const appendStreamingUptimeCounts = useAppendStreamingUptimeCounts();
-  const clearMetrics = useClearMetrics();
-  const setError = useSetDashboardError();
-
-  // Clear dashboard store on mount and unmount
-  // Also reset minerStateCounts so stale all-fleet counts from Dashboard don't show
-  useEffect(() => {
-    clearMetrics();
-    setMinerStateCounts(undefined);
-    return () => {
-      clearMetrics();
-      setMinerStateCounts(undefined);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Telemetry fetching - scoped to group's device IDs
-  const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
   const isEmptyGroup = memberDeviceIds !== null && memberDeviceIds.length === 0;
+
+  // Telemetry fetching - scoped to group's device IDs, polled
+  const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
 
   const telemetryOptions = useMemo(
     () => ({
@@ -200,87 +153,15 @@ const GroupOverviewPage = () => {
       aggregations: ALL_AGGREGATION_TYPES,
       duration,
       enabled: telemetryEnabled,
+      pollIntervalMs: POLL_INTERVAL_MS,
     }),
     [memberDeviceIds, duration, telemetryEnabled],
   );
 
-  const { data: historicalData, error } = useTelemetryMetrics(telemetryOptions);
+  const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
 
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: memberDeviceIds ?? [],
-      measurementTypes: ALL_MEASUREMENT_TYPES,
-      aggregations: ALL_AGGREGATION_TYPES,
-      enabled: telemetryEnabled,
-    }),
-    [memberDeviceIds, telemetryEnabled],
-  );
-
-  const { latestData: streamingData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Write historical data to store (mirrors Dashboard pattern)
-  const lastLoadedDataRef = useRef<GetCombinedMetricsResponse | null>(null);
-  const hasLoadedForCurrentDurationRef = useRef(false);
-
-  useEffect(() => {
-    if (!historicalData) return;
-    if (historicalData === lastLoadedDataRef.current) return;
-    if (hasLoadedForCurrentDurationRef.current) return;
-
-    lastLoadedDataRef.current = historicalData;
-    hasLoadedForCurrentDurationRef.current = true;
-    setAllHistoricalData(
-      historicalData.metrics ?? [],
-      historicalData.temperatureStatusCounts ?? [],
-      historicalData.uptimeStatusCounts ?? [],
-    );
-  }, [historicalData, setAllHistoricalData]);
-
-  // Write error state to store
-  useEffect(() => {
-    setError(error ?? null);
-  }, [error, setError]);
-
-  // Clear metrics on duration change
-  const prevDurationRef = useRef<typeof duration | undefined>(undefined);
-  useEffect(() => {
-    if (prevDurationRef.current !== undefined && prevDurationRef.current !== duration) {
-      clearMetrics();
-      hasLoadedForCurrentDurationRef.current = false;
-    }
-    prevDurationRef.current = duration;
-  }, [duration, clearMetrics]);
-
-  // Reset historical data refs and miner state counts when group membership changes
-  useEffect(() => {
-    lastLoadedDataRef.current = null;
-    hasLoadedForCurrentDurationRef.current = false;
-    clearMetrics();
-    setMinerStateCounts(undefined);
-  }, [memberDeviceIds, clearMetrics, setMinerStateCounts]);
-
-  // Seed empty metrics for zero-member groups so charts show "No data" instead of skeleton
-  useEffect(() => {
-    if (memberDeviceIds !== null && memberDeviceIds.length === 0) {
-      setAllHistoricalData([], [], []);
-    }
-  }, [memberDeviceIds, setAllHistoricalData]);
-
-  // Append streaming data
-  useEffect(() => {
-    if (!streamingData) return;
-
-    appendStreamingMetrics(streamingData.metrics ?? []);
-    appendStreamingTemperatureCounts(streamingData.temperatureStatusCounts ?? []);
-    appendStreamingUptimeCounts(streamingData.uptimeStatusCounts ?? []);
-    setMinerStateCounts(streamingData.minerStateCounts);
-  }, [
-    streamingData,
-    appendStreamingMetrics,
-    appendStreamingTemperatureCounts,
-    appendStreamingUptimeCounts,
-    setMinerStateCounts,
-  ]);
+  // For empty groups, treat as "loaded with no data" so panels show "No data" not skeleton
+  const metrics = isEmptyGroup ? [] : telemetryData?.metrics;
 
   if (loading) {
     return (
@@ -332,7 +213,10 @@ const GroupOverviewPage = () => {
                 memberDeviceIds={memberDeviceIds ?? []}
                 deviceSetId={group?.id}
                 onEdit={() => setShowEditModal(true)}
-                onActionComplete={() => resolveGroup(label, group?.id)}
+                onActionComplete={() => {
+                  resolveGroup(label, group?.id);
+                  void refetchStats();
+                }}
               />
             </div>
           </Header>
@@ -343,15 +227,11 @@ const GroupOverviewPage = () => {
           <div className="flex flex-col gap-1">
             <FleetHealth
               title="Miners"
-              fleetSize={
-                streamingStateCounts || hasInitialLoadCompleted ? totalMiners : memberDeviceIds ? groupSize : undefined
-              }
-              healthyMiners={stateCounts?.hashingCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
-              needsAttentionMiners={
-                stateCounts?.brokenCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)
-              }
-              offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
-              sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup || hasInitialLoadCompleted ? 0 : undefined)}
+              fleetSize={stateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
+              healthyMiners={stateCounts?.hashingCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
+              needsAttentionMiners={stateCounts?.brokenCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
+              offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
+              sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
               extraFilterParams={group ? `group=${group.id}` : undefined}
               totalMinersLink={group ? `/miners?group=${group.id}` : undefined}
             />
@@ -426,7 +306,7 @@ const GroupOverviewPage = () => {
           </div>
 
           <div className="px-10 phone:px-6 tablet:px-6">
-            <DeviceSetPerformanceSection duration={duration} />
+            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           <div ref={refs.vertical.end} />
         </section>
@@ -439,8 +319,8 @@ const GroupOverviewPage = () => {
           onDismiss={() => setShowEditModal(false)}
           onSuccess={() => {
             setShowEditModal(false);
-            // Re-resolve group to pick up label and membership changes
             resolveGroup(label, group.id);
+            void refetchStats();
           }}
         />
       )}

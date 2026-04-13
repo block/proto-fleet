@@ -23,10 +23,11 @@ interface RackHealthModuleProps {
   slotStates: Record<string, SlotHealthState>;
   numberingOrigin: NumberingOrigin;
   onEmptySlotClick?: (row: number, col: number) => void;
-  hashingCount?: number;
-  needsAttentionCount?: number;
-  offlineCount?: number;
-  sleepingCount?: number;
+  /** undefined = loading (skeleton), null = loaded but no data (mdash), number = show value */
+  hashingCount?: number | null;
+  needsAttentionCount?: number | null;
+  offlineCount?: number | null;
+  sleepingCount?: number | null;
   rackFilterParam?: string;
 }
 
@@ -62,6 +63,9 @@ export const RackHealthModule = ({
     needsAttentionCount === undefined &&
     offlineCount === undefined &&
     sleepingCount === undefined;
+
+  const hasNoData =
+    hashingCount === null || needsAttentionCount === null || offlineCount === null || sleepingCount === null;
 
   const breakdownItems = useMemo<StatusBreakdownItem[]>(() => {
     const hashing = hashingCount ?? 0;
@@ -140,6 +144,13 @@ export const RackHealthModule = ({
           <SkeletonBar className="h-14 w-full" />
           <SkeletonBar className="h-14 w-full" />
           <SkeletonBar className="h-14 w-full" />
+        </div>
+      ) : hasNoData ? (
+        <div className="flex w-1/2 flex-col justify-center gap-4 p-10 text-300 text-text-primary-50 phone:w-full phone:p-6 phone:pt-0 tablet:w-full tablet:p-6 tablet:pt-0">
+          <span>Healthy: &mdash;</span>
+          <span>Sleeping: &mdash;</span>
+          <span>Needs Attention: &mdash;</span>
+          <span>Offline: &mdash;</span>
         </div>
       ) : (
         <StatusBreakdownPanel items={breakdownItems} className="w-1/2 phone:w-full tablet:w-full" />

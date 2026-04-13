@@ -5,21 +5,16 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   type DeviceSet,
-  type DeviceSetStats,
   type RackCoolingType,
   type RackOrderIndex,
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import {
-  AggregationType,
-  GetCombinedMetricsResponse,
-  MeasurementType,
-} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import useDeviceSetStateCounts from "@/protoFleet/api/useDeviceSetStateCounts";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
@@ -32,18 +27,7 @@ import { orderIndexToOrigin } from "@/protoFleet/features/rackManagement/compone
 import type { SlotHealthState } from "@/protoFleet/features/rackManagement/components/RackDetailGrid/types";
 import { RackHealthModule } from "@/protoFleet/features/rackManagement/components/RackHealthModule";
 import { SLOT_STATUS_MAP } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
-import {
-  useAppendStreamingMetrics,
-  useAppendStreamingTemperatureCounts,
-  useAppendStreamingUptimeCounts,
-  useClearMetrics,
-  useDuration,
-  useMinerStateCounts,
-  useSetAllHistoricalData,
-  useSetDashboardError,
-  useSetDuration,
-  useSetMinerStateCounts,
-} from "@/protoFleet/store";
+import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -52,8 +36,6 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import { useStickyState } from "@/shared/hooks/useStickyState";
-
-const RACK_OVERVIEW_POLL_INTERVAL_MS = Number(import.meta.env.VITE_RACK_OVERVIEW_POLL_INTERVAL_MS) || 60000;
 
 const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.HASHRATE,
@@ -72,7 +54,6 @@ const RackOverviewPage = () => {
   // Rack resolution state
   const [rack, setRack] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
-  const [deviceSetStats, setDeviceSetStats] = useState<DeviceSetStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -81,13 +62,12 @@ const RackOverviewPage = () => {
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getDeviceSet, listGroupMembers, getDeviceSetStats, addDevicesToDeviceSet, setRackSlotPosition, deleteGroup } =
-    useDeviceSets();
+  const { getDeviceSet, listGroupMembers, addDevicesToDeviceSet, setRackSlotPosition, deleteGroup } = useDeviceSets();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
 
-  // Resolve rack by ID → set rack + member device IDs + stats
+  // Resolve rack by ID → set rack + member device IDs
   // When `silent` is true (polling), keep existing state visible while refreshing in the background.
   const resolveRack = useCallback(
     (rackId: bigint, { silent = false } = {}) => {
@@ -96,7 +76,6 @@ const RackOverviewPage = () => {
         setLoading(true);
         setRack(null);
         setMemberDeviceIds(null);
-        setDeviceSetStats(null);
         setNotFound(false);
         setResolveError(null);
       }
@@ -118,13 +97,6 @@ const RackOverviewPage = () => {
           setNotFound(false);
           setResolveError(null);
 
-          // Wait for both members and stats before clearing loading state
-          let pending = 2;
-          const onRequestDone = () => {
-            pending--;
-            if (pending <= 0) setLoading(false);
-          };
-
           // Fetch member device IDs
           listGroupMembers({
             deviceSetId: deviceSet.id,
@@ -141,30 +113,14 @@ const RackOverviewPage = () => {
                 }
                 return deviceIdentifiers;
               });
-              onRequestDone();
+              setLoading(false);
             },
             onError: (msg) => {
               if (version !== resolveVersionRef.current) return;
               if (!silent) {
                 setResolveError(msg);
               }
-              onRequestDone();
-            },
-          });
-
-          // Fetch device set stats (for slot grid + KPIs)
-          getDeviceSetStats({
-            deviceSetIds: [deviceSet.id],
-            onSuccess: (stats) => {
-              if (version !== resolveVersionRef.current) return;
-              if (stats.length > 0) {
-                setDeviceSetStats(stats[0]);
-              }
-              onRequestDone();
-            },
-            onError: () => {
-              if (version !== resolveVersionRef.current) return;
-              onRequestDone();
+              setLoading(false);
             },
           });
         },
@@ -182,7 +138,7 @@ const RackOverviewPage = () => {
         },
       });
     },
-    [getDeviceSet, listGroupMembers, getDeviceSetStats],
+    [getDeviceSet, listGroupMembers],
   );
 
   // Initial resolution from URL param
@@ -209,7 +165,7 @@ const RackOverviewPage = () => {
     const intervalId = setInterval(() => {
       if (actionActiveRef.current) return;
       resolveRack(rack.id, { silent: true });
-    }, RACK_OVERVIEW_POLL_INTERVAL_MS);
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
   }, [loading, rack, showEditModal, resolveRack]);
 
@@ -219,6 +175,28 @@ const RackOverviewPage = () => {
   const cols = rackInfo?.columns ?? 1;
   const orderIndex = rackInfo?.orderIndex;
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
+
+  const duration = useDuration();
+  const setDuration = useSetDuration();
+  const { refs } = useStickyState();
+
+  // Component errors scoped to rack's devices
+  const componentErrorsOptions = useMemo(
+    () => (memberDeviceIds ? { deviceIdentifiers: memberDeviceIds, pollIntervalMs: POLL_INTERVAL_MS } : undefined),
+    [memberDeviceIds],
+  );
+  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
+
+  // Scoped state counts + slot grid data via getDeviceSetStats API
+  const {
+    stateCounts,
+    stats: deviceSetStats,
+    hasLoaded: statsLoaded,
+    refetch: refetchStats,
+  } = useDeviceSetStateCounts({
+    deviceSetId: rack?.id,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
   // Build slot states for RackDetailGrid from device set stats
   const slotStates = useMemo<Record<string, SlotHealthState>>(() => {
@@ -243,49 +221,10 @@ const RackOverviewPage = () => {
     };
   }, [showEditModal, rack, rackInfo]);
 
-  // Dashboard store hooks
-  const duration = useDuration();
-  const setDuration = useSetDuration();
-  const { refs } = useStickyState();
-
-  // Component errors scoped to rack's devices
-  const componentErrorsOptions = useMemo(
-    () => (memberDeviceIds ? { deviceIdentifiers: memberDeviceIds } : undefined),
-    [memberDeviceIds],
-  );
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
-
-  // Initial state counts scoped to this rack (fallback until streaming delivers)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally keyed on rack.id to avoid re-fetches when silent polling replaces the rack object
-  const stateCountsFilter = useMemo(() => (rack ? { rackIds: [rack.id] } : null), [rack?.id]);
-  const { stateCounts: initialStateCounts, hasInitialLoadCompleted } = useDeviceSetStateCounts(stateCountsFilter);
-
-  const streamingStateCounts = useMinerStateCounts();
-  const setMinerStateCounts = useSetMinerStateCounts();
-  const stateCounts = streamingStateCounts ?? initialStateCounts;
-
-  // Store action hooks
-  const setAllHistoricalData = useSetAllHistoricalData();
-  const appendStreamingMetrics = useAppendStreamingMetrics();
-  const appendStreamingTemperatureCounts = useAppendStreamingTemperatureCounts();
-  const appendStreamingUptimeCounts = useAppendStreamingUptimeCounts();
-  const clearMetrics = useClearMetrics();
-  const setError = useSetDashboardError();
-
-  // Clear dashboard store on mount and unmount
-  useEffect(() => {
-    clearMetrics();
-    setMinerStateCounts(undefined);
-    return () => {
-      clearMetrics();
-      setMinerStateCounts(undefined);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Telemetry fetching - scoped to rack's device IDs
-  const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
   const isEmptyRack = memberDeviceIds !== null && memberDeviceIds.length === 0;
+
+  // Telemetry fetching - scoped to rack's device IDs, polled
+  const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
 
   const telemetryOptions = useMemo(
     () => ({
@@ -294,89 +233,17 @@ const RackOverviewPage = () => {
       aggregations: ALL_AGGREGATION_TYPES,
       duration,
       enabled: telemetryEnabled,
+      pollIntervalMs: POLL_INTERVAL_MS,
     }),
     [memberDeviceIds, duration, telemetryEnabled],
   );
 
-  const { data: historicalData, error } = useTelemetryMetrics(telemetryOptions);
+  const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
 
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: memberDeviceIds ?? [],
-      measurementTypes: ALL_MEASUREMENT_TYPES,
-      aggregations: ALL_AGGREGATION_TYPES,
-      enabled: telemetryEnabled,
-    }),
-    [memberDeviceIds, telemetryEnabled],
-  );
+  // For empty racks, treat as "loaded with no data" so panels show "No data" not skeleton
+  const metrics = isEmptyRack ? [] : telemetryData?.metrics;
 
-  const { latestData: streamingData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Write historical data to store
-  const lastLoadedDataRef = useRef<GetCombinedMetricsResponse | null>(null);
-  const hasLoadedForCurrentDurationRef = useRef(false);
-
-  useEffect(() => {
-    if (!historicalData) return;
-    if (historicalData === lastLoadedDataRef.current) return;
-    if (hasLoadedForCurrentDurationRef.current) return;
-
-    lastLoadedDataRef.current = historicalData;
-    hasLoadedForCurrentDurationRef.current = true;
-    setAllHistoricalData(
-      historicalData.metrics ?? [],
-      historicalData.temperatureStatusCounts ?? [],
-      historicalData.uptimeStatusCounts ?? [],
-    );
-  }, [historicalData, setAllHistoricalData]);
-
-  // Write error state to store
-  useEffect(() => {
-    setError(error ?? null);
-  }, [error, setError]);
-
-  // Clear metrics on duration change
-  const prevDurationRef = useRef<typeof duration | undefined>(undefined);
-  useEffect(() => {
-    if (prevDurationRef.current !== undefined && prevDurationRef.current !== duration) {
-      clearMetrics();
-      hasLoadedForCurrentDurationRef.current = false;
-    }
-    prevDurationRef.current = duration;
-  }, [duration, clearMetrics]);
-
-  // Reset historical data refs and miner state counts when rack membership changes
-  useEffect(() => {
-    lastLoadedDataRef.current = null;
-    hasLoadedForCurrentDurationRef.current = false;
-    clearMetrics();
-    setMinerStateCounts(undefined);
-  }, [memberDeviceIds, clearMetrics, setMinerStateCounts]);
-
-  // Seed empty metrics for zero-member racks (also re-seed after duration changes clear metrics)
-  useEffect(() => {
-    if (memberDeviceIds !== null && memberDeviceIds.length === 0) {
-      setAllHistoricalData([], [], []);
-    }
-  }, [memberDeviceIds, duration, setAllHistoricalData]);
-
-  // Append streaming data
-  useEffect(() => {
-    if (!streamingData) return;
-
-    appendStreamingMetrics(streamingData.metrics ?? []);
-    appendStreamingTemperatureCounts(streamingData.temperatureStatusCounts ?? []);
-    appendStreamingUptimeCounts(streamingData.uptimeStatusCounts ?? []);
-    setMinerStateCounts(streamingData.minerStateCounts);
-  }, [
-    streamingData,
-    appendStreamingMetrics,
-    appendStreamingTemperatureCounts,
-    appendStreamingUptimeCounts,
-    setMinerStateCounts,
-  ]);
-
-  if (loading) {
+  if (loading || (rack && !statsLoaded)) {
     return (
       <div className="flex h-full items-center justify-center">
         <ProgressCircular indeterminate />
@@ -435,7 +302,12 @@ const RackOverviewPage = () => {
                 deviceSetType="rack"
                 onEdit={() => setShowEditModal(true)}
                 editLabel="Edit rack"
-                onActionComplete={() => rack && resolveRack(rack.id)}
+                onActionComplete={() => {
+                  if (rack) {
+                    resolveRack(rack.id);
+                    void refetchStats();
+                  }
+                }}
                 sleepActionRef={sleepActionRef}
                 actionActiveRef={actionActiveRef}
               />
@@ -452,10 +324,10 @@ const RackOverviewPage = () => {
               slotStates={slotStates}
               numberingOrigin={numberingOrigin}
               onEmptySlotClick={(row, col) => setSearchMinerSlot({ row, col })}
-              hashingCount={stateCounts?.hashingCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
-              needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
-              offlineCount={stateCounts?.offlineCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
-              sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack || hasInitialLoadCompleted ? 0 : undefined)}
+              hashingCount={stateCounts?.hashingCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
+              needsAttentionCount={stateCounts?.brokenCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
+              offlineCount={stateCounts?.offlineCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
+              sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
               rackFilterParam={rack ? `rack=${rack.id}` : undefined}
             />
             <FleetErrors
@@ -529,7 +401,7 @@ const RackOverviewPage = () => {
           </div>
 
           <div className="px-10 phone:px-6 tablet:px-6">
-            <DeviceSetPerformanceSection duration={duration} />
+            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           <div ref={refs.vertical.end} />
         </section>
@@ -545,6 +417,7 @@ const RackOverviewPage = () => {
           onSave={() => {
             setShowEditModal(false);
             resolveRack(rack.id);
+            void refetchStats();
           }}
           onDelete={() =>
             new Promise<void>((resolve, reject) => {
@@ -588,6 +461,7 @@ const RackOverviewPage = () => {
                   onSuccess: () => {
                     pushToast({ message: "Miner assigned to slot", status: STATUSES.success });
                     resolveRack(rack.id);
+                    void refetchStats();
                   },
                   onError: (msg) => {
                     pushToast({
@@ -595,6 +469,7 @@ const RackOverviewPage = () => {
                       status: STATUSES.error,
                     });
                     resolveRack(rack.id);
+                    void refetchStats();
                   },
                 });
               },

@@ -1,11 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
-import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 // Helper to create mock uptime status counts
@@ -62,39 +61,7 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
     return counts;
   }, [duration, hashingCount, notHashingCount]);
 
-  // Set mock data in the store
-  useEffect(() => {
-    useFleetStore.setState({
-      dashboard: {
-        metrics: undefined,
-        temperatureStatusCounts: undefined,
-        // Use undefined to indicate loading state (matches ProtoOS pattern)
-        uptimeStatusCounts: isLoading ? undefined : uptimeStatusCounts,
-        componentErrors: {
-          counts: {},
-          devicesByComponent: {},
-          errorIdsByDeviceAndComponent: {},
-        },
-        error: null,
-        setHistoricalMetrics: () => {},
-        appendStreamingMetrics: () => {},
-        setHistoricalTemperatureCounts: () => {},
-        appendStreamingTemperatureCounts: () => {},
-        setHistoricalUptimeCounts: () => {},
-        appendStreamingUptimeCounts: () => {},
-        setAllHistoricalData: () => {},
-        setMinerStateCounts: () => {},
-        clearMetrics: () => {},
-        setError: () => {},
-        setComponentErrorCounts: () => {},
-        handleComponentErrorStream: () => {},
-        clearComponentErrors: () => {},
-        minerStateCounts: undefined,
-      },
-    });
-  }, [uptimeStatusCounts, isLoading]);
-
-  return <UptimePanel duration={duration} />;
+  return <UptimePanel duration={duration} uptimeStatusCounts={isLoading ? undefined : uptimeStatusCounts} />;
 }
 
 const meta = {

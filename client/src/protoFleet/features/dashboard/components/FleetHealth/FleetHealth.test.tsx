@@ -233,4 +233,43 @@ describe("FleetHealth", () => {
     expect(screen.getByText("7 miners")).toBeInTheDocument();
     expect(screen.getByText("3 miners")).toBeInTheDocument();
   });
+
+  it("renders mdash for all stats when counts are null (loaded but no data)", () => {
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={null}
+        healthyMiners={null}
+        needsAttentionMiners={null}
+        offlineMiners={null}
+        sleepingMiners={null}
+      />,
+    );
+
+    // Should show mdash (\u2014) for each stat, not skeleton bars
+    const mdashes = screen.getAllByText("\u2014");
+    expect(mdashes).toHaveLength(5); // title + 4 categories
+
+    // No skeleton bars should be present
+    expect(screen.queryByTestId("skeleton-bar")).not.toBeInTheDocument();
+
+    // No composition bar or legend should be shown
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("renders mdash state when some counts are null", () => {
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={100}
+        healthyMiners={null}
+        needsAttentionMiners={null}
+        offlineMiners={null}
+        sleepingMiners={null}
+      />,
+    );
+
+    // Should show mdash state, not skeleton or data
+    const mdashes = screen.getAllByText("\u2014");
+    expect(mdashes.length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("skeleton-bar")).not.toBeInTheDocument();
+  });
 });

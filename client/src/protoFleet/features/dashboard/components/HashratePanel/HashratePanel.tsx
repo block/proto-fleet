@@ -1,22 +1,19 @@
 import { useMemo } from "react";
 import { transformHashrateMetricsWithUnits } from "./utils";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
-import { usePanelMetrics } from "@/protoFleet/store";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface HashratePanelProps {
   duration: FleetDuration;
+  /** Hashrate metrics — undefined = not loaded yet, empty array = loaded but no data */
+  metrics: Metric[] | undefined;
 }
 
-export function HashratePanel({ duration }: HashratePanelProps) {
-  // Read hashrate metrics from store - only subscribes to HASHRATE updates
-  // undefined = not loaded yet, array = loaded (empty or populated)
-  const metrics = usePanelMetrics(MeasurementType.HASHRATE);
-
+export function HashratePanel({ duration, metrics }: HashratePanelProps) {
   // Transform metrics data to chart format with consistent unit scaling
   // Both chart data and unit are derived together to ensure consistency
   const { chartData, hashrateUnits } = useMemo(() => {

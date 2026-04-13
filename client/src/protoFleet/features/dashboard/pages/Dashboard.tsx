@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
-import { GetCombinedMetricsResponse, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useMemo } from "react";
+import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
@@ -15,18 +15,7 @@ import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePa
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import {
-  useAppendStreamingMetrics,
-  useAppendStreamingTemperatureCounts,
-  useAppendStreamingUptimeCounts,
-  useClearMetrics,
-  useDuration,
-  useMinerStateCounts,
-  useSetAllHistoricalData,
-  useSetDashboardError,
-  useSetDuration,
-  useSetMinerStateCounts,
-} from "@/protoFleet/store";
+import { useDuration, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -44,126 +33,49 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 
 const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
-  // useFleetCounts provides initial load - streaming provides real-time updates
-  const {
-    totalMiners: initialTotalMiners,
-    stateCounts: initialStateCounts,
-    hasInitialLoadCompleted,
-  } = useFleetCounts();
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors();
   const duration = useDuration();
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Store hooks for miner state counts from streaming
-  const streamingStateCounts = useMinerStateCounts();
-  const setMinerStateCounts = useSetMinerStateCounts();
+  // Fleet counts — polled for fresh minerStateCounts
+  const { totalMiners, stateCounts, hasLoaded: countsLoaded } = useFleetCounts({ pollIntervalMs: POLL_INTERVAL_MS });
 
-  // Use streaming counts when available, otherwise fall back to initial counts
-  const stateCounts = streamingStateCounts ?? initialStateCounts;
-  const totalMiners = streamingStateCounts
-    ? (streamingStateCounts.hashingCount ?? 0) +
-      (streamingStateCounts.brokenCount ?? 0) +
-      (streamingStateCounts.offlineCount ?? 0) +
-      (streamingStateCounts.sleepingCount ?? 0)
-    : initialTotalMiners;
+  // Component errors — polled, local state (no store)
+  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
-  // Store action hooks
-  const setAllHistoricalData = useSetAllHistoricalData();
-  const appendStreamingMetrics = useAppendStreamingMetrics();
-  const appendStreamingTemperatureCounts = useAppendStreamingTemperatureCounts();
-  const appendStreamingUptimeCounts = useAppendStreamingUptimeCounts();
-  const clearMetrics = useClearMetrics();
-  const setError = useSetDashboardError();
-
-  // Combined telemetry fetching for all measurement types - reduces from 5 API calls to 1
+  // Combined telemetry — polled, replaces data each cycle (no streaming merge)
   const telemetryOptions = useMemo(
     () => ({
       deviceIds: ALL_DEVICES,
       measurementTypes: ALL_MEASUREMENT_TYPES,
-      duration: duration,
+      duration,
       enabled: true,
+      pollIntervalMs: POLL_INTERVAL_MS,
     }),
     [duration],
   );
 
-  const { data: historicalData, error } = useTelemetryMetrics(telemetryOptions);
+  const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
 
-  // Combined streaming for all measurement types - reduces from 5 streams to 1
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: ALL_DEVICES,
-      measurementTypes: ALL_MEASUREMENT_TYPES,
-      enabled: true,
-    }),
-    [],
+  // Extract metrics for panels — filter by measurement type
+  const allMetrics = telemetryData?.metrics;
+  const hashrateMetrics = useMemo(
+    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.HASHRATE),
+    [allMetrics],
   );
-
-  const { latestData: streamingData } = useStreamingTelemetryMetrics(streamingOptions);
-
-  // Track which data object we've loaded AND if we've loaded for current duration
-  // This prevents both: loading stale data on duration change, and refetch overwrites
-  const lastLoadedDataRef = useRef<GetCombinedMetricsResponse | null>(null);
-  const hasLoadedForCurrentDurationRef = useRef(false);
-
-  // Write historical data to store atomically to prevent race conditions
-  // Only load historical data once per duration to preserve streaming updates
-  useEffect(() => {
-    if (!historicalData) return;
-
-    // Skip if this is the same data object we already loaded (prevents loading stale data)
-    if (historicalData === lastLoadedDataRef.current) {
-      return;
-    }
-
-    // Skip if we've already loaded fresh data for current duration (preserves streaming)
-    if (hasLoadedForCurrentDurationRef.current) {
-      return;
-    }
-
-    lastLoadedDataRef.current = historicalData;
-    hasLoadedForCurrentDurationRef.current = true;
-    setAllHistoricalData(
-      historicalData.metrics ?? [],
-      historicalData.temperatureStatusCounts ?? [],
-      historicalData.uptimeStatusCounts ?? [],
-    );
-  }, [historicalData, setAllHistoricalData]);
-
-  // Write error state to store
-  useEffect(() => {
-    setError(error ?? null);
-  }, [error, setError]);
-
-  // Clear metrics immediately when duration changes to prevent stale streaming data accumulation
-  // This runs before the historical data effect, ensuring clean state for new duration
-  const prevDurationRef = useRef<typeof duration | undefined>(undefined);
-  useEffect(() => {
-    // Only clear if duration actually changed (not on initial mount)
-    if (prevDurationRef.current !== undefined && prevDurationRef.current !== duration) {
-      clearMetrics();
-      hasLoadedForCurrentDurationRef.current = false; // Need to load for new duration
-      // Note: lastLoadedDataRef stays the same to detect when NEW data arrives
-    }
-    prevDurationRef.current = duration;
-  }, [duration, clearMetrics]);
-
-  // Append streaming data - merge happens in store actions
-  useEffect(() => {
-    if (!streamingData) return;
-
-    appendStreamingMetrics(streamingData.metrics ?? []);
-    appendStreamingTemperatureCounts(streamingData.temperatureStatusCounts ?? []);
-    appendStreamingUptimeCounts(streamingData.uptimeStatusCounts ?? []);
-    setMinerStateCounts(streamingData.minerStateCounts);
-  }, [
-    streamingData,
-    appendStreamingMetrics,
-    appendStreamingTemperatureCounts,
-    appendStreamingUptimeCounts,
-    setMinerStateCounts,
-  ]);
+  const powerMetrics = useMemo(
+    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.POWER),
+    [allMetrics],
+  );
+  const efficiencyMetrics = useMemo(
+    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.EFFICIENCY),
+    [allMetrics],
+  );
+  const temperatureStatusCounts = telemetryData?.temperatureStatusCounts;
+  const uptimeStatusCounts = telemetryData?.uptimeStatusCounts;
 
   if (!statusLoaded) {
     return (
@@ -184,11 +96,11 @@ const Dashboard = () => {
             <SectionHeading heading="Overview" />
             <div className="mt-6 flex flex-col gap-1">
               <FleetHealth
-                fleetSize={streamingStateCounts || hasInitialLoadCompleted ? totalMiners : undefined}
-                healthyMiners={stateCounts?.hashingCount}
-                needsAttentionMiners={stateCounts?.brokenCount}
-                offlineMiners={stateCounts?.offlineCount}
-                sleepingMiners={stateCounts?.sleepingCount}
+                fleetSize={countsLoaded ? totalMiners : undefined}
+                healthyMiners={countsLoaded ? (stateCounts?.hashingCount ?? null) : undefined}
+                needsAttentionMiners={countsLoaded ? (stateCounts?.brokenCount ?? null) : undefined}
+                offlineMiners={countsLoaded ? (stateCounts?.offlineCount ?? null) : undefined}
+                sleepingMiners={countsLoaded ? (stateCounts?.sleepingCount ?? null) : undefined}
               />
               <FleetErrors
                 controlBoardErrors={controlBoardErrors}
@@ -209,22 +121,13 @@ const Dashboard = () => {
             </div>
 
             <div className="flex flex-col gap-1 px-10 phone:px-6 tablet:px-6">
-              {/* Hashrate Panel - shows fleet hashrate over time */}
-              <HashratePanel duration={duration} />
+              <HashratePanel duration={duration} metrics={hashrateMetrics} />
+              <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
+              <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
-              {/* Uptime Panel - shows uptime status distribution */}
-              <UptimePanel duration={duration} />
-
-              {/* Temperature Panel - shows temperature status distribution */}
-              <TemperaturePanel duration={duration} />
-
-              {/* Power and Efficiency Panels - side by side */}
               <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
-                {/* Power Panel - shows fleet power consumption over time */}
-                <PowerPanel duration={duration} />
-
-                {/* Efficiency Panel - shows fleet efficiency over time */}
-                <EfficiencyPanel duration={duration} />
+                <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
+                <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
               </div>
             </div>
 

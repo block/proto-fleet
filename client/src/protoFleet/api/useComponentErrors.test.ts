@@ -10,55 +10,27 @@ import {
   ErrorMessageSchema,
   QueryResponseSchema,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { type FleetStore, useFleetStore } from "@/protoFleet/store";
 
 vi.mock("./clients", () => ({
   errorQueryClient: {
     query: vi.fn(),
-    watch: vi.fn(),
   },
 }));
 
 vi.mock("@/protoFleet/store", () => ({
-  useFleetStore: vi.fn(),
+  useFleetStore: vi.fn((selector) =>
+    selector({
+      auth: { authLoading: false },
+    }),
+  ),
   useAuthErrors: vi.fn(() => ({
     handleAuthErrors: vi.fn(({ onError }) => onError),
   })),
 }));
 
-vi.mock("@/protoFleet/utils/streamCleanup", () => ({
-  streamCleanupManager: {
-    register: vi.fn(),
-    unregister: vi.fn(),
-  },
-}));
-
 describe("useComponentErrors", () => {
-  const mockSetComponentErrorCounts = vi.fn();
-  const mockHandleComponentErrorStream = vi.fn();
-  const mockClearComponentErrors = vi.fn();
-
-  const createMockStoreState = (overrides = {}) => ({
-    auth: { authLoading: false },
-    dashboard: {
-      componentErrors: {
-        counts: {},
-      },
-      setComponentErrorCounts: mockSetComponentErrorCounts,
-      handleComponentErrorStream: mockHandleComponentErrorStream,
-      clearComponentErrors: mockClearComponentErrors,
-      ...overrides,
-    },
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default mock implementation for useFleetStore
-    vi.mocked(useFleetStore).mockImplementation(<T>(selector: (state: FleetStore) => T): T => {
-      const state = createMockStoreState() as unknown as FleetStore;
-      return selector(state);
-    });
 
     // Default mock for query - empty response
     vi.mocked(errorQueryClient.query).mockResolvedValue(
@@ -69,13 +41,6 @@ describe("useComponentErrors", () => {
         },
       }),
     );
-
-    // Mock watch to return an empty async iterator
-    vi.mocked(errorQueryClient.watch).mockReturnValue({
-      [Symbol.asyncIterator]: () => ({
-        next: () => new Promise(() => {}), // Never resolves to prevent streaming
-      }),
-    } as unknown as ReturnType<typeof errorQueryClient.watch>);
   });
 
   describe("device counting logic", () => {
@@ -112,17 +77,14 @@ describe("useComponentErrors", () => {
 
       vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
 
-      renderHook(() => useComponentErrors());
+      const { result } = renderHook(() => useComponentErrors());
 
       await waitFor(() => {
-        expect(mockSetComponentErrorCounts).toHaveBeenCalled();
+        expect(result.current.hasLoaded).toBe(true);
       });
 
-      // Should call setComponentErrorCounts with fanErrors = 1 (not 3)
-      expect(mockSetComponentErrorCounts).toHaveBeenCalledWith(
-        expect.objectContaining({ [ComponentType.FAN]: 1 }),
-        expect.any(Object),
-      );
+      // Should count 1 device with fan errors, not 3
+      expect(result.current.fanErrors).toBe(1);
     });
 
     it("counts each unique device separately", async () => {
@@ -154,17 +116,13 @@ describe("useComponentErrors", () => {
 
       vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
 
-      renderHook(() => useComponentErrors());
+      const { result } = renderHook(() => useComponentErrors());
 
       await waitFor(() => {
-        expect(mockSetComponentErrorCounts).toHaveBeenCalled();
+        expect(result.current.hasLoaded).toBe(true);
       });
 
-      // Should count 3 devices
-      expect(mockSetComponentErrorCounts).toHaveBeenCalledWith(
-        expect.objectContaining({ [ComponentType.FAN]: 3 }),
-        expect.any(Object),
-      );
+      expect(result.current.fanErrors).toBe(3);
     });
 
     it("handles mix of devices with multiple components correctly (regression test)", async () => {
@@ -211,17 +169,14 @@ describe("useComponentErrors", () => {
 
       vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
 
-      renderHook(() => useComponentErrors());
+      const { result } = renderHook(() => useComponentErrors());
 
       await waitFor(() => {
-        expect(mockSetComponentErrorCounts).toHaveBeenCalled();
+        expect(result.current.hasLoaded).toBe(true);
       });
 
       // Should count 3 devices, not 11 component instances
-      expect(mockSetComponentErrorCounts).toHaveBeenCalledWith(
-        expect.objectContaining({ [ComponentType.FAN]: 3 }),
-        expect.any(Object),
-      );
+      expect(result.current.fanErrors).toBe(3);
     });
 
     it("tracks each component type independently", async () => {
@@ -248,45 +203,29 @@ describe("useComponentErrors", () => {
 
       vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
 
-      renderHook(() => useComponentErrors());
+      const { result } = renderHook(() => useComponentErrors());
 
       await waitFor(() => {
-        expect(mockSetComponentErrorCounts).toHaveBeenCalled();
+        expect(result.current.hasLoaded).toBe(true);
       });
 
-      // Should count: fanErrors = 1, hashboardErrors = 1
-      expect(mockSetComponentErrorCounts).toHaveBeenCalledWith(
-        expect.objectContaining({
-          [ComponentType.FAN]: 1,
-          [ComponentType.HASH_BOARD]: 1,
-        }),
-        expect.any(Object),
-      );
+      expect(result.current.fanErrors).toBe(1);
+      expect(result.current.hashboardErrors).toBe(1);
     });
   });
 
   describe("hook behavior", () => {
-    it("returns correct error counts from store", () => {
-      vi.mocked(useFleetStore).mockImplementation(<T>(selector: (state: FleetStore) => T): T => {
-        const state = createMockStoreState({
-          componentErrors: {
-            counts: {
-              [ComponentType.FAN]: 5,
-              [ComponentType.HASH_BOARD]: 3,
-              [ComponentType.PSU]: 2,
-              [ComponentType.CONTROL_BOARD]: 1,
-            },
-          },
-        }) as unknown as FleetStore;
-        return selector(state);
-      });
-
+    it("returns zero counts for empty response", async () => {
       const { result } = renderHook(() => useComponentErrors());
 
-      expect(result.current.fanErrors).toBe(5);
-      expect(result.current.hashboardErrors).toBe(3);
-      expect(result.current.psuErrors).toBe(2);
-      expect(result.current.controlBoardErrors).toBe(1);
+      await waitFor(() => {
+        expect(result.current.hasLoaded).toBe(true);
+      });
+
+      expect(result.current.fanErrors).toBe(0);
+      expect(result.current.hashboardErrors).toBe(0);
+      expect(result.current.psuErrors).toBe(0);
+      expect(result.current.controlBoardErrors).toBe(0);
     });
 
     it("returns isLoading true initially", () => {
@@ -295,11 +234,13 @@ describe("useComponentErrors", () => {
       expect(result.current.isLoading).toBe(true);
     });
 
-    it("clears component errors on mount", async () => {
-      renderHook(() => useComponentErrors());
+    it("sets hasLoaded after successful fetch", async () => {
+      const { result } = renderHook(() => useComponentErrors());
+
+      expect(result.current.hasLoaded).toBe(false);
 
       await waitFor(() => {
-        expect(mockClearComponentErrors).toHaveBeenCalled();
+        expect(result.current.hasLoaded).toBe(true);
       });
     });
   });

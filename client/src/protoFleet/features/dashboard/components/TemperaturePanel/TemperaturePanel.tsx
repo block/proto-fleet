@@ -1,8 +1,8 @@
 import { generateTemperatureHeadline } from "./utils";
+import { type TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
-import { useTemperatureStatusCounts } from "@/protoFleet/store";
 import { Triangle } from "@/shared/assets/icons";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -43,13 +43,11 @@ const temperatureSegmentConfig: SegmentConfig = {
 
 interface TemperaturePanelProps {
   duration: FleetDuration;
+  /** Temperature status counts — undefined = not loaded yet */
+  temperatureStatusCounts: TemperatureStatusCount[] | undefined;
 }
 
-export function TemperaturePanel({ duration }: TemperaturePanelProps) {
-  // Read temperature status counts from store - only subscribes to temperature updates
-  // undefined = not loaded yet, array = loaded (empty or populated)
-  const temperatureStatusCounts = useTemperatureStatusCounts();
-
+export function TemperaturePanel({ duration, temperatureStatusCounts }: TemperaturePanelProps) {
   if (temperatureStatusCounts === undefined) {
     const stat = {
       label: "Temperature",
