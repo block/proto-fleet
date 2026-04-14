@@ -292,6 +292,7 @@ export const useMinerActions = ({
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
   const [filteredSelectorForPowerModal, setFilteredSelectorForPowerModal] = useState<DeviceSelector | undefined>();
+  const [managePowerFilteredDeviceIds, setManagePowerFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [showCoolingModeModal, setShowCoolingModeModal] = useState(false);
   const [coolingModeFilteredSelector, setCoolingModeFilteredSelector] = useState<DeviceSelector | undefined>(undefined);
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -554,9 +555,11 @@ export const useMinerActions = ({
   const handleManagePowerConfirm = useCallback(
     (performanceMode: PerformanceMode) => {
       const selectorToUse = filteredSelectorForPowerModal ?? deviceSelector;
+      const deviceIdsToUse = managePowerFilteredDeviceIds ?? deviceIdentifiers;
       if (!selectorToUse) return;
       setShowManagePowerModal(false);
       setFilteredSelectorForPowerModal(undefined);
+      setManagePowerFilteredDeviceIds(undefined);
 
       const id = pushToast({
         message: `${loadingMessages[performanceActions.managePower]} ${minersMessage}`,
@@ -565,14 +568,15 @@ export const useMinerActions = ({
         onClose: () => onActionComplete?.(),
       });
 
-      // Note: setPowerTarget does NOT use batch operation tracking because:
-      // 1. Power target changes complete instantly (<1s) - no meaningful loading state to show
-      // 2. No device status change to wait for (power target is a setting, not a status)
-      // 3. Toast notification provides sufficient feedback for this quick operation
       setPowerTarget({
         deviceSelector: selectorToUse,
         performanceMode,
         onSuccess: (value: SetPowerTargetResponse) => {
+          startBatchOperation({
+            batchIdentifier: value.batchIdentifier,
+            action: performanceActions.managePower,
+            deviceIdentifiers: deviceIdsToUse,
+          });
           handleSuccess(performanceActions.managePower, id, value.batchIdentifier);
         },
         onError: handleError.bind(null, id),
@@ -580,12 +584,23 @@ export const useMinerActions = ({
 
       setCurrentAction(null);
     },
-    [filteredSelectorForPowerModal, deviceSelector, setPowerTarget, handleSuccess, handleError, onActionComplete],
+    [
+      filteredSelectorForPowerModal,
+      managePowerFilteredDeviceIds,
+      deviceSelector,
+      setPowerTarget,
+      handleSuccess,
+      handleError,
+      onActionComplete,
+      startBatchOperation,
+      deviceIdentifiers,
+    ],
   );
 
   const handleManagePowerDismiss = useCallback(() => {
     setShowManagePowerModal(false);
     setFilteredSelectorForPowerModal(undefined);
+    setManagePowerFilteredDeviceIds(undefined);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1218,8 +1233,9 @@ export const useMinerActions = ({
     // Performance actions handlers
     const handleManagePower = async () => {
       onActionStart?.();
-      await withCapabilityCheck(performanceActions.managePower, (filteredSelector) => {
+      await withCapabilityCheck(performanceActions.managePower, (filteredSelector, filteredDeviceIds) => {
         setFilteredSelectorForPowerModal(filteredSelector);
+        setManagePowerFilteredDeviceIds(filteredDeviceIds);
         setCurrentAction(performanceActions.managePower);
         setShowManagePowerModal(true);
       });

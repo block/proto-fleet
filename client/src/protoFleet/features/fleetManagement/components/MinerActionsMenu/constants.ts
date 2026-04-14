@@ -75,6 +75,7 @@ export const statusColumnLoadingMessages: Record<string, string> = {
   [deviceActions.unpair]: "Unpairing",
   [deviceActions.wakeUp]: "Waking",
   [deviceActions.firmwareUpdate]: "Updating firmware",
+  [performanceActions.managePower]: "Updating power",
   [performanceActions.curtail]: "Curtailing",
   [settingsActions.miningPool]: "Adding pools",
   [settingsActions.coolingMode]: "Setting cooling",

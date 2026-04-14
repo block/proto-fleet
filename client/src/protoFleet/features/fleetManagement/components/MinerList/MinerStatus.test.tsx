@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import MinerStatus from "./MinerStatus";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { deviceActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
+import {
+  deviceActions,
+  performanceActions,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 vi.mock("@/shared/hooks/useNeedsAttention", () => ({
@@ -133,6 +136,23 @@ describe("MinerStatus", () => {
 
       expect(screen.getByText("Unpairing")).toBeInTheDocument();
       expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
+    });
+
+    it("should show manage power loading state during manage-power batch operation", () => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
+
+      const { container } = render(
+        <MinerStatus
+          miner={miner}
+          errors={[]}
+          activeBatches={[createBatch({ action: performanceActions.managePower })]}
+          errorsLoaded
+        />,
+      );
+
+      expect(screen.getByText("Updating power")).toBeInTheDocument();
+      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).toBeInTheDocument();
     });
 
     it("should show first batch when device has multiple active batches", () => {
