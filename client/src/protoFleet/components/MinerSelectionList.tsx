@@ -112,10 +112,11 @@ const modalColConfig: ColConfig<DeviceListItem, string, ModalColumn> = {
     width: "min-w-24",
   },
   [modalCols.group]: {
-    component: (device: DeviceListItem) => (
-      <span>{device.groupLabels.length > 0 ? device.groupLabels.join(", ") : INACTIVE_PLACEHOLDER}</span>
-    ),
-    width: "min-w-24",
+    component: (device: DeviceListItem) => {
+      const label = device.groupLabels.length > 0 ? device.groupLabels.join(", ") : INACTIVE_PLACEHOLDER;
+      return <span title={label}>{label}</span>;
+    },
+    width: "min-w-24 max-w-48",
   },
 };
 
