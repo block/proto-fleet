@@ -269,7 +269,7 @@ func getThresholdType(hwPercent float64) string {
 
 // detectErrors aggregates all detected errors from RPC and Web API responses.
 // Prioritizes stats.cgi data when available, falling back to RPC devs data.
-func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *rpc.PoolsResponse, stats *web.StatsInfo, deviceID string) []sdkerrors.DeviceError {
+func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *rpc.PoolsResponse, stats *web.StatsInfo, deviceID string, sleeping bool) []sdkerrors.DeviceError {
 	var errors []sdkerrors.DeviceError
 	now := time.Now()
 
@@ -282,7 +282,7 @@ func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *r
 		// Use stats.cgi data for temperature, hashboard status, and per-board errors
 		slog.Debug("Using stats.cgi API data for per-chain error detection", "deviceID", deviceID, "chainCount", len(stats.STATS[0].Chain))
 		errors = append(errors, detectTemperatureErrorsFromStats(stats.STATS[0].Chain, deviceID, now)...)
-		errors = append(errors, detectHashboardStatusErrorsFromStats(stats.STATS[0].Chain, deviceID, now)...)
+		errors = append(errors, detectHashboardStatusErrorsFromStats(stats.STATS[0].Chain, deviceID, now, sleeping)...)
 		errors = append(errors, detectFanErrorsFromStats(stats.STATS[0].Fan, stats.STATS[0].FanNum, deviceID, now)...)
 		errors = append(errors, detectPSUErrorsFromStats(stats.STATS[0].PSU, deviceID, now)...)
 		perBoardHWErrors = detectPerBoardHardwareErrorsFromStats(stats.STATS[0].Chain, deviceID, now)
@@ -291,7 +291,7 @@ func detectErrors(summary *rpc.SummaryResponse, devs *rpc.DevsResponse, pools *r
 		// Fallback to RPC devs data
 		slog.Debug("Falling back to RPC devs API for per-board error detection", "deviceID", deviceID, "devCount", len(devs.Devs))
 		errors = append(errors, detectTemperatureErrors(devs.Devs, deviceID, now)...)
-		errors = append(errors, detectHashboardStatusErrors(devs.Devs, deviceID, now)...)
+		errors = append(errors, detectHashboardStatusErrors(devs.Devs, deviceID, now, sleeping)...)
 		perBoardHWErrors = detectPerBoardHardwareErrors(devs.Devs, deviceID, now)
 		errors = append(errors, perBoardHWErrors...)
 	}
@@ -416,7 +416,7 @@ func detectTemperatureErrors(devs []rpc.DevInfo, deviceID string, now time.Time)
 }
 
 // detectHashboardStatusErrors checks board status and communication.
-func detectHashboardStatusErrors(devs []rpc.DevInfo, deviceID string, now time.Time) []sdkerrors.DeviceError {
+func detectHashboardStatusErrors(devs []rpc.DevInfo, deviceID string, now time.Time, sleeping bool) []sdkerrors.DeviceError {
 	var errors []sdkerrors.DeviceError
 
 	for _, dev := range devs {
@@ -446,7 +446,7 @@ func detectHashboardStatusErrors(devs []rpc.DevInfo, deviceID string, now time.T
 		}
 
 		// Check if board is alive but not hashing
-		if dev.MHSAv == 0 {
+		if !sleeping && dev.MHSAv == 0 {
 			vendorAttrs[attrMHSAv] = fmt.Sprintf("%.2f", dev.MHSAv)
 			errors = append(errors, createHashboardStatusError(
 				sdkerrors.SeverityMajor, dev.ASC, statusNotHashing,
@@ -759,14 +759,14 @@ func detectTemperatureErrorsFromStats(chains []web.ChainStats, deviceID string, 
 }
 
 // detectHashboardStatusErrorsFromStats checks chain status using stats API data.
-func detectHashboardStatusErrorsFromStats(chains []web.ChainStats, deviceID string, now time.Time) []sdkerrors.DeviceError {
+func detectHashboardStatusErrorsFromStats(chains []web.ChainStats, deviceID string, now time.Time, sleeping bool) []sdkerrors.DeviceError {
 	var errors []sdkerrors.DeviceError
 
 	for _, chain := range chains {
 		chainID := strconv.Itoa(chain.Index)
 
 		// Check if chain is not hashing (RateReal is 0 or negative)
-		if chain.RateReal <= 0 {
+		if !sleeping && chain.RateReal <= 0 {
 			vendorAttrs := map[string]string{
 				attrRateRealGHS:  fmt.Sprintf("%.2f", chain.RateReal),
 				attrChainIndex:   chainID,

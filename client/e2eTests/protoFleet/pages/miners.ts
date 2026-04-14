@@ -54,6 +54,19 @@ export class MinersPage extends BasePage {
     await this.waitForAntminersToDisappear();
   }
 
+  async filterAllMinersExceptRig() {
+    await this.page.getByTestId("filter-dropdown-Model").click();
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover).toHaveCSS("opacity", "1");
+    await popover.getByText("Select all", { exact: true }).click();
+    await this.clickDropdownFilterOption(popover, [PROTO_RIG_MODEL]);
+
+    await popover.getByRole("button", { name: "Apply" }).click();
+    await expect(popover).toBeHidden();
+    await this.waitForRigMinersToDisappear();
+  }
+
   async waitForAntminersToDisappear() {
     const antminerRows = this.page
       .getByTestId("list-body")
@@ -622,6 +635,24 @@ export class MinersPage extends BasePage {
   async getMinerStatus(ipAddress: string): Promise<string> {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     return await minerRow.locator(`//td[@data-testid='status']`).innerText();
+  }
+
+  async getVisibleMinerStatuses(): Promise<Array<{ ipAddress: string; status: string }>> {
+    await this.waitForColumnValuesToLoad("status");
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+    const visibleMinerStatuses: Array<{ ipAddress: string; status: string }> = [];
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      visibleMinerStatuses.push({
+        ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+        status: (await row.getByTestId("status").innerText()).trim(),
+      });
+    }
+
+    return visibleMinerStatuses;
   }
 
   async validateMinerStatus(ipAddress: string, expectedStatus: string) {

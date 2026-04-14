@@ -66,6 +66,8 @@ func createMinerSummaryHandler(state *MinerState) http.HandlerFunc {
 		defer state.mu.RUnlock()
 
 		now := time.Now().Unix()
+		hashRate := state.effectiveHashRateLocked()
+		minerStatus := state.summaryStatusLocked()
 
 		summary := map[string]interface{}{
 			"STATUS": []map[string]interface{}{
@@ -84,19 +86,19 @@ func createMinerSummaryHandler(state *MinerState) http.HandlerFunc {
 			"SUMMARY": []map[string]interface{}{
 				{
 					"elapsed":    3600,
-					"rate_5s":    state.HashRate,
-					"rate_30m":   state.HashRate,
-					"rate_avg":   state.HashRate,
-					"rate_ideal": state.HashRate,
+					"rate_5s":    hashRate,
+					"rate_30m":   hashRate,
+					"rate_avg":   hashRate,
+					"rate_ideal": hashRate,
 					"rate_unit":  "TH/s",
 					"hw_all":     0,
 					"bestshare":  12345678,
 					"status": []map[string]interface{}{
 						{
 							"type":   "miner",
-							"status": "running",
+							"status": minerStatus,
 							"code":   0,
-							"msg":    "running",
+							"msg":    minerStatus,
 						},
 					},
 				},
@@ -123,6 +125,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 		defer state.mu.RUnlock()
 
 		now := time.Now().Unix()
+		hashRate := state.effectiveHashRateLocked()
 
 		const chainCount = 3
 		chains := make([]map[string]interface{}, chainCount)
@@ -134,7 +137,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 
 		for i := 0; i < chainCount; i++ {
 			baseTemp := state.Temperature + chainTempVariations[i]
-			hashRatePerChain := (state.HashRate * 1000 / float64(chainCount)) * chainHashrateVariations[i]
+			hashRatePerChain := (hashRate * 1000 / float64(chainCount)) * chainHashrateVariations[i]
 			if state.ErrorConfig.BoardNotHashing && i == 0 {
 				hashRatePerChain = 0
 			}
@@ -142,7 +145,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 			chains[i] = map[string]interface{}{
 				"index":      i,
 				"freq_avg":   490,
-				"rate_ideal": state.HashRate * 1000 / float64(chainCount),
+				"rate_ideal": hashRate * 1000 / float64(chainCount),
 				"rate_real":  hashRatePerChain,
 				"asic_num":   108,
 				"temp_pic":   []float64{baseTemp - 15, baseTemp - 15, baseTemp, baseTemp},
@@ -181,10 +184,10 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 			"STATS": []map[string]interface{}{
 				{
 					"elapsed":    3600,
-					"rate_5s":    state.HashRate * 1000,
-					"rate_30m":   state.HashRate * 1000,
-					"rate_avg":   state.HashRate * 1000,
-					"rate_ideal": state.HashRate * 1000,
+					"rate_5s":    hashRate * 1000,
+					"rate_30m":   hashRate * 1000,
+					"rate_avg":   hashRate * 1000,
+					"rate_ideal": hashRate * 1000,
 					"rate_unit":  "GH/s",
 					"chain_num":  chainCount,
 					"fan_num":    4,
@@ -241,9 +244,13 @@ func createMinerConfigHandler(state *MinerState) http.HandlerFunc {
 			"bitmain-voltage":          "1800",
 			"bitmain-ccdelay":          "0",
 			"bitmain-pwth":             "0",
-			"bitmain-work-mode":        "0",
 			"bitmain-hashrate-percent": "100",
 			"bitmain-freq-level":       "100",
+		}
+		if state.MinerMode != "" {
+			config["miner-mode"] = state.currentWorkModeLocked()
+		} else {
+			config["bitmain-work-mode"] = state.currentWorkModeLocked()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -301,7 +308,9 @@ func createSetConfigHandler(state *MinerState) http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024*1024) // 1MB limit
 
 		var config struct {
-			Pools []Pool `json:"pools"`
+			Pools           []Pool `json:"pools"`
+			MinerMode       string `json:"miner-mode"`
+			BitmainWorkMode string `json:"bitmain-work-mode"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
@@ -313,6 +322,7 @@ func createSetConfigHandler(state *MinerState) http.HandlerFunc {
 		if len(config.Pools) > 0 {
 			state.Pools = config.Pools
 		}
+		state.setWorkModeLocked(config.MinerMode, config.BitmainWorkMode)
 		state.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")

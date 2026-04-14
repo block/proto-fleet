@@ -59,6 +59,19 @@ func ptrString(s string) *string {
 	return &s
 }
 
+func isSleepMode(config *web.MinerConfig) bool {
+	if config == nil {
+		return false
+	}
+
+	workMode := config.BitmainWorkMode
+	if config.MinerMode != "" {
+		workMode = web.BitmainWorkMode(config.MinerMode)
+	}
+
+	return workMode == web.BitmainWorkModeSleep
+}
+
 // Device implements the SDK Device interface for a single Antminer.
 type Device struct {
 	// Identity and connection information
@@ -241,6 +254,7 @@ func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 	var devsResp *rpc.DevsResponse
 	var poolsResp *rpc.PoolsResponse
 	var statsResp *web.StatsInfo
+	var sleeping bool
 
 	g := new(errgroup.Group)
 
@@ -276,10 +290,21 @@ func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 		return nil
 	})
 
+	g.Go(func() error {
+		config, err := d.client.GetMinerConfig(ctx)
+		if err != nil {
+			slog.Debug("Failed to get miner config for error detection", "deviceID", d.id, "error", err)
+			return nil
+		}
+
+		sleeping = isSleepMode(config)
+		return nil
+	})
+
 	_ = g.Wait() // We're collecting data even if some calls fail, so we ignore the error
 
 	// Detect errors from the collected data
-	errors := detectErrors(summaryResp, devsResp, poolsResp, statsResp, d.id)
+	errors := detectErrors(summaryResp, devsResp, poolsResp, statsResp, d.id, sleeping)
 
 	return sdk.DeviceErrors{
 		DeviceID: d.id,

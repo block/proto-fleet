@@ -14,6 +14,8 @@ const (
 	DefaultDifficulty     = 1024.0
 	DefaultLastShareDelay = 600  // seconds ago
 	DefaultTemperature    = 72.0 // Celsius - realistic ASIC chip temperature
+	WorkModeNormal        = "0"
+	WorkModeSleep         = "1"
 )
 
 // Common structs for API responses
@@ -90,6 +92,8 @@ type MinerState struct {
 	HashRate        float64
 	Temperature     float64
 	Pools           []Pool
+	MinerMode       string
+	BitmainWorkMode string
 	Username        string
 	Password        string
 	IsBlinking      bool
@@ -195,4 +199,42 @@ type DevsResponse struct {
 	RPCResponse
 	Devices []DeviceInfo `json:"DEVS"`
 	ID      int          `json:"id"`
+}
+
+func (s *MinerState) currentWorkModeLocked() string {
+	switch {
+	case s.MinerMode != "":
+		return s.MinerMode
+	case s.BitmainWorkMode != "":
+		return s.BitmainWorkMode
+	default:
+		return WorkModeNormal
+	}
+}
+
+func (s *MinerState) setWorkModeLocked(minerMode, bitmainWorkMode string) {
+	switch {
+	case minerMode != "":
+		s.MinerMode = minerMode
+		s.BitmainWorkMode = ""
+	case bitmainWorkMode != "":
+		s.MinerMode = ""
+		s.BitmainWorkMode = bitmainWorkMode
+	}
+}
+
+func (s *MinerState) effectiveHashRateLocked() float64 {
+	if s.currentWorkModeLocked() == WorkModeSleep {
+		return 0
+	}
+
+	return s.HashRate
+}
+
+func (s *MinerState) summaryStatusLocked() string {
+	if s.currentWorkModeLocked() == WorkModeSleep {
+		return "sleeping"
+	}
+
+	return "running"
 }

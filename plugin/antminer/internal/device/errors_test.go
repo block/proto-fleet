@@ -216,7 +216,7 @@ func TestDetectHashboardStatusErrors_NotAlive(t *testing.T) {
 		},
 	}
 
-	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, sdkerrors.ASICChainCommunicationLost, errors[0].MinerError)
@@ -236,7 +236,7 @@ func TestDetectHashboardStatusErrors_Disabled(t *testing.T) {
 		},
 	}
 
-	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, sdkerrors.HashboardNotPresent, errors[0].MinerError)
@@ -255,7 +255,7 @@ func TestDetectHashboardStatusErrors_NotHashing(t *testing.T) {
 		},
 	}
 
-	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, sdkerrors.HashrateBelowTarget, errors[0].MinerError)
@@ -275,7 +275,7 @@ func TestDetectHashboardStatusErrors_Healthy(t *testing.T) {
 		},
 	}
 
-	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now, false)
 
 	assert.Empty(t, errors, "Expected no errors for healthy hashboard")
 }
@@ -302,7 +302,7 @@ func TestDetectHashboardStatusErrors_MultipleBoards(t *testing.T) {
 		},
 	}
 
-	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrors(devs, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 2)
 
@@ -748,7 +748,7 @@ func TestDetectErrors_NoErrors(t *testing.T) {
 		healthyPoolInfo(0, "stratum+tcp://pool1.example.com:3333"),
 	)
 
-	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors, false)
 
 	assert.Empty(t, errors, "Expected no errors for healthy device")
 }
@@ -779,7 +779,7 @@ func TestDetectErrors_MultipleConcurrentErrors(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, pools, nil, testDeviceIDForErrors, false)
 
 	// Should have: 1 temp error, 1 comm lost, 1 rejection, 1 pool failure
 	require.Len(t, errors, 4)
@@ -806,10 +806,10 @@ func TestDetectErrors_MultipleConcurrentErrors(t *testing.T) {
 
 // Test: Empty responses
 func TestDetectErrors_EmptyResponses(t *testing.T) {
-	errors := detectErrors(nil, nil, nil, nil, testDeviceIDForErrors)
+	errors := detectErrors(nil, nil, nil, nil, testDeviceIDForErrors, false)
 	assert.Empty(t, errors)
 
-	errors = detectErrors(&rpc.SummaryResponse{}, &rpc.DevsResponse{}, &rpc.PoolsResponse{}, nil, testDeviceIDForErrors)
+	errors = detectErrors(&rpc.SummaryResponse{}, &rpc.DevsResponse{}, &rpc.PoolsResponse{}, nil, testDeviceIDForErrors, false)
 	assert.Empty(t, errors)
 }
 
@@ -826,7 +826,7 @@ func TestDetectErrors_Timestamps(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(nil, devs, nil, nil, testDeviceIDForErrors)
+	errors := detectErrors(nil, devs, nil, nil, testDeviceIDForErrors, false)
 
 	afterTest := time.Now()
 
@@ -848,7 +848,7 @@ func TestDetectErrors_DeviceID(t *testing.T) {
 		},
 	)
 
-	errors := detectErrors(nil, devs, nil, nil, customDeviceID)
+	errors := detectErrors(nil, devs, nil, nil, customDeviceID, false)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, customDeviceID, errors[0].DeviceID)
@@ -960,7 +960,7 @@ func TestDetectHashboardStatusErrorsFromStats_NotHashing(t *testing.T) {
 		createTestChainStats(0, []float64{70.0, 72.0}, 0.0, 0.0, 0), // RateReal = 0
 	}
 
-	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 1)
 	assert.Equal(t, sdkerrors.HashrateBelowTarget, errors[0].MinerError)
@@ -981,7 +981,7 @@ func TestDetectHashboardStatusErrorsFromStats_MultipleChains(t *testing.T) {
 		createTestChainStats(2, []float64{71.0}, -1.0, 0.0, 0),     // Negative rate
 	}
 
-	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now, false)
 
 	require.Len(t, errors, 2, "Should detect 2 non-hashing chains")
 }
@@ -994,7 +994,7 @@ func TestDetectHashboardStatusErrorsFromStats_Healthy(t *testing.T) {
 		createTestChainStats(1, []float64{72.0}, 13500.0, 0.1, 10),
 	}
 
-	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now)
+	errors := detectHashboardStatusErrorsFromStats(chains, testDeviceIDForErrors, now, false)
 
 	assert.Empty(t, errors, "Should not detect errors for healthy chains")
 }
@@ -1141,7 +1141,7 @@ func TestDetectErrors_FallbackToRPC_StatsNil(t *testing.T) {
 	)
 
 	// Pass nil for stats - should use RPC devs data
-	errors := detectErrors(summary, devs, nil, nil, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, nil, nil, testDeviceIDForErrors, false)
 
 	require.Len(t, errors, 1, "Should detect temperature error from RPC devs")
 	assert.Equal(t, sdkerrors.HashboardOverTemperature, errors[0].MinerError)
@@ -1170,7 +1170,7 @@ func TestDetectErrors_FallbackToRPC_EmptyChains(t *testing.T) {
 		},
 	}
 
-	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors, false)
 
 	require.Len(t, errors, 2, "Should detect temp + HW errors from RPC devs")
 	assert.Contains(t, errors[0].VendorAttributes, "asc_index")
@@ -1200,7 +1200,7 @@ func TestDetectErrors_PreferStats_WhenAvailable(t *testing.T) {
 		},
 	}
 
-	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors)
+	errors := detectErrors(summary, devs, nil, stats, testDeviceIDForErrors, false)
 
 	// Should use stats data (healthy) not RPC devs data (overheating)
 	assert.Empty(t, errors, "Should use healthy stats data, not RPC data")
@@ -1219,7 +1219,7 @@ func TestDetectErrors_StatsDataUsesChainIndex(t *testing.T) {
 		},
 	}
 
-	errors := detectErrors(summary, nil, nil, stats, testDeviceIDForErrors)
+	errors := detectErrors(summary, nil, nil, stats, testDeviceIDForErrors, false)
 
 	require.Len(t, errors, 1)
 	// Verify it uses stats-specific field name

@@ -1,11 +1,12 @@
 /* eslint-disable playwright/expect-expect */
+import { expect } from "@playwright/test";
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 
-async function ensureRigMinersAwake(minersPage: MinersPage) {
+async function ensureVisibleMinersAwake(minersPage: MinersPage) {
   const hasSleepingMiners = await minersPage.hasAnyMinerWithStatus("Sleeping");
   const hasWakingMiners = await minersPage.hasAnyMinerWithStatus("Waking");
 
@@ -43,17 +44,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
 
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
-      const minerCount = await minersPage.getMinersCount();
-
-      if (minerCount > 0) {
-        await minersPage.clickSelectAllCheckbox();
-        await minersPage.clickActionsMenuButton();
-        await minersPage.clickWakeUpButton();
-        await minersPage.clickWakeUpConfirm();
-        await minersPage.validateNoMinerWithStatus("Sleeping");
-        await minersPage.validateNoMinerWithStatus("Waking");
-      }
+      await ensureVisibleMinersAwake(minersPage);
     } finally {
       await context.close();
     }
@@ -63,10 +54,9 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
-    await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Antminer miners don't support SLEEP action
+    await test.step("Filter Proto rig miners", async () => {
       await minersPage.filterRigMiners();
-      await ensureRigMinersAwake(minersPage);
+      await ensureVisibleMinersAwake(minersPage);
     });
 
     let minerIp: string;
@@ -109,10 +99,9 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
-    await test.step("Filter Proto miners as a workaround", async () => {
-      // Workaround: Antminer miners don't support SLEEP action
+    await test.step("Filter Proto rig miners", async () => {
       await minersPage.filterRigMiners();
-      await ensureRigMinersAwake(minersPage);
+      await ensureVisibleMinersAwake(minersPage);
     });
 
     let minerCount: number;
@@ -148,6 +137,58 @@ test.describe("Miners SLEEP - WAKE actions", () => {
 
     await test.step("Validate all miners are awake", async () => {
       await minersPage.validateAllMinersStatusSettled("Hashing");
+    });
+  });
+
+  test("SLEEP - WAKE all non-rig miners, without page refresh", async ({ minersPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    let initialMinerStatuses: Array<{ ipAddress: string; status: string }>;
+
+    await test.step("Filter all miners except Proto Rig", async () => {
+      await minersPage.filterAllMinersExceptRig();
+      await ensureVisibleMinersAwake(minersPage);
+      initialMinerStatuses = await minersPage.getVisibleMinerStatuses();
+    });
+
+    let minerCount: number;
+
+    await test.step("Select all non-rig miners and put them to sleep", async () => {
+      minerCount = initialMinerStatuses.length;
+      expect(minerCount).toBeGreaterThan(0);
+
+      await minersPage.clickSelectAllCheckbox();
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickShutdownButton();
+      await minersPage.clickShutdownConfirm();
+    });
+
+    await test.step("Validate sleep process", async () => {
+      await minersPage.validateTextInToastGroup("Putting miners to sleep");
+      await minersPage.validateTextInToastGroup(`Put ${minerCount} out of ${minerCount} miners to sleep`);
+    });
+
+    await test.step("Validate all non-rig miners are sleeping", async () => {
+      await minersPage.validateAllMinersStatusSettled("Sleeping");
+    });
+
+    await test.step("Select all non-rig miners and wake them up", async () => {
+      await minersPage.clickSelectAllCheckbox();
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickWakeUpButton();
+      await minersPage.clickWakeUpConfirm();
+    });
+
+    await test.step("Validate wake up process", async () => {
+      await minersPage.validateTextInToastGroup("Waking up miners");
+      await minersPage.validateTextInToastGroup(`Woke up ${minerCount} out of ${minerCount} miners`);
+    });
+
+    await test.step("Validate all non-rig miners returned to their initial statuses", async () => {
+      for (const miner of initialMinerStatuses) {
+        await minersPage.validateMinerStatusSettled(miner.ipAddress, miner.status);
+      }
     });
   });
 });

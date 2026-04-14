@@ -127,7 +127,7 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 
 	now := time.Now().Unix()
 
-	hashRateGHS := state.HashRate * thsToGhsConversionFactor
+	hashRateGHS := state.effectiveHashRateLocked() * thsToGhsConversionFactor
 
 	// Apply error configuration
 	hwErrors := mockHardwareErrorsCount
@@ -153,6 +153,21 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 		stale = state.ErrorConfig.StaleCount
 	}
 
+	ghs5s := hashRateGHS - hashrate5sVariation
+	ghsav := hashRateGHS
+	ghs30m := hashRateGHS + hashrate30mVariation
+	totalMH := mockTotalMH
+	utility := mockUtilityValue
+	workUtility := mockWorkUtility
+	if hashRateGHS == 0 {
+		ghs5s = 0
+		ghsav = 0
+		ghs30m = 0
+		totalMH = 0
+		utility = 0
+		workUtility = 0
+	}
+
 	return SummaryResponse{
 		RPCResponse: RPCResponse{
 			Status: []StatusInfo{
@@ -168,23 +183,23 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 		Summary: []SummaryInfo{
 			{
 				Elapsed:            DefaultElapsedTime,
-				GHS5s:              hashRateGHS - hashrate5sVariation,
-				GHSav:              hashRateGHS,
-				GHS30m:             hashRateGHS + hashrate30mVariation,
+				GHS5s:              ghs5s,
+				GHSav:              ghsav,
+				GHS30m:             ghs30m,
 				FoundBlocks:        mockDiff1Work,
 				Getwork:            mockGetworkCount,
 				Accepted:           mockAcceptedCount,
 				Rejected:           rejected,
 				HardwareErrors:     hwErrors,
-				Utility:            mockUtilityValue,
+				Utility:            utility,
 				Discarded:          mockDiscardedCount,
 				Stale:              stale,
 				GetFailures:        mockGetFailuresCount,
 				LocalWork:          mockLocalWorkCount,
 				RemoteFailures:     mockRemoteFailuresCount,
 				NetworkBlocks:      mockNetworkBlocksCount,
-				TotalMH:            mockTotalMH,
-				WorkUtility:        mockWorkUtility,
+				TotalMH:            totalMH,
+				WorkUtility:        workUtility,
 				DifficultyAccepted: mockDifficultyAccepted,
 				DifficultyRejected: mockDifficultyRejected,
 				DifficultyStale:    mockDifficultyStale,
@@ -278,7 +293,7 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 		boardStatus = "Dead"
 	}
 
-	boardHashrate := state.HashRate * thsToGhsConversionFactor
+	boardHashrate := state.effectiveHashRateLocked() * thsToGhsConversionFactor
 	if state.ErrorConfig.BoardNotHashing {
 		boardHashrate = 0
 	}

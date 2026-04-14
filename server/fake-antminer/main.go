@@ -51,9 +51,10 @@ func main() {
 				Pass: "x",
 			},
 		},
-		Username:    getEnv("USERNAME", "root"),
-		Password:    getEnv("PASSWORD", "root"),
-		ErrorConfig: errorConfig,
+		BitmainWorkMode: WorkModeNormal,
+		Username:        getEnv("USERNAME", "root"),
+		Password:        getEnv("PASSWORD", "root"),
+		ErrorConfig:     errorConfig,
 	}
 
 	// Create context for graceful shutdown

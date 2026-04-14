@@ -732,6 +732,9 @@ func TestDevice_GetErrors(t *testing.T) {
 				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
 			},
 		}, nil)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(&web.MinerConfig{
+			BitmainWorkMode: web.BitmainWorkModeStart,
+		}, nil)
 		// Stats API returns error (credentials required) - should fallback to RPC devs
 		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
 
@@ -764,6 +767,9 @@ func TestDevice_GetErrors(t *testing.T) {
 			Pools: []rpc.PoolInfo{
 				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Dead"}, // Pool down
 			},
+		}, nil)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(&web.MinerConfig{
+			BitmainWorkMode: web.BitmainWorkModeStart,
 		}, nil)
 		// Stats API returns error (credentials required) - should fallback to RPC devs
 		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
@@ -798,6 +804,9 @@ func TestDevice_GetErrors(t *testing.T) {
 			Pools: []rpc.PoolInfo{
 				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
 			},
+		}, nil)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(&web.MinerConfig{
+			BitmainWorkMode: web.BitmainWorkModeStart,
 		}, nil)
 		// Stats API succeeds with healthy chain data - should NOT fallback to RPC devs
 		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(&web.StatsInfo{
@@ -837,10 +846,97 @@ func TestDevice_GetErrors(t *testing.T) {
 		mockClient.EXPECT().GetDevs(gomock.Any()).Return(nil, assert.AnError)
 		mockClient.EXPECT().GetPools(gomock.Any()).Return(nil, assert.AnError)
 		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(nil, assert.AnError)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(nil, assert.AnError)
 
 		errors, err := device.GetErrors(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, testDeviceID, errors.DeviceID)
 		assert.Empty(t, errors.Errors, "Expected empty errors when RPC fails")
+	})
+
+	t.Run("sleeping_device_suppresses_not_hashing_errors", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{
+				{HardwareErrors: 0, DeviceHardwarePercent: 0, DeviceRejectedPercent: 0},
+			},
+		}, nil)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(&rpc.DevsResponse{
+			Devs: []rpc.DevInfo{
+				{ASC: 0, Status: "Alive", Enabled: "Y", Temperature: 70.0, MHSAv: 0},
+			},
+		}, nil)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(&rpc.PoolsResponse{
+			Pools: []rpc.PoolInfo{
+				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
+			},
+		}, nil)
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(&web.StatsInfo{
+			STATS: []web.StatsData{
+				{
+					Chain: []web.ChainStats{
+						{Index: 0, RateReal: 0, RateIdeal: 14000, TempChip: []float64{70, 70, 70}, SN: "chain-0"},
+						{Index: 1, RateReal: 0, RateIdeal: 14000, TempChip: []float64{70, 70, 70}, SN: "chain-1"},
+						{Index: 2, RateReal: 0, RateIdeal: 14000, TempChip: []float64{70, 70, 70}, SN: "chain-2"},
+					},
+				},
+			},
+		}, nil)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(&web.MinerConfig{
+			BitmainWorkMode: web.BitmainWorkModeSleep,
+		}, nil)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, testDeviceID, errors.DeviceID)
+		assert.Empty(t, errors.Errors, "Expected sleeping device to suppress not-hashing errors")
+	})
+
+	t.Run("awake_device_still_reports_not_hashing_errors", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{
+				{HardwareErrors: 0, DeviceHardwarePercent: 0, DeviceRejectedPercent: 0},
+			},
+		}, nil)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(&rpc.DevsResponse{
+			Devs: []rpc.DevInfo{
+				{ASC: 0, Status: "Alive", Enabled: "Y", Temperature: 70.0, MHSAv: 0},
+			},
+		}, nil)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(&rpc.PoolsResponse{
+			Pools: []rpc.PoolInfo{
+				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
+			},
+		}, nil)
+		mockClient.EXPECT().GetStatsInfo(gomock.Any()).Return(&web.StatsInfo{
+			STATS: []web.StatsData{
+				{
+					Chain: []web.ChainStats{
+						{Index: 0, RateReal: 0, RateIdeal: 14000, TempChip: []float64{70, 70, 70}, SN: "chain-0"},
+					},
+				},
+			},
+		}, nil)
+		mockClient.EXPECT().GetMinerConfig(gomock.Any()).Return(&web.MinerConfig{
+			BitmainWorkMode: web.BitmainWorkModeStart,
+		}, nil)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Len(t, errors.Errors, 1, "Expected awake device to keep reporting not-hashing errors")
+		assert.Equal(t, "Hashboard 0 is not producing hashrate", errors.Errors[0].Summary)
 	})
 }
