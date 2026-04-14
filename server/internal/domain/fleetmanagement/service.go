@@ -71,6 +71,15 @@ type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities
 }
 
+type WorkerNamePoolReapplyService interface {
+	VerifyCredentials(ctx context.Context, userUsername string, userPassword string) error
+
+	ReapplyCurrentPoolsWithWorkerNames(
+		ctx context.Context,
+		desiredWorkerNamesByDeviceIdentifier map[string]string,
+	) (batchIdentifier string, err error)
+}
+
 type Service struct {
 	deviceStore           interfaces.DeviceStore
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
@@ -81,6 +90,7 @@ type Service struct {
 	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
+	workerNamePoolService WorkerNamePoolReapplyService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
 
@@ -103,6 +113,7 @@ func NewService(
 	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
+	workerNamePoolService WorkerNamePoolReapplyService,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
@@ -114,6 +125,7 @@ func NewService(
 		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
+		workerNamePoolService: workerNamePoolService,
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
@@ -271,7 +283,7 @@ func (s *Service) buildSnapshot(
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
 	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
 	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
-	s.populateRackLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	var stateCounts *telemetrypb.MinerStateCounts
 	if shouldIncludeStateCounts(filter.PairingStatuses) {
@@ -477,22 +489,23 @@ func (s *Service) populateGroupLabels(ctx context.Context, orgID int64, snapshot
 	}
 }
 
-// populateRackLabels fetches rack labels for paired devices and populates the RackLabel field.
-func (s *Service) populateRackLabels(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
+// populateRackDetails fetches rack labels and slot positions for paired devices.
+func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
 	if len(pairedDeviceIDs) == 0 {
 		return
 	}
 
-	rackLabels, err := s.collectionStore.GetRackLabelsForDevices(ctx, orgID, pairedDeviceIDs)
+	rackDetails, err := s.collectionStore.GetRackDetailsForDevices(ctx, orgID, pairedDeviceIDs)
 	if err != nil {
-		slog.Warn("failed to fetch rack labels for snapshots", "error", err)
+		slog.Warn("failed to fetch rack details for snapshots", "error", err)
 		return
 	}
 
-	// Populate rack label on snapshots
+	// Populate rack details on snapshots
 	for _, snapshot := range snapshots {
-		if label, ok := rackLabels[snapshot.DeviceIdentifier]; ok {
-			snapshot.RackLabel = label
+		if details, ok := rackDetails[snapshot.DeviceIdentifier]; ok {
+			snapshot.RackLabel = details.Label
+			snapshot.RackPosition = details.Position
 		}
 	}
 }

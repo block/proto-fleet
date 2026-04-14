@@ -70,7 +70,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		allIDs := collectAllDeviceIdentifiers(snapshots)
 		s.populateTelemetryData(ctx, snapshots, pairedIDs)
 		s.populateGroupLabels(ctx, info.OrganizationID, snapshots, allIDs)
-		s.populateRackLabels(ctx, info.OrganizationID, snapshots, allIDs)
+		s.populateRackDetails(ctx, info.OrganizationID, snapshots, allIDs)
 
 		errorsByDevice, err := s.listOpenErrorsByDevice(ctx, info.OrganizationID, allIDs)
 		if err != nil {

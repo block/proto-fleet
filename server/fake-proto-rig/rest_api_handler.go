@@ -94,8 +94,6 @@ type SystemInfo struct {
 // SystemInfoInner contains the inner system info
 type SystemInfoInner struct {
 	ProductName       string       `json:"product_name"`
-	Manufacturer      string       `json:"manufacturer"`
-	Model             string       `json:"model"`
 	Board             string       `json:"board"`
 	CBSN              string       `json:"cb_sn"`
 	SOC               string       `json:"soc"`
@@ -1164,9 +1162,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, SystemInfo{
 		SystemInfo: SystemInfoInner{
-			ProductName:   "Proto Rig",
-			Manufacturer:  "Proto",
-			Model:         h.state.Model,
+			ProductName:   h.state.Model,
 			Board:         "C3",
 			CBSN:          h.state.SerialNumber,
 			SOC:           "STM32MP157F",

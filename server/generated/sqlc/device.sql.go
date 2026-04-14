@@ -306,7 +306,7 @@ func (q *Queries) GetAvailableModels(ctx context.Context, orgID int64) ([]sql.Nu
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status
 FROM device
 WHERE device_identifier = $1
   AND org_id = $2
@@ -334,12 +334,13 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.DeletedAt,
 		&i.CustomName,
 		&i.WorkerName,
+		&i.WorkerNamePoolSyncStatus,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status
 FROM device
 WHERE id = $1
   AND org_id = $2
@@ -367,6 +368,7 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.DeletedAt,
 		&i.CustomName,
 		&i.WorkerName,
+		&i.WorkerNamePoolSyncStatus,
 	)
 	return i, err
 }
@@ -572,6 +574,7 @@ SELECT
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
     d.worker_name,
+    d.worker_name_pool_sync_status,
     latest_metrics.hash_rate_hs,
     latest_metrics.temp_c,
     latest_metrics.power_w,
@@ -590,20 +593,21 @@ type GetDevicePropertiesForRenameParams struct {
 }
 
 type GetDevicePropertiesForRenameRow struct {
-	DeviceIdentifier   string
-	DiscoveredDeviceID int64
-	CustomName         string
-	MacAddress         string
-	SerialNumber       sql.NullString
-	Model              sql.NullString
-	Manufacturer       sql.NullString
-	IpAddress          string
-	FirmwareVersion    sql.NullString
-	WorkerName         sql.NullString
-	HashRateHs         sql.NullFloat64
-	TempC              sql.NullFloat64
-	PowerW             sql.NullFloat64
-	EfficiencyJh       sql.NullFloat64
+	DeviceIdentifier         string
+	DiscoveredDeviceID       int64
+	CustomName               string
+	MacAddress               string
+	SerialNumber             sql.NullString
+	Model                    sql.NullString
+	Manufacturer             sql.NullString
+	IpAddress                string
+	FirmwareVersion          sql.NullString
+	WorkerName               sql.NullString
+	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
+	HashRateHs               sql.NullFloat64
+	TempC                    sql.NullFloat64
+	PowerW                   sql.NullFloat64
+	EfficiencyJh             sql.NullFloat64
 }
 
 // Returns the device properties needed for name generation during a rename operation.
@@ -627,6 +631,7 @@ func (q *Queries) GetDevicePropertiesForRename(ctx context.Context, arg GetDevic
 			&i.IpAddress,
 			&i.FirmwareVersion,
 			&i.WorkerName,
+			&i.WorkerNamePoolSyncStatus,
 			&i.HashRateHs,
 			&i.TempC,
 			&i.PowerW,
@@ -656,7 +661,8 @@ SELECT
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
-    d.worker_name
+    d.worker_name,
+    d.worker_name_pool_sync_status
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.device_identifier = ANY($1::text[])
@@ -670,16 +676,17 @@ type GetDevicePropertiesForRenameWithoutTelemetryParams struct {
 }
 
 type GetDevicePropertiesForRenameWithoutTelemetryRow struct {
-	DeviceIdentifier   string
-	DiscoveredDeviceID int64
-	CustomName         string
-	MacAddress         string
-	SerialNumber       sql.NullString
-	Model              sql.NullString
-	Manufacturer       sql.NullString
-	IpAddress          string
-	FirmwareVersion    sql.NullString
-	WorkerName         sql.NullString
+	DeviceIdentifier         string
+	DiscoveredDeviceID       int64
+	CustomName               string
+	MacAddress               string
+	SerialNumber             sql.NullString
+	Model                    sql.NullString
+	Manufacturer             sql.NullString
+	IpAddress                string
+	FirmwareVersion          sql.NullString
+	WorkerName               sql.NullString
+	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 }
 
 // Returns rename properties when the requested sort does not require telemetry data.
@@ -703,6 +710,7 @@ func (q *Queries) GetDevicePropertiesForRenameWithoutTelemetry(ctx context.Conte
 			&i.IpAddress,
 			&i.FirmwareVersion,
 			&i.WorkerName,
+			&i.WorkerNamePoolSyncStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -1654,6 +1662,23 @@ func (q *Queries) UpdateDeviceWorkerName(ctx context.Context, arg UpdateDeviceWo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateDeviceWorkerNamePoolSyncStatusByID = `-- name: UpdateDeviceWorkerNamePoolSyncStatusByID :exec
+UPDATE device
+SET worker_name_pool_sync_status = $2
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+type UpdateDeviceWorkerNamePoolSyncStatusByIDParams struct {
+	ID                       int64
+	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
+}
+
+func (q *Queries) UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error {
+	_, err := q.exec(ctx, q.updateDeviceWorkerNamePoolSyncStatusByIDStmt, updateDeviceWorkerNamePoolSyncStatusByID, arg.ID, arg.WorkerNamePoolSyncStatus)
+	return err
 }
 
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult

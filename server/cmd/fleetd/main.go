@@ -287,9 +287,6 @@ func start(config *Config) error {
 		}
 	}()
 
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, activitySvc)
-	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
-
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
@@ -313,6 +310,8 @@ func start(config *Config) error {
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
+	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)

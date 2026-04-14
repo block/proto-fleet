@@ -205,6 +205,21 @@ func (mr *MockCollectionStoreMockRecorder) GetGroupLabelsForDevices(ctx, orgID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupLabelsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetGroupLabelsForDevices), ctx, orgID, deviceIdentifiers)
 }
 
+// GetRackDetailsForDevices mocks base method.
+func (m *MockCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]interfaces.DeviceRackDetails, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRackDetailsForDevices", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(map[string]interfaces.DeviceRackDetails)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRackDetailsForDevices indicates an expected call of GetRackDetailsForDevices.
+func (mr *MockCollectionStoreMockRecorder) GetRackDetailsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackDetailsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetRackDetailsForDevices), ctx, orgID, deviceIdentifiers)
+}
+
 // GetRackInfo mocks base method.
 func (m *MockCollectionStore) GetRackInfo(ctx context.Context, collectionID, orgID int64) (*collectionv1.RackInfo, error) {
 	m.ctrl.T.Helper()
@@ -218,21 +233,6 @@ func (m *MockCollectionStore) GetRackInfo(ctx context.Context, collectionID, org
 func (mr *MockCollectionStoreMockRecorder) GetRackInfo(ctx, collectionID, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackInfo", reflect.TypeOf((*MockCollectionStore)(nil).GetRackInfo), ctx, collectionID, orgID)
-}
-
-// GetRackLabelsForDevices mocks base method.
-func (m *MockCollectionStore) GetRackLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRackLabelsForDevices", ctx, orgID, deviceIdentifiers)
-	ret0, _ := ret[0].(map[string]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetRackLabelsForDevices indicates an expected call of GetRackLabelsForDevices.
-func (mr *MockCollectionStoreMockRecorder) GetRackLabelsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackLabelsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetRackLabelsForDevices), ctx, orgID, deviceIdentifiers)
 }
 
 // GetRackSlotStatuses mocks base method.

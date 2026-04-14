@@ -1192,6 +1192,9 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 			if row.WorkerName.Valid {
 				props.WorkerName = row.WorkerName.String
 			}
+			if row.WorkerNamePoolSyncStatus.Valid {
+				props.WorkerNamePoolSyncStatus = string(row.WorkerNamePoolSyncStatus.WorkerNamePoolSyncStatusEnum)
+			}
 			if row.HashRateHs.Valid {
 				hashrate := row.HashRateHs.Float64
 				props.Hashrate = &hashrate
@@ -1250,6 +1253,9 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 		}
 		if row.WorkerName.Valid {
 			props.WorkerName = row.WorkerName.String
+		}
+		if row.WorkerNamePoolSyncStatus.Valid {
+			props.WorkerNamePoolSyncStatus = string(row.WorkerNamePoolSyncStatus.WorkerNamePoolSyncStatusEnum)
 		}
 		result = append(result, props)
 	}

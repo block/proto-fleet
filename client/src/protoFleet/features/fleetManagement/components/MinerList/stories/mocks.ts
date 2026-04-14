@@ -61,6 +61,7 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     groupLabels: [],
     rackLabel: "",
+    rackPosition: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -116,6 +117,7 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     groupLabels: [],
     rackLabel: "",
+    rackPosition: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -171,6 +173,7 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     groupLabels: [],
     rackLabel: "",
+    rackPosition: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -226,5 +229,6 @@ export const miners: MinerStateSnapshot[] = [
     firmwareVersion: "2.0.0",
     groupLabels: [],
     rackLabel: "",
+    rackPosition: "",
   },
 ];

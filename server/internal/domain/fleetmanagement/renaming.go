@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/workername"
 )
 
 var defaultRenameSortConfig = &interfaces.SortConfig{
@@ -49,12 +50,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 
 	sortConfig := parseSortConfig(req.Sort)
 
-	deviceProps, err := s.deviceStore.GetDevicePropertiesForRename(
-		ctx,
-		info.OrganizationID,
-		deviceIdentifiers,
-		sortConfig != nil && sortConfig.IsTelemetrySort(),
-	)
+	deviceProps, err := s.loadDevicePropertiesForNameGeneration(ctx, info.OrganizationID, deviceIdentifiers, sortConfig, req.NameConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +105,189 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 		UnchangedCount: renameResponseCount(unchangedCount),
 		FailedCount:    renameResponseCount(failedCount),
 	}, nil
+}
+
+func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNamesRequest) (*pb.UpdateWorkerNamesResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateRenameNameConfig(req.NameConfig); err != nil {
+		return nil, err
+	}
+	if s.workerNamePoolService == nil {
+		return nil, fleeterror.NewInternalError("worker-name pool reapply service is not configured")
+	}
+	if err := s.workerNamePoolService.VerifyCredentials(ctx, req.UserUsername, req.UserPassword); err != nil {
+		return nil, err
+	}
+
+	deviceIdentifiers, err := s.ResolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if len(deviceIdentifiers) == 0 {
+		return &pb.UpdateWorkerNamesResponse{}, nil
+	}
+
+	sortConfig := parseSortConfig(req.Sort)
+	deviceProps, err := s.loadDevicePropertiesForNameGeneration(ctx, info.OrganizationID, deviceIdentifiers, sortConfig, req.NameConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(deviceProps) != len(deviceIdentifiers) {
+		return nil, fleeterror.NewNotFoundErrorf("one or more device identifiers not found")
+	}
+
+	sortDevicePropsForRename(deviceProps, sortConfig)
+
+	if err := validateRequestWideGeneratedNames(req.NameConfig, len(deviceProps)); err != nil {
+		return nil, err
+	}
+
+	desiredWorkerNamesByDeviceIdentifier := make(map[string]string, len(deviceProps))
+	unchangedCount := 0
+	failedCount := 0
+	for idx, props := range deviceProps {
+		name, err := generateName(req.NameConfig, props, idx)
+		if err != nil {
+			failedCount++
+			continue
+		}
+
+		if strings.TrimSpace(name) == "" {
+			unchangedCount++
+			continue
+		}
+
+		if isUnchangedWorkerName(name, props) {
+			if shouldReapplyWorkerNamePools(props) {
+				desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
+				continue
+			}
+
+			unchangedCount++
+			continue
+		}
+
+		desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
+	}
+
+	var batchIdentifier string
+	if len(desiredWorkerNamesByDeviceIdentifier) > 0 {
+		batchIdentifier, err = s.workerNamePoolService.ReapplyCurrentPoolsWithWorkerNames(
+			ctx,
+			desiredWorkerNamesByDeviceIdentifier,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	count := len(deviceIdentifiers)
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           "update_worker_names",
+		Description:    "Update worker names",
+		ScopeCount:     &count,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+		Metadata:       map[string]any{"batch_id": batchIdentifier},
+	})
+
+	return &pb.UpdateWorkerNamesResponse{
+		UpdatedCount:    renameResponseCount(len(desiredWorkerNamesByDeviceIdentifier)),
+		UnchangedCount:  renameResponseCount(unchangedCount),
+		FailedCount:     renameResponseCount(failedCount),
+		BatchIdentifier: batchIdentifier,
+	}, nil
+}
+
+func shouldReapplyWorkerNamePools(props interfaces.DeviceRenameProperties) bool {
+	return !workername.IsPoolSyncComplete(props.WorkerNamePoolSyncStatus)
+}
+
+func (s *Service) loadDevicePropertiesForNameGeneration(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+	sortConfig *interfaces.SortConfig,
+	cfg *pb.MinerNameConfig,
+) ([]interfaces.DeviceRenameProperties, error) {
+	deviceProps, err := s.deviceStore.GetDevicePropertiesForRename(
+		ctx,
+		orgID,
+		deviceIdentifiers,
+		sortConfig != nil && sortConfig.IsTelemetrySort(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !nameConfigUsesRackDetails(cfg) {
+		return deviceProps, nil
+	}
+
+	if err := s.enrichDevicePropsWithRackDetails(ctx, orgID, deviceProps); err != nil {
+		return nil, err
+	}
+	return deviceProps, nil
+}
+
+func nameConfigUsesRackDetails(cfg *pb.MinerNameConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	for _, prop := range cfg.Properties {
+		qualifier, ok := prop.Kind.(*pb.NameProperty_Qualifier)
+		if !ok || qualifier.Qualifier == nil {
+			continue
+		}
+
+		switch qualifier.Qualifier.Type {
+		case pb.QualifierType_QUALIFIER_TYPE_RACK,
+			pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION:
+			return true
+		case pb.QualifierType_QUALIFIER_TYPE_BUILDING,
+			pb.QualifierType_QUALIFIER_TYPE_UNSPECIFIED:
+			continue
+		}
+	}
+
+	return false
+}
+
+func (s *Service) enrichDevicePropsWithRackDetails(
+	ctx context.Context,
+	orgID int64,
+	deviceProps []interfaces.DeviceRenameProperties,
+) error {
+	if len(deviceProps) == 0 || s.collectionStore == nil {
+		return nil
+	}
+
+	deviceIdentifiers := make([]string, 0, len(deviceProps))
+	for _, props := range deviceProps {
+		deviceIdentifiers = append(deviceIdentifiers, props.DeviceIdentifier)
+	}
+
+	rackDetails, err := s.collectionStore.GetRackDetailsForDevices(ctx, orgID, deviceIdentifiers)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get rack details for name generation: %v", err)
+	}
+
+	for idx := range deviceProps {
+		if details, ok := rackDetails[deviceProps[idx].DeviceIdentifier]; ok {
+			deviceProps[idx].RackLabel = details.Label
+			deviceProps[idx].RackPosition = details.Position
+		}
+	}
+
+	return nil
 }
 
 func sortDevicePropsForRename(deviceProps []interfaces.DeviceRenameProperties, sortConfig *interfaces.SortConfig) {
@@ -359,6 +538,10 @@ func isUnchangedRename(nextName string, props interfaces.DeviceRenameProperties)
 	return strings.TrimSpace(nextName) == getRenameSortName(props)
 }
 
+func isUnchangedWorkerName(nextName string, props interfaces.DeviceRenameProperties) bool {
+	return strings.TrimSpace(nextName) == strings.TrimSpace(props.WorkerName)
+}
+
 func renameResponseCount(n int) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
@@ -377,6 +560,9 @@ func validateRenameNameConfig(cfg *pb.MinerNameConfig) error {
 	}
 
 	if err := validateSupportedFixedValueTypes(cfg); err != nil {
+		return err
+	}
+	if err := validateSupportedQualifierTypes(cfg); err != nil {
 		return err
 	}
 
@@ -409,10 +595,40 @@ func validateSupportedFixedValueTypes(cfg *pb.MinerNameConfig) error {
 			pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME,
 			pb.FixedValueType_FIXED_VALUE_TYPE_MODEL,
 			pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER,
-			pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION:
+			pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MINER_NAME:
 			continue
 		default:
 			return fleeterror.NewInvalidArgumentErrorf("unsupported fixed value type: %d", fixedValue.FixedValue.Type)
+		}
+	}
+
+	return nil
+}
+
+func validateSupportedQualifierTypes(cfg *pb.MinerNameConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	for _, prop := range cfg.Properties {
+		qualifier, ok := prop.Kind.(*pb.NameProperty_Qualifier)
+		if !ok {
+			continue
+		}
+		if qualifier.Qualifier == nil {
+			return fleeterror.NewInvalidArgumentError("name_config.properties.qualifier is required")
+		}
+
+		switch qualifier.Qualifier.Type {
+		case pb.QualifierType_QUALIFIER_TYPE_RACK,
+			pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION:
+			continue
+		case pb.QualifierType_QUALIFIER_TYPE_UNSPECIFIED,
+			pb.QualifierType_QUALIFIER_TYPE_BUILDING:
+			return fleeterror.NewInvalidArgumentErrorf("unsupported qualifier type: %d", qualifier.Qualifier.Type)
+		default:
+			return fleeterror.NewInvalidArgumentErrorf("unsupported qualifier type: %d", qualifier.Qualifier.Type)
 		}
 	}
 
@@ -443,11 +659,28 @@ func renameConfigDependsOnDeviceData(cfg *pb.MinerNameConfig) bool {
 		case pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS,
 			pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER,
 			pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME,
+			pb.FixedValueType_FIXED_VALUE_TYPE_MINER_NAME,
 			pb.FixedValueType_FIXED_VALUE_TYPE_MODEL,
 			pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER:
 			return true
 		case pb.FixedValueType_FIXED_VALUE_TYPE_LOCATION,
 			pb.FixedValueType_FIXED_VALUE_TYPE_UNSPECIFIED:
+			continue
+		}
+	}
+
+	for _, prop := range cfg.Properties {
+		qualifier, ok := prop.Kind.(*pb.NameProperty_Qualifier)
+		if !ok {
+			continue
+		}
+
+		switch qualifier.Qualifier.GetType() {
+		case pb.QualifierType_QUALIFIER_TYPE_RACK,
+			pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION:
+			return true
+		case pb.QualifierType_QUALIFIER_TYPE_BUILDING,
+			pb.QualifierType_QUALIFIER_TYPE_UNSPECIFIED:
 			continue
 		}
 	}
@@ -500,8 +733,7 @@ func generateSegment(prop *pb.NameProperty, props interfaces.DeviceRenamePropert
 		return generateFixedValueSegment(kind.FixedValue, props)
 
 	case *pb.NameProperty_Qualifier:
-		// BUILDING, RACK, RACK_POSITION are reserved and not yet implemented.
-		return "", nil
+		return generateQualifierSegment(kind.Qualifier, props), nil
 
 	default:
 		return "", nil
@@ -518,6 +750,8 @@ func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.Devic
 		raw = props.SerialNumber
 	case pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME:
 		raw = props.WorkerName
+	case pb.FixedValueType_FIXED_VALUE_TYPE_MINER_NAME:
+		raw = getRenameSortName(props)
 	case pb.FixedValueType_FIXED_VALUE_TYPE_MODEL:
 		raw = props.Model
 	case pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER:
@@ -549,6 +783,28 @@ func generateFixedValueSegment(fv *pb.FixedValueProperty, props interfaces.Devic
 		return string(runes[:count]), nil
 	}
 	return string(runes[len(runes)-count:]), nil
+}
+
+func generateQualifierSegment(qp *pb.QualifierProperty, props interfaces.DeviceRenameProperties) string {
+	if qp == nil {
+		return ""
+	}
+
+	var raw string
+	switch qp.Type {
+	case pb.QualifierType_QUALIFIER_TYPE_RACK:
+		raw = props.RackLabel
+	case pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION:
+		raw = props.RackPosition
+	case pb.QualifierType_QUALIFIER_TYPE_BUILDING, pb.QualifierType_QUALIFIER_TYPE_UNSPECIFIED:
+		return ""
+	}
+
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+
+	return qp.Prefix + raw + qp.Suffix
 }
 
 // formatCounter formats an integer as a zero-padded string with the given number of digits.

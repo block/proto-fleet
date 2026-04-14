@@ -36,6 +36,32 @@ func baseProps() interfaces.DeviceRenameProperties {
 	}
 }
 
+type workerNamePoolServiceStub struct {
+	verifyErr              error
+	reapplyErr             error
+	reapplyBatchIdentifier string
+	verifyCalls            int
+	reapplyCalls           int
+	lastDesiredWorkerNames map[string]string
+}
+
+func (s *workerNamePoolServiceStub) VerifyCredentials(_ context.Context, userUsername string, userPassword string) error {
+	s.verifyCalls++
+	return s.verifyErr
+}
+
+func (s *workerNamePoolServiceStub) ReapplyCurrentPoolsWithWorkerNames(
+	_ context.Context,
+	desiredWorkerNamesByDeviceIdentifier map[string]string,
+) (string, error) {
+	s.reapplyCalls++
+	s.lastDesiredWorkerNames = make(map[string]string, len(desiredWorkerNamesByDeviceIdentifier))
+	for deviceIdentifier, workerName := range desiredWorkerNamesByDeviceIdentifier {
+		s.lastDesiredWorkerNames[deviceIdentifier] = workerName
+	}
+	return s.reapplyBatchIdentifier, s.reapplyErr
+}
+
 func float64Ptr(v float64) *float64 { return &v }
 
 func stringPtr(v string) *string { return &v }
@@ -339,6 +365,35 @@ func TestValidateRenameNameConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "valid rack qualifier",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
+				},
+				Separator: "-",
+			},
+		},
+		{
+			name: "invalid building qualifier",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_BUILDING}}},
+				},
+				Separator: "-",
+			},
+			wantErr: "unsupported qualifier type: 1",
+		},
+		{
+			name: "invalid unspecified qualifier",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_UNSPECIFIED}}},
+				},
+				Separator: "-",
+			},
+			wantErr: "unsupported qualifier type: 0",
+		},
+		{
 			name: "unsupported fixed value type",
 			config: &pb.MinerNameConfig{
 				Properties: []*pb.NameProperty{
@@ -400,6 +455,15 @@ func TestRenameConfigDependsOnDeviceData(t *testing.T) {
 			config: &pb.MinerNameConfig{
 				Properties: []*pb.NameProperty{
 					{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME}}},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "rack qualifier is device dependent",
+			config: &pb.MinerNameConfig{
+				Properties: []*pb.NameProperty{
+					{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
 				},
 			},
 			expected: true,
@@ -512,6 +576,7 @@ func TestGenerateName_FixedValues(t *testing.T) {
 		{"mac address", pb.FixedValueType_FIXED_VALUE_TYPE_MAC_ADDRESS, props.MacAddress},
 		{"serial number", pb.FixedValueType_FIXED_VALUE_TYPE_SERIAL_NUMBER, props.SerialNumber},
 		{"worker name", pb.FixedValueType_FIXED_VALUE_TYPE_WORKER_NAME, props.WorkerName},
+		{"miner name", pb.FixedValueType_FIXED_VALUE_TYPE_MINER_NAME, "Bitmain S19Pro"},
 		{"model", pb.FixedValueType_FIXED_VALUE_TYPE_MODEL, props.Model},
 		{"manufacturer", pb.FixedValueType_FIXED_VALUE_TYPE_MANUFACTURER, props.Manufacturer},
 	}
@@ -706,21 +771,336 @@ func TestGenerateName_MultipleProperties(t *testing.T) {
 	assert.Equal(t, "Bitmain-S19Pro-05", name)
 }
 
-// TestGenerateName_QualifierReserved verifies qualifier properties produce empty segments
-// (BUILDING, RACK, RACK_POSITION are reserved and not yet implemented).
-func TestGenerateName_QualifierReserved(t *testing.T) {
+func TestGenerateName_QualifierProperties(t *testing.T) {
+	props := baseProps()
+	props.RackLabel = "R01"
+	props.RackPosition = "07"
+
 	cfg := &pb.MinerNameConfig{
 		Properties: []*pb.NameProperty{
 			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig"}}},
 			{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{
-				Type:   pb.QualifierType_QUALIFIER_TYPE_RACK,
-				Prefix: "R",
+				Type: pb.QualifierType_QUALIFIER_TYPE_RACK,
+			}}},
+			{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{
+				Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION,
 			}}},
 		},
 		Separator: "-",
 	}
-	// Qualifier is reserved → empty segment omitted → only "rig".
+
+	name, err := generateName(cfg, props, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "rig-R01-07", name)
+}
+
+func TestGenerateName_BuildingQualifierIsOmitted(t *testing.T) {
+	cfg := &pb.MinerNameConfig{
+		Properties: []*pb.NameProperty{
+			{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "rig"}}},
+			{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{
+				Type: pb.QualifierType_QUALIFIER_TYPE_BUILDING,
+			}}},
+		},
+		Separator: "-",
+	}
+
 	name, err := generateName(cfg, baseProps(), 0)
 	require.NoError(t, err)
 	assert.Equal(t, "rig", name)
+}
+
+func TestLoadDevicePropertiesForNameGeneration_SkipsRackLookupWithoutRackQualifiers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+
+	deviceStore.EXPECT().
+		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{
+			{
+				DeviceIdentifier:   "dev-1",
+				DiscoveredDeviceID: 1,
+				CustomName:         "Alpha",
+			},
+		}, nil)
+
+	service := &Service{
+		deviceStore:     deviceStore,
+		collectionStore: collectionStore,
+	}
+
+	props, err := service.loadDevicePropertiesForNameGeneration(
+		context.Background(),
+		int64(2),
+		[]string{"dev-1"},
+		nil,
+		&pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_FixedValue{FixedValue: &pb.FixedValueProperty{Type: pb.FixedValueType_FIXED_VALUE_TYPE_MINER_NAME}}},
+			},
+			Separator: "-",
+		},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, props, 1)
+	assert.Empty(t, props[0].RackLabel)
+	assert.Empty(t, props[0].RackPosition)
+}
+
+func TestUpdateWorkerNames_VerifiesCredentialsBeforeAnyWrite(t *testing.T) {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+	})
+	workerNamePoolSvc := &workerNamePoolServiceStub{
+		verifyErr: fleeterror.NewInvalidArgumentError("invalid credentials"),
+	}
+	service := &Service{
+		workerNamePoolService: workerNamePoolSvc,
+	}
+
+	_, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "worker"}}},
+			},
+			Separator: "-",
+		},
+		UserUsername: "fleet-user",
+		UserPassword: "secret",
+	})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "invalid credentials")
+	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
+	assert.Equal(t, 0, workerNamePoolSvc.reapplyCalls)
+}
+
+func TestUpdateWorkerNames_UpdatesNamesAndReappliesPools(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+		ExternalUserID: "user-1",
+		Username:       "test-user",
+	})
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+	workerNamePoolSvc := &workerNamePoolServiceStub{
+		reapplyBatchIdentifier: "batch-123",
+	}
+
+	deviceStore.EXPECT().
+		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1", "dev-2"}, int64(2)).
+		Return(true, nil)
+	deviceStore.EXPECT().
+		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1", "dev-2"}, false).
+		Return([]interfaces.DeviceRenameProperties{
+			{
+				DeviceIdentifier:         "dev-1",
+				DiscoveredDeviceID:       1,
+				CustomName:               "Alpha",
+				WorkerName:               "R01-01",
+				WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY",
+			},
+			{
+				DeviceIdentifier:   "dev-2",
+				DiscoveredDeviceID: 2,
+				CustomName:         "Beta",
+				WorkerName:         "old-worker",
+			},
+		}, nil)
+	collectionStore.EXPECT().
+		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1", "dev-2"}).
+		Return(map[string]interfaces.DeviceRackDetails{
+			"dev-1": {Label: "R01", Position: "01"},
+			"dev-2": {Label: "R01", Position: "02"},
+		}, nil)
+	service := &Service{
+		deviceStore:           deviceStore,
+		collectionStore:       collectionStore,
+		workerNamePoolService: workerNamePoolSvc,
+		deviceResolver:        deviceresolver.New(deviceStore),
+	}
+
+	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"dev-1", "dev-2"},
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
+			},
+			Separator: "-",
+		},
+		UserUsername: "fleet-user",
+		UserPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.UpdatedCount)
+	assert.Equal(t, int32(1), resp.UnchangedCount)
+	assert.Equal(t, int32(0), resp.FailedCount)
+	assert.Equal(t, "batch-123", resp.BatchIdentifier)
+	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
+	assert.Equal(t, 1, workerNamePoolSvc.reapplyCalls)
+	assert.Equal(t, map[string]string{"dev-2": "R01-02"}, workerNamePoolSvc.lastDesiredWorkerNames)
+}
+
+func TestUpdateWorkerNames_SkipsWritesAndReapplyWhenAllNamesAreUnchanged(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+	})
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+	workerNamePoolSvc := &workerNamePoolServiceStub{}
+
+	deviceStore.EXPECT().
+		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).
+		Return(true, nil)
+	deviceStore.EXPECT().
+		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{
+			{
+				DeviceIdentifier:         "dev-1",
+				DiscoveredDeviceID:       1,
+				CustomName:               "Alpha",
+				WorkerName:               "R01-01",
+				WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY",
+			},
+		}, nil)
+	collectionStore.EXPECT().
+		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1"}).
+		Return(map[string]interfaces.DeviceRackDetails{
+			"dev-1": {Label: "R01", Position: "01"},
+		}, nil)
+
+	service := &Service{
+		deviceStore:           deviceStore,
+		collectionStore:       collectionStore,
+		workerNamePoolService: workerNamePoolSvc,
+		deviceResolver:        deviceresolver.New(deviceStore),
+	}
+
+	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"dev-1"},
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
+			},
+			Separator: "-",
+		},
+		UserUsername: "fleet-user",
+		UserPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(0), resp.UpdatedCount)
+	assert.Equal(t, int32(1), resp.UnchangedCount)
+	assert.Equal(t, int32(0), resp.FailedCount)
+	assert.Empty(t, resp.BatchIdentifier)
+	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
+	assert.Equal(t, 0, workerNamePoolSvc.reapplyCalls)
+	assert.Empty(t, workerNamePoolSvc.lastDesiredWorkerNames)
+}
+
+func TestUpdateWorkerNames_ReappliesPoolsWhenWorkerNameAlreadyUpdatedButPoolSyncIsPending(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         1,
+		OrganizationID: 2,
+	})
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+	workerNamePoolSvc := &workerNamePoolServiceStub{
+		reapplyBatchIdentifier: "batch-456",
+	}
+
+	deviceStore.EXPECT().
+		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).
+		Return(true, nil)
+	deviceStore.EXPECT().
+		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{
+			{
+				DeviceIdentifier:   "dev-1",
+				DiscoveredDeviceID: 1,
+				CustomName:         "Alpha",
+				WorkerName:         "R01-01",
+			},
+		}, nil)
+	collectionStore.EXPECT().
+		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1"}).
+		Return(map[string]interfaces.DeviceRackDetails{
+			"dev-1": {Label: "R01", Position: "01"},
+		}, nil)
+
+	service := &Service{
+		deviceStore:           deviceStore,
+		collectionStore:       collectionStore,
+		workerNamePoolService: workerNamePoolSvc,
+		deviceResolver:        deviceresolver.New(deviceStore),
+	}
+
+	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"dev-1"},
+				},
+			},
+		},
+		NameConfig: &pb.MinerNameConfig{
+			Properties: []*pb.NameProperty{
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
+				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
+			},
+			Separator: "-",
+		},
+		UserUsername: "fleet-user",
+		UserPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.UpdatedCount)
+	assert.Equal(t, int32(0), resp.UnchangedCount)
+	assert.Equal(t, int32(0), resp.FailedCount)
+	assert.Equal(t, "batch-456", resp.BatchIdentifier)
+	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
+	assert.Equal(t, 1, workerNamePoolSvc.reapplyCalls)
+	assert.Equal(t, map[string]string{"dev-1": "R01-01"}, workerNamePoolSvc.lastDesiredWorkerNames)
 }

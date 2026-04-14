@@ -111,6 +111,12 @@ SET worker_name = $2
 WHERE device_identifier = $1
   AND deleted_at IS NULL;
 
+-- name: UpdateDeviceWorkerNamePoolSyncStatusByID :exec
+UPDATE device
+SET worker_name_pool_sync_status = $2
+WHERE id = $1
+  AND deleted_at IS NULL;
+
 -- name: GetDevicePairingStatusByDeviceDatabaseID :one
 SELECT
     dp.pairing_status
@@ -427,6 +433,7 @@ SELECT
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
     d.worker_name,
+    d.worker_name_pool_sync_status,
     latest_metrics.hash_rate_hs,
     latest_metrics.temp_c,
     latest_metrics.power_w,
@@ -450,7 +457,8 @@ SELECT
     dd.manufacturer,
     COALESCE(dd.ip_address, '') as ip_address,
     dd.firmware_version,
-    d.worker_name
+    d.worker_name,
+    d.worker_name_pool_sync_status
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])

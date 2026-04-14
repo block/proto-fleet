@@ -318,14 +318,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
 	}
+	if q.getRackDetailsForDevicesStmt, err = db.PrepareContext(ctx, getRackDetailsForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRackDetailsForDevices: %w", err)
+	}
 	if q.getRackInfoStmt, err = db.PrepareContext(ctx, getRackInfo); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackInfo: %w", err)
 	}
 	if q.getRackInfoBatchStmt, err = db.PrepareContext(ctx, getRackInfoBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackInfoBatch: %w", err)
-	}
-	if q.getRackLabelsForDevicesStmt, err = db.PrepareContext(ctx, getRackLabelsForDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query GetRackLabelsForDevices: %w", err)
 	}
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
@@ -566,6 +566,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateDeviceWorkerNameStmt, err = db.PrepareContext(ctx, updateDeviceWorkerName); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceWorkerName: %w", err)
+	}
+	if q.updateDeviceWorkerNamePoolSyncStatusByIDStmt, err = db.PrepareContext(ctx, updateDeviceWorkerNamePoolSyncStatusByID); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDeviceWorkerNamePoolSyncStatusByID: %w", err)
 	}
 	if q.updateDiscoveredDeviceFirmwareVersionStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceFirmwareVersion); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceFirmwareVersion: %w", err)
@@ -1134,6 +1137,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
 		}
 	}
+	if q.getRackDetailsForDevicesStmt != nil {
+		if cerr := q.getRackDetailsForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRackDetailsForDevicesStmt: %w", cerr)
+		}
+	}
 	if q.getRackInfoStmt != nil {
 		if cerr := q.getRackInfoStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackInfoStmt: %w", cerr)
@@ -1142,11 +1150,6 @@ func (q *Queries) Close() error {
 	if q.getRackInfoBatchStmt != nil {
 		if cerr := q.getRackInfoBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackInfoBatchStmt: %w", cerr)
-		}
-	}
-	if q.getRackLabelsForDevicesStmt != nil {
-		if cerr := q.getRackLabelsForDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getRackLabelsForDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getRackSlotsStmt != nil {
@@ -1549,6 +1552,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDeviceWorkerNameStmt: %w", cerr)
 		}
 	}
+	if q.updateDeviceWorkerNamePoolSyncStatusByIDStmt != nil {
+		if cerr := q.updateDeviceWorkerNamePoolSyncStatusByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDeviceWorkerNamePoolSyncStatusByIDStmt: %w", cerr)
+		}
+	}
 	if q.updateDiscoveredDeviceFirmwareVersionStmt != nil {
 		if cerr := q.updateDiscoveredDeviceFirmwareVersionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateDiscoveredDeviceFirmwareVersionStmt: %w", cerr)
@@ -1806,9 +1814,9 @@ type Queries struct {
 	getPairedDevicesByMACAddressesStmt                  *sql.Stmt
 	getPairedDevicesIdsStmt                             *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
+	getRackDetailsForDevicesStmt                        *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
 	getRackInfoBatchStmt                                *sql.Stmt
-	getRackLabelsForDevicesStmt                         *sql.Stmt
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
@@ -1889,6 +1897,7 @@ type Queries struct {
 	updateDeviceSetLabelStmt                            *sql.Stmt
 	updateDeviceSetLabelAndDescriptionStmt              *sql.Stmt
 	updateDeviceWorkerNameStmt                          *sql.Stmt
+	updateDeviceWorkerNamePoolSyncStatusByIDStmt        *sql.Stmt
 	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
@@ -2017,9 +2026,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPairedDevicesByMACAddressesStmt:                  q.getPairedDevicesByMACAddressesStmt,
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
 		getPoolStmt:                                         q.getPoolStmt,
+		getRackDetailsForDevicesStmt:                        q.getRackDetailsForDevicesStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,
 		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
-		getRackLabelsForDevicesStmt:                         q.getRackLabelsForDevicesStmt,
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
@@ -2100,6 +2109,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceSetLabelStmt:                            q.updateDeviceSetLabelStmt,
 		updateDeviceSetLabelAndDescriptionStmt:              q.updateDeviceSetLabelAndDescriptionStmt,
 		updateDeviceWorkerNameStmt:                          q.updateDeviceWorkerNameStmt,
+		updateDeviceWorkerNamePoolSyncStatusByIDStmt:        q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
 		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,

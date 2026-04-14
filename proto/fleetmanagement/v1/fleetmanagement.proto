@@ -51,6 +51,11 @@ service FleetManagementService {
   // Supports both single-miner and bulk rename via DeviceSelector.
   // Persists all names atomically in a single transaction.
   rpc RenameMiners(RenameMinersRequest) returns (RenameMinersResponse);
+
+  // Update worker names by applying a name config to all selected devices.
+  // Reapplies the miners' current pool settings first, then persists worker names
+  // only for miners whose pool updates succeed so Fleet stays aligned with device state.
+  rpc UpdateWorkerNames(UpdateWorkerNamesRequest) returns (UpdateWorkerNamesResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -138,6 +143,10 @@ message MinerStateSnapshot {
 
   // Worker name stored on fleet for pool username composition and rename preview.
   string worker_name = 23;
+
+  // Rack slot position formatted using the rack numbering origin (for example "01").
+  // Empty if the device is not assigned to a numbered rack slot.
+  string rack_position = 24;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -421,6 +430,34 @@ message RenameMinersResponse {
   int32 failed_count = 3;
 }
 
+// Request to update worker names using a configurable name pattern.
+message UpdateWorkerNamesRequest {
+  // Selects which miners to update (specific IDs or all devices).
+  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
+
+  // Naming pattern applied to the worker name that will be pushed to each selected miner
+  // and persisted back to Fleet after the device update succeeds.
+  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+
+  // Current fleet table sort used to assign counter order during generation.
+  // If omitted, the backend falls back to the default name ascending order.
+  repeated common.v1.SortConfig sort = 3;
+
+  // Fleet user's username for authorization.
+  string user_username = 4 [(buf.validate.field).string.min_len = 1];
+
+  // Fleet user's password for authorization.
+  string user_password = 5 [(buf.validate.field).string.min_len = 1];
+}
+
+// Response from updating worker names.
+message UpdateWorkerNamesResponse {
+  int32 updated_count = 1;
+  int32 unchanged_count = 2;
+  int32 failed_count = 3;
+  string batch_identifier = 4;
+}
+
 // Configures how names are generated for a batch of miners.
 message MinerNameConfig {
   // Ordered list of properties that form the name. At least one is required.
@@ -497,6 +534,8 @@ enum FixedValueType {
   FIXED_VALUE_TYPE_MANUFACTURER = 5;
   // Reserved — not yet implemented.
   FIXED_VALUE_TYPE_LOCATION     = 6;
+  // Resolves to the miner's current fleet name (custom name or manufacturer + model fallback).
+  FIXED_VALUE_TYPE_MINER_NAME   = 7;
 }
 
 // Selects which end of a string to take characters from.
@@ -517,13 +556,12 @@ message QualifierProperty {
 }
 
 // Physical location qualifier used as a name segment.
-// All values are reserved and not yet implemented in the data model.
 enum QualifierType {
   QUALIFIER_TYPE_UNSPECIFIED    = 0;
   // Reserved — not yet implemented.
   QUALIFIER_TYPE_BUILDING       = 1;
-  // Reserved — not yet implemented.
+  // Resolves to the assigned rack label.
   QUALIFIER_TYPE_RACK           = 2;
-  // Reserved — not yet implemented.
+  // Resolves to the assigned rack slot number.
   QUALIFIER_TYPE_RACK_POSITION  = 3;
 }

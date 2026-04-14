@@ -71,22 +71,25 @@ type OfflineDeviceInfo struct {
 
 // DeviceRenameProperties holds the device attributes needed for name generation.
 type DeviceRenameProperties struct {
-	DeviceIdentifier   string
-	DiscoveredDeviceID int64
-	CustomName         string
-	MacAddress         string
-	SerialNumber       string
-	Model              string
-	ModelSortValue     *string
-	Manufacturer       string
-	IPAddress          string
-	FirmwareVersion    string
-	FirmwareSortValue  *string
-	WorkerName         string
-	Hashrate           *float64
-	Temperature        *float64
-	Power              *float64
-	Efficiency         *float64
+	DeviceIdentifier         string
+	DiscoveredDeviceID       int64
+	CustomName               string
+	MacAddress               string
+	SerialNumber             string
+	Model                    string
+	ModelSortValue           *string
+	Manufacturer             string
+	IPAddress                string
+	FirmwareVersion          string
+	FirmwareSortValue        *string
+	WorkerName               string
+	WorkerNamePoolSyncStatus string
+	RackLabel                string
+	RackPosition             string
+	Hashrate                 *float64
+	Temperature              *float64
+	Power                    *float64
+	Efficiency               *float64
 }
 
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.

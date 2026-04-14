@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
@@ -15,6 +16,7 @@ var RedactedRequestProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
@@ -63,8 +65,9 @@ var UnauthenticatedProcedures = []string{
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
 // logged, even at debug level, because they contain secrets (e.g., API keys).
 var SensitiveBodyProcedures = map[string]bool{
-	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure: true,
-	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:    true,
-	authv1connect.AuthServiceAuthenticateProcedure:                        true,
-	authv1connect.AuthServiceVerifyCredentialsProcedure:                   true,
+	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:     true,
+	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:        true,
+	authv1connect.AuthServiceAuthenticateProcedure:                            true,
+	authv1connect.AuthServiceVerifyCredentialsProcedure:                       true,
+	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure: true,
 }

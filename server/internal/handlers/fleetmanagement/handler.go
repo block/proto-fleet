@@ -90,3 +90,12 @@ func (h *Handler) RenameMiners(ctx context.Context, r *connect.Request[pb.Rename
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) UpdateWorkerNames(ctx context.Context, r *connect.Request[pb.UpdateWorkerNamesRequest]) (*connect.Response[pb.UpdateWorkerNamesResponse], error) {
+	result, err := h.fleetMgmtSvc.UpdateWorkerNames(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

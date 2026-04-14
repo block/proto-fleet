@@ -1780,7 +1780,7 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	require.Equal(t, int64(405), pairedDevice.DiscoveredDeviceID)
 }
 
-func TestUpdateWorkerName_StoresWorkerNameOnDevice(t *testing.T) {
+func TestUpdateWorkerName_StoresWorkerNameWithoutTouchingPoolSyncStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1812,14 +1812,16 @@ func TestUpdateWorkerName_StoresWorkerNameOnDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	var workerName sql.NullString
+	var syncStatus sql.NullString
 	err = conn.QueryRowContext(ctx, `
-		SELECT worker_name
+		SELECT worker_name, worker_name_pool_sync_status::text
 		FROM device
 		WHERE id = 406
-	`).Scan(&workerName)
+	`).Scan(&workerName, &syncStatus)
 	require.NoError(t, err)
 	require.True(t, workerName.Valid)
 	require.Equal(t, "worker-16", workerName.String)
+	require.False(t, syncStatus.Valid)
 }
 
 func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {

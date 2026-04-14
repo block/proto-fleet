@@ -133,12 +133,46 @@ WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND ds.deleted_at IS NULL
 ORDER BY dsm.device_identifier, ds.label;
 
--- name: GetRackLabelsForDevices :many
--- Batch query to get rack label for multiple devices at once (for miner list)
--- Returns at most one rack per device due to partial unique index
-SELECT dsm.device_identifier, ds.label
+-- name: GetRackDetailsForDevices :many
+-- Batch query to get rack label and formatted slot position for multiple devices at once.
+-- Returns at most one rack per device due to partial unique index.
+SELECT
+  dsm.device_identifier,
+  ds.label,
+  CASE
+    WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
+    ELSE (
+      CASE
+        WHEN (
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        ) < 10 THEN LPAD((
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        )::text, 2, '0')
+        ELSE (
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        )::text
+      END
+    )
+  END::text AS position
 FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1
   AND ds.type = 'rack'

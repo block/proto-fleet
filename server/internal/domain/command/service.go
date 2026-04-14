@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -582,6 +583,125 @@ func (s *Service) UpdateMiningPools(
 	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
 
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+func (s *Service) VerifyCredentials(ctx context.Context, username string, password string) error {
+	return s.verifyUserCredentials(ctx, username, password)
+}
+
+func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
+	ctx context.Context,
+	desiredWorkerNamesByDeviceIdentifier map[string]string,
+) (string, error) {
+	if len(desiredWorkerNamesByDeviceIdentifier) == 0 {
+		return "", nil
+	}
+
+	if !s.executionService.IsRunning() {
+		slog.Error("command execution service is not running, attempting to start it")
+		err := s.executionService.Start(ctx)
+		if err != nil {
+			return "", fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
+		}
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+
+	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
+	for deviceIdentifier := range desiredWorkerNamesByDeviceIdentifier {
+		deviceIdentifiers = append(deviceIdentifiers, deviceIdentifier)
+	}
+	sort.Strings(deviceIdentifiers)
+
+	command := &Command{
+		commandType: commandtype.UpdateMiningPools,
+		deviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIdentifiers,
+				},
+			},
+		},
+		payload: dto.UpdateMiningPoolsPayload{
+			ReapplyCurrentPoolsWithStoredWorkerName: true,
+		},
+	}
+
+	payloadBytes, err := json.Marshal(command.payload)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+	}
+
+	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
+	}
+
+	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
+	if err != nil {
+		return "", err
+	}
+
+	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+		return "", err
+	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+	return commandBatchLogUUID, nil
+}
+
+func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) (map[string]int64, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
+		return q.GetDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
+	}
+	if len(rows) != len(deviceIdentifiers) {
+		return nil, fleeterror.NewNotFoundErrorf("one or more devices not found for worker-name reapply")
+	}
+
+	deviceIDsByIdentifier := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		deviceIDsByIdentifier[row.DeviceIdentifier] = row.ID
+	}
+	return deviceIDsByIdentifier, nil
+}
+
+func (s *Service) enqueueWorkerNameReapplyMessages(
+	ctx context.Context,
+	commandBatchLogUUID string,
+	deviceIdentifiers []string,
+	deviceIDsByIdentifier map[string]int64,
+	desiredWorkerNamesByDeviceIdentifier map[string]string,
+) error {
+	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		commandType := commandtype.UpdateMiningPools
+		for _, deviceIdentifier := range deviceIdentifiers {
+			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+				ReapplyCurrentPoolsWithStoredWorkerName: true,
+				DesiredWorkerName:                       desiredWorkerNamesByDeviceIdentifier[deviceIdentifier],
+			})
+			if err != nil {
+				return fleeterror.NewInternalErrorf("failed to marshal worker-name reapply payload: %v", err)
+			}
+
+			if err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+				CommandBatchLogUuid: commandBatchLogUUID,
+				CommandType:         commandType.String(),
+				DeviceID:            deviceIDsByIdentifier[deviceIdentifier],
+				Status:              sqlc.QueueStatusEnumPENDING,
+				RetryCount:          0,
+				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
+			}); err != nil {
+				return fleeterror.NewInternalErrorf("failed to enqueue worker-name reapply message: %v", err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.DownloadLogsResponse, error) {

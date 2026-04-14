@@ -447,6 +447,87 @@ func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabe
 	return items, nil
 }
 
+const getRackDetailsForDevices = `-- name: GetRackDetailsForDevices :many
+SELECT
+  dsm.device_identifier,
+  ds.label,
+  CASE
+    WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
+    ELSE (
+      CASE
+        WHEN (
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        ) < 10 THEN LPAD((
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        )::text, 2, '0')
+        ELSE (
+          CASE dsr.order_index
+            WHEN 1 THEN (dsr.rows - 1 - rs.row) * dsr.columns + rs.col + 1
+            WHEN 2 THEN rs.row * dsr.columns + rs.col + 1
+            WHEN 3 THEN (dsr.rows - 1 - rs.row) * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+            ELSE rs.row * dsr.columns + (dsr.columns - 1 - rs.col) + 1
+          END
+        )::text
+      END
+    )
+  END::text AS position
+FROM device_set_membership dsm
+JOIN device_set ds ON dsm.device_set_id = ds.id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_identifier = ANY($2::text[])
+  AND dsm.org_id = $1
+  AND ds.type = 'rack'
+  AND ds.deleted_at IS NULL
+ORDER BY dsm.device_identifier
+`
+
+type GetRackDetailsForDevicesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetRackDetailsForDevicesRow struct {
+	DeviceIdentifier string
+	Label            string
+	Position         string
+}
+
+// Batch query to get rack label and formatted slot position for multiple devices at once.
+// Returns at most one rack per device due to partial unique index.
+func (q *Queries) GetRackDetailsForDevices(ctx context.Context, arg GetRackDetailsForDevicesParams) ([]GetRackDetailsForDevicesRow, error) {
+	rows, err := q.query(ctx, q.getRackDetailsForDevicesStmt, getRackDetailsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetRackDetailsForDevicesRow
+	for rows.Next() {
+		var i GetRackDetailsForDevicesRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.Label, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRackInfo = `-- name: GetRackInfo :one
 SELECT dsr.zone, dsr.rows, dsr.columns, dsr.order_index, dsr.cooling_type
 FROM device_set_rack dsr
@@ -509,52 +590,6 @@ func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchPara
 			&i.OrderIndex,
 			&i.CoolingType,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getRackLabelsForDevices = `-- name: GetRackLabelsForDevices :many
-SELECT dsm.device_identifier, ds.label
-FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
-WHERE dsm.device_identifier = ANY($2::text[])
-  AND dsm.org_id = $1
-  AND ds.type = 'rack'
-  AND ds.deleted_at IS NULL
-ORDER BY dsm.device_identifier
-`
-
-type GetRackLabelsForDevicesParams struct {
-	OrgID             int64
-	DeviceIdentifiers []string
-}
-
-type GetRackLabelsForDevicesRow struct {
-	DeviceIdentifier string
-	Label            string
-}
-
-// Batch query to get rack label for multiple devices at once (for miner list)
-// Returns at most one rack per device due to partial unique index
-func (q *Queries) GetRackLabelsForDevices(ctx context.Context, arg GetRackLabelsForDevicesParams) ([]GetRackLabelsForDevicesRow, error) {
-	rows, err := q.query(ctx, q.getRackLabelsForDevicesStmt, getRackLabelsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetRackLabelsForDevicesRow
-	for rows.Next() {
-		var i GetRackLabelsForDevicesRow
-		if err := rows.Scan(&i.DeviceIdentifier, &i.Label); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

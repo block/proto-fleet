@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -309,12 +310,16 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}
 
 		// Second: write device log only if the queue transition succeeded.
-		return q.UpsertCommandOnDeviceLog(dbCtx, sqlc.UpsertCommandOnDeviceLogParams{
+		if err := q.UpsertCommandOnDeviceLog(dbCtx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      message.BatchLogUUID,
 			DeviceID:  message.DeviceID,
 			Status:    upsertCommandOnDeviceStatus(workerError),
 			UpdatedAt: time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+
+		return nil
 	})
 	if txErr != nil {
 		slog.Error("error in post-execution transaction",
@@ -393,11 +398,32 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if updateExtractErr != nil {
 			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
 		}
-		p, err = es.applyMinerNameToPoolUsernames(ctx, minerInfo, p)
-		if err != nil {
-			break
+		var workerNameToPersist string
+		if p.ReapplyCurrentPoolsWithStoredWorkerName {
+			var shouldUpdate bool
+			p, workerNameToPersist, shouldUpdate, err = es.reapplyCurrentPoolsWithDesiredWorkerName(ctx, minerInfo, p)
+			if err != nil {
+				break
+			}
+			if !shouldUpdate {
+				if workerNameToPersist == "" {
+					return nil
+				}
+				return es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
+			}
+		} else {
+			p, err = es.applyMinerNameToPoolUsernames(ctx, minerInfo, p)
+			if err != nil {
+				break
+			}
 		}
 		err = minerInfo.UpdateMiningPools(ctx, p)
+		if err == nil && workerNameToPersist != "" {
+			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
+			if err != nil {
+				err = fleeterror.NewInternalErrorf("failed to persist worker name after pool update: %v", err)
+			}
+		}
 	case commandtype.DownloadLogs:
 		err = minerInfo.DownloadLogs(ctx, message.BatchLogUUID)
 	case commandtype.BlinkLED:
@@ -495,6 +521,30 @@ func (es *ExecutionService) applyMinerNameToPoolUsernames(
 	return payload, nil
 }
 
+func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	payload dto.UpdateMiningPoolsPayload,
+) (dto.UpdateMiningPoolsPayload, string, bool, error) {
+	desiredWorkerName, err := es.getDesiredWorkerNameForPoolReapply(ctx, minerInfo, payload)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
+	}
+	if desiredWorkerName == "" {
+		return dto.UpdateMiningPoolsPayload{}, "", false, nil
+	}
+
+	currentPools, err := minerInfo.GetMiningPools(ctx)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewInternalErrorf("failed to read current mining pools for worker-name reapply: %v", err)
+	}
+	if len(currentPools) == 0 {
+		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil
+	}
+
+	return buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName), desiredWorkerName, true, nil
+}
+
 func payloadRequiresMinerName(payload dto.UpdateMiningPoolsPayload) bool {
 	if shouldAppendMinerName(payload.DefaultPool) {
 		return true
@@ -531,6 +581,35 @@ func (es *ExecutionService) getMinerWorkerName(ctx context.Context, minerInfo in
 	}
 
 	return storedMinerWorkerName(props[0]), nil
+}
+
+func (es *ExecutionService) getStoredWorkerName(ctx context.Context, minerInfo interfaces.Miner) (string, error) {
+	props, err := es.deviceStore.GetDevicePropertiesForRename(
+		ctx,
+		minerInfo.GetOrgID(),
+		[]string{string(minerInfo.GetID())},
+		false,
+	)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to get stored worker name for pool reapply: %v", err)
+	}
+	if len(props) == 0 {
+		return "", fleeterror.NewNotFoundErrorf("device properties not found for device %s", minerInfo.GetID())
+	}
+
+	return strings.TrimSpace(props[0].WorkerName), nil
+}
+
+func (es *ExecutionService) getDesiredWorkerNameForPoolReapply(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	payload dto.UpdateMiningPoolsPayload,
+) (string, error) {
+	if workerName := strings.TrimSpace(payload.DesiredWorkerName); workerName != "" {
+		return workerName, nil
+	}
+
+	return es.getStoredWorkerName(ctx, minerInfo)
 }
 
 func currentMinerWorkerName(ctx context.Context, minerInfo interfaces.Miner) (string, error) {
@@ -595,6 +674,97 @@ func storedMinerWorkerName(props stores.DeviceRenameProperties) string {
 	return strings.TrimSpace(props.MacAddress)
 }
 
+func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
+	ctx context.Context,
+	deviceID int64,
+	deviceIdentifier models.DeviceIdentifier,
+	workerName string,
+) error {
+	if es.conn == nil {
+		return es.deviceStore.UpdateWorkerName(ctx, deviceIdentifier, workerName)
+	}
+
+	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+		affected, err := q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
+			DeviceIdentifier: string(deviceIdentifier),
+			WorkerName:       sql.NullString{String: workerName, Valid: workerName != ""},
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to update worker name for device %s: %v", deviceIdentifier, err)
+		}
+		if affected == 0 {
+			return fleeterror.NewNotFoundErrorf("device not found for worker name update with identifier=%s", deviceIdentifier)
+		}
+
+		return q.UpdateDeviceWorkerNamePoolSyncStatusByID(ctx, sqlc.UpdateDeviceWorkerNamePoolSyncStatusByIDParams{
+			ID: deviceID,
+			WorkerNamePoolSyncStatus: sqlc.NullWorkerNamePoolSyncStatusEnum{
+				WorkerNamePoolSyncStatusEnum: sqlc.WorkerNamePoolSyncStatusEnum(workername.PoolSyncStatusPoolUpdatedSuccessfully),
+				Valid:                        true,
+			},
+		})
+	})
+}
+
+func buildCurrentPoolsPayloadWithWorkerName(
+	currentPools []interfaces.MinerConfiguredPool,
+	desiredWorkerName string,
+) dto.UpdateMiningPoolsPayload {
+	sortedPools := sortedConfiguredPoolsByPriority(currentPools)
+	payload := dto.UpdateMiningPoolsPayload{
+		DefaultPool: configuredPoolToPayload(sortedPools[0], desiredWorkerName),
+	}
+
+	if len(sortedPools) > 1 {
+		backup := configuredPoolToPayload(sortedPools[1], desiredWorkerName)
+		payload.Backup1Pool = &backup
+	}
+	if len(sortedPools) > 2 {
+		backup := configuredPoolToPayload(sortedPools[2], desiredWorkerName)
+		payload.Backup2Pool = &backup
+	}
+
+	return payload
+}
+
+func sortedConfiguredPoolsByPriority(currentPools []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+	sortedPools := append([]interfaces.MinerConfiguredPool(nil), currentPools...)
+	sort.SliceStable(sortedPools, func(i, j int) bool {
+		return sortedPools[i].Priority < sortedPools[j].Priority
+	})
+	return sortedPools
+}
+
+func configuredPoolToPayload(
+	pool interfaces.MinerConfiguredPool,
+	desiredWorkerName string,
+) dto.MiningPool {
+	priority := uint32(0)
+	if pool.Priority > 0 {
+		priority = uint32(pool.Priority)
+	}
+
+	return dto.MiningPool{
+		Priority: priority,
+		URL:      pool.URL,
+		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
+	}
+}
+
+func rewritePoolUsernameWithStoredWorkerName(username string, desiredWorkerName string) string {
+	trimmedUsername := strings.TrimSpace(username)
+	if trimmedUsername == "" || desiredWorkerName == "" {
+		return trimmedUsername
+	}
+
+	baseUsername := normalizePoolUsernameBase(trimmedUsername)
+	if baseUsername == "" {
+		return trimmedUsername
+	}
+
+	return baseUsername + "." + desiredWorkerName
+}
+
 func appendMinerNameToPoolUsername(pool dto.MiningPool, minerName string) string {
 	if !shouldAppendMinerName(pool) {
 		return pool.Username
@@ -623,12 +793,12 @@ func normalizePoolUsernameBase(username string) string {
 		return ""
 	}
 
-	lastSeparator := strings.LastIndex(trimmed, ".")
-	if lastSeparator <= 0 || lastSeparator == len(trimmed)-1 {
+	firstSeparator := strings.Index(trimmed, ".")
+	if firstSeparator <= 0 || firstSeparator == len(trimmed)-1 {
 		return trimmed
 	}
 
-	return strings.TrimSpace(trimmed[:lastSeparator])
+	return strings.TrimSpace(trimmed[:firstSeparator])
 }
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair

@@ -497,22 +497,25 @@ func (s *SQLCollectionStore) GetGroupLabelsForDevices(ctx context.Context, orgID
 	return result, nil
 }
 
-func (s *SQLCollectionStore) GetRackLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]string, error) {
+func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]interfaces.DeviceRackDetails, error) {
 	if len(deviceIdentifiers) == 0 {
-		return make(map[string]string), nil
+		return make(map[string]interfaces.DeviceRackDetails), nil
 	}
 
-	rows, err := s.GetQueries(ctx).GetRackLabelsForDevices(ctx, sqlc.GetRackLabelsForDevicesParams{
+	rows, err := s.GetQueries(ctx).GetRackDetailsForDevices(ctx, sqlc.GetRackDetailsForDevicesParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get rack labels: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get rack details: %v", err)
 	}
 
-	result := make(map[string]string)
+	result := make(map[string]interfaces.DeviceRackDetails)
 	for _, row := range rows {
-		result[row.DeviceIdentifier] = row.Label
+		result[row.DeviceIdentifier] = interfaces.DeviceRackDetails{
+			Label:    row.Label,
+			Position: row.Position,
+		}
 	}
 	return result, nil
 }

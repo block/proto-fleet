@@ -8,6 +8,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
+type PoolSyncStatus string
+
+const (
+	PoolSyncStatusPoolUpdatedSuccessfully PoolSyncStatus = "POOL_UPDATED_SUCCESSFULLY"
+)
+
 func FromPoolUsername(username string) string {
 	trimmed := strings.TrimSpace(username)
 	firstSeparator := strings.Index(trimmed, ".")
@@ -33,4 +39,8 @@ func HasStored(
 	}
 
 	return strings.TrimSpace(props[0].WorkerName) != "", nil
+}
+
+func IsPoolSyncComplete(status string) bool {
+	return strings.TrimSpace(status) == string(PoolSyncStatusPoolUpdatedSuccessfully)
 }

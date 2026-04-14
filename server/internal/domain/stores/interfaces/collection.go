@@ -8,6 +8,11 @@ import (
 
 //go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
 
+type DeviceRackDetails struct {
+	Label    string
+	Position string
+}
+
 // CollectionStore provides database operations for device collections (groups and racks).
 //
 //nolint:interfacebloat // complete CRUD for collections with membership management
@@ -77,9 +82,9 @@ type CollectionStore interface {
 	// Used for batch lookup when building MinerStateSnapshot list.
 	GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error)
 
-	// GetRackLabelsForDevices returns a map of device_identifier -> rack label.
+	// GetRackDetailsForDevices returns a map of device_identifier -> rack label and formatted position.
 	// Each device can only be in one rack due to the partial unique index.
-	GetRackLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]string, error)
+	GetRackDetailsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]DeviceRackDetails, error)
 
 	// SetRackSlotPosition assigns a device to a specific slot position in a rack.
 	SetRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, row, column int32, orgID int64) error

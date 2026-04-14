@@ -363,7 +363,7 @@ func TestCollectionStore_GetGroupLabelsForDevices(t *testing.T) {
 	assert.Equal(t, []string{"Alpha"}, labels[deviceIDs[1]])
 }
 
-func TestCollectionStore_GetRackLabelsForDevices(t *testing.T) {
+func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -372,24 +372,51 @@ func TestCollectionStore_GetRackLabelsForDevices(t *testing.T) {
 	store := newCollectionStore(db)
 	ctx := t.Context()
 
-	// Arrange - both devices in a rack, device[0] also in a group
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Floor 1", "")
+	require.NoError(t, err)
+	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 12, 12, 2, 0, orgID)
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
 
-	group, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Group X", "")
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID)
 	require.NoError(t, err)
-	_, err = store.AddDevicesToCollection(ctx, orgID, group.Id, deviceIDs[:1])
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 8, 3, orgID)
 	require.NoError(t, err)
 
-	// Act
-	labels, err := store.GetRackLabelsForDevices(ctx, orgID, deviceIDs)
-
-	// Assert - only rack labels, not group labels
+	details, err := store.GetRackDetailsForDevices(ctx, orgID, deviceIDs)
 	require.NoError(t, err)
-	assert.Equal(t, "Floor 1", labels[deviceIDs[0]])
-	assert.Equal(t, "Floor 1", labels[deviceIDs[1]])
+	require.Len(t, details, 2)
+	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
+	assert.Equal(t, "01", details[deviceIDs[0]].Position)
+	assert.Equal(t, "Floor 1", details[deviceIDs[1]].Label)
+	assert.Equal(t, "100", details[deviceIDs[1]].Position)
+}
+
+func TestCollectionStore_GetRackDetailsForDevices_LeavesPositionBlankForUnspecifiedOrderIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	store := newCollectionStore(db)
+	ctx := t.Context()
+
+	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Floor 1", "")
+	require.NoError(t, err)
+	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 12, 12, 0, 0, orgID)
+	require.NoError(t, err)
+	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
+	require.NoError(t, err)
+
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID)
+	require.NoError(t, err)
+
+	details, err := store.GetRackDetailsForDevices(ctx, orgID, deviceIDs)
+	require.NoError(t, err)
+	require.Len(t, details, 1)
+	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
+	assert.Empty(t, details[deviceIDs[0]].Position)
 }
 
 func TestCollectionStore_UpdateCollection(t *testing.T) {

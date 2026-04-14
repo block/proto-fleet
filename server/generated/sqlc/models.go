@@ -280,6 +280,47 @@ func (ns NullQueueStatusEnum) Value() (driver.Value, error) {
 	return string(ns.QueueStatusEnum), nil
 }
 
+type WorkerNamePoolSyncStatusEnum string
+
+const (
+	WorkerNamePoolSyncStatusEnumPOOLUPDATEDSUCCESSFULLY WorkerNamePoolSyncStatusEnum = "POOL_UPDATED_SUCCESSFULLY"
+)
+
+func (e *WorkerNamePoolSyncStatusEnum) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkerNamePoolSyncStatusEnum(s)
+	case string:
+		*e = WorkerNamePoolSyncStatusEnum(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkerNamePoolSyncStatusEnum: %T", src)
+	}
+	return nil
+}
+
+type NullWorkerNamePoolSyncStatusEnum struct {
+	WorkerNamePoolSyncStatusEnum WorkerNamePoolSyncStatusEnum
+	Valid                        bool // Valid is true if WorkerNamePoolSyncStatusEnum is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkerNamePoolSyncStatusEnum) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkerNamePoolSyncStatusEnum, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkerNamePoolSyncStatusEnum.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkerNamePoolSyncStatusEnum) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkerNamePoolSyncStatusEnum), nil
+}
+
 type ActivityLog struct {
 	ID             int64
 	EventID        uuid.UUID
@@ -335,17 +376,18 @@ type CommandOnDeviceLog struct {
 }
 
 type Device struct {
-	ID                 int64
-	DeviceIdentifier   string
-	MacAddress         string
-	SerialNumber       sql.NullString
-	OrgID              int64
-	DiscoveredDeviceID int64
-	CreatedAt          sql.NullTime
-	UpdatedAt          sql.NullTime
-	DeletedAt          sql.NullTime
-	CustomName         sql.NullString
-	WorkerName         sql.NullString
+	ID                       int64
+	DeviceIdentifier         string
+	MacAddress               string
+	SerialNumber             sql.NullString
+	OrgID                    int64
+	DiscoveredDeviceID       int64
+	CreatedAt                sql.NullTime
+	UpdatedAt                sql.NullTime
+	DeletedAt                sql.NullTime
+	CustomName               sql.NullString
+	WorkerName               sql.NullString
+	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 }
 
 type DeviceMetric struct {
