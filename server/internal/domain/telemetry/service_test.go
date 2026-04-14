@@ -1910,3 +1910,209 @@ func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {
 		assert.Equal(t, int32(3), result.MinerStateCounts.Sleeping)
 	})
 }
+
+// runStatusPollingOnce runs statusPollingRoutine until it fires the ticker once,
+// then cancels. Returns the device IDs that were enqueued into statusTasks.
+func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.DeviceIdentifier {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	// Short interval so the ticker fires immediately.
+	service.config.DeviceStatusPollInterval = 5 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.statusPollingRoutine(ctx)
+	}()
+
+	// Drain statusTasks until the ticker has had time to fire and the goroutine exits.
+	var enqueued []models.DeviceIdentifier
+	timer := time.NewTimer(200 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case device, ok := <-service.statusTasks:
+			if !ok {
+				return enqueued
+			}
+			enqueued = append(enqueued, device.ID)
+		case <-timer.C:
+			cancel()
+			<-done
+			// Drain any remaining items buffered before cancel.
+			for {
+				select {
+				case device := <-service.statusTasks:
+					enqueued = append(enqueued, device.ID)
+				default:
+					return enqueued
+				}
+			}
+		}
+	}
+}
+
+func newStatusPollingService(t *testing.T, ctrl *gomock.Controller, scheduler *mock.MockUpdateScheduler) *TelemetryService {
+	t.Helper()
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   10,
+	}
+	svc := NewTelemetryService(config, mockDataStore, mockMinerGetter, scheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	return svc
+}
+
+func TestStatusPollingRoutine_SkipsActiveNonFailedDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceID := models.DeviceIdentifier("active-device")
+
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), deviceID).
+		Return(false, time.Time{}, nil).
+		AnyTimes()
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusActive)
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert — active, non-failed device must not be polled
+	assert.NotContains(t, enqueued, deviceID)
+}
+
+func TestStatusPollingRoutine_EnqueuesOfflineDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceID := models.DeviceIdentifier("offline-device")
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusOffline)
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert — offline device must be enqueued for recovery polling
+	assert.Contains(t, enqueued, deviceID)
+}
+
+func TestStatusPollingRoutine_EnqueuesDeviceWithNoKnownStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceID := models.DeviceIdentifier("unseen-device")
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	// no entry in lastKnownStatuses
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert — device never seen by the main loop must be polled
+	assert.Contains(t, enqueued, deviceID)
+}
+
+func TestStatusPollingRoutine_EnqueuesFailedDeviceEvenIfCachedActive(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceID := models.DeviceIdentifier("failed-but-cached-active")
+
+	// Device is in the scheduler's failed set despite showing ACTIVE in the cache.
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), deviceID).
+		Return(true, time.Now().Add(-1*time.Minute), nil).
+		AnyTimes()
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusActive)
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert — failed device must not be skipped, even with a cached ACTIVE status
+	assert.Contains(t, enqueued, deviceID)
+}
+
+func TestStatusPollingRoutine_SkipsInFlightDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceID := models.DeviceIdentifier("inflight-device")
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	service.devicesForStatusPolling.Store(deviceID, struct{}{})
+	// No cached status (would normally be enqueued), but already claimed in inFlight.
+	service.inFlight.Store(deviceID, struct{}{})
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert — device already being processed by a worker must not be double-enqueued
+	assert.NotContains(t, enqueued, deviceID)
+}
+
+func TestStatusPollingRoutine_MixedDevices(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+
+	activeDevice := models.DeviceIdentifier("active")
+	offlineDevice := models.DeviceIdentifier("offline")
+	failedCachedActive := models.DeviceIdentifier("failed-cached-active")
+	inFlightDevice := models.DeviceIdentifier("inflight")
+	unseenDevice := models.DeviceIdentifier("unseen")
+
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), activeDevice).
+		Return(false, time.Time{}, nil).AnyTimes()
+	mockScheduler.EXPECT().
+		IsFailedDevice(gomock.Any(), failedCachedActive).
+		Return(true, time.Now().Add(-1*time.Minute), nil).AnyTimes()
+
+	service := newStatusPollingService(t, ctrl, mockScheduler)
+	for _, id := range []models.DeviceIdentifier{activeDevice, offlineDevice, failedCachedActive, inFlightDevice, unseenDevice} {
+		service.devicesForStatusPolling.Store(id, struct{}{})
+	}
+	service.lastKnownStatuses.Store(activeDevice, mm.MinerStatusActive)
+	service.lastKnownStatuses.Store(offlineDevice, mm.MinerStatusOffline)
+	service.lastKnownStatuses.Store(failedCachedActive, mm.MinerStatusActive)
+	service.lastKnownStatuses.Store(inFlightDevice, mm.MinerStatusOffline)
+	service.inFlight.Store(inFlightDevice, struct{}{})
+
+	// Act
+	enqueued := runStatusPollingOnce(t, service)
+
+	// Assert
+	assert.NotContains(t, enqueued, activeDevice, "healthy active device should be skipped")
+	assert.Contains(t, enqueued, offlineDevice, "offline device should be polled")
+	assert.Contains(t, enqueued, failedCachedActive, "failed device must not be skipped even if cached ACTIVE")
+	assert.NotContains(t, enqueued, inFlightDevice, "in-flight device should be skipped")
+	assert.Contains(t, enqueued, unseenDevice, "unseen device should be polled")
+}

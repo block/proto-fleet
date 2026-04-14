@@ -195,6 +195,10 @@ type TelemetryService struct {
 	// avoids a race condition between reading old statuses and writing new ones.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
+	// inFlight tracks devices currently being processed by a worker via the tasks channel.
+	// statusPollingRoutine skips devices in this map to avoid double-processing the same
+	// device simultaneously in both the full-telemetry and status-only paths.
+	inFlight sync.Map // map[DeviceIdentifier]struct{}
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
@@ -398,9 +402,30 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 					return true
 				}
 
+				// Skip devices that are healthy — the main telemetry loop already updates them.
+				// statusPollingRoutine exists to recover failed/offline devices, not to re-poll healthy ones.
+				// However, a device can be marked failed by the scheduler while its cached status is still
+				// ACTIVE (set during its last successful poll before it started failing). We must not skip
+				// such devices — they need recovery polling to re-enter the scheduler.
+				if statusVal, ok := s.lastKnownStatuses.Load(deviceID); ok {
+					if status, ok := statusVal.(mm.MinerStatus); ok && status == mm.MinerStatusActive {
+						// Don't skip failed devices even if they have a cached ACTIVE status —
+						// they need recovery polling to re-enter the scheduler.
+						if failed, _, err := s.updateScheduler.IsFailedDevice(ctx, deviceID); err == nil && !failed {
+							return true // skip: healthy and not failed
+						}
+					}
+				}
+
+				// Atomically claim the device; skip if already queued or processing.
+				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); alreadyClaimed {
+					return true
+				}
+
 				select {
 				case s.statusTasks <- models.Device{ID: deviceID}:
 				case <-ctx.Done():
+					s.inFlight.Delete(deviceID) // release claim on context cancellation
 					return false
 				}
 				return true
@@ -418,11 +443,20 @@ func (s *TelemetryService) worker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 
-		case device := <-s.tasks:
+		case device, ok := <-s.tasks:
+			if !ok {
+				return
+			}
+			s.inFlight.Store(device.ID, struct{}{})
 			s.processDevice(ctx, device)
+			s.inFlight.Delete(device.ID)
 
-		case device := <-s.statusTasks:
+		case device, ok := <-s.statusTasks:
+			if !ok {
+				return
+			}
 			s.processStatusOnly(ctx, device)
+			s.inFlight.Delete(device.ID)
 		}
 	}
 }
