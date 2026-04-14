@@ -5,7 +5,14 @@ import DropdownFilterPopover from "./DropdownFilterPopover";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
+import { minimalMargin } from "@/shared/components/Popover/constants";
+import { type Position, positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+
+const popoverViewportPadding = minimalMargin * 2;
+const POPOVER_CHROME_WITH_BUTTONS = 120;
+const POPOVER_CHROME_BASE = 56;
 
 export type DropdownOption = {
   id: string;
@@ -35,7 +42,10 @@ const FilterContent = ({
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
   const { triggerRef } = usePopover();
+  const { height: windowHeight } = useWindowDimensions();
   const popoverRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
+  const [optionsMaxHeight, setOptionsMaxHeight] = useState<number | undefined>();
+  const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
 
   // Only use internal state when buttons are shown
   const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(externalSelectedItems);
@@ -47,6 +57,35 @@ const FilterContent = ({
       setInternalSelectedItems(externalSelectedItems);
     }
   }, [externalSelectedItems, withButtons]);
+
+  useEffect(() => {
+    if (!showPopover || !triggerRef.current) {
+      return;
+    }
+
+    const chromeHeight = withButtons ? POPOVER_CHROME_WITH_BUTTONS : POPOVER_CHROME_BASE;
+
+    const updatePopoverLayout = () => {
+      if (!triggerRef.current) return;
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const viewportHeight = window.visualViewport?.height ?? windowHeight;
+      const spaceAbove = triggerRect.top - popoverViewportPadding;
+      const spaceBelow = viewportHeight - triggerRect.bottom - popoverViewportPadding;
+      const shouldOpenAbove = spaceAbove > spaceBelow;
+      const available = (shouldOpenAbove ? spaceAbove : spaceBelow) - chromeHeight;
+
+      setPopoverPosition(shouldOpenAbove ? positions["top right"] : positions["bottom right"]);
+      setOptionsMaxHeight(Math.max(available, 0));
+    };
+
+    updatePopoverLayout();
+
+    window.visualViewport?.addEventListener("resize", updatePopoverLayout);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updatePopoverLayout);
+    };
+  }, [showPopover, triggerRef, withButtons, windowHeight]);
 
   useClickOutside({
     ref: triggerRef,
@@ -143,6 +182,8 @@ const FilterContent = ({
             handleReset={handleReset}
             handleApply={handleApply}
             popoverRef={popoverRef}
+            optionsMaxHeight={optionsMaxHeight}
+            position={popoverPosition}
           />
         )}
       </div>

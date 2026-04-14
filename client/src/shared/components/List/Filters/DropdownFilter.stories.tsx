@@ -168,6 +168,67 @@ export const MultipleFilters = () => {
   );
 };
 
+const manyGroupOptions: DropdownOption[] = Array.from({ length: 20 }, (_, i) => ({
+  id: `group-${i + 1}`,
+  label: `Group ${i + 1}`,
+}));
+
+export const ManyOptions = () => {
+  const [selectedItems, setSelectedItems] = useState<string[]>(["group-1", "group-5"]);
+
+  const handleSelect = (items: string[]) => {
+    setSelectedItems(items);
+    onSelect(items);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <DropdownFilter
+        title="Groups"
+        options={manyGroupOptions}
+        selectedOptions={selectedItems}
+        onSelect={handleSelect}
+        withButtons={true}
+      />
+      <div className="text-300">
+        <p>
+          <strong>Many options (20):</strong> The dropdown scrolls when the list exceeds the max height. Apply/Reset
+          buttons stay fixed at the bottom.
+        </p>
+        <p className="mt-2">Selected items: {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}</p>
+      </div>
+    </div>
+  );
+};
+
+export const ManyOptionsWithoutButtons = () => {
+  const [selectedItems, setSelectedItems] = useState<string[]>(["group-3"]);
+
+  const handleSelect = (items: string[]) => {
+    setSelectedItems(items);
+    onSelect(items);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <DropdownFilter
+        title="Groups"
+        options={manyGroupOptions}
+        selectedOptions={selectedItems}
+        onSelect={handleSelect}
+        withButtons={false}
+      />
+      <div className="text-300">
+        <p>
+          <strong>Many options without buttons (20):</strong> Same scrollable list but without Apply/Reset, giving more
+          visible space for options. Changes apply immediately on click.
+        </p>
+        <p className="mt-2">Selected items: {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}</p>
+      </div>
+    </div>
+  );
+};
+
 export default {
   title: "Shared/List/Filters/DropdownFilter",
   component: DropdownFilter,

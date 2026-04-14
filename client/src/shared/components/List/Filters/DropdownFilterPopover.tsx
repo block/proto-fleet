@@ -7,6 +7,7 @@ import { groupVariants } from "@/shared/components/ButtonGroup";
 import Checkbox from "@/shared/components/Checkbox";
 import Divider from "@/shared/components/Divider";
 import Popover from "@/shared/components/Popover";
+import { type Position } from "@/shared/constants";
 
 type DropdownFilterPopoverProps = {
   options: DropdownOption[];
@@ -20,6 +21,8 @@ type DropdownFilterPopoverProps = {
   handleReset: () => void;
   handleApply: () => void;
   popoverRef: RefObject<HTMLDivElement>;
+  optionsMaxHeight?: number;
+  position?: Position;
 };
 
 const DropdownFilterPopover = ({
@@ -34,11 +37,13 @@ const DropdownFilterPopover = ({
   handleReset,
   handleApply,
   popoverRef,
+  optionsMaxHeight,
+  position = "bottom right",
 }: DropdownFilterPopoverProps) => {
   return (
     <Popover
       testId="dropdown-filter-popover"
-      position="bottom right"
+      position={position}
       offset={8}
       buttonGroupVariant={groupVariants.fill}
       buttons={
@@ -58,7 +63,11 @@ const DropdownFilterPopover = ({
           : undefined
       }
     >
-      <div ref={popoverRef} className="max-h-80 space-y-0 overflow-y-auto">
+      <div
+        ref={popoverRef}
+        className="space-y-0 overflow-y-auto overscroll-contain"
+        style={{ maxHeight: optionsMaxHeight }}
+      >
         {showSelectAll && (
           <>
             <div
