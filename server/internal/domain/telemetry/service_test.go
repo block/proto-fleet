@@ -444,7 +444,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
@@ -1591,13 +1591,14 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(3) // Telemetry, status, and error polling
+		Times(2) // Telemetry and error polling (status derived from metrics health, no extra RPC)
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
 		Return(modelsV2.DeviceMetrics{
 			DeviceIdentifier: string(deviceID),
 			Timestamp:        time.Now(),
+			Health:           modelsV2.HealthHealthyActive,
 		}, nil)
 
 	mockDataStore.EXPECT().
@@ -1607,10 +1608,6 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	mockScheduler.EXPECT().
 		AddDevices(gomock.Any(), gomock.Any()).
 		Return(nil)
-
-	mockMiner.EXPECT().
-		GetDeviceStatus(gomock.Any()).
-		Return(mm.MinerStatusActive, nil)
 
 	mockErrorPoller.EXPECT().
 		PollErrors(gomock.Any(), mockMiner).
@@ -1654,6 +1651,252 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	case <-time.After(2 * time.Second):
 		t.Fatal("processDevice blocked on full channel - non-blocking send not working")
 	}
+}
+
+// Tests for status derivation logic in processDevice
+
+// TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus verifies that when
+// metrics succeed but Health == HealthHealthyInactive, processDevice falls back to
+// GetDeviceStatus (because the V2 model collapses NeedsMiningPool into Inactive).
+func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
+
+	deviceID := models.DeviceIdentifier("inactive-device")
+	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
+
+	// Telemetry fetch (fetchTelemetryFromMiner) and error polling each call GetMinerFromDeviceIdentifier.
+	// Status fetch (fetchStatusFromMiner) also calls it, so three calls total.
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil).
+		Times(3)
+
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			DeviceIdentifier: string(deviceID),
+			Timestamp:        time.Now(),
+			Health:           modelsV2.HealthHealthyInactive,
+		}, nil)
+
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	// GetDeviceStatus must be called because hasMetricsStatus == false for HealthHealthyInactive.
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusNeedsMiningPool, nil)
+
+	mockErrorPoller.EXPECT().
+		PollErrors(gomock.Any(), mockMiner).
+		Return(diagnostics.PollResult{})
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   1,
+		MetricTimeout:      5 * time.Second,
+	}
+
+	service := &TelemetryService{
+		config:             config,
+		telemetryDataStore: mockDataStore,
+		minerManager:       mockMinerGetter,
+		updateScheduler:    mockScheduler,
+		deviceStore:        mockDeviceStore,
+		errorPoller:        mockErrorPoller,
+		tasks:              make(chan models.Device, 1),
+		statusTasks:        make(chan models.Device, 1),
+		statusResults:      make(chan statusResult, 1),
+		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
+	}
+
+	ctx := t.Context()
+	go func() {
+		select {
+		case <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processDevice(ctx, device)
+
+	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
+}
+
+// TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus verifies that when
+// metrics succeed with HealthHealthyActive, processDevice derives status from health
+// and does NOT make a redundant GetDeviceStatus RPC call.
+func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
+
+	deviceID := models.DeviceIdentifier("active-device")
+	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
+
+	// Telemetry fetch and error polling each call GetMinerFromDeviceIdentifier — two calls total.
+	// GetDeviceStatus must NOT be called when hasMetricsStatus == true.
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil).
+		Times(2)
+
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			DeviceIdentifier: string(deviceID),
+			Timestamp:        time.Now(),
+			Health:           modelsV2.HealthHealthyActive,
+		}, nil)
+
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	// GetDeviceStatus must NOT be called (gomock will fail the test if it is).
+
+	mockErrorPoller.EXPECT().
+		PollErrors(gomock.Any(), mockMiner).
+		Return(diagnostics.PollResult{})
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   1,
+		MetricTimeout:      5 * time.Second,
+	}
+
+	service := &TelemetryService{
+		config:             config,
+		telemetryDataStore: mockDataStore,
+		minerManager:       mockMinerGetter,
+		updateScheduler:    mockScheduler,
+		deviceStore:        mockDeviceStore,
+		errorPoller:        mockErrorPoller,
+		tasks:              make(chan models.Device, 1),
+		statusTasks:        make(chan models.Device, 1),
+		statusResults:      make(chan statusResult, 1),
+		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
+	}
+
+	ctx := t.Context()
+
+	var receivedResult statusResult
+	go func() {
+		select {
+		case receivedResult = <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processDevice(ctx, device)
+	time.Sleep(50 * time.Millisecond)
+
+	// Assert — status was derived from metrics health, no GetDeviceStatus call.
+	assert.Equal(t, deviceID, receivedResult.deviceIdentifier)
+	assert.Equal(t, mm.MinerStatusActive, receivedResult.status)
+}
+
+// TestProcessDevice_MetricsFail_CallsGetDeviceStatus verifies that when metrics fetch
+// fails, processDevice falls back to GetDeviceStatus to determine the device's status.
+func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
+
+	deviceID := models.DeviceIdentifier("metrics-fail-device")
+	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
+
+	// Telemetry fetch, status fetch, and error polling each call GetMinerFromDeviceIdentifier.
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil).
+		Times(3)
+
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{}, errors.New("metrics unavailable"))
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	// GetDeviceStatus must be called because metricsErr != nil (hasMetricsStatus == false).
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusActive, nil)
+
+	mockErrorPoller.EXPECT().
+		PollErrors(gomock.Any(), mockMiner).
+		Return(diagnostics.PollResult{})
+
+	config := Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   1,
+		MetricTimeout:      5 * time.Second,
+	}
+
+	service := &TelemetryService{
+		config:             config,
+		telemetryDataStore: mockDataStore,
+		minerManager:       mockMinerGetter,
+		updateScheduler:    mockScheduler,
+		deviceStore:        mockDeviceStore,
+		errorPoller:        mockErrorPoller,
+		tasks:              make(chan models.Device, 1),
+		statusTasks:        make(chan models.Device, 1),
+		statusResults:      make(chan statusResult, 1),
+		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
+	}
+
+	ctx := t.Context()
+	go func() {
+		select {
+		case <-service.statusResults:
+		case <-time.After(1 * time.Second):
+		}
+	}()
+
+	// Act
+	service.processDevice(ctx, device)
+
+	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
 }
 
 // Unit conversion test constants - raw storage values

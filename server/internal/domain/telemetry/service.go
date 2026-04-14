@@ -159,6 +159,10 @@ type deviceResult struct {
 	device     models.Device
 	metrics    modelsV2.DeviceMetrics
 	metricsErr error
+	// status and hasStatus are set when metricsErr == nil.
+	// hasStatus is false for HealthHealthyInactive; see healthStatusToMinerStatus.
+	status    mm.MinerStatus
+	hasStatus bool
 }
 
 // statusResult represents a status update result from a worker.
@@ -471,11 +475,13 @@ func (s *TelemetryService) worker(ctx context.Context) {
 // Connection errors during status fetch are converted to MinerStatusOffline (not errors),
 // so the flow continues. Only auth failures and other non-connection errors cause early return.
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
-	// Telemetry failure doesn't block status/error polling - we still want to track online state
-	if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
-		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
+	// Telemetry failure doesn't block status/error polling - we still want to track online state.
+	// When metrics succeed, status is derived from the health field — no second RPC needed.
+	metricsStatus, hasMetricsStatus, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	if telemetryErr != nil {
+		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", telemetryErr)
 
-		if fleeterror.IsAuthenticationError(err) {
+		if fleeterror.IsAuthenticationError(telemetryErr) {
 			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"deviceID", device.ID, "error", updateErr)
@@ -487,20 +493,26 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		}
 	}
 
-	// Fetch status from miner (connection errors return MinerStatusOffline, nil).
-	// Non-connection errors (auth failures, etc.) cause early return since we can't
-	// reliably poll errors from a device we can't authenticate with.
-	status, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
-	if statusErr != nil {
-		slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
+	// When metrics were fetched successfully, derive status from them to avoid a second RPC.
+	// When metrics failed (device unreachable or auth error), fetch status explicitly so we can
+	// detect offline state and handle auth failures in the status path.
+	var status mm.MinerStatus
+	if hasMetricsStatus {
+		status = metricsStatus
+	} else {
+		var statusErr error
+		status, statusErr = s.fetchStatusFromMiner(ctx, device.ID)
+		if statusErr != nil {
+			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
-		if fleeterror.IsAuthenticationError(statusErr) {
-			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
-					"deviceID", device.ID, "error", updateErr)
+			if fleeterror.IsAuthenticationError(statusErr) {
+				if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+					slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+						"deviceID", device.ID, "error", updateErr)
+				}
 			}
+			return
 		}
-		return
 	}
 
 	// Send status result to writer (non-blocking to prevent worker stalls)
@@ -746,7 +758,30 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 
 	result := &deviceResult{device: device}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
+	if result.metricsErr == nil {
+		result.status, result.hasStatus = healthStatusToMinerStatus(result.metrics.Health)
+	}
 	return result, nil
+}
+
+// healthStatusToMinerStatus converts a V2 HealthStatus from fetched metrics into a MinerStatus.
+// Returns false when the status is ambiguous and GetDeviceStatus must be used instead.
+// HealthHealthyInactive is ambiguous because the V2 model collapses sdk.HealthNeedsMiningPool
+// into it, making it impossible to distinguish MinerStatusInactive from MinerStatusNeedsMiningPool.
+func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bool) {
+	switch health {
+	case modelsV2.HealthHealthyActive:
+		return mm.MinerStatusActive, true
+	case modelsV2.HealthWarning:
+		return mm.MinerStatusActive, true // Still operational despite warning
+	case modelsV2.HealthCritical:
+		return mm.MinerStatusError, true
+	case modelsV2.HealthUnknown:
+		return mm.MinerStatusOffline, true
+	case modelsV2.HealthHealthyInactive:
+		return mm.MinerStatusUnknown, false
+	}
+	return mm.MinerStatusOffline, true
 }
 
 // fetchStatusFromMiner gets the status from a miner device.
@@ -771,13 +806,15 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 }
 
 // GetTelemetryFromDevice fetches telemetry data from a device and stores it.
-func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) error {
+// Returns the derived MinerStatus and whether it is unambiguous.
+// The bool is false when the health status is ambiguous; see healthStatusToMinerStatus.
+func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
 	result, err := s.fetchTelemetryFromMiner(ctx, device)
 	if err != nil {
-		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
 	if result.metricsErr == nil {
@@ -794,9 +831,9 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
 	}); err != nil {
-		return fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
 	}
-	return nil
+	return result.status, result.hasStatus, nil
 }
 func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	return s.telemetryDataStore.StreamTelemetryUpdates(ctx, query)
