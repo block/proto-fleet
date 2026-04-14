@@ -229,6 +229,8 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 	}
 	for _, id := range deviceIDs {
 		s.devicesForStatusPolling.Delete(id)
+		s.lastKnownStatuses.Delete(id)
+		s.lastKnownFirmware.Delete(id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
 }
