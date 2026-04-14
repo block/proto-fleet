@@ -4,7 +4,7 @@ import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_p
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
@@ -76,22 +76,14 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   }, [isOffline, isSleeping, needsAttention]);
 
   // Check for active batch operations FIRST (highest priority)
-  const hasActiveBatch = activeBatches.length > 0;
-  const batchAction = hasActiveBatch ? activeBatches[0].action : null;
-  const batchStartedAt = hasActiveBatch ? activeBatches[0].startedAt : undefined;
-  const batchLoadingMessage = batchAction ? statusColumnLoadingMessages[batchAction] : null;
+  const activeBatch = activeBatches[0];
+  const batchLoadingMessage = activeBatch ? statusColumnLoadingMessages[activeBatch.action] : null;
 
-  // Check if device has reached expected status for this batch action
-  const deviceHasReachedExpectedStatus = useMemo(() => {
-    if (!batchAction) return false;
-    return hasReachedExpectedStatus(batchAction, deviceStatusFromStore, batchStartedAt);
-  }, [batchAction, deviceStatusFromStore, batchStartedAt]);
-
-  // Show loading state only if batch is active AND device hasn't reached expected status yet
-  if (hasActiveBatch && batchLoadingMessage && !deviceHasReachedExpectedStatus) {
+  if (isActionLoading(activeBatch, deviceStatusFromStore)) {
     const content = (
       <>
         <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        <ProgressCircular size={14} indeterminate />
         <span className="text-text-primary-50">{batchLoadingMessage}</span>
       </>
     );

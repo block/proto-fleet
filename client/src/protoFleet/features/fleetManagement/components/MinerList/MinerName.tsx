@@ -4,17 +4,19 @@ import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fle
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import { Alert } from "@/shared/assets/icons";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
 
 type MinerNameProps = {
   miner: MinerStateSnapshot;
   errors: ErrorMessage[];
+  isActionLoading: boolean;
   onOpenStatusFlow: (deviceIdentifier: string) => void;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
 };
 
-const MinerName = ({ miner, errors, onOpenStatusFlow, miners, onRefetchMiners }: MinerNameProps) => {
+const MinerName = ({ miner, errors, isActionLoading, onOpenStatusFlow, miners, onRefetchMiners }: MinerNameProps) => {
   const deviceIdentifier = miner.deviceIdentifier;
   const name = miner.name || deviceIdentifier;
   const deviceStatus = miner.deviceStatus;
@@ -30,14 +32,19 @@ const MinerName = ({ miner, errors, onOpenStatusFlow, miners, onRefetchMiners }:
         {name}
       </div>
       <div className="flex items-center gap-2">
-        {needsAttention && !needsAuthentication && (
-          <button
-            onClick={() => onOpenStatusFlow(deviceIdentifier)}
-            className="cursor-pointer transition-opacity hover:opacity-80"
-            aria-label="View issues"
-          >
-            <Alert width="w-4" className="text-red-500" />
-          </button>
+        {isActionLoading ? (
+          <ProgressCircular size={14} indeterminate />
+        ) : (
+          needsAttention &&
+          !needsAuthentication && (
+            <button
+              onClick={() => onOpenStatusFlow(deviceIdentifier)}
+              className="cursor-pointer transition-opacity hover:opacity-80"
+              aria-label="View issues"
+            >
+              <Alert width="w-4" className="text-red-500" />
+            </button>
+          )
         )}
         <SingleMinerActionsMenu
           deviceIdentifier={deviceIdentifier}

@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { deviceActions, settingsActions } from "../components/MinerActionsMenu/constants";
-import { hasReachedExpectedStatus } from "./batchStatusCheck";
+import { hasReachedExpectedStatus, isActionLoading } from "./batchStatusCheck";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+
+function createBatch(overrides: Partial<BatchOperation> = {}): BatchOperation {
+  return {
+    batchIdentifier: "batch-123",
+    action: deviceActions.reboot,
+    deviceIdentifiers: ["device-1"],
+    startedAt: Date.now(),
+    status: "in_progress",
+    ...overrides,
+  };
+}
 
 describe("hasReachedExpectedStatus", () => {
   describe("mining pool action", () => {
@@ -114,5 +126,26 @@ describe("hasReachedExpectedStatus", () => {
       expect(hasReachedExpectedStatus("unknown-action", DeviceStatus.ONLINE)).toBe(false);
       expect(hasReachedExpectedStatus("unknown-action", DeviceStatus.INACTIVE)).toBe(false);
     });
+  });
+});
+
+describe("isActionLoading", () => {
+  it("returns false when batch is undefined", () => {
+    expect(isActionLoading(undefined, DeviceStatus.ONLINE)).toBe(false);
+  });
+
+  it("returns false when action has no statusColumnLoadingMessages entry", () => {
+    const batch = createBatch({ action: deviceActions.downloadLogs });
+    expect(isActionLoading(batch, DeviceStatus.ONLINE)).toBe(false);
+  });
+
+  it("returns false when device has reached expected status", () => {
+    const batch = createBatch({ action: deviceActions.shutdown });
+    expect(isActionLoading(batch, DeviceStatus.INACTIVE)).toBe(false);
+  });
+
+  it("returns true when device has not reached expected status", () => {
+    const batch = createBatch({ action: deviceActions.shutdown });
+    expect(isActionLoading(batch, DeviceStatus.ONLINE)).toBe(true);
   });
 });

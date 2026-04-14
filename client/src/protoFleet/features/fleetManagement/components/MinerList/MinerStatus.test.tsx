@@ -84,6 +84,22 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Adding pools")).toBeInTheDocument();
     });
 
+    it("should show spinner during batch operation", () => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
+
+      const { container } = render(
+        <MinerStatus
+          miner={miner}
+          errors={[]}
+          activeBatches={[createBatch({ action: deviceActions.shutdown })]}
+          errorsLoaded
+        />,
+      );
+
+      expect(screen.getByText("Sleeping")).toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    });
+
     it("should prioritize loading state over normal status", async () => {
       const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
       vi.mocked(useMinerStatus).mockReturnValue("Hashing");

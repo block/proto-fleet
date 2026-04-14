@@ -1,5 +1,6 @@
-import { deviceActions, settingsActions } from "../components/MinerActionsMenu/constants";
+import { deviceActions, settingsActions, statusColumnLoadingMessages } from "../components/MinerActionsMenu/constants";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 /**
  * Check if a device has reached the expected status for a given batch action.
@@ -42,4 +43,13 @@ export function hasReachedExpectedStatus(
   }
 
   return false;
+}
+
+/**
+ * Check if a batch action is actively loading (has a loading message and
+ * the device hasn't yet reached the expected status for that action).
+ */
+export function isActionLoading(batch: BatchOperation | undefined, deviceStatus: DeviceStatus | undefined): boolean {
+  if (!batch || !statusColumnLoadingMessages[batch.action]) return false;
+  return !hasReachedExpectedStatus(batch.action, deviceStatus, batch.startedAt);
 }

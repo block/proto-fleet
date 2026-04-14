@@ -16,6 +16,7 @@ import MinerWorkerName from "./MinerWorkerName";
 import { type DeviceListItem } from "./types";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { type ColConfig } from "@/shared/components/List/types";
 
 type CreateMinerColConfigParams = {
@@ -36,15 +37,20 @@ const createMinerColConfig = ({
   onRefetchMinersRef,
 }: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
-    component: (device: DeviceListItem) => (
-      <MinerName
-        miner={device.miner}
-        errors={device.errors}
-        onOpenStatusFlow={onOpenStatusFlow}
-        miners={minersRef.current}
-        onRefetchMiners={onRefetchMinersRef.current}
-      />
-    ),
+    component: (device: DeviceListItem) => {
+      const loading = isActionLoading(device.activeBatches[0], device.miner.deviceStatus);
+
+      return (
+        <MinerName
+          miner={device.miner}
+          errors={device.errors}
+          isActionLoading={loading}
+          onOpenStatusFlow={onOpenStatusFlow}
+          miners={minersRef.current}
+          onRefetchMiners={onRefetchMinersRef.current}
+        />
+      );
+    },
     width: "w-[208px]",
   },
   [minerCols.workerName]: {
