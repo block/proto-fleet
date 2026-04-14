@@ -87,6 +87,8 @@ jobs:
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -210,7 +212,7 @@ jobs:
         with:
           name: screenshots-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
           path: client/e2eTests/protoFleet/test-results/
-          if-no-files-found: warn
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Dump backend logs on failure
@@ -246,6 +248,8 @@ jobs:
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
 
       - name: Cache Node modules
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
@@ -334,7 +338,7 @@ jobs:
           npm install -g @testmo/testmo-cli@1.0.0
 
       - name: Submit test results to Testmo (Desktop)
-        if: ${{ !cancelled() && needs.e2e-tests.result == 'success' && github.event_name == 'schedule' && steps.merge.outputs.desktop-report-path }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.desktop-report-path }}
         working-directory: client/e2eTests/protoFleet/merged-reports/desktop
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
@@ -362,7 +366,7 @@ jobs:
           fi
 
       - name: Submit test results to Testmo (Mobile)
-        if: ${{ !cancelled() && needs.e2e-tests.result == 'success' && github.event_name == 'schedule' && steps.merge.outputs.mobile-report-path }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.mobile-report-path }}
         working-directory: client/e2eTests/protoFleet/merged-reports/mobile
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
