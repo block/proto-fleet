@@ -33,9 +33,19 @@ import (
 )
 
 const (
-	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations.
-	// 100 provides good parallelism for large fleet sizes while avoiding overwhelming the network.
-	concurrentDiscoveryLimit = 100
+	// concurrentDiscoveryLimit caps concurrent IP probes. 254 covers a full /24 without queuing
+	// (.0 network and .1 gateway are skipped, leaving .2–.255 = 254 usable addresses);
+	// probes are I/O-bound so goroutine count is not a CPU concern.
+	concurrentDiscoveryLimit = 254
+
+	// MaxPortsPerIP caps per-IP parallel port fan-out to prevent resource exhaustion from
+	// caller-supplied port lists.
+	MaxPortsPerIP = 10
+
+	// globalProbeLimit caps total concurrent TCP dials across all IPs and ports. Each dial
+	// holds an OS file descriptor for its duration; 512 leaves headroom for DB connections
+	// and other process FDs while staying well below typical OS limits (1024–65536).
+	globalProbeLimit = 512
 
 	// IP address constants for network address filtering
 	networkAddressLastOctet = 0   // Network address last octet (.0)
@@ -187,6 +197,7 @@ type Service struct {
 	pairer                Pairer
 	listener              Listener
 	localNetworkInfo      func(context.Context) (*NetworkInfo, error)
+	probeSemaphore        chan struct{}
 }
 
 func NewService(
@@ -209,6 +220,7 @@ func NewService(
 		pairer:                pairer,
 		listener:              listener,
 		localNetworkInfo:      defaultLocalNetworkInfo,
+		probeSemaphore:        make(chan struct{}, globalProbeLimit),
 	}
 }
 
@@ -695,6 +707,9 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	if err != nil {
 		return nil, err
 	}
+	if len(ports) > MaxPortsPerIP {
+		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
+	}
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
@@ -723,17 +738,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					for _, port := range ports {
-						if timeoutCtx.Err() != nil {
-							return
-						}
-						found, err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
-						if err != nil {
-							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
-						} else if found {
-							return
-						}
-					}
+					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
 				}(uint32ToIP(ip))
 			}
 		}
@@ -749,6 +754,9 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
 		return nil, err
+	}
+	if len(ports) > MaxPortsPerIP {
+		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
 	}
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
@@ -825,17 +833,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 						ipAddr = resolved
 					}
 
-					for _, port := range ports {
-						if timeoutCtx.Err() != nil {
-							return
-						}
-						found, err := s.discoverDevice(timeoutCtx, ipAddr, port, rawResultChan)
-						if err != nil {
-							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
-						} else if found {
-							return
-						}
-					}
+					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
 				}(ip)
 			}
 		}
@@ -844,6 +842,74 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	}()
 
 	return resultChan, nil
+}
+
+// discoverAllPortsForIP probes all ports for a single IP concurrently. Raw probe results are
+// fed into a buffered channel so processDiscoveredDevice is called sequentially — preventing
+// duplicate discovered_device rows from concurrent port wins. Siblings are cancelled only after
+// processDiscoveredDevice returns found==true, preserving fallback to other ports when the first
+// raw winner is collision-skipped or otherwise non-emitting. All probe goroutines are drained
+// before returning so the outer semaphore slot is not released prematurely.
+func (s *Service) discoverAllPortsForIP(ctx context.Context, ipAddr string, ports []string, resultChan chan<- *pb.DiscoverResponse) {
+	portCtx, portCancel := context.WithCancel(ctx)
+	defer portCancel()
+
+	type rawResult struct {
+		device *discoverymodels.DiscoveredDevice
+		port   string
+	}
+	rawCh := make(chan rawResult, len(ports))
+
+	var wg sync.WaitGroup
+	for _, port := range ports {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			// Acquire the global probe semaphore before dialing to bound total FD usage
+			// across all concurrently probed IPs. Release it as soon as Discover returns.
+			select {
+			case s.probeSemaphore <- struct{}{}:
+			case <-portCtx.Done():
+				return
+			}
+			probeCtx, cancel := context.WithTimeout(portCtx, perDeviceDiscoveryTimeout)
+			defer cancel()
+			device, err := s.discoverer.Discover(probeCtx, ipAddr, p)
+			<-s.probeSemaphore
+			if err != nil {
+				if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+					slog.Debug("discovery failed", "ip", ipAddr, "port", p, "error", err)
+				}
+				return
+			}
+			select {
+			case rawCh <- rawResult{device, p}:
+			case <-portCtx.Done():
+			}
+		}(port)
+	}
+
+	// Close rawCh once all probes finish. Use a done channel so we can wait for closure
+	// after draining rawCh below — ensuring no goroutines outlive this function.
+	allDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(rawCh)
+		close(allDone)
+	}()
+
+	for w := range rawCh {
+		found, err := s.processDiscoveredDevice(ctx, w.device, ipAddr, w.port, resultChan)
+		if err != nil {
+			slog.Debug("failed to process discovered device", "ip", ipAddr, "port", w.port, "error", err)
+		}
+		if found {
+			portCancel()
+			break
+		}
+	}
+
+	<-allDone
 }
 
 // discoverDevice attempts to discover a device at the given IP and port. It returns (true, nil)

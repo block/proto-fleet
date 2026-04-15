@@ -223,9 +223,12 @@ func TestDiscoverWithIPList_DerivesPortsFromPluginMetadata(t *testing.T) {
 }
 
 func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) {
+	// Arrange
 	mockDiscoverer := &MockDiscoverer{}
 	mockDevice := createMockDevice("192.168.1.10", "443", "proto")
 	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "443").Return(mockDevice, nil).Once()
+	// Both ports are probed concurrently; "8080" may be called before "443"'s success cancels it.
+	mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Return(nil, context.Canceled).Maybe()
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -233,6 +236,7 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
 
+	// Act
 	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
 		IpAddresses: []string{"192.168.1.10"},
 	})
@@ -244,9 +248,8 @@ func TestDiscoverWithIPList_UsesAllAdvertisedPluginPortsByDefault(t *testing.T) 
 		devices = append(devices, result.Devices...)
 	}
 
+	// Assert
 	mockDiscoverer.AssertExpectations(t)
-	mockDiscoverer.AssertCalled(t, "Discover", mock.Anything, "192.168.1.10", "443")
-	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "192.168.1.10", "8080")
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
@@ -277,7 +280,8 @@ func TestDiscoverWithIPList_ExplicitPortsOverridePluginMetadata(t *testing.T) {
 	assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 }
 
-func TestDiscoverWithIPList_StopsAfterFirstSuccessfulPortForSameIP(t *testing.T) {
+func TestDiscoverWithIPList_CancelsRemainingPortsAfterFirstSuccessForSameIP(t *testing.T) {
+	// Arrange
 	mockDiscoverer := &MockDiscoverer{}
 	scannedIP := "192.168.1.10"
 	firstPort := "443"
@@ -294,7 +298,10 @@ func TestDiscoverWithIPList_StopsAfterFirstSuccessfulPortForSameIP(t *testing.T)
 		},
 	}
 
+	// Both ports are probed concurrently; the second may or may not be called depending on
+	// whether the cancellation propagates before it starts.
 	mockDiscoverer.On("Discover", mock.Anything, scannedIP, firstPort).Return(firstDiscoveryDevice, nil).Once()
+	mockDiscoverer.On("Discover", mock.Anything, scannedIP, secondPort).Return(nil, context.Canceled).Maybe()
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -302,6 +309,7 @@ func TestDiscoverWithIPList_StopsAfterFirstSuccessfulPortForSameIP(t *testing.T)
 
 	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
 
+	// Act
 	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
 		IpAddresses: []string{scannedIP},
 		Ports:       []string{firstPort, secondPort},
@@ -314,9 +322,9 @@ func TestDiscoverWithIPList_StopsAfterFirstSuccessfulPortForSameIP(t *testing.T)
 		devices = append(devices, result.Devices...)
 	}
 
+	// Assert
 	mockDiscoverer.AssertExpectations(t)
-	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, scannedIP, secondPort)
-	require.Len(t, devices, 1, "remaining ports should not be probed after a device is found")
+	require.Len(t, devices, 1)
 	assert.NotEmpty(t, devices[0].DeviceIdentifier)
 }
 
@@ -587,6 +595,53 @@ func TestDiscoverWithIPList_SkipsUnresolvableHostnames(t *testing.T) {
 	assert.Len(t, devices, 1)
 	assert.Equal(t, "192.168.1.10", devices[0].IpAddress)
 	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, "this-host-definitely-does-not-exist.invalid", mock.Anything)
+}
+
+func TestDiscoverWithIPList_TooManyPortsReturnsError(t *testing.T) {
+	// Arrange
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+	ports := make([]string, pairing.MaxPortsPerIP+1)
+	for i := range ports {
+		ports[i] = fmt.Sprintf("%d", 4000+i)
+	}
+
+	// Act
+	resultChan, err := pairingService.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"},
+		Ports:       ports,
+	})
+
+	// Assert
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDiscoverWithIPRange_TooManyPortsReturnsError(t *testing.T) {
+	// Arrange
+	mockDiscoverer := &MockDiscoverer{}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
+	ports := make([]string, pairing.MaxPortsPerIP+1)
+	for i := range ports {
+		ports[i] = fmt.Sprintf("%d", 4000+i)
+	}
+
+	// Act
+	resultChan, err := pairingService.DiscoverWithIPRange(ctx, &pb.IPRangeModeRequest{
+		StartIp: "192.168.1.10",
+		EndIp:   "192.168.1.10",
+		Ports:   ports,
+	})
+
+	// Assert
+	require.Error(t, err)
+	require.Nil(t, resultChan)
+	mockDiscoverer.AssertNotCalled(t, "Discover", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDiscoverWithIPRange_EmptyPortsWithoutMetadataReturnsError(t *testing.T) {
