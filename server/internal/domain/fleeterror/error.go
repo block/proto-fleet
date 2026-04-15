@@ -52,7 +52,14 @@ func (e FleetError) Error() string {
 }
 
 func (e FleetError) IsExpected() bool {
-	switch e.GRPCCode {
+	return isExpectedCode(e.GRPCCode)
+}
+
+// isExpectedCode reports whether a gRPC code represents an expected (client-side) error.
+// Stack traces are not captured for expected errors since they fire on hot paths
+// (e.g. every failed plugin probe during discovery) and the traces are never useful.
+func isExpectedCode(code connect.Code) bool {
+	switch code {
 	case connect.CodeCanceled,
 		connect.CodeInvalidArgument,
 		connect.CodeNotFound,
@@ -62,9 +69,8 @@ func (e FleetError) IsExpected() bool {
 		connect.CodeFailedPrecondition,
 		connect.CodeAborted,
 		connect.CodeOutOfRange,
-		connect.CodeUnauthenticated:
-		return true
-	case connect.CodeUnimplemented:
+		connect.CodeUnauthenticated,
+		connect.CodeUnimplemented:
 		return true
 	case connect.CodeUnknown,
 		connect.CodeDeadlineExceeded,
@@ -72,9 +78,8 @@ func (e FleetError) IsExpected() bool {
 		connect.CodeUnavailable,
 		connect.CodeDataLoss:
 		return false
-	default:
-		return false
 	}
+	return false
 }
 
 func (e FleetError) ErrorWithStackTrace() string {
@@ -87,18 +92,22 @@ func New(
 	fleetErrorCode int32,
 	fleetErrorCodeType FleetErrorCodeType,
 ) FleetError {
-	return FleetError{
+	e := FleetError{
 		DebugMessage:       debugMessage,
 		GRPCCode:           grpcCode,
 		FleetErrorCode:     fleetErrorCode,
 		FleetErrorCodeType: fleetErrorCodeType,
-		StackTrace:         NewStackTrace(1),
 	}
+	if !isExpectedCode(grpcCode) {
+		e.StackTrace = NewStackTrace(1)
+	}
+	return e
 }
 
 func (e FleetError) WithCallerStackTrace() FleetError {
-	e.StackTrace = NewStackTrace(2)
-
+	if !isExpectedCode(e.GRPCCode) {
+		e.StackTrace = NewStackTrace(2)
+	}
 	return e
 }
 

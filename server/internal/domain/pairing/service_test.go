@@ -2157,6 +2157,94 @@ func TestPairDevices_UsesReconciledIdentifierAfterPairing(t *testing.T) {
 	assert.Equal(t, originalIdentifier, reconciledDevice.DeviceIdentifier)
 }
 
+func TestPairDevices_DeduplicatesAliasIdentifiersByIPPort(t *testing.T) {
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	tokenService := testContext.ServiceProvider.TokenService
+	pluginService := testContext.ServiceProvider.PluginService
+
+	// Two different identifiers pointing to the same IP:port — the alias scenario
+	// where duplicate discovered_device rows exist for the same physical endpoint.
+	device1Identifier := "alias-device-001"
+	device2Identifier := "alias-device-002"
+	sharedIP := "10.0.1.10"
+	sharedPort := "8080"
+
+	_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: device1Identifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: device1Identifier,
+			IpAddress:        sharedIP,
+			Port:             sharedPort,
+			UrlScheme:        "http",
+			DriverName:       "proto",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	_, err = discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: device2Identifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: device2Identifier,
+			IpAddress:        sharedIP,
+			Port:             sharedPort,
+			UrlScheme:        "http",
+			DriverName:       "proto",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	// PairDevice must be called exactly once — the duplicate alias must be filtered.
+	mockPairer := pairingMocks.NewMockPairer(ctrl)
+	mockPairer.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		Times(1)
+	mockPairer.EXPECT().
+		GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("not implemented")).
+		AnyTimes()
+
+	mockListener := pairingMocks.NewMockListener(ctrl)
+	mockListener.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil)
+
+	pairingService := pairing.NewService(
+		discoveredDeviceStore,
+		deviceStore,
+		transactor,
+		tokenService,
+		&MockDiscoverer{},
+		pluginService,
+		mockListener,
+		mockPairer,
+	)
+
+	// Act
+	resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{device1Identifier, device2Identifier}))
+
+	// Assert: the alias (same IP:port) is reported as failed; the first identifier paired successfully.
+	require.NoError(t, err)
+	assert.Len(t, resp.FailedDeviceIds, 1, "the alias identifier should be reported as failed")
+	assert.Equal(t, device2Identifier, resp.FailedDeviceIds[0], "second (alias) identifier should be the failed one")
+}
+
 func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {
 	t.Run("returns error for empty device list", func(t *testing.T) {
 		// Arrange

@@ -19,6 +19,10 @@ func NewStackTrace(offset int) StackTrace {
 }
 
 func (st StackTrace) String() string {
+	if len(st.pc) == 0 {
+		return ""
+	}
+
 	frames := runtime.CallersFrames(st.pc)
 
 	var buffer bytes.Buffer

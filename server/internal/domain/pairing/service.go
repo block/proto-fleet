@@ -52,6 +52,7 @@ const (
 	defaultNmapTimeoutSeconds     = 600              // Overall timeout for nmap discovery operation (10 minutes)
 	defaultIPDiscoveryTimeoutSecs = 600              // Overall timeout for IP-based discovery (10 minutes)
 	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
+	perDevicePairingTimeout       = 30 * time.Second // Timeout for pairing a single device (plugin RPC + DB writes)
 
 	// Nmap tuning parameters for faster scanning
 	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
@@ -1181,29 +1182,108 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 
 	credentials := r.Credentials
 
-	// Create pairing records for each device
-	for _, deviceID := range deviceIdentifiers {
-		persistedDeviceID, err := s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
-		if err == nil {
-			successfulIDs = append(successfulIDs, persistedDeviceID)
-			shouldSchedule, scheduleErr := s.shouldScheduleTelemetryForDevice(ctx, persistedDeviceID, info.OrganizationID)
-			if scheduleErr != nil {
-				slog.Warn("failed to determine whether paired device should be scheduled for telemetry",
-					"device_identifier", persistedDeviceID,
-					"error", scheduleErr)
+	// Deduplicate to prevent concurrent pairDevice calls against the same physical device.
+	// We check both exact identifier strings and IP+port because different identifiers can
+	// alias to the same physical device (e.g., duplicate discovered_device rows for the same
+	// network endpoint). Concurrent pairing of aliases races key rotation, credential upserts,
+	// and pairing-state updates.
+	seenIDs := make(map[string]struct{}, len(deviceIdentifiers))
+	seenEndpoints := make(map[string]struct{}, len(deviceIdentifiers))
+	uniqueIDs := deviceIdentifiers[:0:0]
+	for _, id := range deviceIdentifiers {
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		seenIDs[id] = struct{}{}
+
+		dd, ddErr := s.discoveredDeviceStore.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: id,
+			OrgID:            info.OrganizationID,
+		})
+		if ddErr == nil {
+			endpoint := dd.IpAddress + ":" + dd.Port
+			if _, ok := seenEndpoints[endpoint]; ok {
+				slog.Warn("skipping duplicate physical device (same IP:port) in PairDevices request",
+					"device_identifier", id,
+					"endpoint", endpoint,
+				)
+				failedIDs = append(failedIDs, id)
 				continue
 			}
-			if shouldSchedule {
-				telemetryDeviceIDs = append(telemetryDeviceIDs, persistedDeviceID)
-			}
-		} else {
-			slog.Error("failed to pair device", "error", err) // continue pairing other devices
-			failedIDs = append(failedIDs, deviceID)
+			seenEndpoints[endpoint] = struct{}{}
+		}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	deviceIdentifiers = uniqueIDs
+
+	// Pair devices concurrently — each device involves a plugin RPC + DB writes.
+	// Semaphore mirrors the discovery pattern to cap simultaneous RPCs/DB connections.
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, concurrentDiscoveryLimit)
+
+	for _, deviceID := range deviceIdentifiers {
+		select {
+		case <-ctx.Done():
+			slog.Debug("Pairing context canceled, stopping device pairing")
+		case semaphore <- struct{}{}:
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				defer func() { <-semaphore }()
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("panic in pairing worker", "device_identifier", id, "panic", r)
+						mu.Lock()
+						failedIDs = append(failedIDs, id)
+						mu.Unlock()
+					}
+				}()
+
+				deviceCtx, cancel := context.WithTimeout(ctx, perDevicePairingTimeout)
+				defer cancel()
+
+				persistedDeviceID, err := s.pairDevice(deviceCtx, id, info.OrganizationID, credentials)
+				if err != nil {
+					slog.Error("failed to pair device", "error", err)
+					mu.Lock()
+					failedIDs = append(failedIDs, id)
+					mu.Unlock()
+					return
+				}
+
+				// shouldScheduleTelemetryForDevice may hit the DB — call outside the lock.
+				// Use parent ctx: deviceCtx budget is spent on pairDevice and may be expired.
+				shouldSchedule, scheduleErr := s.shouldScheduleTelemetryForDevice(ctx, persistedDeviceID, info.OrganizationID)
+
+				mu.Lock()
+				defer mu.Unlock()
+				successfulIDs = append(successfulIDs, persistedDeviceID)
+				if scheduleErr != nil {
+					slog.Warn("failed to determine whether paired device should be scheduled for telemetry",
+						"device_identifier", persistedDeviceID,
+						"error", scheduleErr)
+					return
+				}
+				if shouldSchedule {
+					telemetryDeviceIDs = append(telemetryDeviceIDs, persistedDeviceID)
+				}
+			}(deviceID)
+		}
+		if ctx.Err() != nil {
+			break
 		}
 	}
+	wg.Wait()
 
 	// Partial success is valid
 	if len(successfulIDs) == 0 {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if errors.Is(ctxErr, context.DeadlineExceeded) {
+				return nil, fleeterror.NewPlainError("pairing deadline exceeded", connect.CodeDeadlineExceeded).WithCallerStackTrace()
+			}
+			return nil, fleeterror.NewCanceledError()
+		}
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 

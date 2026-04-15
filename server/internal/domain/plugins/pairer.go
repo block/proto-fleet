@@ -137,7 +137,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 		}
 
 		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName); err != nil {
+		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
 			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 		}
 
@@ -194,7 +194,7 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 	}
 
 	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName); err != nil {
+	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 	}
 
@@ -208,6 +208,7 @@ func (p *Pairer) handlePairViaStore(
 	credentials *pb.Credentials,
 	workerName string,
 	fallbackWorkerName bool,
+	plugin *LoadedPlugin,
 ) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
@@ -255,7 +256,7 @@ func (p *Pairer) handlePairViaStore(
 			}
 		}
 
-		if err := p.saveCredentials(ctx, discoveredDevice, credentials); err != nil {
+		if err := p.saveCredentials(ctx, discoveredDevice, credentials, plugin); err != nil {
 			return err
 		}
 
@@ -491,10 +492,9 @@ func (p *Pairer) performReconciliation(ctx context.Context, discoveredDevice *di
 // - APIKey: No storage (org-level keys derived on-demand, device-specific keys not yet supported)
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
 // will require extending pb.Credentials.
-func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	plugin, pluginErr := p.getPluginForDevice(discoveredDevice)
-	if pluginErr != nil {
-		return pluginErr
+func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials, plugin *LoadedPlugin) error {
+	if plugin == nil {
+		return fleeterror.NewInternalErrorf("failed to save credentials: plugin is nil")
 	}
 	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, plugin.Caps, credentials)
 	if err != nil {

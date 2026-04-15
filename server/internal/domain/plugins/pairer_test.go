@@ -1254,7 +1254,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("paired-id"), models.MinerStatusActive, "").
 		Return(nil)
 
-	err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false)
+	err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["antminer"])
 	require.NoError(t, err)
 	require.Equal(t, "paired-id", device.DeviceIdentifier)
 }
@@ -1335,7 +1335,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("device-123"), models.MinerStatusActive, "").
 		Return(nil)
 
-	err = pairer.handlePairViaStore(ctx, device, credentials, "AA:BB:CC:DD:EE:FF", true)
+	err = pairer.handlePairViaStore(ctx, device, credentials, "AA:BB:CC:DD:EE:FF", true, manager.pluginsByDriverName["antminer"])
 	require.NoError(t, err)
 }
 
