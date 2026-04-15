@@ -22,6 +22,7 @@ interface MinerListActionBarProps {
   miners?: Record<string, MinerStateSnapshot>;
   minerIds?: string[];
   onRefetchMiners?: () => void;
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
 }
 
 const MinerListActionBar = ({
@@ -36,6 +37,7 @@ const MinerListActionBar = ({
   miners,
   minerIds,
   onRefetchMiners,
+  onWorkerNameUpdated,
 }: MinerListActionBarProps) => {
   const setActionBarVisible = useSetActionBarVisible();
   const selectedMinersCountRef = useRef(selectedMiners.length);
@@ -99,6 +101,7 @@ const MinerListActionBar = ({
           miners={miners}
           minerIds={minerIds}
           onRefetchMiners={onRefetchMiners}
+          onWorkerNameUpdated={onWorkerNameUpdated}
           onActionStart={() => {
             setHidden(true);
             setActionBarVisible(false);

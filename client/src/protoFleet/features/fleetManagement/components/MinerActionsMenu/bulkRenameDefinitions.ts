@@ -17,6 +17,13 @@ export const bulkRenameSeparatorIds = {
 
 export type BulkRenameSeparatorId = (typeof bulkRenameSeparatorIds)[keyof typeof bulkRenameSeparatorIds];
 
+export const bulkRenameModes = {
+  rename: "rename",
+  worker: "worker",
+} as const;
+
+export type BulkRenameMode = (typeof bulkRenameModes)[keyof typeof bulkRenameModes];
+
 export const bulkRenameSeparators: Record<
   BulkRenameSeparatorId,
   {
@@ -32,6 +39,7 @@ export const bulkRenameSeparators: Record<
 
 type PropertyKind = "custom" | "fixed" | "qualifier";
 type QualifierPropertySpec = readonly [string, string, QualifierType];
+type FixedPropertySpec = readonly [string, string, FixedValueType, boolean];
 
 type KebabCase<Value extends string> = Value extends `${infer First}${infer Rest}`
   ? Rest extends Uncapitalize<Rest>
@@ -69,9 +77,12 @@ export interface BulkRenamePreviewMiner {
   storedName: string;
   macAddress: string;
   serialNumber: string;
+  minerName: string;
   model: string;
   manufacturer: string;
   workerName: string;
+  rackLabel: string;
+  rackPosition: string;
 }
 
 const hasNonEmptyUniquenessValue = (property: BulkRenamePropertyState, miner: BulkRenamePreviewMiner): boolean => {
@@ -106,27 +117,34 @@ const defaultCustomOptions = {
 } satisfies CustomPropertyOptionsValues;
 
 // [code key, UI label, backend FixedValueType, guaranteesUniqueness]
-const fixedPropertySpecs = [
+const sharedFixedPropertySpecs = [
   ["fixedMacAddress", "MAC address", FixedValueType.MAC_ADDRESS, true],
   ["fixedSerialNumber", "Serial number", FixedValueType.SERIAL_NUMBER, true],
-  ["fixedWorkerName", "Worker name", FixedValueType.WORKER_NAME, false],
   ["fixedModel", "Model", FixedValueType.MODEL, false],
   ["fixedManufacturer", "Manufacturer", FixedValueType.MANUFACTURER, false],
-  // TODO: Re-enable when location data is implemented end-to-end.
-  // ["fixedLocation", "Location", FixedValueType.LOCATION, false],
 ] as const;
 
+const renameOnlyFixedPropertySpecs = [["fixedWorkerName", "Worker name", FixedValueType.WORKER_NAME, false]] as const;
+
+const workerOnlyFixedPropertySpecs = [["fixedMinerName", "Miner name", FixedValueType.MINER_NAME, false]] as const;
+
+const fixedPropertySpecs = [
+  ...sharedFixedPropertySpecs,
+  ...renameOnlyFixedPropertySpecs,
+  ...workerOnlyFixedPropertySpecs,
+] as const satisfies readonly FixedPropertySpec[];
+
 // [code key, UI label, backend QualifierType]
-const qualifierPropertySpecs = [
-  // TODO: Re-enable when qualifier data is implemented end-to-end.
-  // ["qualifierBuilding", "Building", QualifierType.BUILDING],
-  // ["qualifierRack", "Rack", QualifierType.RACK],
-  // ["qualifierRackPosition", "Rack position", QualifierType.RACK_POSITION],
+const workerQualifierPropertySpecs = [
+  ["qualifierRack", "Rack", QualifierType.RACK],
+  ["qualifierRackPosition", "Rack position", QualifierType.RACK_POSITION],
 ] as const satisfies readonly QualifierPropertySpec[];
 
 const customPropertySpec = ["custom", "Custom"] as const;
 
-const propertySpecs = [...fixedPropertySpecs, ...qualifierPropertySpecs, customPropertySpec] as const;
+const propertySpecs = [...fixedPropertySpecs, ...workerQualifierPropertySpecs, customPropertySpec] as const;
+
+type BulkRenamePropertyKey = (typeof propertySpecs)[number][0];
 
 export const bulkRenamePropertyIds = Object.fromEntries(
   propertySpecs.map(([key]) => [key, key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)]),
@@ -157,7 +175,7 @@ const BULK_RENAME_PROPERTY_DEFINITIONS: BulkRenamePropertyDefinition[] = [
     guaranteesUniqueness,
     defaultOptions: defaultFixedValueOptions,
   })),
-  ...qualifierPropertySpecs.map((spec) => createQualifierPropertyDefinition(spec[0], spec[1], spec[2])),
+  ...workerQualifierPropertySpecs.map((spec) => createQualifierPropertyDefinition(spec[0], spec[1], spec[2])),
   {
     id: bulkRenamePropertyIds[customPropertySpec[0]],
     label: customPropertySpec[1],
@@ -165,6 +183,40 @@ const BULK_RENAME_PROPERTY_DEFINITIONS: BulkRenamePropertyDefinition[] = [
     defaultOptions: defaultCustomOptions,
   },
 ];
+
+const BULK_RENAME_MODE_PROPERTY_KEYS: Record<BulkRenameMode, readonly BulkRenamePropertyKey[]> = {
+  [bulkRenameModes.rename]: [
+    "fixedMacAddress",
+    "fixedSerialNumber",
+    "fixedWorkerName",
+    "fixedModel",
+    "fixedManufacturer",
+    "qualifierRack",
+    "qualifierRackPosition",
+    "custom",
+  ],
+  [bulkRenameModes.worker]: [
+    "fixedMacAddress",
+    "fixedSerialNumber",
+    "fixedMinerName",
+    "fixedModel",
+    "fixedManufacturer",
+    "qualifierRack",
+    "qualifierRackPosition",
+    "custom",
+  ],
+};
+
+const getBulkRenameModeDefinitions = (mode: BulkRenameMode): BulkRenamePropertyDefinition[] =>
+  BULK_RENAME_MODE_PROPERTY_KEYS[mode].map((key) => {
+    const definition = propertyDefinitionsById.get(bulkRenamePropertyIds[key]);
+
+    if (definition === undefined) {
+      throw new Error(`Unknown bulk rename property key: ${key}`);
+    }
+
+    return definition;
+  });
 
 const propertyDefinitionsById = new Map(
   BULK_RENAME_PROPERTY_DEFINITIONS.map((definition) => [definition.id, definition]),
@@ -201,26 +253,32 @@ export const getBulkRenamePropertyDefinition = (id: BulkRenamePropertyId): BulkR
   return definition;
 };
 
-export const createDefaultBulkRenamePreferences = (): BulkRenamePreferences => ({
+export const createDefaultBulkRenamePreferences = (
+  mode: BulkRenameMode = bulkRenameModes.rename,
+): BulkRenamePreferences => ({
   separator: bulkRenameSeparatorIds.dash,
-  properties: BULK_RENAME_PROPERTY_DEFINITIONS.map((definition) => createBulkRenamePropertyState(definition)),
+  properties: getBulkRenameModeDefinitions(mode).map((definition) => createBulkRenamePropertyState(definition)),
 });
 
 export const normalizeBulkRenamePreferences = (
   preferences?: Partial<BulkRenamePreferences> | null,
+  mode: BulkRenameMode = bulkRenameModes.rename,
 ): BulkRenamePreferences => {
-  const defaults = createDefaultBulkRenamePreferences();
+  const defaults = createDefaultBulkRenamePreferences(mode);
   const separator =
     preferences?.separator !== undefined && preferences.separator in bulkRenameSeparators
       ? (preferences.separator as BulkRenameSeparatorId)
       : defaults.separator;
 
+  const availableDefinitions = new Map(
+    defaults.properties.map((property) => [property.id, getBulkRenamePropertyDefinition(property.id)]),
+  );
   const persistedStates = preferences?.properties ?? [];
   const seen = new Set<BulkRenamePropertyId>();
   const properties: BulkRenamePropertyState[] = [];
 
   for (const state of persistedStates) {
-    const definition = propertyDefinitionsById.get(state.id);
+    const definition = availableDefinitions.get(state.id);
     if (definition === undefined || seen.has(state.id)) {
       continue;
     }

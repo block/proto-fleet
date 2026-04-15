@@ -54,12 +54,14 @@ export {
   useTemperatureUnit,
   useDuration,
   useBulkRenamePreferences,
+  useBulkWorkerNamePreferences,
   useIsActionBarVisible,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
   useSetDuration,
   useSetBulkRenamePreferences,
+  useSetBulkWorkerNamePreferences,
   useSetActionBarVisible,
 } from "./hooks/useUI";
 

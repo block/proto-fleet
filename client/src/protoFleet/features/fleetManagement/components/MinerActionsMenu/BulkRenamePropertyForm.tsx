@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import {
   closestCenter,
   DndContext,
@@ -32,6 +33,9 @@ interface BulkRenamePropertyFormProps {
   onOpenOptions: (propertyId: BulkRenamePropertyId) => void;
   onToggleEnabled: (propertyId: BulkRenamePropertyId, enabled: boolean) => void;
   onChangeSeparator: (separatorId: BulkRenameSeparatorId) => void;
+  propertiesTitle?: string;
+  separatorTitle?: string;
+  leadingContent?: ReactNode;
 }
 
 interface SortablePropertyRowProps {
@@ -102,6 +106,9 @@ const BulkRenamePropertyForm = ({
   onOpenOptions,
   onToggleEnabled,
   onChangeSeparator,
+  propertiesTitle = "Name properties",
+  separatorTitle = "Property separator",
+  leadingContent,
 }: BulkRenamePropertyFormProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -112,8 +119,10 @@ const BulkRenamePropertyForm = ({
 
   return (
     <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10 desktop:pr-10 desktop:pb-10">
+      {leadingContent}
+
       <div className="flex flex-col gap-3">
-        <h2 className="text-emphasis-300 text-text-primary">Name properties</h2>
+        <h2 className="text-emphasis-300 text-text-primary">{propertiesTitle}</h2>
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext
@@ -135,7 +144,7 @@ const BulkRenamePropertyForm = ({
       </div>
 
       <div className="flex flex-col gap-3">
-        <h2 className="text-emphasis-300 text-text-primary">Property separator</h2>
+        <h2 className="text-emphasis-300 text-text-primary">{separatorTitle}</h2>
         <div className="flex flex-wrap gap-x-4 gap-y-0 laptop:gap-6 desktop:gap-6">
           {Object.entries(bulkRenameSeparators).map(([separatorId, separator]) => (
             <label key={separatorId} className="flex h-12 items-center">

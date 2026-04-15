@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
 import {
+  bulkRenameModes,
   type BulkRenamePreferences,
   createDefaultBulkRenamePreferences,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
@@ -19,6 +20,7 @@ export interface UISlice {
   temperatureUnit: TemperatureUnit;
   duration: FleetDuration;
   bulkRenamePreferences: BulkRenamePreferences;
+  bulkWorkerNamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
   isActionBarVisible: boolean;
 
@@ -28,6 +30,7 @@ export interface UISlice {
   setTemperatureUnit: (unit: TemperatureUnit) => void;
   setDuration: (duration: FleetDuration) => void;
   setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
+  setBulkWorkerNamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
 }
@@ -43,6 +46,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   temperatureUnit: "C",
   duration: "24h",
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
+  bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
   isActionBarVisible: false,
 
@@ -70,6 +74,11 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setBulkRenamePreferences: (preferences) =>
     set((state) => {
       state.ui.bulkRenamePreferences = preferences;
+    }),
+
+  setBulkWorkerNamePreferences: (preferences) =>
+    set((state) => {
+      state.ui.bulkWorkerNamePreferences = preferences;
     }),
 
   setRacksViewMode: (mode) =>

@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { type BulkAction } from "../BulkActions/types";
+import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
+import BulkWorkerNameModal from "./BulkWorkerNameModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
@@ -17,7 +19,7 @@ import type {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ChevronDown, Edit } from "@/shared/assets/icons";
+import { ChevronDown, Edit, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -33,15 +35,23 @@ interface MinerActionsMenuProps {
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;
-  /** Miner data keyed by device identifier, forwarded to BulkRenameModal */
+  /** Miner data keyed by device identifier, forwarded to bulk rename modals. */
   miners?: Record<string, MinerStateSnapshot>;
-  /** Ordered list of miner device identifiers, forwarded to BulkRenameModal */
+  /** Ordered list of miner device identifiers, forwarded to bulk rename modals. */
   minerIds?: string[];
-  /** Callback to refetch miners after bulk rename */
+  /** Callback to refetch miners after bulk rename or worker-name update. */
   onRefetchMiners?: () => void;
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
+
+type BulkWorkerNameTarget = {
+  selectedMinerIds: string[];
+  selectionMode: SelectionMode;
+  originalSelectionMode: SelectionMode;
+  totalCount?: number;
+};
 
 const MinerActionsMenu = ({
   selectedMiners,
@@ -52,11 +62,16 @@ const MinerActionsMenu = ({
   miners = {},
   minerIds = [],
   onRefetchMiners,
+  onWorkerNameUpdated,
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
   const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
+  const [showBulkWorkerNameModal, setShowBulkWorkerNameModal] = useState(false);
+  const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
+  const [bulkWorkerNameTarget, setBulkWorkerNameTarget] = useState<BulkWorkerNameTarget | null>(null);
+  const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
@@ -92,6 +107,7 @@ const MinerActionsMenu = ({
     handlePasswordConfirm,
     handlePasswordDismiss,
     handleAuthDismiss,
+    withCapabilityCheck,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -116,6 +132,34 @@ const MinerActionsMenu = ({
     onActionComplete,
   });
 
+  const handleWorkerNameFlowComplete = useCallback(() => {
+    setShowBulkWorkerNameModal(false);
+    setShowWorkerNameAuthenticateModal(false);
+    setBulkWorkerNameTarget(null);
+    workerNameCredentialsRef.current = undefined;
+    onActionComplete?.();
+  }, [onActionComplete]);
+
+  const prepareBulkWorkerNameTarget = useCallback(
+    (_filteredSelector?: unknown, filteredDeviceIds?: string[]) => {
+      setBulkWorkerNameTarget({
+        selectedMinerIds: filteredDeviceIds ?? selectedMiners,
+        selectionMode: filteredDeviceIds ? "subset" : selectionMode,
+        originalSelectionMode: selectionMode,
+        totalCount: filteredDeviceIds ? filteredDeviceIds.length : totalCount,
+      });
+      setShowWorkerNameAuthenticateModal(true);
+    },
+    [selectedMiners, selectionMode, totalCount],
+  );
+
+  const handleBulkWorkerNamesOpen = useCallback(() => {
+    onActionStart?.();
+    void withCapabilityCheck(settingsActions.updateWorkerNames, prepareBulkWorkerNameTarget);
+  }, [onActionStart, prepareBulkWorkerNameTarget, withCapabilityCheck]);
+
+  const getWorkerNameCredentials = useCallback(() => workerNameCredentialsRef.current, []);
+
   const actionsWithBulkRename = useMemo(() => {
     const renameAction: BulkAction<SupportedAction> = {
       action: settingsActions.rename,
@@ -128,25 +172,32 @@ const MinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
-    const addToGroupIndex = popoverActions.findIndex((action) => action.action === groupActions.addToGroup);
-    if (addToGroupIndex !== -1) {
-      return [...popoverActions.slice(0, addToGroupIndex), renameAction, ...popoverActions.slice(addToGroupIndex)];
+    const updateWorkerNamesAction: BulkAction<SupportedAction> = {
+      action: settingsActions.updateWorkerNames,
+      title: "Update worker names",
+      icon: <MiningPools />,
+      actionHandler: handleBulkWorkerNamesOpen,
+      requiresConfirmation: false,
+    };
+
+    const actions = insertActionAfter(popoverActions, settingsActions.miningPool, updateWorkerNamesAction);
+    const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
+
+    if (actionsWithRenameBeforeGroup !== actions) {
+      return actionsWithRenameBeforeGroup;
     }
 
-    const securityIndex = popoverActions.findIndex((action) => action.action === settingsActions.security);
-    if (securityIndex !== -1) {
-      return [
-        ...popoverActions.slice(0, securityIndex),
-        {
-          ...renameAction,
-          showGroupDivider: true,
-        },
-        ...popoverActions.slice(securityIndex),
-      ];
+    const actionsWithRenameBeforeSecurity = insertActionBefore(actions, settingsActions.security, {
+      ...renameAction,
+      showGroupDivider: true,
+    });
+
+    if (actionsWithRenameBeforeSecurity !== actions) {
+      return actionsWithRenameBeforeSecurity;
     }
 
-    return [...popoverActions, renameAction];
-  }, [onActionStart, popoverActions]);
+    return [...actions, renameAction];
+  }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
@@ -243,6 +294,16 @@ const MinerActionsMenu = ({
         onAuthenticated={handleFleetAuthenticated}
         onDismiss={handleAuthDismiss}
       />
+      <AuthenticateFleetModal
+        open={showWorkerNameAuthenticateModal}
+        purpose="workerNames"
+        onAuthenticated={(username, password) => {
+          workerNameCredentialsRef.current = { username, password };
+          setShowWorkerNameAuthenticateModal(false);
+          setShowBulkWorkerNameModal(true);
+        }}
+        onDismiss={handleWorkerNameFlowComplete}
+      />
       <ManageSecurityModal
         open={showManageSecurityModal}
         minerGroups={minerGroups}
@@ -277,6 +338,21 @@ const MinerActionsMenu = ({
           setShowBulkRenameModal(false);
           onActionComplete?.();
         }}
+      />
+      <BulkWorkerNameModal
+        open={showBulkWorkerNameModal}
+        selectedMinerIds={bulkWorkerNameTarget?.selectedMinerIds ?? selectedMiners}
+        selectionMode={bulkWorkerNameTarget?.selectionMode ?? selectionMode}
+        originalSelectionMode={bulkWorkerNameTarget?.originalSelectionMode ?? selectionMode}
+        totalCount={bulkWorkerNameTarget?.totalCount ?? totalCount}
+        currentFilter={currentFilter}
+        currentSort={currentSort}
+        miners={miners}
+        minerIds={minerIds}
+        onRefetchMiners={onRefetchMiners}
+        onWorkerNameUpdated={onWorkerNameUpdated}
+        getWorkerNameCredentials={getWorkerNameCredentials}
+        onDismiss={handleWorkerNameFlowComplete}
       />
     </PopoverProvider>
   );

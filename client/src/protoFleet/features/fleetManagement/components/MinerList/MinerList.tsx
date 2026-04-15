@@ -160,6 +160,8 @@ type MinerListProps = {
   currentSortConfig?: SortConfig;
   /** Callback to trigger a miner list refresh (e.g., after rename or unpair). */
   onRefetchMiners?: () => void;
+  /** Callback to update a visible worker name immediately after a successful save. */
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
   /** Callback to notify that pairing/auth completed (triggers pool polling in CompleteSetup). */
   onPairingCompleted?: () => void;
 };
@@ -198,6 +200,7 @@ type ScopedMinerListBodyProps = {
   miners?: Record<string, MinerStateSnapshot>;
   minerIds?: string[];
   onRefetchMiners?: () => void;
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
 };
 
 const ScopedMinerListBody = ({
@@ -234,6 +237,7 @@ const ScopedMinerListBody = ({
   miners: minersProp,
   minerIds: minerIdsProp,
   onRefetchMiners,
+  onWorkerNameUpdated,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -305,6 +309,7 @@ const ScopedMinerListBody = ({
               miners={minersProp}
               minerIds={minerIdsProp}
               onRefetchMiners={onRefetchMiners}
+              onWorkerNameUpdated={onWorkerNameUpdated}
             />
           </div>
         )}
@@ -402,6 +407,7 @@ const MinerList = ({
   currentFilter,
   currentSortConfig,
   onRefetchMiners,
+  onWorkerNameUpdated,
   onPairingCompleted,
 }: MinerListProps) => {
   const navigate = useNavigate();
@@ -462,6 +468,8 @@ const MinerList = ({
   minersRef.current = miners;
   const onRefetchMinersRef = useRef(onRefetchMiners);
   onRefetchMinersRef.current = onRefetchMiners;
+  const onWorkerNameUpdatedRef = useRef(onWorkerNameUpdated);
+  onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
 
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
@@ -529,6 +537,7 @@ const MinerList = ({
         errorsLoaded,
         minersRef,
         onRefetchMinersRef,
+        onWorkerNameUpdatedRef,
       }),
     // handleOpenStatusFlow is stable (reads from minersRef) — only recreate for groups/errors changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -824,6 +833,7 @@ const MinerList = ({
           miners={miners}
           minerIds={minerIds}
           onRefetchMiners={onRefetchMiners}
+          onWorkerNameUpdated={onWorkerNameUpdated}
         />
       )}
 

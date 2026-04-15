@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { equals } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { SortConfig, SortConfigSchema } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
@@ -31,6 +31,7 @@ type UseFleetOptions = {
 
 // Constants to prevent re-renders from unstable default values
 const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
+type PendingFetchMode = "refetch" | "refresh";
 
 /**
  * Hook for managing fleet data with automatic loading, filtering, and pagination.
@@ -86,6 +87,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
+  const pendingFetchModeRef = useRef<PendingFetchMode | null>(null);
+  const latestRequestIdRef = useRef(0);
 
   // Fetch initial list using one-time query
   const fetchMinerList = useCallback(
@@ -100,6 +103,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         return;
       }
 
+      const requestId = ++latestRequestIdRef.current;
       setIsLoading(true);
 
       // Reset initial load flag when fetching page 0 (but not for polling refreshes)
@@ -119,6 +123,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
         });
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, models } = response;
+
+        if (requestId !== latestRequestIdRef.current) {
+          return;
+        }
 
         // Always replace (never append) for page-based pagination
         const ids = miners.map((miner) => miner.deviceIdentifier);
@@ -165,6 +173,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
         setCursor(newCursor || undefined);
         setHasMore(!!newCursor);
       } catch (error) {
+        if (requestId !== latestRequestIdRef.current) {
+          return;
+        }
         handleAuthErrors({
           error: error,
           onError: (err) => {
@@ -180,12 +191,34 @@ const useFleet = (options: UseFleetOptions = {}) => {
           },
         });
       } finally {
-        setIsLoading(false);
+        if (requestId === latestRequestIdRef.current) {
+          setIsLoading(false);
 
-        // Mark initial load as completed when fetching page 0 (but not for refreshes)
-        // This ensures UI doesn't get stuck in permanent loading state on error
-        if (!pageCursor && !isRefresh) {
-          setHasInitialLoadCompleted(true);
+          // Mark initial load as completed when fetching page 0 (but not for refreshes)
+          // This ensures UI doesn't get stuck in permanent loading state on error
+          if (!pageCursor && !isRefresh) {
+            setHasInitialLoadCompleted(true);
+          }
+
+          const pendingFetchMode = pendingFetchModeRef.current;
+          if (pendingFetchMode !== null) {
+            pendingFetchModeRef.current = null;
+
+            if (pendingFetchMode === "refetch") {
+              setCurrentPage(0);
+              setCursorHistory([undefined]);
+              void fetchMinerListRef.current(filterRef.current, sortRef.current, undefined, 0);
+            } else {
+              const currentCursor = cursorHistoryRef.current[currentPageRef.current];
+              void fetchMinerListRef.current(
+                filterRef.current,
+                sortRef.current,
+                currentCursor,
+                currentPageRef.current,
+                true,
+              );
+            }
+          }
         }
       }
     },
@@ -276,7 +309,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
   // Stable refetch callback - uses refs to avoid recreating on state changes
   // This resets to page 0 - use for filter/sort changes
   const refetch = useCallback(() => {
-    if (!enabled || isLoadingRef.current) {
+    if (!enabled) {
+      return;
+    }
+
+    if (isLoadingRef.current) {
+      pendingFetchModeRef.current = "refetch";
       return;
     }
 
@@ -288,10 +326,32 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Refresh current page without resetting pagination - use for polling
   const refreshCurrentPage = useCallback(() => {
-    if (!isLoadingRef.current) {
-      const currentCursor = cursorHistoryRef.current[currentPageRef.current];
-      fetchMinerListRef.current(filterRef.current, sortRef.current, currentCursor, currentPageRef.current, true);
+    if (isLoadingRef.current) {
+      if (pendingFetchModeRef.current !== "refetch") {
+        pendingFetchModeRef.current = "refresh";
+      }
+      return;
     }
+
+    const currentCursor = cursorHistoryRef.current[currentPageRef.current];
+    fetchMinerListRef.current(filterRef.current, sortRef.current, currentCursor, currentPageRef.current, true);
+  }, []);
+
+  const updateMinerWorkerName = useCallback((deviceIdentifier: string, workerName: string) => {
+    setMiners((prev) => {
+      const existingMiner = prev[deviceIdentifier];
+      if (!existingMiner || existingMiner.workerName === workerName) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [deviceIdentifier]: create(MinerStateSnapshotSchema, {
+          ...existingMiner,
+          workerName,
+        }),
+      };
+    });
   }, []);
 
   // Track if this is the initial load and previous filter/sort
@@ -361,6 +421,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     goToPrevPage,
     refetch,
     refreshCurrentPage,
+    updateMinerWorkerName,
     availableModels,
   };
 };

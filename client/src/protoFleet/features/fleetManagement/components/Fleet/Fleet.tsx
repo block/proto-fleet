@@ -98,6 +98,7 @@ const Fleet = () => {
     hasInitialLoadCompleted,
     refetch,
     refreshCurrentPage,
+    updateMinerWorkerName,
     availableModels,
     currentPage,
     hasPreviousPage,
@@ -243,6 +244,7 @@ const Fleet = () => {
           onExportCsv={exportCsv}
           exportCsvLoading={isExportingCsv}
           onRefetchMiners={refetchAll}
+          onWorkerNameUpdated={updateMinerWorkerName}
           onPairingCompleted={notifyPairingCompleted}
         />
       </ErrorBoundary>

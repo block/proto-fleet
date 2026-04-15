@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bulkRenameModes,
   type BulkRenamePreviewMiner,
   bulkRenamePropertyIds,
   bulkRenameSeparatorIds,
@@ -24,9 +25,12 @@ const basePreviewMiner: BulkRenamePreviewMiner = {
   storedName: "Proto Rig",
   macAddress: "AA:BB:CC:DD:EE:FF",
   serialNumber: "SER123456",
+  minerName: "Proto Rig",
   model: "S21 XP",
   manufacturer: "Bitmain",
   workerName: "worker-01",
+  rackLabel: "Rack-A1",
+  rackPosition: "12",
 };
 
 describe("bulkRenamePreview", () => {
@@ -92,6 +96,43 @@ describe("bulkRenamePreview", () => {
     const config = buildBulkRenameConfig(preferences);
     expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("Bitmain-M01");
     expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 1)).toBe("Bitmain-M02");
+  });
+
+  it("evaluates worker-name previews with miner name and rack qualifiers", () => {
+    const preferences = createDefaultBulkRenamePreferences(bulkRenameModes.worker);
+    preferences.properties = preferences.properties.map((property) => {
+      if (property.id === bulkRenamePropertyIds.fixedMinerName) {
+        return { ...property, enabled: true };
+      }
+
+      if (property.id === bulkRenamePropertyIds.qualifierRack) {
+        return {
+          ...property,
+          enabled: true,
+          options: {
+            prefix: "",
+            suffix: "",
+          },
+        };
+      }
+
+      if (property.id === bulkRenamePropertyIds.qualifierRackPosition) {
+        return {
+          ...property,
+          enabled: true,
+          options: {
+            prefix: "",
+            suffix: "",
+          },
+        };
+      }
+
+      return property;
+    });
+
+    const config = buildBulkRenameConfig(preferences);
+
+    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("Proto Rig-Rack-A1-12");
   });
 
   it("treats empty or unchanged bulk rename results as no-op changes", () => {
@@ -196,6 +237,8 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
         workerName: "worker-02",
+        rackLabel: "",
+        rackPosition: "",
       },
       {
         deviceIdentifier: "device-3",
@@ -205,6 +248,8 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:03",
         serialNumber: "SER-3",
         workerName: "worker-03",
+        rackLabel: "",
+        rackPosition: "",
       },
       {
         deviceIdentifier: "device-1",
@@ -214,6 +259,8 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
         workerName: "worker-01",
+        rackLabel: "",
+        rackPosition: "",
       },
     ]);
 
@@ -234,6 +281,8 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
         workerName: "worker-01",
+        rackLabel: "",
+        rackPosition: "",
       },
       {
         deviceIdentifier: "device-2",
@@ -243,6 +292,8 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
         workerName: "worker-02",
+        rackLabel: "",
+        rackPosition: "",
       },
     ]);
 
@@ -383,5 +434,28 @@ describe("bulkRenamePreview", () => {
         },
       ]),
     ).toBe(0);
+  });
+
+  it("maps worker-mode previews from stored worker names instead of fleet display names", () => {
+    const [previewMiner] = mapSnapshotsToBulkRenamePreviewMiners(
+      [
+        {
+          deviceIdentifier: "device-1",
+          name: "",
+          manufacturer: "Bitmain",
+          model: "S21 XP",
+          macAddress: "AA:BB:CC:DD:EE:FF",
+          serialNumber: "SER123456",
+          workerName: "worker-99",
+          rackLabel: "Rack-A1",
+          rackPosition: "12",
+        },
+      ],
+      bulkRenameModes.worker,
+    );
+
+    expect(previewMiner.currentName).toBe("worker-99");
+    expect(previewMiner.storedName).toBe("worker-99");
+    expect(previewMiner.minerName).toBe("Bitmain S21 XP");
   });
 });

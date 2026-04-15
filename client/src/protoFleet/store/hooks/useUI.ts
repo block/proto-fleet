@@ -13,6 +13,7 @@ export const useTemperatureUnit = () => useFleetStore((state) => state.ui.temper
 export const useDuration = () => useFleetStore((state) => state.ui.duration);
 
 export const useBulkRenamePreferences = () => useFleetStore((state) => state.ui.bulkRenamePreferences);
+export const useBulkWorkerNamePreferences = () => useFleetStore((state) => state.ui.bulkWorkerNamePreferences);
 
 export const useIsActionBarVisible = () => useFleetStore((state) => state.ui.isActionBarVisible);
 
@@ -29,5 +30,6 @@ export const useSetTemperatureUnit = () => useFleetStore((state) => state.ui.set
 export const useSetDuration = () => useFleetStore((state) => state.ui.setDuration);
 
 export const useSetBulkRenamePreferences = () => useFleetStore((state) => state.ui.setBulkRenamePreferences);
+export const useSetBulkWorkerNamePreferences = () => useFleetStore((state) => state.ui.setBulkWorkerNamePreferences);
 
 export const useSetActionBarVisible = () => useFleetStore((state) => state.ui.setActionBarVisible);

@@ -3,7 +3,10 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { UISlice } from "./uiSlice";
 import { createUISlice } from "./uiSlice";
-import { createDefaultBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+import {
+  bulkRenameModes,
+  createDefaultBulkRenamePreferences,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
 
 type TestStore = { ui: UISlice };
 
@@ -27,7 +30,33 @@ describe("UISlice", () => {
         createDefaultBulkRenamePreferences().properties.length,
       );
       expect(state.bulkRenamePreferences.properties.every((property) => property.enabled === false)).toBe(true);
+      expect(state.bulkWorkerNamePreferences.separator).toBe(
+        createDefaultBulkRenamePreferences(bulkRenameModes.worker).separator,
+      );
+      expect(state.bulkWorkerNamePreferences.properties).toHaveLength(
+        createDefaultBulkRenamePreferences(bulkRenameModes.worker).properties.length,
+      );
+      expect(state.bulkWorkerNamePreferences.properties.every((property) => property.enabled === false)).toBe(true);
       expect(state.isActionBarVisible).toBe(false);
+    });
+  });
+
+  describe("setBulkWorkerNamePreferences", () => {
+    it("should set bulkWorkerNamePreferences", () => {
+      const store = create<TestStore>()(
+        immer((set, _get, _api) => ({
+          ui: createUISlice(set as any, _get as any, _api as any),
+        })),
+      );
+
+      const updatedPreferences = {
+        ...createDefaultBulkRenamePreferences(bulkRenameModes.worker),
+        separator: "underscore" as const,
+      };
+
+      store.getState().ui.setBulkWorkerNamePreferences(updatedPreferences);
+
+      expect(store.getState().ui.bulkWorkerNamePreferences.separator).toBe("underscore");
     });
   });
 

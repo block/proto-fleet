@@ -1,59 +1,95 @@
 import { Fragment, type ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
 
 const mockNavigate = vi.fn();
 
-const { mockUseMinerActions } = vi.hoisted(() => ({
-  mockUseMinerActions: vi.fn(() => ({
-    currentAction: null,
-    popoverActions: [],
-    handleConfirmation: vi.fn(),
-    handleCancel: vi.fn(),
-    handleMiningPoolSuccess: vi.fn(),
-    handleMiningPoolError: vi.fn(),
-    showPoolSelectionPage: false,
-    fleetCredentials: undefined,
-    showManagePowerModal: false,
-    handleManagePowerConfirm: vi.fn(),
-    handleManagePowerDismiss: vi.fn(),
-    showFirmwareUpdateModal: false,
-    handleFirmwareUpdateConfirm: vi.fn(),
-    handleFirmwareUpdateDismiss: vi.fn(),
-    showCoolingModeModal: false,
-    coolingModeCount: 0,
-    currentCoolingMode: undefined,
-    handleCoolingModeConfirm: vi.fn(),
-    handleCoolingModeDismiss: vi.fn(),
-    showAuthenticateFleetModal: false,
-    authenticationPurpose: null,
-    showUpdatePasswordModal: false,
-    hasThirdPartyMiners: false,
-    handleFleetAuthenticated: vi.fn(),
-    handlePasswordConfirm: vi.fn(),
-    handlePasswordDismiss: vi.fn(),
-    handleAuthDismiss: vi.fn(),
-    unsupportedMinersInfo: {
-      visible: false,
-      unsupportedGroups: [],
-      totalUnsupportedCount: 0,
-      noneSupported: false,
-    },
-    handleUnsupportedMinersContinue: vi.fn(),
-    handleUnsupportedMinersDismiss: vi.fn(),
-    showManageSecurityModal: false,
-    minerGroups: [],
-    handleUpdateGroup: vi.fn(),
-    handleSecurityModalClose: vi.fn(),
-    showRenameDialog: false,
-    handleRenameOpen: vi.fn(),
-    handleRenameConfirm: vi.fn(),
-    handleRenameDismiss: vi.fn(),
-    showAddToGroupModal: false,
-    handleAddToGroupDismiss: vi.fn(),
-  })),
-}));
+const {
+  mockAuthenticateFleetModal,
+  mockWithCapabilityCheck,
+  mockPushToast,
+  mockRemoveToast,
+  mockStreamCommandBatchUpdates,
+  mockUpdateSingleWorkerName,
+  mockUpdateToast,
+  mockUpdateWorkerNameDialog,
+  mockUseMinerCommand,
+  mockUseMinerActions,
+  mockUseUpdateWorkerNames,
+} = vi.hoisted(() => {
+  const mockWithCapabilityCheck = vi.fn(async (_action: string, onProceed: (...args: unknown[]) => void) => {
+    onProceed(undefined, undefined);
+  });
+  const mockUpdateSingleWorkerName = vi.fn();
+  const mockStreamCommandBatchUpdates = vi.fn();
+
+  return {
+    mockAuthenticateFleetModal: vi.fn(() => null),
+    mockWithCapabilityCheck,
+    mockPushToast: vi.fn(() => 1),
+    mockRemoveToast: vi.fn(),
+    mockStreamCommandBatchUpdates,
+    mockUpdateSingleWorkerName,
+    mockUpdateToast: vi.fn(),
+    mockUpdateWorkerNameDialog: vi.fn(() => null),
+    mockUseMinerCommand: vi.fn(() => ({
+      streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
+    })),
+    mockUseMinerActions: vi.fn(() => ({
+      currentAction: null,
+      popoverActions: [] as any[],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showFirmwareUpdateModal: false,
+      handleFirmwareUpdateConfirm: vi.fn(),
+      handleFirmwareUpdateDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      withCapabilityCheck: mockWithCapabilityCheck,
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+      showRenameDialog: false,
+      handleRenameOpen: vi.fn(),
+      handleRenameConfirm: vi.fn(),
+      handleRenameDismiss: vi.fn(),
+      showAddToGroupModal: false,
+      handleAddToGroupDismiss: vi.fn(),
+    })),
+    mockUseUpdateWorkerNames: vi.fn(() => ({
+      updateSingleWorkerName: mockUpdateSingleWorkerName,
+    })),
+  };
+});
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
@@ -61,6 +97,14 @@ vi.mock("react-router-dom", () => ({
 
 vi.mock("./useMinerActions", () => ({
   useMinerActions: mockUseMinerActions,
+}));
+
+vi.mock("@/protoFleet/api/useUpdateWorkerNames", () => ({
+  default: mockUseUpdateWorkerNames,
+}));
+
+vi.mock("@/protoFleet/api/useMinerCommand", () => ({
+  useMinerCommand: mockUseMinerCommand,
 }));
 
 vi.mock("@/protoFleet/store/hooks/useFleet", () => ({
@@ -104,7 +148,7 @@ vi.mock("./CoolingModeModal", () => ({
 }));
 
 vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
-  default: vi.fn(() => null),
+  default: mockAuthenticateFleetModal,
 }));
 
 vi.mock("./ManageSecurity", () => ({
@@ -124,7 +168,94 @@ vi.mock("./AddToGroupModal", () => ({
   default: vi.fn(() => null),
 }));
 
+vi.mock("./UpdateWorkerNameDialog", () => ({
+  default: mockUpdateWorkerNameDialog,
+}));
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: mockPushToast,
+  removeToast: mockRemoveToast,
+  updateToast: mockUpdateToast,
+  STATUSES: {
+    loading: "loading",
+    success: "success",
+    error: "error",
+  },
+}));
+
 describe("SingleMinerActionsMenu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPushToast.mockReturnValue(1);
+    mockStreamCommandBatchUpdates.mockResolvedValue(undefined);
+  });
+
+  it("renders 'Update worker name' when pool editing is available", () => {
+    mockUseMinerActions.mockReturnValue({
+      currentAction: null,
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ] as any[],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showFirmwareUpdateModal: false,
+      handleFirmwareUpdateConfirm: vi.fn(),
+      handleFirmwareUpdateDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      withCapabilityCheck: mockWithCapabilityCheck,
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+      showRenameDialog: false,
+      handleRenameOpen: vi.fn(),
+      handleRenameConfirm: vi.fn(),
+      handleRenameDismiss: vi.fn(),
+      showAddToGroupModal: false,
+      handleAddToGroupDismiss: vi.fn(),
+    });
+
+    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" workerName="worker-old" />);
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+
+    expect(screen.getByText("Update worker name")).toBeInTheDocument();
+    expect(screen.getByTestId("update-worker-names-popover-button")).toBeInTheDocument();
+  });
+
   it("renders 'View miner' menu item when popover is open", () => {
     render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" />);
 
@@ -147,5 +278,386 @@ describe("SingleMinerActionsMenu", () => {
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
 
     expect(mockNavigate).toHaveBeenCalledWith(`/miners/${encodeURIComponent(deviceIdentifier)}`);
+  });
+
+  it("authenticates before updating a single worker name", async () => {
+    mockUpdateSingleWorkerName.mockResolvedValue({
+      updatedCount: 1,
+      unchangedCount: 0,
+      failedCount: 0,
+      batchIdentifier: "batch-1",
+    });
+    mockStreamCommandBatchUpdates.mockImplementation(async ({ onStreamData }) => {
+      onStreamData({
+        status: {
+          commandBatchDeviceCount: {
+            total: 1,
+            success: 1,
+            failure: 0,
+          },
+        },
+      });
+    });
+
+    const onActionComplete = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onWorkerNameUpdated = vi.fn();
+
+    mockUseMinerActions.mockReturnValue({
+      currentAction: null,
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ] as any[],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showFirmwareUpdateModal: false,
+      handleFirmwareUpdateConfirm: vi.fn(),
+      handleFirmwareUpdateDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      withCapabilityCheck: mockWithCapabilityCheck,
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+      showRenameDialog: false,
+      handleRenameOpen: vi.fn(),
+      handleRenameConfirm: vi.fn(),
+      handleRenameDismiss: vi.fn(),
+      showAddToGroupModal: false,
+      handleAddToGroupDismiss: vi.fn(),
+    });
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="test-device-123"
+        workerName="worker-old"
+        onActionComplete={onActionComplete}
+        onRefetchMiners={onRefetchMiners}
+        onWorkerNameUpdated={onWorkerNameUpdated}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByTestId("update-worker-names-popover-button"));
+
+    expect(mockWithCapabilityCheck).toHaveBeenCalledWith(settingsActions.updateWorkerNames, expect.any(Function));
+
+    const workerNameAuthProps = (
+      mockAuthenticateFleetModal.mock.calls as unknown as Array<
+        [{ purpose?: string; open: boolean; onAuthenticated: (username: string, password: string) => void }]
+      >
+    )
+      .map(([props]) => props)
+      .filter((props) => props.purpose === "workerNames");
+    const latestWorkerNameAuthProps = workerNameAuthProps[workerNameAuthProps.length - 1];
+
+    expect(latestWorkerNameAuthProps?.open).toBe(true);
+
+    await act(async () => {
+      latestWorkerNameAuthProps?.onAuthenticated("testuser", "testpass");
+    });
+
+    const updateWorkerNameDialogProps = (
+      mockUpdateWorkerNameDialog.mock.calls as unknown as Array<
+        [{ open: boolean; currentWorkerName?: string; onConfirm: (name: string) => void }]
+      >
+    ).map(([props]) => props);
+    const latestUpdateWorkerNameDialogProps = updateWorkerNameDialogProps[updateWorkerNameDialogProps.length - 1];
+
+    expect(latestUpdateWorkerNameDialogProps?.open).toBe(true);
+    expect(latestUpdateWorkerNameDialogProps?.currentWorkerName).toBe("worker-old");
+
+    await act(async () => {
+      latestUpdateWorkerNameDialogProps?.onConfirm("worker-new");
+    });
+
+    await waitFor(() => {
+      expect(mockUpdateSingleWorkerName).toHaveBeenCalledWith("test-device-123", "worker-new", "testuser", "testpass");
+    });
+    expect(mockStreamCommandBatchUpdates).toHaveBeenCalled();
+
+    expect(mockPushToast).toHaveBeenCalledWith({
+      message: "Updating worker name",
+      status: "loading",
+      longRunning: true,
+    });
+    expect(mockUpdateToast).toHaveBeenCalledWith(1, {
+      message: "Worker name updated",
+      status: "success",
+    });
+    expect(onWorkerNameUpdated).toHaveBeenCalledWith("test-device-123", "worker-new");
+    expect(onRefetchMiners).toHaveBeenCalledTimes(1);
+    expect(onActionComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an unchanged toast when an async worker-name update makes no changes", async () => {
+    mockUpdateSingleWorkerName.mockResolvedValue({
+      updatedCount: 0,
+      unchangedCount: 1,
+      failedCount: 0,
+      batchIdentifier: "batch-1",
+    });
+
+    const onActionComplete = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onWorkerNameUpdated = vi.fn();
+
+    mockUseMinerActions.mockReturnValue({
+      currentAction: null,
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ] as any[],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showFirmwareUpdateModal: false,
+      handleFirmwareUpdateConfirm: vi.fn(),
+      handleFirmwareUpdateDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      withCapabilityCheck: mockWithCapabilityCheck,
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+      showRenameDialog: false,
+      handleRenameOpen: vi.fn(),
+      handleRenameConfirm: vi.fn(),
+      handleRenameDismiss: vi.fn(),
+      showAddToGroupModal: false,
+      handleAddToGroupDismiss: vi.fn(),
+    });
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="test-device-123"
+        workerName="worker-old"
+        onActionComplete={onActionComplete}
+        onRefetchMiners={onRefetchMiners}
+        onWorkerNameUpdated={onWorkerNameUpdated}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByTestId("update-worker-names-popover-button"));
+
+    const workerNameAuthProps = (
+      mockAuthenticateFleetModal.mock.calls as unknown as Array<
+        [{ purpose?: string; open: boolean; onAuthenticated: (username: string, password: string) => void }]
+      >
+    )
+      .map(([props]) => props)
+      .filter((props) => props.purpose === "workerNames");
+    const latestWorkerNameAuthProps = workerNameAuthProps[workerNameAuthProps.length - 1];
+
+    await act(async () => {
+      latestWorkerNameAuthProps?.onAuthenticated("testuser", "testpass");
+    });
+
+    const updateWorkerNameDialogProps = (
+      mockUpdateWorkerNameDialog.mock.calls as unknown as Array<
+        [{ open: boolean; currentWorkerName?: string; onConfirm: (name: string) => void }]
+      >
+    ).map(([props]) => props);
+    const latestUpdateWorkerNameDialogProps = updateWorkerNameDialogProps[updateWorkerNameDialogProps.length - 1];
+
+    await act(async () => {
+      latestUpdateWorkerNameDialogProps?.onConfirm("worker-old");
+    });
+
+    await waitFor(() => {
+      expect(mockUpdateSingleWorkerName).toHaveBeenCalledWith("test-device-123", "worker-old", "testuser", "testpass");
+    });
+
+    expect(mockUpdateToast).toHaveBeenCalledWith(1, {
+      message: "Worker name unchanged",
+      status: "success",
+    });
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).toHaveBeenCalledTimes(1);
+    expect(onActionComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error toast when a streamed worker-name update reports an immediate failure", async () => {
+    mockUpdateSingleWorkerName.mockResolvedValue({
+      updatedCount: 0,
+      unchangedCount: 0,
+      failedCount: 1,
+      batchIdentifier: "batch-1",
+    });
+
+    const onActionComplete = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onWorkerNameUpdated = vi.fn();
+
+    mockUseMinerActions.mockReturnValue({
+      currentAction: null,
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ] as any[],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showFirmwareUpdateModal: false,
+      handleFirmwareUpdateConfirm: vi.fn(),
+      handleFirmwareUpdateDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      withCapabilityCheck: mockWithCapabilityCheck,
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+      showRenameDialog: false,
+      handleRenameOpen: vi.fn(),
+      handleRenameConfirm: vi.fn(),
+      handleRenameDismiss: vi.fn(),
+      showAddToGroupModal: false,
+      handleAddToGroupDismiss: vi.fn(),
+    });
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="test-device-123"
+        workerName="worker-old"
+        onActionComplete={onActionComplete}
+        onRefetchMiners={onRefetchMiners}
+        onWorkerNameUpdated={onWorkerNameUpdated}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByTestId("update-worker-names-popover-button"));
+
+    const workerNameAuthProps = (
+      mockAuthenticateFleetModal.mock.calls as unknown as Array<
+        [{ purpose?: string; open: boolean; onAuthenticated: (username: string, password: string) => void }]
+      >
+    )
+      .map(([props]) => props)
+      .filter((props) => props.purpose === "workerNames");
+    const latestWorkerNameAuthProps = workerNameAuthProps[workerNameAuthProps.length - 1];
+
+    await act(async () => {
+      latestWorkerNameAuthProps?.onAuthenticated("testuser", "testpass");
+    });
+
+    const updateWorkerNameDialogProps = (
+      mockUpdateWorkerNameDialog.mock.calls as unknown as Array<
+        [{ open: boolean; currentWorkerName?: string; onConfirm: (name: string) => void }]
+      >
+    ).map(([props]) => props);
+    const latestUpdateWorkerNameDialogProps = updateWorkerNameDialogProps[updateWorkerNameDialogProps.length - 1];
+
+    await act(async () => {
+      latestUpdateWorkerNameDialogProps?.onConfirm("worker-new");
+    });
+
+    await waitFor(() => {
+      expect(mockUpdateSingleWorkerName).toHaveBeenCalledWith("test-device-123", "worker-new", "testuser", "testpass");
+    });
+
+    expect(mockUpdateToast).toHaveBeenCalledWith(1, {
+      message: "Failed to update worker name",
+      status: "error",
+    });
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onActionComplete).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,27 +1,33 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
+import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import AddToGroupModal from "./AddToGroupModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
-
-type SingleMinerAction = SupportedAction | "viewMiner";
 import CoolingModeModal from "./CoolingModeModal";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import RenameMinerDialog from "./RenameMinerDialog";
+import UpdateWorkerNameDialog from "./UpdateWorkerNameDialog";
 import { type SecurityActionsProps } from "./useManageSecurityFlow";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
+import { waitForWorkerNameBatchResult } from "./waitForWorkerNameBatchResult";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
-import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type {
+  MinerStateSnapshot,
+  UpdateWorkerNamesResponse,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ArrowRight, Edit, Ellipsis } from "@/shared/assets/icons";
+import { ArrowRight, Edit, Ellipsis, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -29,31 +35,43 @@ import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+
+type SingleMinerAction = SupportedAction | "viewMiner";
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
   deviceStatus?: DeviceStatus;
   minerName?: string;
+  workerName?: string;
   onActionStart?: () => void;
   onActionComplete?: () => void;
   disabled?: boolean;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
 }
 
 const SingleMinerActionsMenu = ({
   deviceIdentifier,
   deviceStatus,
   minerName,
+  workerName,
   onActionStart,
   onActionComplete,
   disabled = false,
   miners,
   onRefetchMiners,
+  onWorkerNameUpdated,
 }: SingleMinerActionsMenuProps) => {
   const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
+  const { streamCommandBatchUpdates } = useMinerCommand();
+  const { updateSingleWorkerName } = useUpdateWorkerNames();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
+  const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
+  const [showUpdateWorkerNameDialog, setShowUpdateWorkerNameDialog] = useState(false);
+  const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
 
   const {
     currentAction,
@@ -83,6 +101,7 @@ const SingleMinerActionsMenu = ({
     handlePasswordConfirm,
     handlePasswordDismiss,
     handleAuthDismiss,
+    withCapabilityCheck,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,
@@ -115,7 +134,175 @@ const SingleMinerActionsMenu = ({
     navigate(`/miners/${encodeURIComponent(deviceIdentifier)}`);
   }, [navigate, deviceIdentifier]);
 
-  const actionsWithRename = useMemo(() => {
+  const resetWorkerNameFlow = useCallback(() => {
+    setShowWorkerNameAuthenticateModal(false);
+    setShowUpdateWorkerNameDialog(false);
+    workerNameCredentialsRef.current = undefined;
+  }, []);
+
+  const handleUpdateWorkerNameDismiss = useCallback(() => {
+    resetWorkerNameFlow();
+    onActionComplete?.();
+  }, [onActionComplete, resetWorkerNameFlow]);
+
+  const handleUpdateWorkerNameOpen = useCallback(() => {
+    setShowWorkerNameAuthenticateModal(true);
+  }, []);
+
+  const handleUpdateWorkerNameAuthenticated = useCallback((username: string, password: string) => {
+    workerNameCredentialsRef.current = { username, password };
+    setShowWorkerNameAuthenticateModal(false);
+    setShowUpdateWorkerNameDialog(true);
+  }, []);
+
+  const handleUpdateWorkerNameAction = useCallback(() => {
+    onActionStart?.();
+    void withCapabilityCheck(settingsActions.updateWorkerNames, () => {
+      handleUpdateWorkerNameOpen();
+    });
+  }, [handleUpdateWorkerNameOpen, onActionStart, withCapabilityCheck]);
+
+  const showWorkerNameUpdatedToast = useCallback(
+    (toastId: number, name: string) => {
+      onWorkerNameUpdated?.(deviceIdentifier, name);
+      onRefetchMiners?.();
+      updateToast(toastId, {
+        message: "Worker name updated",
+        status: TOAST_STATUSES.success,
+      });
+    },
+    [deviceIdentifier, onRefetchMiners, onWorkerNameUpdated],
+  );
+
+  const showWorkerNameErrorToast = useCallback((toastId: number) => {
+    updateToast(toastId, {
+      message: "Failed to update worker name",
+      status: TOAST_STATUSES.error,
+    });
+  }, []);
+
+  const showWorkerNameUnchangedToast = useCallback(
+    (toastId: number) => {
+      onRefetchMiners?.();
+      updateToast(toastId, {
+        message: "Worker name unchanged",
+        status: TOAST_STATUSES.success,
+      });
+    },
+    [onRefetchMiners],
+  );
+
+  const handleDirectWorkerNameResponse = useCallback(
+    (toastId: number, name: string, response: UpdateWorkerNamesResponse) => {
+      if (response.failedCount > 0) {
+        showWorkerNameErrorToast(toastId);
+        return;
+      }
+
+      if (response.updatedCount > 0) {
+        showWorkerNameUpdatedToast(toastId, name);
+        return;
+      }
+
+      if (response.unchangedCount > 0) {
+        showWorkerNameUnchangedToast(toastId);
+        return;
+      }
+
+      removeToast(toastId);
+    },
+    [showWorkerNameErrorToast, showWorkerNameUnchangedToast, showWorkerNameUpdatedToast],
+  );
+
+  const handleStreamedWorkerNameResponse = useCallback(
+    (
+      toastId: number,
+      name: string,
+      response: UpdateWorkerNamesResponse,
+      batchResult: Awaited<ReturnType<typeof waitForWorkerNameBatchResult>>,
+    ) => {
+      if (batchResult.streamFailed || response.failedCount > 0 || batchResult.failedCount > 0) {
+        showWorkerNameErrorToast(toastId);
+        return;
+      }
+
+      if (batchResult.successCount > 0) {
+        showWorkerNameUpdatedToast(toastId, name);
+        return;
+      }
+
+      if (response.unchangedCount > 0) {
+        showWorkerNameUnchangedToast(toastId);
+        return;
+      }
+
+      removeToast(toastId);
+    },
+    [showWorkerNameErrorToast, showWorkerNameUnchangedToast, showWorkerNameUpdatedToast],
+  );
+
+  const handleUpdateWorkerNameConfirm = useCallback(
+    async (name: string) => {
+      const workerNameCredentials = workerNameCredentialsRef.current;
+
+      if (!workerNameCredentials) {
+        return;
+      }
+
+      setShowUpdateWorkerNameDialog(false);
+
+      const toastId = pushToast({
+        message: "Updating worker name",
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+      });
+
+      try {
+        const response = await updateSingleWorkerName(
+          deviceIdentifier,
+          name,
+          workerNameCredentials.username,
+          workerNameCredentials.password,
+        );
+
+        if (response.batchIdentifier) {
+          startBatchOperation({
+            batchIdentifier: response.batchIdentifier,
+            action: settingsActions.updateWorkerNames,
+            deviceIdentifiers: [deviceIdentifier],
+          });
+
+          try {
+            const batchResult = await waitForWorkerNameBatchResult(streamCommandBatchUpdates, response.batchIdentifier);
+            handleStreamedWorkerNameResponse(toastId, name, response, batchResult);
+          } finally {
+            completeBatchOperation(response.batchIdentifier);
+          }
+        } else {
+          handleDirectWorkerNameResponse(toastId, name, response);
+        }
+      } catch {
+        showWorkerNameErrorToast(toastId);
+      } finally {
+        resetWorkerNameFlow();
+        onActionComplete?.();
+      }
+    },
+    [
+      completeBatchOperation,
+      deviceIdentifier,
+      handleDirectWorkerNameResponse,
+      handleStreamedWorkerNameResponse,
+      onActionComplete,
+      resetWorkerNameFlow,
+      showWorkerNameErrorToast,
+      startBatchOperation,
+      streamCommandBatchUpdates,
+      updateSingleWorkerName,
+    ],
+  );
+
+  const actionsWithSingleNameFlows = useMemo(() => {
     const viewMinerAction: BulkAction<SingleMinerAction> = {
       action: "viewMiner",
       title: "View miner",
@@ -133,31 +320,32 @@ const SingleMinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
-    const addToGroupIndex = popoverActions.findIndex((action) => action.action === groupActions.addToGroup);
-    if (addToGroupIndex !== -1) {
-      return [
-        viewMinerAction,
-        ...popoverActions.slice(0, addToGroupIndex),
-        renameAction,
-        ...popoverActions.slice(addToGroupIndex),
-      ];
+    const updateWorkerNameAction: BulkAction<SupportedAction> = {
+      action: settingsActions.updateWorkerNames,
+      title: "Update worker name",
+      icon: <MiningPools />,
+      actionHandler: handleUpdateWorkerNameAction,
+      requiresConfirmation: false,
+    };
+
+    const actions = insertActionAfter(popoverActions, settingsActions.miningPool, updateWorkerNameAction);
+    const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
+
+    if (actionsWithRenameBeforeGroup !== actions) {
+      return [viewMinerAction, ...actionsWithRenameBeforeGroup];
     }
 
-    const securityIndex = popoverActions.findIndex((action) => action.action === settingsActions.security);
-    if (securityIndex !== -1) {
-      return [
-        viewMinerAction,
-        ...popoverActions.slice(0, securityIndex),
-        {
-          ...renameAction,
-          showGroupDivider: true,
-        },
-        ...popoverActions.slice(securityIndex),
-      ];
+    const actionsWithRenameBeforeSecurity = insertActionBefore(actions, settingsActions.security, {
+      ...renameAction,
+      showGroupDivider: true,
+    });
+
+    if (actionsWithRenameBeforeSecurity !== actions) {
+      return [viewMinerAction, ...actionsWithRenameBeforeSecurity];
     }
 
-    return [viewMinerAction, ...popoverActions, renameAction];
-  }, [handleViewMiner, handleRenameOpen, popoverActions]);
+    return [viewMinerAction, ...actions, renameAction];
+  }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, popoverActions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
@@ -197,7 +385,7 @@ const SingleMinerActionsMenu = ({
         setIsOpen={setIsOpen}
         showWarnDialog={showWarnDialog}
         currentAction={currentAction}
-        popoverActions={actionsWithRename}
+        popoverActions={actionsWithSingleNameFlows}
         onClickOutside={onClickOutside}
         handleAction={handleAction}
         handleConfirmationClick={handleConfirmationClick}
@@ -237,9 +425,15 @@ const SingleMinerActionsMenu = ({
         handleSecurityModalClose={handleSecurityModalClose}
         deviceIdentifier={deviceIdentifier}
         minerName={minerName}
+        workerName={workerName}
         showRenameDialog={showRenameDialog}
         handleRenameConfirm={handleRenameConfirm}
         handleRenameDismiss={handleRenameDismiss}
+        showWorkerNameAuthenticateModal={showWorkerNameAuthenticateModal}
+        handleUpdateWorkerNameAuthenticated={handleUpdateWorkerNameAuthenticated}
+        showUpdateWorkerNameDialog={showUpdateWorkerNameDialog}
+        handleUpdateWorkerNameConfirm={handleUpdateWorkerNameConfirm}
+        handleUpdateWorkerNameDismiss={handleUpdateWorkerNameDismiss}
         showAddToGroupModal={showAddToGroupModal}
         handleAddToGroupDismiss={handleAddToGroupDismiss}
       />
@@ -280,9 +474,15 @@ type SingleMinerActionsMenuInnerProps = {
   handleUnsupportedMinersDismiss: () => void;
   deviceIdentifier: string;
   minerName?: string;
+  workerName?: string;
   showRenameDialog: boolean;
   handleRenameConfirm: (name: string) => void;
   handleRenameDismiss: () => void;
+  showWorkerNameAuthenticateModal: boolean;
+  handleUpdateWorkerNameAuthenticated: (username: string, password: string) => void;
+  showUpdateWorkerNameDialog: boolean;
+  handleUpdateWorkerNameConfirm: (name: string) => void;
+  handleUpdateWorkerNameDismiss: () => void;
   showAddToGroupModal: boolean;
   handleAddToGroupDismiss: () => void;
 } & SecurityActionsProps;
@@ -332,9 +532,15 @@ const SingleMinerActionsMenuInner = ({
   handleSecurityModalClose,
   deviceIdentifier,
   minerName,
+  workerName,
   showRenameDialog,
   handleRenameConfirm,
   handleRenameDismiss,
+  showWorkerNameAuthenticateModal,
+  handleUpdateWorkerNameAuthenticated,
+  showUpdateWorkerNameDialog,
+  handleUpdateWorkerNameConfirm,
+  handleUpdateWorkerNameDismiss,
   showAddToGroupModal,
   handleAddToGroupDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
@@ -431,6 +637,13 @@ const SingleMinerActionsMenuInner = ({
         onConfirm={handleRenameConfirm}
         onDismiss={handleRenameDismiss}
       />
+      <UpdateWorkerNameDialog
+        key={showUpdateWorkerNameDialog ? `${deviceIdentifier}-worker-name` : "closed-worker-name"}
+        open={showUpdateWorkerNameDialog}
+        currentWorkerName={workerName}
+        onConfirm={handleUpdateWorkerNameConfirm}
+        onDismiss={handleUpdateWorkerNameDismiss}
+      />
       <ManagePowerModal
         open={currentAction === performanceActions.managePower && showManagePowerModal}
         onConfirm={handleManagePowerConfirm}
@@ -453,6 +666,12 @@ const SingleMinerActionsMenuInner = ({
         purpose={authenticationPurpose ?? undefined}
         onAuthenticated={handleFleetAuthenticated}
         onDismiss={handleAuthDismiss}
+      />
+      <AuthenticateFleetModal
+        open={showWorkerNameAuthenticateModal}
+        purpose="workerNames"
+        onAuthenticated={handleUpdateWorkerNameAuthenticated}
+        onDismiss={handleUpdateWorkerNameDismiss}
       />
       <ManageSecurityModal
         open={showManageSecurityModal}

@@ -118,6 +118,10 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.factoryReset]: { description: "Factory reset", commandType: CommandType.UNSPECIFIED },
   [deviceActions.downloadLogs]: { description: "Log downloads", commandType: CommandType.DOWNLOAD_LOGS },
   [settingsActions.miningPool]: { description: "Pool switching", commandType: CommandType.UPDATE_MINING_POOLS },
+  [settingsActions.updateWorkerNames]: {
+    description: "Worker name updates",
+    commandType: CommandType.UPDATE_MINING_POOLS,
+  },
   [settingsActions.coolingMode]: { description: "Cooling mode changes", commandType: CommandType.SET_COOLING_MODE },
   [settingsActions.security]: { description: "Password updates", commandType: CommandType.UPDATE_MINER_PASSWORD },
   [performanceActions.managePower]: { description: "Power mode changes", commandType: CommandType.SET_POWER_TARGET },
@@ -1563,6 +1567,7 @@ export const useMinerActions = ({
     handlePasswordConfirm,
     handlePasswordDismiss,
     handleAuthDismiss,
+    withCapabilityCheck,
     unsupportedMinersInfo: publicUnsupportedMinersInfo,
     handleUnsupportedMinersContinue,
     handleUnsupportedMinersDismiss,

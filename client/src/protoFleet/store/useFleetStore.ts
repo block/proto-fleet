@@ -5,7 +5,10 @@ import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import { type BatchSlice, createBatchSlice } from "./slices/batchSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
-import { normalizeBulkRenamePreferences } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+import {
+  bulkRenameModes,
+  normalizeBulkRenamePreferences,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
 
 // =============================================================================
 // Combined Store Interface
@@ -25,7 +28,10 @@ export interface FleetStore {
 // Type for the partial state that we persist
 type PersistedFleetState = {
   auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
-  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences" | "racksViewMode">;
+  ui: Pick<
+    UISlice,
+    "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences" | "bulkWorkerNamePreferences" | "racksViewMode"
+  >;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
@@ -90,6 +96,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 temperatureUnit: state.ui.temperatureUnit,
                 duration: state.ui.duration,
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
+                bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
                 racksViewMode: state.ui.racksViewMode,
               },
             },
@@ -135,6 +142,7 @@ export const useFleetStore = create<FleetStore>()(
               temperatureUnit: state.ui.temperatureUnit,
               duration: state.ui.duration,
               bulkRenamePreferences: state.ui.bulkRenamePreferences,
+              bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
               racksViewMode: state.ui.racksViewMode,
             },
           }),
@@ -161,6 +169,10 @@ export const useFleetStore = create<FleetStore>()(
                 racksViewMode: persisted?.ui?.racksViewMode ?? currentState.ui.racksViewMode,
                 bulkRenamePreferences: normalizeBulkRenamePreferences(
                   persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,
+                ),
+                bulkWorkerNamePreferences: normalizeBulkRenamePreferences(
+                  persisted?.ui?.bulkWorkerNamePreferences ?? currentState.ui.bulkWorkerNamePreferences,
+                  bulkRenameModes.worker,
                 ),
               },
             };

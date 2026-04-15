@@ -27,6 +27,8 @@ type CreateMinerColConfigParams = {
   minersRef: MutableRefObject<Record<string, MinerStateSnapshot>>;
   /** Ref to avoid recreating the column config on every callback change. Read at render time. */
   onRefetchMinersRef: MutableRefObject<(() => void) | undefined>;
+  /** Ref to avoid recreating the column config on every callback change. Read at render time. */
+  onWorkerNameUpdatedRef: MutableRefObject<((deviceIdentifier: string, workerName: string) => void) | undefined>;
 };
 
 const createMinerColConfig = ({
@@ -35,6 +37,7 @@ const createMinerColConfig = ({
   errorsLoaded,
   minersRef,
   onRefetchMinersRef,
+  onWorkerNameUpdatedRef,
 }: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
     component: (device: DeviceListItem) => {
@@ -48,6 +51,7 @@ const createMinerColConfig = ({
           onOpenStatusFlow={onOpenStatusFlow}
           miners={minersRef.current}
           onRefetchMiners={onRefetchMinersRef.current}
+          onWorkerNameUpdated={onWorkerNameUpdatedRef.current}
         />
       );
     },

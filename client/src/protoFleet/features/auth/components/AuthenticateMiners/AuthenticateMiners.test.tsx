@@ -87,6 +87,7 @@ beforeEach(() => {
     goToPrevPage: vi.fn(),
     refetch: mockRefetchFleet,
     refreshCurrentPage: vi.fn(),
+    updateMinerWorkerName: vi.fn(),
     availableModels: [],
   });
 

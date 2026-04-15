@@ -25,6 +25,7 @@ export const settingsActions = {
   miningPool: "mining-pool",
   coolingMode: "cooling-mode",
   rename: "rename",
+  updateWorkerNames: "update-worker-names",
   security: "security",
 } as const;
 
@@ -63,6 +64,7 @@ export const loadingMessages: Record<string, string> = {
   [settingsActions.miningPool]: "Assigning pools",
   [settingsActions.coolingMode]: "Setting cooling mode for",
   [settingsActions.rename]: "Renaming miner",
+  [settingsActions.updateWorkerNames]: "Updating worker names for",
   [settingsActions.security]: "Updating security for",
   [groupActions.addToGroup]: "Adding to group",
 };
@@ -79,6 +81,7 @@ export const statusColumnLoadingMessages: Record<string, string> = {
   [performanceActions.curtail]: "Curtailing",
   [settingsActions.miningPool]: "Adding pools",
   [settingsActions.coolingMode]: "Setting cooling",
+  [settingsActions.updateWorkerNames]: "Updating worker names",
   [settingsActions.security]: "Updating security",
 };
 
@@ -96,6 +99,7 @@ export const successMessages: Record<string, string> = {
   [settingsActions.miningPool]: "Assigned pools to",
   [settingsActions.coolingMode]: "Updated cooling mode for",
   [settingsActions.rename]: "Miner renamed",
+  [settingsActions.updateWorkerNames]: "Updated worker names for",
   [settingsActions.security]: "Updated security for",
   [groupActions.addToGroup]: "Added to group",
 };
@@ -114,6 +118,7 @@ export const failureMessages: Record<string, string> = {
   [settingsActions.miningPool]: "Pool assignment failed on",
   [settingsActions.coolingMode]: "Cooling mode update failed on",
   [settingsActions.rename]: "Renaming failed on",
+  [settingsActions.updateWorkerNames]: "Worker name update failed on",
   [settingsActions.security]: "Security update failed on",
   [groupActions.addToGroup]: "Group assignment failed on",
 };

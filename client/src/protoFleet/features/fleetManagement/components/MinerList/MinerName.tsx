@@ -14,9 +14,18 @@ type MinerNameProps = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
+  onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
 };
 
-const MinerName = ({ miner, errors, isActionLoading, onOpenStatusFlow, miners, onRefetchMiners }: MinerNameProps) => {
+const MinerName = ({
+  miner,
+  errors,
+  isActionLoading,
+  onOpenStatusFlow,
+  miners,
+  onRefetchMiners,
+  onWorkerNameUpdated,
+}: MinerNameProps) => {
   const deviceIdentifier = miner.deviceIdentifier;
   const name = miner.name || deviceIdentifier;
   const deviceStatus = miner.deviceStatus;
@@ -50,9 +59,11 @@ const MinerName = ({ miner, errors, isActionLoading, onOpenStatusFlow, miners, o
           deviceIdentifier={deviceIdentifier}
           deviceStatus={deviceStatus}
           minerName={name}
+          workerName={miner.workerName}
           disabled={needsAuthentication}
           miners={miners}
           onRefetchMiners={onRefetchMiners}
+          onWorkerNameUpdated={onWorkerNameUpdated}
         />
       </div>
     </div>

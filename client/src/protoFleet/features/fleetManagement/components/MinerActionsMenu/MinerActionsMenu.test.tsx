@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { deviceActions, groupActions, performanceActions, settingsActions } from "./constants";
 import MinerActionsMenu from "./MinerActionsMenu";
@@ -7,118 +7,138 @@ import MinerActionsMenu from "./MinerActionsMenu";
 // Use vi.hoisted to properly hoist mock variable declarations
 const {
   mockAddToGroupModal,
+  mockAuthenticateFleetModal,
   mockBulkActionsWidget,
   mockBulkRenameModal,
+  mockBulkWorkerNameModal,
+  mockWithCapabilityCheck,
   mockPoolSelectionPageWrapper,
+  mockUseBatchOperations,
   mockUseMinerActions,
   mockUseWindowDimensions,
-} = vi.hoisted(() => ({
-  mockAddToGroupModal: vi.fn(() => null),
-  mockBulkActionsWidget: vi.fn(
-    (props: {
-      buttonTitle: string;
-      renderQuickActions?: (onAction: (action: { actionHandler: () => void }) => void) => ReactNode;
-    }) => (
-      <>
-        {props.renderQuickActions?.((action) => action.actionHandler())}
-        <div>{props.buttonTitle}</div>
-      </>
+} = vi.hoisted(() => {
+  const mockWithCapabilityCheck = vi.fn(async (_action: string, onProceed: (...args: unknown[]) => void) => {
+    onProceed(undefined, undefined);
+  });
+
+  return {
+    mockAddToGroupModal: vi.fn(() => null),
+    mockAuthenticateFleetModal: vi.fn(() => null),
+    mockBulkActionsWidget: vi.fn(
+      (props: {
+        buttonTitle: string;
+        renderQuickActions?: (onAction: (action: { actionHandler: () => void }) => void) => ReactNode;
+      }) => (
+        <>
+          {props.renderQuickActions?.((action) => action.actionHandler())}
+          <div>{props.buttonTitle}</div>
+        </>
+      ),
     ),
-  ),
-  mockBulkRenameModal: vi.fn(() => null),
-  mockPoolSelectionPageWrapper: vi.fn(
-    (_props: {
-      open?: boolean;
-      selectedMiners: Array<{ deviceIdentifier: string }>;
-      selectionMode: string;
-      poolNeededCount?: number;
-      userUsername?: string;
-      userPassword?: string;
-      onSuccess: (batchIdentifier: string) => void;
-      onError?: (error: string) => void;
-      onDismiss: () => void;
-    }) => null,
-  ),
-  mockUseMinerActions: vi.fn(
-    (): {
-      currentAction: string | null;
-      popoverActions: unknown[];
-      handleConfirmation: ReturnType<typeof vi.fn>;
-      handleCancel: ReturnType<typeof vi.fn>;
-      handleMiningPoolSuccess: ReturnType<typeof vi.fn>;
-      handleMiningPoolError: ReturnType<typeof vi.fn>;
-      showPoolSelectionPage: boolean;
-      poolFilteredDeviceIds?: string[];
-      fleetCredentials?: { username: string; password: string };
-      showManagePowerModal: boolean;
-      handleManagePowerConfirm: ReturnType<typeof vi.fn>;
-      handleManagePowerDismiss: ReturnType<typeof vi.fn>;
-      showCoolingModeModal: boolean;
-      coolingModeCount: number;
-      currentCoolingMode: unknown;
-      handleCoolingModeConfirm: ReturnType<typeof vi.fn>;
-      handleCoolingModeDismiss: ReturnType<typeof vi.fn>;
-      showAuthenticateFleetModal: boolean;
-      authenticationPurpose: string | null;
-      showUpdatePasswordModal: boolean;
-      hasThirdPartyMiners: boolean;
-      handleFleetAuthenticated: ReturnType<typeof vi.fn>;
-      handlePasswordConfirm: ReturnType<typeof vi.fn>;
-      handlePasswordDismiss: ReturnType<typeof vi.fn>;
-      handleAuthDismiss: ReturnType<typeof vi.fn>;
-      unsupportedMinersInfo: unknown;
-      handleUnsupportedMinersContinue: ReturnType<typeof vi.fn>;
-      handleUnsupportedMinersDismiss: ReturnType<typeof vi.fn>;
-      showManageSecurityModal: boolean;
-      minerGroups: unknown[];
-      handleUpdateGroup: ReturnType<typeof vi.fn>;
-      handleSecurityModalClose: ReturnType<typeof vi.fn>;
-      showAddToGroupModal: boolean;
-      handleAddToGroupDismiss: ReturnType<typeof vi.fn>;
-      displayCount: number;
-    } => ({
-      currentAction: null,
-      popoverActions: [],
-      handleConfirmation: vi.fn(),
-      handleCancel: vi.fn(),
-      handleMiningPoolSuccess: vi.fn(),
-      handleMiningPoolError: vi.fn(),
-      showPoolSelectionPage: false,
-      poolFilteredDeviceIds: undefined,
-      fleetCredentials: undefined,
-      showManagePowerModal: false,
-      handleManagePowerConfirm: vi.fn(),
-      handleManagePowerDismiss: vi.fn(),
-      showCoolingModeModal: false,
-      coolingModeCount: 0,
-      currentCoolingMode: undefined,
-      handleCoolingModeConfirm: vi.fn(),
-      handleCoolingModeDismiss: vi.fn(),
-      showAuthenticateFleetModal: false,
-      authenticationPurpose: null,
-      showUpdatePasswordModal: false,
-      hasThirdPartyMiners: false,
-      handleFleetAuthenticated: vi.fn(),
-      handlePasswordConfirm: vi.fn(),
-      handlePasswordDismiss: vi.fn(),
-      handleAuthDismiss: vi.fn(),
-      unsupportedMinersInfo: undefined,
-      handleUnsupportedMinersContinue: vi.fn(),
-      handleUnsupportedMinersDismiss: vi.fn(),
-      showManageSecurityModal: false,
-      minerGroups: [],
-      handleUpdateGroup: vi.fn(),
-      handleSecurityModalClose: vi.fn(),
-      showAddToGroupModal: false,
-      handleAddToGroupDismiss: vi.fn(),
-      displayCount: 0,
-    }),
-  ),
-  mockUseWindowDimensions: vi.fn(() => ({
-    isPhone: false,
-    isTablet: false,
-  })),
-}));
+    mockBulkRenameModal: vi.fn(() => null),
+    mockBulkWorkerNameModal: vi.fn(() => null),
+    mockWithCapabilityCheck,
+    mockPoolSelectionPageWrapper: vi.fn(
+      (_props: {
+        open?: boolean;
+        selectedMiners: Array<{ deviceIdentifier: string }>;
+        selectionMode: string;
+        poolNeededCount?: number;
+        userUsername?: string;
+        userPassword?: string;
+        onSuccess: (batchIdentifier: string) => void;
+        onError?: (error: string) => void;
+        onDismiss: () => void;
+      }) => null,
+    ),
+    mockUseBatchOperations: vi.fn(() => ({
+      startBatchOperation: vi.fn(),
+      completeBatchOperation: vi.fn(),
+      removeDevicesFromBatch: vi.fn(),
+    })),
+    mockUseMinerActions: vi.fn(
+      (): {
+        currentAction: string | null;
+        popoverActions: unknown[];
+        handleConfirmation: ReturnType<typeof vi.fn>;
+        handleCancel: ReturnType<typeof vi.fn>;
+        handleMiningPoolSuccess: ReturnType<typeof vi.fn>;
+        handleMiningPoolError: ReturnType<typeof vi.fn>;
+        showPoolSelectionPage: boolean;
+        poolFilteredDeviceIds?: string[];
+        fleetCredentials?: { username: string; password: string };
+        showManagePowerModal: boolean;
+        handleManagePowerConfirm: ReturnType<typeof vi.fn>;
+        handleManagePowerDismiss: ReturnType<typeof vi.fn>;
+        showCoolingModeModal: boolean;
+        coolingModeCount: number;
+        currentCoolingMode: unknown;
+        handleCoolingModeConfirm: ReturnType<typeof vi.fn>;
+        handleCoolingModeDismiss: ReturnType<typeof vi.fn>;
+        showAuthenticateFleetModal: boolean;
+        authenticationPurpose: string | null;
+        showUpdatePasswordModal: boolean;
+        hasThirdPartyMiners: boolean;
+        handleFleetAuthenticated: ReturnType<typeof vi.fn>;
+        handlePasswordConfirm: ReturnType<typeof vi.fn>;
+        handlePasswordDismiss: ReturnType<typeof vi.fn>;
+        handleAuthDismiss: ReturnType<typeof vi.fn>;
+        withCapabilityCheck: ReturnType<typeof vi.fn>;
+        unsupportedMinersInfo: unknown;
+        handleUnsupportedMinersContinue: ReturnType<typeof vi.fn>;
+        handleUnsupportedMinersDismiss: ReturnType<typeof vi.fn>;
+        showManageSecurityModal: boolean;
+        minerGroups: unknown[];
+        handleUpdateGroup: ReturnType<typeof vi.fn>;
+        handleSecurityModalClose: ReturnType<typeof vi.fn>;
+        showAddToGroupModal: boolean;
+        handleAddToGroupDismiss: ReturnType<typeof vi.fn>;
+        displayCount: number;
+      } => ({
+        currentAction: null,
+        popoverActions: [],
+        handleConfirmation: vi.fn(),
+        handleCancel: vi.fn(),
+        handleMiningPoolSuccess: vi.fn(),
+        handleMiningPoolError: vi.fn(),
+        showPoolSelectionPage: false,
+        poolFilteredDeviceIds: undefined,
+        fleetCredentials: undefined,
+        showManagePowerModal: false,
+        handleManagePowerConfirm: vi.fn(),
+        handleManagePowerDismiss: vi.fn(),
+        showCoolingModeModal: false,
+        coolingModeCount: 0,
+        currentCoolingMode: undefined,
+        handleCoolingModeConfirm: vi.fn(),
+        handleCoolingModeDismiss: vi.fn(),
+        showAuthenticateFleetModal: false,
+        authenticationPurpose: null,
+        showUpdatePasswordModal: false,
+        hasThirdPartyMiners: false,
+        handleFleetAuthenticated: vi.fn(),
+        handlePasswordConfirm: vi.fn(),
+        handlePasswordDismiss: vi.fn(),
+        handleAuthDismiss: vi.fn(),
+        withCapabilityCheck: mockWithCapabilityCheck,
+        unsupportedMinersInfo: undefined,
+        handleUnsupportedMinersContinue: vi.fn(),
+        handleUnsupportedMinersDismiss: vi.fn(),
+        showManageSecurityModal: false,
+        minerGroups: [],
+        handleUpdateGroup: vi.fn(),
+        handleSecurityModalClose: vi.fn(),
+        showAddToGroupModal: false,
+        handleAddToGroupDismiss: vi.fn(),
+        displayCount: 0,
+      }),
+    ),
+    mockUseWindowDimensions: vi.fn(() => ({
+      isPhone: false,
+      isTablet: false,
+    })),
+  };
+});
 
 vi.mock("../ActionBar/SettingsWidget/PoolSelectionPage", () => ({
   default: mockPoolSelectionPageWrapper,
@@ -132,6 +152,10 @@ vi.mock("../BulkActions", () => ({
 
 vi.mock("./BulkRenameModal", () => ({
   default: mockBulkRenameModal,
+}));
+
+vi.mock("./BulkWorkerNameModal", () => ({
+  default: mockBulkWorkerNameModal,
 }));
 
 vi.mock("./AddToGroupModal", () => ({
@@ -156,11 +180,15 @@ vi.mock("./ManageSecurity", () => ({
 
 // Mock AuthenticateFleetModal
 vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
-  default: vi.fn(() => null),
+  default: mockAuthenticateFleetModal,
 }));
 
 vi.mock("./useMinerActions", () => ({
   useMinerActions: mockUseMinerActions,
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => ({
+  useBatchOperations: mockUseBatchOperations,
 }));
 
 // Mock Popover
@@ -203,6 +231,7 @@ const createMockMinerActionsReturn = (
   handlePasswordConfirm: vi.fn(),
   handlePasswordDismiss: vi.fn(),
   handleAuthDismiss: vi.fn(),
+  withCapabilityCheck: mockWithCapabilityCheck,
   unsupportedMinersInfo: undefined,
   handleUnsupportedMinersContinue: vi.fn(),
   handleUnsupportedMinersDismiss: vi.fn(),
@@ -378,7 +407,7 @@ describe("MinerActionsMenu", () => {
     expect(props.open).toBe(false);
   });
 
-  test("injects rename into bulk actions before add to group and keeps them in the same divider group", () => {
+  test("injects update worker names after pools and rename before add to group", () => {
     mockUseWindowDimensions.mockReturnValue({
       isPhone: false,
       isTablet: false,
@@ -386,6 +415,13 @@ describe("MinerActionsMenu", () => {
     mockUseMinerActions.mockReturnValueOnce({
       ...createMockMinerActionsReturn(null),
       popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
         {
           action: settingsActions.coolingMode,
           title: "Change cooling mode",
@@ -437,13 +473,196 @@ describe("MinerActionsMenu", () => {
     const actions = widgetCall[0].actions;
 
     expect(actions.map((action: { action: string }) => action.action)).toEqual([
+      settingsActions.miningPool,
+      settingsActions.updateWorkerNames,
       settingsActions.coolingMode,
       settingsActions.rename,
       groupActions.addToGroup,
       settingsActions.security,
     ]);
-    expect(actions[0].showGroupDivider).toBe(true);
-    expect(actions[1].showGroupDivider).toBeUndefined();
     expect(actions[2].showGroupDivider).toBe(true);
+    expect(actions[3].showGroupDivider).toBeUndefined();
+    expect(actions[4].showGroupDivider).toBe(true);
+  });
+
+  test("requests credentials before opening update worker names modal", async () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    mockUseMinerActions.mockReturnValueOnce({
+      ...createMockMinerActionsReturn(null),
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+        {
+          action: groupActions.addToGroup,
+          title: "Add to group",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ],
+    });
+
+    mockBulkActionsWidget.mockClear();
+    mockAuthenticateFleetModal.mockClear();
+    mockBulkWorkerNameModal.mockClear();
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1", "miner-2"]}
+        selectionMode="subset"
+        totalCount={2}
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<
+      [{ actions: Array<{ action: string; actionHandler: () => void }> }]
+    >;
+    const authenticateCalls = mockAuthenticateFleetModal.mock.calls as unknown as Array<
+      [
+        {
+          purpose?: string;
+          open: boolean;
+          onAuthenticated: (username: string, password: string) => void;
+        },
+      ]
+    >;
+    const bulkWorkerNameModalCalls = mockBulkWorkerNameModal.mock.calls as unknown as Array<
+      [
+        {
+          open: boolean;
+          getWorkerNameCredentials?: () => { username: string; password: string } | undefined;
+        },
+      ]
+    >;
+    const updateWorkerNamesAction = widgetCalls[0]?.[0].actions.find(
+      (action) => action.action === settingsActions.updateWorkerNames,
+    );
+
+    expect(updateWorkerNamesAction).toBeDefined();
+
+    await act(async () => {
+      updateWorkerNamesAction?.actionHandler();
+    });
+
+    await waitFor(() => {
+      expect(mockWithCapabilityCheck).toHaveBeenCalledWith(settingsActions.updateWorkerNames, expect.any(Function));
+      expect(authenticateCalls.some(([props]) => props.purpose === "workerNames" && props.open)).toBe(true);
+    });
+
+    const latestHiddenWorkerNameModalProps = bulkWorkerNameModalCalls[bulkWorkerNameModalCalls.length - 1]?.[0];
+    expect(latestHiddenWorkerNameModalProps?.open).toBe(false);
+
+    const workerNameAuthProps = authenticateCalls
+      .map(([props]) => props)
+      .find((props) => props.purpose === "workerNames" && props.open === true);
+
+    expect(workerNameAuthProps).toBeDefined();
+
+    await act(async () => {
+      workerNameAuthProps?.onAuthenticated("testuser", "testpass");
+    });
+
+    await waitFor(() => {
+      const latestBulkWorkerNameModalProps = bulkWorkerNameModalCalls[bulkWorkerNameModalCalls.length - 1]?.[0];
+      expect(latestBulkWorkerNameModalProps?.open).toBe(true);
+      expect(latestBulkWorkerNameModalProps?.getWorkerNameCredentials?.()).toEqual({
+        username: "testuser",
+        password: "testpass",
+      });
+    });
+  });
+
+  test("opens the bulk worker-name modal with the capability-filtered target set", async () => {
+    mockWithCapabilityCheck.mockImplementationOnce(async () => {});
+    mockUseMinerActions.mockReturnValueOnce({
+      ...createMockMinerActionsReturn(null),
+      popoverActions: [
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ],
+    });
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1", "miner-2", "miner-3"]}
+        selectionMode="all"
+        totalCount={3}
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<
+      [{ actions: Array<{ action: string; actionHandler: () => void }> }]
+    >;
+    const updateWorkerNamesAction = widgetCalls[0]?.[0].actions.find(
+      (action) => action.action === settingsActions.updateWorkerNames,
+    );
+
+    await act(async () => {
+      updateWorkerNamesAction?.actionHandler();
+    });
+
+    const capabilityCheckCallback = mockWithCapabilityCheck.mock.calls[0]?.[1] as
+      | ((filteredSelector?: unknown, filteredDeviceIds?: string[]) => void)
+      | undefined;
+
+    await act(async () => {
+      capabilityCheckCallback?.(
+        { selectionType: { case: "includeDevices", value: { deviceIdentifiers: ["miner-2"] } } },
+        ["miner-2"],
+      );
+    });
+
+    const workerNameAuthProps = (
+      mockAuthenticateFleetModal.mock.calls as unknown as Array<
+        [{ purpose?: string; open: boolean; onAuthenticated: (username: string, password: string) => void }]
+      >
+    )
+      .map(([props]) => props)
+      .find((props) => props.purpose === "workerNames" && props.open === true);
+
+    expect(workerNameAuthProps).toBeDefined();
+
+    await act(async () => {
+      workerNameAuthProps?.onAuthenticated("testuser", "testpass");
+    });
+
+    await waitFor(() => {
+      const latestBulkWorkerNameModalProps = (
+        mockBulkWorkerNameModal.mock.calls as unknown as Array<
+          [
+            {
+              open: boolean;
+              selectedMinerIds: string[];
+              selectionMode: string;
+              originalSelectionMode?: string;
+              totalCount?: number;
+            },
+          ]
+        >
+      )[mockBulkWorkerNameModal.mock.calls.length - 1]?.[0];
+
+      expect(latestBulkWorkerNameModalProps?.open).toBe(true);
+      expect(latestBulkWorkerNameModalProps?.selectedMinerIds).toEqual(["miner-2"]);
+      expect(latestBulkWorkerNameModalProps?.selectionMode).toBe("subset");
+      expect(latestBulkWorkerNameModalProps?.originalSelectionMode).toBe("all");
+      expect(latestBulkWorkerNameModalProps?.totalCount).toBe(1);
+    });
   });
 });

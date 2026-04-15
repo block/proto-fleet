@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bulkRenameModes,
   type BulkRenamePreviewMiner,
   bulkRenamePropertyIds,
   bulkRenameSeparatorIds,
@@ -19,9 +20,12 @@ const basePreviewMiner: BulkRenamePreviewMiner = {
   storedName: "Proto Rig",
   macAddress: "AA:BB:CC:DD:EE:FF",
   serialNumber: "SER123456",
+  minerName: "Proto Rig",
   model: "S21 XP",
   manufacturer: "Bitmain",
   workerName: "worker-01",
+  rackLabel: "Rack-A1",
+  rackPosition: "12",
 };
 
 const legacyHiddenPropertyId = "fixed-location";
@@ -53,7 +57,37 @@ describe("bulkRenameDefinitions", () => {
     expect(normalized.separator).toBe(bulkRenameSeparatorIds.underscore);
     expect(normalized.properties[0].id).toBe(bulkRenamePropertyIds.fixedSerialNumber);
     expect(normalized.properties.find((property) => String(property.id) === legacyHiddenPropertyId)).toBeUndefined();
-    expect(normalized.properties).toHaveLength(6);
+    expect(normalized.properties).toHaveLength(8);
+  });
+
+  it("builds rename defaults with rack properties", () => {
+    const preferences = createDefaultBulkRenamePreferences();
+
+    expect(preferences.properties.map((property) => property.id)).toEqual([
+      bulkRenamePropertyIds.fixedMacAddress,
+      bulkRenamePropertyIds.fixedSerialNumber,
+      bulkRenamePropertyIds.fixedWorkerName,
+      bulkRenamePropertyIds.fixedModel,
+      bulkRenamePropertyIds.fixedManufacturer,
+      bulkRenamePropertyIds.qualifierRack,
+      bulkRenamePropertyIds.qualifierRackPosition,
+      bulkRenamePropertyIds.custom,
+    ]);
+  });
+
+  it("builds worker-name defaults with rack properties and miner name", () => {
+    const preferences = createDefaultBulkRenamePreferences(bulkRenameModes.worker);
+
+    expect(preferences.properties.map((property) => property.id)).toEqual([
+      bulkRenamePropertyIds.fixedMacAddress,
+      bulkRenamePropertyIds.fixedSerialNumber,
+      bulkRenamePropertyIds.fixedMinerName,
+      bulkRenamePropertyIds.fixedModel,
+      bulkRenamePropertyIds.fixedManufacturer,
+      bulkRenamePropertyIds.qualifierRack,
+      bulkRenamePropertyIds.qualifierRackPosition,
+      bulkRenamePropertyIds.custom,
+    ]);
   });
 
   it("tracks uniqueness-guaranteeing properties and reorder operations", () => {
