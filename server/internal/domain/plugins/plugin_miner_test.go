@@ -1130,13 +1130,14 @@ func TestIsNetworkError(t *testing.T) {
 
 func TestWrapPluginError(t *testing.T) {
 	tests := []struct {
-		name                string
-		err                 error
-		format              string
-		args                []any
-		expectNil           bool
-		expectUnimplemented bool
-		expectContains      string
+		name                  string
+		err                   error
+		format                string
+		args                  []any
+		expectNil             bool
+		expectUnimplemented   bool
+		expectUnauthenticated bool
+		expectContains        string
 	}{
 		{
 			name:      "nil error returns nil",
@@ -1151,6 +1152,14 @@ func TestWrapPluginError(t *testing.T) {
 			args:                []any{"device-123"},
 			expectUnimplemented: true,
 			expectContains:      "reboot failed for device device-123",
+		},
+		{
+			name:                  "gRPC Unauthenticated maps to fleeterror Unauthenticated",
+			err:                   grpcstatus.Error(codes.Unauthenticated, "token expired"),
+			format:                "reboot failed for device %s",
+			args:                  []any{"device-456"},
+			expectUnauthenticated: true,
+			expectContains:        "reboot failed for device device-456",
 		},
 		{
 			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
@@ -1187,7 +1196,103 @@ func TestWrapPluginError(t *testing.T) {
 			}
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectUnimplemented, fleeterror.IsUnimplementedError(result))
+			assert.Equal(t, tt.expectUnauthenticated, fleeterror.IsAuthenticationError(result))
 			assert.Contains(t, result.Error(), tt.expectContains)
+		})
+	}
+}
+
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "gRPC Unauthenticated status (real plugin transport path)",
+			err:      grpcstatus.Error(codes.Unauthenticated, "token expired"),
+			expected: true,
+		},
+		{
+			name:     "sdk.SDKError with AUTHENTICATION_FAILED (in-process path)",
+			err:      sdk.SDKError{Code: sdk.ErrCodeAuthenticationFailed, Message: "bad credentials"},
+			expected: true,
+		},
+		{
+			name:     "gRPC Internal is not an auth error",
+			err:      grpcstatus.Error(codes.Internal, "internal error"),
+			expected: false,
+		},
+		{
+			name:     "generic error is not an auth error",
+			err:      errors.New("authentication failed: invalid credentials"),
+			expected: false,
+		},
+		{
+			name:     "gRPC Unavailable is not an auth error",
+			err:      grpcstatus.Error(codes.Unavailable, "service unavailable"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			result := isAuthError(tt.err)
+
+			// Assert
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing.T) {
+	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
+
+	tests := []struct {
+		name   string
+		sdkErr error
+	}{
+		{
+			name:   "gRPC Unauthenticated (real plugin transport path)",
+			sdkErr: grpcstatus.Error(codes.Unauthenticated, "token expired"),
+		},
+		{
+			name:   "sdk.SDKError AUTHENTICATION_FAILED (in-process path)",
+			sdkErr: sdk.SDKError{Code: sdk.ErrCodeAuthenticationFailed, Message: "bad credentials"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			deviceID := models.DeviceIdentifier("device-auth-err")
+			mockDevice := &mockSDKDevice{
+				id: "device-auth-err",
+				statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+					return sdk.DeviceMetrics{}, tt.sdkErr
+				},
+			}
+			pluginMiner := NewPluginMiner(
+				testOrgID, deviceID, "proto", nil, "serial-auth",
+				*connInfo, mockDevice,
+				sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
+				nil,
+			)
+
+			// Act
+			status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+			// Assert
+			assert.Equal(t, models.MinerStatusUnknown, status)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsAuthenticationError(err), "expected UnauthenticatedError, got: %v", err)
+			assert.False(t, fleeterror.IsConnectionError(err), "auth error must not be misclassified as connection error")
 		})
 	}
 }

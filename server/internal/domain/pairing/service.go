@@ -198,6 +198,7 @@ type Service struct {
 	listener              Listener
 	localNetworkInfo      func(context.Context) (*NetworkInfo, error)
 	probeSemaphore        chan struct{}
+	invalidateMiner       func(models.DeviceIdentifier)
 }
 
 func NewService(
@@ -222,6 +223,12 @@ func NewService(
 		localNetworkInfo:      defaultLocalNetworkInfo,
 		probeSemaphore:        make(chan struct{}, globalProbeLimit),
 	}
+}
+
+// WithMinerInvalidator sets a callback to evict cached miner handles on rediscovery
+// (IP/port changes) and successful pairing (credential updates).
+func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier)) {
+	s.invalidateMiner = invalidate
 }
 
 // Helper function to convert IP string to uint32 for range comparison
@@ -972,6 +979,10 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		case reconciledIdentifier != "":
 			deviceIdentifier = reconciledIdentifier
 			preserveMissingFirmware = reconciledByMAC
+			// Device moved to a new IP/port; evict stale cached handle.
+			if reconciledByMAC && s.invalidateMiner != nil {
+				s.invalidateMiner(models.DeviceIdentifier(reconciledIdentifier))
+			}
 		case existingDevice != nil:
 			// Reuse the existing device_identifier to update the same row
 			deviceIdentifier = existingDevice.DeviceIdentifier
@@ -1316,6 +1327,11 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 					failedIDs = append(failedIDs, id)
 					mu.Unlock()
 					return
+				}
+
+				// Evict stale cached handle; pairing wrote new credentials/IP to DB.
+				if s.invalidateMiner != nil {
+					s.invalidateMiner(persistedDeviceID)
 				}
 
 				// shouldScheduleTelemetryForDevice may hit the DB — call outside the lock.

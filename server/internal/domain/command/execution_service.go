@@ -35,9 +35,19 @@ const (
 	workerNameLookupTimeout = 5 * time.Second
 )
 
-//go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
+//go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+}
+
+// CachedMinerGetter extends MinerGetter with cache invalidation. Services that
+// both fetch miners and need to evict stale handles should use this interface.
+type CachedMinerGetter interface {
+	MinerGetter
+	// InvalidateMiner removes the cached miner handle for the given device identifier.
+	// Call this when credentials change or a device is unpaired so subsequent lookups
+	// fetch fresh state from DB.
+	InvalidateMiner(deviceIdentifier models.DeviceIdentifier)
 }
 
 type ExecutionService struct {
@@ -47,7 +57,7 @@ type ExecutionService struct {
 	messageQueue      queue.MessageQueue
 	encryptService    *encrypt.Service
 	tokenService      *tokenDomain.Service
-	minerService      MinerGetter
+	minerService      CachedMinerGetter
 	deviceStore       stores.DeviceStore
 	telemetryListener TelemetryListener
 	filesService      *files.Service
@@ -59,7 +69,7 @@ type ExecutionService struct {
 	reaperCancel          context.CancelFunc
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -476,18 +486,26 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			break
 		}
 
-		// Store updated credentials for devices that use basic auth (not asymmetric/JWT auth)
+		// Only evict after a successful DB write: the cached handle already has the new
+		// credentials and is the only valid session if DB sync fails.
+		// Proto devices (asymmetric auth) store no password in DB, so always evict.
 		if minerInfo.GetDriverName() != models.DriverNameProto {
 			if dbErr := es.updateMinerPasswordInDB(ctx, message.DeviceID, p.NewPassword); dbErr != nil {
 				slog.Error("device password updated but database sync failed",
 					"device_id", message.DeviceID, "error", dbErr)
+				break
 			}
 		}
+		// Evict so the next lookup re-reads updated credentials from DB.
+		es.minerService.InvalidateMiner(minerInfo.GetID())
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
 
 	if err != nil {
+		if fleeterror.IsAuthenticationError(err) {
+			es.minerService.InvalidateMiner(minerInfo.GetID())
+		}
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return err
@@ -817,9 +835,18 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 
 	slog.Info("device pairing status updated to UNPAIRED", "device_identifier", deviceIdentifier)
 
+	// Evict the cached miner immediately. This is unconditional so that any
+	// command queued after this point always fetches fresh state from the DB,
+	// regardless of whether the telemetry cleanup below succeeds.
+	es.minerService.InvalidateMiner(models.DeviceIdentifier(deviceIdentifier))
+
 	if es.telemetryListener != nil {
+		// Hard failure: if the scheduler cannot remove the device it will keep
+		// polling an UNPAIRED device, and continued auth failures can flip the
+		// pairing status away from UNPAIRED. Return an error so the command queue
+		// retries until cleanup succeeds.
 		if err := es.telemetryListener.RemoveDevices(ctx, tmodels.DeviceIdentifier(deviceIdentifier)); err != nil {
-			return fleeterror.NewInternalErrorf("failed to unregister device from telemetry: %v", err)
+			return fleeterror.NewInternalErrorf("failed to unregister device from telemetry after unpair: %v", err)
 		}
 		slog.Info("device unregistered from telemetry", "device_identifier", deviceIdentifier)
 	}

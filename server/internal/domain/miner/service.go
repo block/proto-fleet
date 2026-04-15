@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
@@ -22,7 +25,21 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-var _ telemetry.MinerGetter = &Service{}
+const (
+	// minerCacheTTL is the duration a cached miner handle is considered valid.
+	// A short TTL self-heals stale connection coordinates (e.g., after a device
+	// moves to a new IP) and credential rotations without requiring explicit
+	// invalidation logic for every possible change path. Auth errors and
+	// lifecycle events (unpair, delete, password change) still trigger immediate
+	// eviction for faster recovery.
+	minerCacheTTL = 1 * time.Minute
+
+	// minerCacheSize is the maximum number of miner handles to cache.
+	// Sized to cover very large fleets without meaningful memory overhead.
+	minerCacheSize = 10_000
+)
+
+var _ telemetry.CachedMinerGetter = &Service{}
 
 type Service struct {
 	// TODO: Refactor this to use a store instead of SQLConnectionManager directly
@@ -32,6 +49,11 @@ type Service struct {
 	filesService   *files.Service
 	tokenService   *token.Service
 	pluginManager  PluginManager
+
+	// cache stores miner handles keyed by DeviceIdentifier (string).
+	// Both GetMiner and GetMinerFromDeviceIdentifier read from and write to
+	// this single cache, keeping invalidation simple.
+	cache *lru.LRU[string, interfaces.Miner]
 }
 
 // PluginManager defines the interface for plugin manager operations needed by MinerService
@@ -62,36 +84,31 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 		filesService:         filesService,
 		tokenService:         tokenService,
 		pluginManager:        pluginManager,
+		cache:                lru.NewLRU[string, interfaces.Miner](minerCacheSize, nil, minerCacheTTL),
 	}
 }
 
+// GetMiner returns the miner handle for the given numeric device ID.
+// It performs a lightweight identifier lookup then delegates to
+// GetMinerFromDeviceIdentifier so both lookup paths share the same cache.
 func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByID(ctx, deviceID)
+	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewNotFoundErrorf("device not found: %d", deviceID)
 		}
-		return nil, fmt.Errorf("failed to get device data: %w", err)
+		return nil, fmt.Errorf("failed to get device identifier: %w", err)
 	}
-
-	return s.createMiner(
-		ctx,
-		deviceData.DeviceIdentifier,
-		deviceData.OrgID,
-		deviceData.Port,
-		deviceData.DriverName,
-		deviceData.UsernameEnc.String,
-		deviceData.PasswordEnc.String,
-		deviceData.IpAddress,
-		deviceData.UrlScheme,
-		deviceData.SerialNumber.String,
-		deviceData.MacAddress,
-	)
+	return s.GetMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier))
 }
 
 func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
 	if deviceID == "" {
 		return nil, fmt.Errorf("device ID cannot be empty")
+	}
+
+	if m, ok := s.cache.Get(string(deviceID)); ok {
+		return m, nil
 	}
 
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
@@ -102,7 +119,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMiner(
+	m, err := s.createMiner(
 		ctx,
 		deviceData.DeviceIdentifier,
 		deviceData.OrgID,
@@ -115,6 +132,20 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.SerialNumber.String,
 		deviceData.MacAddress,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cache.Add(string(deviceID), m)
+	return m, nil
+}
+
+// InvalidateMiner removes the cached miner handle for the given device identifier
+// so the next lookup fetches fresh credentials and connection info from the DB.
+// Call this on auth errors, credential changes, and device lifecycle events
+// (unpair, delete).
+func (s *Service) InvalidateMiner(deviceIdentifier models.DeviceIdentifier) {
+	s.cache.Remove(string(deviceIdentifier))
 }
 
 func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {

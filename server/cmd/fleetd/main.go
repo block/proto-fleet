@@ -263,6 +263,7 @@ func start(config *Config) error {
 		telemetryService,
 		pluginPairer,
 	)
+	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(

@@ -133,7 +133,7 @@ const (
 	defaultCombinedMetricsPageSize = 100
 )
 
-//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
+//go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter,CachedMinerGetter
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
@@ -153,6 +153,15 @@ type TelemetryDataStore interface {
 }
 type MinerGetter interface {
 	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
+}
+
+// CachedMinerGetter extends MinerGetter with cache invalidation. Services that
+// both fetch miners and need to evict stale handles should use this interface.
+type CachedMinerGetter interface {
+	MinerGetter
+	// InvalidateMiner removes the cached miner handle for the given device identifier.
+	// Call this when an auth error occurs so the next lookup fetches fresh credentials.
+	InvalidateMiner(deviceIdentifier models.DeviceIdentifier)
 }
 
 type deviceResult struct {
@@ -175,7 +184,7 @@ type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
 	telemetryDataStore TelemetryDataStore
-	minerManager       MinerGetter
+	minerManager       CachedMinerGetter
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	mux                sync.Mutex
@@ -205,7 +214,7 @@ type TelemetryService struct {
 	inFlight sync.Map // map[DeviceIdentifier]struct{}
 }
 
-func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
+func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
 		config:             config,
 		telemetryDataStore: telemetryDataStore,
@@ -793,12 +802,18 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 		if fleeterror.IsConnectionError(err) {
 			return mm.MinerStatusOffline, nil
 		}
+		if fleeterror.IsAuthenticationError(err) {
+			s.minerManager.InvalidateMiner(deviceID)
+		}
 		return mm.MinerStatusUnknown, err
 	}
 	status, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
 			return mm.MinerStatusOffline, nil
+		}
+		if fleeterror.IsAuthenticationError(err) {
+			s.minerManager.InvalidateMiner(deviceID)
 		}
 		return mm.MinerStatusUnknown, err
 	}

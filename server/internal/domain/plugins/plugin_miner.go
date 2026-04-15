@@ -142,6 +142,9 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 		if isNetworkError(err) {
 			return models.MinerStatusOffline, fleeterror.NewConnectionError(string(p.deviceID), err)
 		}
+		if isAuthError(err) {
+			return models.MinerStatusUnknown, fleeterror.NewUnauthenticatedErrorf("device %s authentication failed during status check: %v", p.deviceID, err)
+		}
 		return models.MinerStatusOffline, fleeterror.NewInternalErrorf("failed to get device status: %v", err)
 	}
 
@@ -498,16 +501,42 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 	}, nil
 }
 
+// isAuthError determines if an error represents an authentication failure.
+// Plugin calls cross the go-plugin gRPC boundary, where auth failures arrive as
+// codes.Unauthenticated status errors rather than sdk.SDKError values.
+// Both shapes are recognised so neither transport path is missed.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unauthenticated {
+		return true
+	}
+	var sdkErr sdk.SDKError
+	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed
+}
+
 // wrapPluginError converts an SDK/plugin error into the appropriate fleet error type.
-// It preserves gRPC Unimplemented status (unsupported capability) instead of wrapping
-// everything as an internal error, so the command system can skip retries for permanent failures.
+// It preserves gRPC Unimplemented and Unauthenticated statuses so the command system
+// can skip retries for permanent failures and cache eviction can fire on auth errors.
 func wrapPluginError(err error, format string, a ...any) error {
 	if err == nil {
 		return nil
 	}
 	msg := fmt.Sprintf(format, a...)
-	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
-		return fleeterror.NewUnimplementedErrorf("%s: %s", msg, st.Message())
+	if st, ok := grpcstatus.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unimplemented:
+			return fleeterror.NewUnimplementedErrorf("%s: %s", msg, st.Message())
+		case codes.Unauthenticated:
+			return fleeterror.NewUnauthenticatedErrorf("%s: %s", msg, st.Message())
+		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
+			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
+			codes.PermissionDenied, codes.ResourceExhausted, codes.FailedPrecondition,
+			codes.Aborted, codes.OutOfRange, codes.Internal, codes.Unavailable,
+			codes.DataLoss:
+			// All other gRPC status codes are treated as internal errors below.
+		}
 	}
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
 }

@@ -17,6 +17,7 @@ require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/lib/pq v1.12.3
 	github.com/oklog/ulid/v2 v2.1.1

@@ -27,7 +27,7 @@ func TestHandler_NewHandler(t *testing.T) {
 
 	// Create mocks for all required dependencies
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
@@ -224,7 +224,7 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 			tt.setupMocks(mockStore)
 
 			config := telemetry.Config{}
-			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+			mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
@@ -381,7 +381,7 @@ func TestHandler_StreamCombinedMetricUpdates_Integration(t *testing.T) {
 		}, nil).AnyTimes()
 
 	config := telemetry.Config{}
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)

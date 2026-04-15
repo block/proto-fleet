@@ -820,6 +820,10 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		return nil, err
 	}
 
+	for _, id := range deviceIdentifiers {
+		s.minerService.InvalidateMiner(mm.DeviceIdentifier(id))
+	}
+
 	if err := s.telemetry.RemoveDevices(ctx, telemetryModels.ToDeviceIdentifiers(deviceIdentifiers)...); err != nil {
 		slog.Warn("failed to remove devices from telemetry scheduler", "error", err)
 	}

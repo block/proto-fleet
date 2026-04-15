@@ -35,7 +35,7 @@ func TestExecutionService_Start(t *testing.T) {
 			started = true
 			return nil, nil
 		}).AnyTimes()
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
@@ -67,7 +67,7 @@ func TestExecutionService_Start(t *testing.T) {
 			started = true
 			return nil, nil
 		}).AnyTimes()
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
@@ -102,7 +102,7 @@ func TestStuckMessageReaper(t *testing.T) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}).AnyTimes()
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 
 		// conn=nil makes reapStuckMessages skip the DB call, so we just test
 		// that the goroutine starts and the processor runs alongside it.
@@ -172,7 +172,7 @@ func TestQueueProcessorRetries(t *testing.T) {
 			}).
 			AnyTimes()
 
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
@@ -206,7 +206,7 @@ func TestQueueProcessorRetries(t *testing.T) {
 			Return(nil, testError).
 			Times(3)
 
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
@@ -231,7 +231,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
 		message := queue.Message{
@@ -269,7 +269,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
 		message := queue.Message{
@@ -307,7 +307,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
 		message := queue.Message{
@@ -344,7 +344,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 
 		message := queue.Message{
 			ID:           4,
@@ -376,7 +376,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -453,7 +453,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -525,7 +525,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
 	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
@@ -594,7 +594,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -656,7 +656,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -723,7 +723,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
 	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
@@ -768,7 +768,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -815,7 +815,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -875,7 +875,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -928,7 +928,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -983,7 +983,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -1037,7 +1037,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
@@ -1097,7 +1097,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 

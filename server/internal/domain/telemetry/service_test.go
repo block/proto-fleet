@@ -29,7 +29,7 @@ func TestNewTelemetryService(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -50,7 +50,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	tests := []struct {
@@ -115,7 +115,7 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	tests := []struct {
@@ -186,7 +186,7 @@ func TestTelemetryService_Start(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -233,7 +233,7 @@ func TestTelemetryService_Stop(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -380,7 +380,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+			mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -464,7 +464,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -498,7 +498,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -531,7 +531,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -608,7 +608,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -660,7 +660,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -698,7 +698,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -785,7 +785,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 
 	t.Run("successfully streams initial update", func(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -863,7 +863,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 
 	t.Run("handles GetCombinedMetrics error on initial update", func(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -908,7 +908,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 
 	t.Run("sends multiple updates over time", func(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -984,7 +984,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 
 	t.Run("uses default update interval when not specified", func(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -1034,7 +1034,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 
 	t.Run("handles empty device list", func(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -1091,7 +1091,7 @@ func TestPollErrorsForDevice_WithValidMiner_ShouldCallPollErrors(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
@@ -1127,7 +1127,7 @@ func TestPollErrorsForDevice_WhenMinerLookupFails_ShouldNotCallPollErrors(t *tes
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
@@ -1159,7 +1159,7 @@ func TestPollErrorsForDevice_WithUpsertFailures_ShouldComplete(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
@@ -1248,7 +1248,7 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -1300,7 +1300,7 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -1350,7 +1350,7 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -1412,7 +1412,7 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1473,7 +1473,7 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1525,7 +1525,7 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1579,7 +1579,7 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1664,7 +1664,7 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1748,7 +1748,7 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1833,7 +1833,7 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 
 	// Arrange
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -1946,7 +1946,7 @@ func TestService_GetCombinedMetrics_ReturnsRawValues(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+			mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
@@ -2201,7 +2201,7 @@ func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.Devi
 func newStatusPollingService(t *testing.T, ctrl *gomock.Controller, scheduler *mock.MockUpdateScheduler) *TelemetryService {
 	t.Helper()
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	config := Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2358,4 +2358,95 @@ func TestStatusPollingRoutine_MixedDevices(t *testing.T) {
 	assert.Contains(t, enqueued, failedCachedActive, "failed device must not be skipped even if cached ACTIVE")
 	assert.NotContains(t, enqueued, inFlightDevice, "in-flight device should be skipped")
 	assert.Contains(t, enqueued, unseenDevice, "unseen device should be polled")
+}
+
+// Tests for fetchStatusFromMiner auth error → InvalidateMiner
+
+func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_InvalidatesMinerCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("device-bad-creds")
+	authErr := fleeterror.NewUnauthenticatedErrorf("invalid credentials for device %s", deviceID)
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(nil, authErr)
+
+	// fetchStatusFromMiner calls InvalidateMiner on auth error
+	mockMinerGetter.EXPECT().
+		InvalidateMiner(deviceID)
+
+	// processStatusOnly calls handleAuthenticationFailure on auth error
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
+		Return(nil)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	// Act
+	service.processStatusOnly(ctx, device)
+
+	// Assert — mock expectations verify InvalidateMiner was called exactly once
+}
+
+func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("device-expired-token")
+	authErr := fleeterror.NewUnauthenticatedErrorf("token expired for device %s", deviceID)
+
+	// GetMinerFromDeviceIdentifier succeeds (miner in cache)
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	// GetDeviceStatus returns an auth error (e.g., token rotated)
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusUnknown, authErr)
+
+	// fetchStatusFromMiner calls InvalidateMiner on auth error from GetDeviceStatus
+	mockMinerGetter.EXPECT().
+		InvalidateMiner(deviceID)
+
+	// processStatusOnly calls handleAuthenticationFailure on auth error
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
+		Return(nil)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	// Act
+	service.processStatusOnly(ctx, device)
+
+	// Assert — mock expectations verify InvalidateMiner was called exactly once
 }

@@ -214,7 +214,7 @@ func TestHandler_StreamCombinedMetricUpdates_UnitsConversion(t *testing.T) {
 // createTestHandler creates a handler with all required mocks for unit testing.
 func createTestHandler(ctrl *gomock.Controller, mockStore *mock.MockTelemetryDataStore) *Handler {
 	config := telemetry.Config{}
-	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
