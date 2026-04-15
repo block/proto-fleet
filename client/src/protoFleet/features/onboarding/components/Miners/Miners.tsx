@@ -401,7 +401,6 @@ const Miners = ({
         title="Import from Foreman"
         description="Connect your Foreman account to import miners"
         onDismiss={() => setShowForemanModal(false)}
-        size="small"
         buttons={[
           {
             text: foremanImportPending ? "Importing..." : "Import",

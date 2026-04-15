@@ -151,7 +151,6 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
       onDismiss={onDismiss}
       title={title}
       description={description}
-      size="large"
       divider={false}
       buttons={[
         {

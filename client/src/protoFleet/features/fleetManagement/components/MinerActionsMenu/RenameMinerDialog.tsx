@@ -74,7 +74,6 @@ const RenameMinerDialog = ({
       contentHeaderClassName="text-heading-300"
       onDismiss={onDismiss}
       divider={false}
-      size="large"
       buttons={[
         {
           text: "Save",

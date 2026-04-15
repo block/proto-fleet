@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import clsx from "clsx";
+
 import { create } from "@bufbuild/protobuf";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -19,7 +19,7 @@ import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
-import { sizes as modalSizes } from "@/shared/components/Modal/constants";
+
 import Switch from "@/shared/components/Switch";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
@@ -466,7 +466,7 @@ const AuthenticateMiners = ({
           onClick: authenticateMiners,
         },
       ]}
-      size={showMiners ? modalSizes.extraLarge : modalSizes.large}
+      size={showMiners ? "large" : undefined}
       title={showMiners ? "Authenticate miners" : undefined}
     >
       {!showMiners && (
@@ -492,40 +492,31 @@ const AuthenticateMiners = ({
         />
       )}
       <div className="mt-6 rounded-2xl bg-surface-5 p-6 dark:bg-core-primary-5">
-        <div className="flex w-full flex-wrap gap-4">
-          <div
-            className={clsx({
-              "flex-1 content-center": showMiners,
-              "flex w-full gap-2": !showMiners,
-            })}
-          >
+        <div className="flex w-full flex-col gap-4">
+          <div>
             <div className="text-emphasis-300">Bulk authenticate</div>
             <div className="text-300">
               {totalMiners} {totalMiners === 1 ? "miner" : "miners"} remaining
             </div>
           </div>
-          <div className="flex-1">
-            <Input
-              id={ids.username}
-              label="Miner username"
-              initValue={bulkCredentials.username}
-              disabled={authenticateLoading && bulkCredentials.username !== ""}
-              error={hasMissingCredentials && !bulkCredentials.username ? "Missing username" : undefined}
-              onChange={handleBulkChange}
-              autoFocus
-            />
-          </div>
-          <div className="flex-1">
-            <Input
-              id={ids.password}
-              label="Miner password"
-              type="password"
-              initValue={bulkCredentials.password}
-              disabled={authenticateLoading && bulkCredentials.password !== ""}
-              error={hasMissingCredentials && !bulkCredentials.password ? "Missing password" : undefined}
-              onChange={handleBulkChange}
-            />
-          </div>
+          <Input
+            id={ids.username}
+            label="Miner username"
+            initValue={bulkCredentials.username}
+            disabled={authenticateLoading && bulkCredentials.username !== ""}
+            error={hasMissingCredentials && !bulkCredentials.username ? "Missing username" : undefined}
+            onChange={handleBulkChange}
+            autoFocus
+          />
+          <Input
+            id={ids.password}
+            label="Miner password"
+            type="password"
+            initValue={bulkCredentials.password}
+            disabled={authenticateLoading && bulkCredentials.password !== ""}
+            error={hasMissingCredentials && !bulkCredentials.password ? "Missing password" : undefined}
+            onChange={handleBulkChange}
+          />
         </div>
       </div>
       {showMiners && (

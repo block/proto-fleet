@@ -11,7 +11,7 @@ import { variants } from "@/shared/components/Button";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import { sizes } from "@/shared/components/Modal/constants";
+
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { deepClone } from "@/shared/utils/utility";
 
@@ -63,7 +63,7 @@ const PoolModal = ({
   const [isPasswordSet, setIsPasswordSet] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
-  const modalSize = isPhone || isTablet ? sizes.fullscreen : sizes.large;
+  const modalSize = isPhone || isTablet ? "fullscreen" : "standard";
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,

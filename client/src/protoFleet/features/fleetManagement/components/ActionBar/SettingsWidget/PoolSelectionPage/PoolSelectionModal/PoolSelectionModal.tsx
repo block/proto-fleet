@@ -256,7 +256,7 @@ const PoolSelectionModal = ({
         },
       ]}
       onDismiss={onDismiss}
-      size="extraLarge"
+      size="large"
     >
       <div className="mt-6 flex flex-col gap-6">
         <DismissibleCalloutWrapper

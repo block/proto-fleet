@@ -116,14 +116,7 @@ const ManageColumnsModal = ({ preferences, onDismiss, onSave }: ManageColumnsMod
   const columnIds = useMemo(() => draftPreferences.columns.map((column) => column.id), [draftPreferences.columns]);
 
   return (
-    <Modal
-      open
-      onDismiss={onDismiss}
-      showHeader={false}
-      size="small"
-      className="w-[min(calc(100vw-(--spacing(4))),640px)] max-w-[640px]"
-      bodyClassName="text-text-primary"
-    >
+    <Modal open onDismiss={onDismiss} showHeader={false} bodyClassName="text-text-primary">
       <div className="flex flex-col gap-6" data-testid="manage-columns-modal">
         <div className="flex items-center gap-4">
           <Button

@@ -63,7 +63,6 @@ const RenameOptionsModal = ({
     hideHeaderOnPhone
     divider={false}
     headerSpacingClassName="mt-4"
-    size="large"
     phoneSheet
     {...buildModalActions(onDismiss, onConfirm, desktopSaveTestId, mobileSaveTestId, saveDisabled)}
   >

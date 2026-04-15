@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { action } from "storybook/actions";
 
-import ModalComponent, { sizes as modalSizes } from ".";
+import ModalComponent from ".";
 import Button, { sizes, variants } from "@/shared/components/Button";
 
 interface ModalProps {
@@ -67,6 +67,89 @@ export default {
   },
 };
 
+// Standard variant (640px) — default size
+export const Standard = () => {
+  const [showModal, setShowModal] = useState(true);
+
+  return (
+    <>
+      <div className="mt-16 flex w-full justify-center">
+        <div className="flex flex-col">
+          <div className="mb-2 text-400">Content behind the overlay</div>
+          <Button
+            onClick={() => setShowModal(true)}
+            text="Show Standard Modal"
+            variant={variants.primary}
+            size={sizes.base}
+          />
+        </div>
+      </div>
+      {showModal && (
+        <ModalComponent
+          title="Standard Modal"
+          contentHeader="Form Content"
+          size="standard" // explicit for demo purposes
+          buttons={[
+            {
+              text: "Save",
+              onClick: action("Save button clicked"),
+              variant: variants.primary,
+            },
+          ]}
+          onDismiss={() => setShowModal(false)}
+        >
+          <div className="mt-4 flex flex-col gap-4">
+            <p>This modal is 640px max-width, the default size for forms and general content.</p>
+          </div>
+        </ModalComponent>
+      )}
+    </>
+  );
+};
+
+// Large variant (dynamic, max 1280px)
+export const Large = () => {
+  const [showModal, setShowModal] = useState(true);
+
+  return (
+    <>
+      <div className="mt-16 flex w-full justify-center">
+        <div className="flex flex-col">
+          <div className="mb-2 text-400">Content behind the overlay</div>
+          <Button
+            onClick={() => setShowModal(true)}
+            text="Show Large Modal"
+            variant={variants.primary}
+            size={sizes.base}
+          />
+        </div>
+      </div>
+      {showModal && (
+        <ModalComponent
+          title="Large Modal"
+          contentHeader="Data-Heavy Content"
+          size="large"
+          buttons={[
+            {
+              text: "Done",
+              onClick: action("Done button clicked"),
+              variant: variants.primary,
+            },
+          ]}
+          onDismiss={() => setShowModal(false)}
+        >
+          <div className="mt-4 flex flex-col gap-4">
+            <p>
+              This modal flexes to the viewport width (minus margins) with a max of 1280px, suitable for tables and
+              data-heavy content.
+            </p>
+          </div>
+        </ModalComponent>
+      )}
+    </>
+  );
+};
+
 // Fullscreen variant
 export const Fullscreen = () => {
   const [showModal, setShowModal] = useState(true);
@@ -88,7 +171,7 @@ export const Fullscreen = () => {
         <ModalComponent
           title="Fullscreen Modal"
           contentHeader="This modal takes up the full screen"
-          size={modalSizes.fullscreen}
+          size="fullscreen"
           buttons={[
             {
               text: "Close",

@@ -66,7 +66,6 @@ const MinerSystemTagEditModal = ({ open, currentTag, onDismiss, onSaved }: Miner
     <Modal
       open={open}
       onDismiss={onDismiss}
-      size="small"
       buttons={[
         {
           text: "Save",

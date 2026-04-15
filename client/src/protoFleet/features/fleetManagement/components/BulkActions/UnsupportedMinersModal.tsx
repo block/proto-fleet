@@ -59,7 +59,6 @@ const UnsupportedMinersModal = ({
             testId: "continue-button",
           },
         ]}
-        size="large"
         divider={false}
       >
         <div className="mb-6">

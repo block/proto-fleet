@@ -108,14 +108,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
   const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
   return (
-    <Modal
-      open={open}
-      contentHeader="Add firmware payload"
-      onDismiss={handleDismiss}
-      buttons={buttons}
-      size="large"
-      divider={false}
-    >
+    <Modal open={open} contentHeader="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
       <div className="text-text-secondary mt-2 text-300">Upload the firmware payload file to update your miners.</div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner && (

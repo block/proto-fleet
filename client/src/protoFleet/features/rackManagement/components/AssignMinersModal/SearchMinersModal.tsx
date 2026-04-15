@@ -33,7 +33,7 @@ export default function SearchMinersModal({ show, currentRackLabel, onDismiss, o
     <Modal
       open={show}
       title="Search miners"
-      size="extraLarge"
+      size="large"
       onDismiss={onDismiss}
       divider={false}
       buttons={[

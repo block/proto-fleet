@@ -121,9 +121,7 @@ const UpdateMinerPasswordModal = ({
           dismissModalOnClick: false,
         },
       ]}
-      size="small"
       divider={false}
-      className="w-full"
       contentHeaderClassName="text-heading-300"
     >
       <div className="mb-6 text-300 text-text-primary-70">

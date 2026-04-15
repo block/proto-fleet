@@ -323,7 +323,6 @@ const AuthenticationSettings = () => {
               },
             ]}
             divider={false}
-            size="large"
             onDismiss={() => setShowModal(false)}
           >
             {step === "authenticate" && <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />}

@@ -14,7 +14,7 @@ interface InfoModalProps {
 
 const InfoModal = ({ onDismiss, buttons }: InfoModalProps) => {
   return (
-    <Modal title="Immersion cooling" onDismiss={onDismiss} buttons={buttons} size="small">
+    <Modal title="Immersion cooling" onDismiss={onDismiss} buttons={buttons}>
       <div className="mt-6 flex flex-col gap-6">
         <Header
           title="Prepare your miner for immersion"

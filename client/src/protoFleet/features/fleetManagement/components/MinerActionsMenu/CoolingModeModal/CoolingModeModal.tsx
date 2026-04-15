@@ -126,7 +126,6 @@ const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onD
           onClick: hasSelection ? handleConfirm : handleDismiss,
         },
       ]}
-      size="small"
       divider={false}
     >
       <div className="text-text-secondary mb-6 text-200">{`Update the cooling mode for ${minerCount} ${minerText}`}</div>

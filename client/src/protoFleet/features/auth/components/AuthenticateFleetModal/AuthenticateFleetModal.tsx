@@ -81,9 +81,7 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
       description="Contact your system administrator if you need access to edit settings."
       onDismiss={onDismiss}
       icon={null}
-      size="small"
       divider={false}
-      className="!max-w-[400px]"
       bodyClassName="-mt-2"
     >
       {errorMessage ? <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={errorMessage} /> : null}

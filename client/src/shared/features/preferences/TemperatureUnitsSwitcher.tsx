@@ -39,7 +39,6 @@ const TemperatureUnitsSwitcher = ({
           variant: variants.secondary,
         },
       ]}
-      size="small"
       divider={false}
     >
       <div className="mt-6 flex flex-col gap-4">

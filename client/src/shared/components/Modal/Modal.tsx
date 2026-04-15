@@ -13,6 +13,12 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
+const sizeClasses: Record<keyof typeof sizes, string> = {
+  standard: "w-[min(calc(100vw-(--spacing(4))),640px)]",
+  large: "w-[min(calc(100vw-(--spacing(4))),1280px)]",
+  fullscreen: "h-full w-full max-w-full overflow-y-auto rounded-none",
+};
+
 // optional prop to delay close modal on clicking button and allow animations to finish
 interface ModalButtonProps extends ButtonProps {
   dismissModalOnClick?: boolean;
@@ -63,7 +69,7 @@ const Modal = ({
   title,
   description,
   divider = true,
-  size = sizes.large,
+  size = sizes.standard,
   zIndex,
   iconAriaLabel = "Close dialog",
 }: ModalProps) => {
@@ -114,14 +120,8 @@ const Modal = ({
         {...slideUpAnimation}
         className={clsx(
           "relative h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
+          sizeClasses[size],
           {
-            "min-w-[min(calc(100vw-(--spacing(4))),360px)]": size === sizes.small,
-            "min-w-[min(calc(100vw-(--spacing(4))),640px)]": size === sizes.large,
-            "min-w-[min(calc(100vw-(--spacing(4))),1024px)]": size === sizes.extraLarge,
-            "max-w-[640px]": size === sizes.small,
-            "max-w-[1024px]": size === sizes.large,
-            "max-w-[1280px]": size === sizes.extraLarge,
-            "h-full w-full max-w-full overflow-y-auto rounded-none": size === sizes.fullscreen,
             "mt-16 max-h-[calc(100vh-(--spacing(32)))] overflow-auto": size !== sizes.fullscreen,
             "pt-0": showHeader,
             "phone:pt-6": hideHeaderOnPhone,
