@@ -1,41 +1,36 @@
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Info } from "@/shared/assets/icons";
+import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 const InfoTooltip = ({ heading, body }: { heading: string; body: string }) => {
-  const iconRef = useRef<HTMLButtonElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-
-  const handleMouseEnter = () => {
-    if (iconRef.current) {
-      const rect = iconRef.current.getBoundingClientRect();
-      setPosition({ top: rect.bottom + 8, left: rect.right - 320 });
-    }
-    setVisible(true);
-  };
+  const { triggerRef, floatingStyle, isVisible, show, hide } = useFloatingPosition<HTMLButtonElement>({
+    placement: "bottom-end",
+    gap: 8,
+    minWidth: 320,
+  });
 
   return (
     <>
       <button
-        ref={iconRef}
+        ref={triggerRef}
         type="button"
         aria-label={`${heading}`}
         className="inline-flex appearance-none border-none bg-transparent p-0"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={() => setVisible(false)}
-        onFocus={handleMouseEnter}
-        onBlur={() => setVisible(false)}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
       >
         <Info className="shrink-0 cursor-default text-text-primary-30" />
       </button>
-      {visible &&
+      {isVisible &&
         createPortal(
           <div
             role="tooltip"
             className="fixed z-50 w-80 rounded-lg bg-surface-base p-4 shadow-200"
-            style={{ top: position.top, left: position.left }}
+            style={floatingStyle}
           >
             <div className="text-300 text-text-primary-50">{heading}</div>
             <div className="text-300 text-text-primary">{body}</div>

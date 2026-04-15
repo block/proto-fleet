@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 type MinerGroupsProps = {
   miner: MinerStateSnapshot;
@@ -11,8 +12,11 @@ type MinerGroupsProps = {
 
 const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
   const groupLabels = miner.groupLabels;
-  const triggerRef = useRef<HTMLSpanElement>(null);
-  const [popoverRect, setPopoverRect] = useState<DOMRect | null>(null);
+  const { triggerRef, floatingStyle, isVisible, show, hide } = useFloatingPosition<HTMLSpanElement>({
+    placement: "bottom-start",
+    maxHeight: 400,
+    minWidth: 240,
+  });
   const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const open = useCallback(() => {
@@ -20,15 +24,14 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
       clearTimeout(closeTimeout.current);
       closeTimeout.current = null;
     }
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (rect) setPopoverRect(rect);
-  }, []);
+    show();
+  }, [show]);
 
   const closeWithDelay = useCallback(() => {
     closeTimeout.current = setTimeout(() => {
-      setPopoverRect(null);
+      hide();
     }, 100);
-  }, []);
+  }, [hide]);
 
   if (!groupLabels || groupLabels.length === 0) {
     return <span />;
@@ -53,11 +56,11 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
   return (
     <span ref={triggerRef} className="cursor-default" onMouseEnter={open} onMouseLeave={closeWithDelay}>
       {groupLabels.length} groups
-      {popoverRect &&
+      {isVisible &&
         createPortal(
           <div
             className="fixed z-[9999] min-w-60 rounded-lg bg-surface-elevated-base px-3 py-2 shadow-lg"
-            style={{ top: popoverRect.bottom + 4, left: popoverRect.left }}
+            style={floatingStyle}
             onMouseEnter={open}
             onMouseLeave={closeWithDelay}
           >
