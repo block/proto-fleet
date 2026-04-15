@@ -47,8 +47,15 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		require.Len(t, devices, 1)
 		assert.Equal(t, deviceID, devices[0].ID)
 
-		// Verify device was added with recent timestamp
-		assert.Less(t, time.Since(devices[0].LastUpdatedAt), time.Second)
+		// Verify device was added with zero timestamp so it is immediately eligible for scheduling
+		assert.True(t, devices[0].LastUpdatedAt.IsZero(), "new devices should start with zero timestamp to be immediately eligible for scheduling")
+
+		// Act
+		stale, err := s.FetchDevices(ctx, time.Now())
+
+		// Assert
+		require.NoError(t, err)
+		assert.Len(t, stale, 1, "new device should be immediately returned by FetchDevices")
 	})
 
 	t.Run("adds multiple new devices successfully", func(t *testing.T) {
@@ -331,23 +338,30 @@ func TestScheduler_FetchDevices(t *testing.T) {
 	})
 
 	t.Run("returns empty slice when no old devices", func(t *testing.T) {
+		// Arrange: register devices, check them out, then re-add with time.Now() to simulate a fresh poll
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-
-		// Add only recent devices
 		deviceIDs := []models.DeviceIdentifier{"1", "2"}
 		for _, id := range deviceIDs {
 			err := s.AddNewDevices(ctx, id)
 			require.NoError(t, err)
 		}
+		// Check out all devices (simulating the scheduler picking them up)
+		_, err := s.FetchDevices(ctx, time.Now())
+		require.NoError(t, err)
+		// Re-add with time.Now() to simulate a just-completed poll
+		for _, id := range deviceIDs {
+			err := s.AddDevices(ctx, models.Device{ID: id, LastUpdatedAt: time.Now()})
+			require.NoError(t, err)
+		}
 
-		// Try to fetch devices older than 1 hour (all devices are recent)
-		threshold := time.Now().Add(-1 * time.Hour)
-		fetchedDevices, err := s.FetchDevices(ctx, threshold)
+		// Act: fetch with a threshold 1 hour ago — freshly polled devices should not be stale
+		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(-1*time.Hour))
 
+		// Assert
 		require.NoError(t, err)
 		assert.Empty(t, fetchedDevices)
 		assert.Equal(t, 2, s.GetDeviceCount()) // All devices should remain

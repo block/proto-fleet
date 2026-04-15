@@ -43,7 +43,7 @@ func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.Device
 			continue
 		}
 		s.mu.Lock()
-		s.devices[id] = time.Now()
+		s.devices[id] = time.Time{} // Zero time ensures device is immediately eligible for scheduling
 		s.mu.Unlock()
 		slog.Debug("Added new device to scheduler", "device_id", id)
 		// TODO(Briano-block): do we want to fetch historical telemetry data for the new device?
