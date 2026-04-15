@@ -10,6 +10,7 @@ import { GroupsPage } from "../pages/groups";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
 import { NewPoolModalPage } from "../pages/newPoolModal";
+import { RacksPage } from "../pages/racks";
 import { SettingsPage } from "../pages/settings";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
@@ -20,6 +21,7 @@ type PageFixtures = {
   homePage: HomePage;
   minersPage: MinersPage;
   groupsPage: GroupsPage;
+  racksPage: RacksPage;
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
   settingsSecurityPage: SettingsSecurityPage;
@@ -43,6 +45,9 @@ export const test = base.extend<PageFixtures>({
   },
   groupsPage: async ({ page, isMobile }, use) => {
     await use(new GroupsPage(page, isMobile));
+  },
+  racksPage: async ({ page, isMobile }, use) => {
+    await use(new RacksPage(page, isMobile));
   },
   addMinersPage: async ({ page, isMobile }, use) => {
     await use(new AddMinersPage(page, isMobile));

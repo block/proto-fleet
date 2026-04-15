@@ -28,6 +28,7 @@ const MiniRackGrid = ({ cols, rows, slots }: MiniRackGridProps) => {
   return (
     <div className="flex justify-center">
       <div
+        data-testid="rack-card-grid"
         className="grid"
         style={{
           gridTemplateColumns: `repeat(${cols}, ${slotSize}px)`,
@@ -41,6 +42,7 @@ const MiniRackGrid = ({ cols, rows, slots }: MiniRackGridProps) => {
           return (
             <div
               key={i}
+              data-testid="rack-card-slot"
               className={clsx("relative rounded-[3px]", slotColorMap[status], {
                 "border border-core-primary-10": status === "empty",
               })}

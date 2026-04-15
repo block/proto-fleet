@@ -125,11 +125,14 @@ function RackSlotCell({
 }) {
   const isAssigned = !!assignedMinerId;
   const isClickable = isManualMode;
+  const slotState = isSelected ? "selected" : isAssigned ? "assigned" : "empty";
 
   return (
     <div className="relative">
       <button
         type="button"
+        data-testid={`rack-slot-${String(slot.slotNumber).padStart(padWidth, "0")}`}
+        data-slot-state={slotState}
         className={clsx(
           "flex items-center justify-center rounded-lg tabular-nums transition-colors",
           isSelected

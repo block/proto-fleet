@@ -1,10 +1,13 @@
 import { expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
+import { ModalMinerSelectionList } from "./components/modalMinerSelectionList";
 
 const EMPTY_GROUP_PLACEHOLDER = "—";
 
 export class GroupsPage extends BasePage {
+  private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
+
   private async clickLocator(locator: Locator) {
     try {
       await locator.click({ timeout: 2000 });
@@ -76,33 +79,19 @@ export class GroupsPage extends BasePage {
   }
 
   async clickSelectAllCheckboxInModal() {
-    await this.page.getByTestId("modal").getByTestId("select-all-checkbox").locator('input[type="checkbox"]').click();
+    await this.modalMinerList.clickSelectAllCheckbox();
   }
 
   async waitForModalListToLoad() {
-    const rows = this.page.getByTestId("modal").getByTestId("list-body").locator("tr");
-    await expect(rows).not.toHaveCount(0);
-    await expect(async () => {
-      const rowCount = await rows.count();
-      await new Promise((resolve) => setTimeout(resolve, DEFAULT_INTERVAL));
-      const rowCountAfterDelay = await rows.count();
-      // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
-      expect(rowCountAfterDelay).toBe(rowCount);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    await this.modalMinerList.waitForListToLoad();
   }
 
   async getModalListRowCount(): Promise<number> {
-    const rows = this.page.getByTestId("modal").getByTestId("list-row");
-    return await rows.count();
+    return await this.modalMinerList.getRowCount();
   }
 
   async selectMinersByIndex(indexes: number[]) {
-    const rows = this.page.getByTestId("modal").getByTestId("list-row");
-    for (const index of indexes) {
-      const row = rows.nth(index);
-      await row.scrollIntoViewIfNeeded();
-      await row.getByTestId("checkbox").locator('input[type="checkbox"]').click();
-    }
+    await this.modalMinerList.selectRowsByIndex(indexes);
   }
 
   async validateMinerGroupsByIndex(index: number, expectedGroups: string) {
@@ -111,14 +100,12 @@ export class GroupsPage extends BasePage {
   }
 
   async getModalRowGroupByIndex(index: number): Promise<string> {
-    const groupCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("group");
-    const groupText = (await groupCell.innerText()).trim();
+    const groupText = await this.modalMinerList.getCellTextByIndex(index, "group");
     return groupText === EMPTY_GROUP_PLACEHOLDER ? "" : groupText;
   }
 
   async getModalRowIpAddressByIndex(index: number): Promise<string> {
-    const ipCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("ipAddress");
-    return (await ipCell.innerText()).trim();
+    return await this.modalMinerList.getCellTextByIndex(index, "ipAddress");
   }
 
   async getUngroupedMinerIps(limit: number): Promise<string[]> {
@@ -136,13 +123,7 @@ export class GroupsPage extends BasePage {
   }
 
   async selectMinerByIp(ipAddress: string) {
-    const row = this.page
-      .getByTestId("modal")
-      .getByTestId("list-row")
-      .filter({ has: this.page.getByTestId("ipAddress").getByText(ipAddress, { exact: true }) })
-      .first();
-    await row.scrollIntoViewIfNeeded();
-    await row.getByTestId("checkbox").locator('input[type="checkbox"]').click();
+    await this.modalMinerList.selectRowByCellText("ipAddress", ipAddress);
   }
 
   async validateMinerGroupsByIp(ipAddress: string, expectedGroups: string) {
@@ -156,13 +137,7 @@ export class GroupsPage extends BasePage {
   }
 
   async getModalVisibleIpAddresses(): Promise<string[]> {
-    const ipCells = this.page.getByTestId("modal").getByTestId("list-row").getByTestId("ipAddress");
-    const count = await ipCells.count();
-    const result: string[] = [];
-    for (let i = 0; i < count; i++) {
-      result.push(((await ipCells.nth(i).innerText()) || "").trim());
-    }
-    return result;
+    return await this.modalMinerList.getVisibleCellTexts("ipAddress");
   }
 
   async validateOnlyTheseIpsVisibleInModal(expectedIps: string[]) {

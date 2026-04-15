@@ -788,6 +788,22 @@ export class MinersPage extends BasePage {
     await expect(activeFilterButton).toBeVisible();
   }
 
+  async validateActiveFilterNotVisible(filterLabel: string) {
+    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    await expect(activeFilterButton).toHaveCount(0);
+  }
+
+  async clickClearAllFilters() {
+    await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
+  }
+
+  async validateNoResultsEmptyState() {
+    await this.page.getByText("No results", { exact: true }).waitFor();
+    await expect(this.page.getByText("No results", { exact: true })).toBeVisible();
+    await expect(this.page.getByText("Try adjusting or clearing your filters.", { exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Clear all filters", exact: true })).toBeVisible();
+  }
+
   async getMinersCount(): Promise<number> {
     const rows = this.page.getByTestId("list-body").locator("tr");
     return await rows.count();

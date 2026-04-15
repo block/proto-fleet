@@ -22,11 +22,18 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
   const { state, slotNumber } = slot;
   const num = String(slotNumber).padStart(2, "0");
   const dotColor = dotColors[state];
+  const slotTestId = `rack-detail-slot-${num}`;
 
   if (state === "empty") {
     return (
-      <div className="flex items-center justify-center rounded-lg" style={{ width: slotSize, height: slotSize }}>
+      <div
+        data-testid={slotTestId}
+        data-slot-state="empty"
+        className="flex items-center justify-center rounded-lg"
+        style={{ width: slotSize, height: slotSize }}
+      >
         <button
+          data-testid="rack-detail-slot-empty-action"
           type="button"
           aria-label={`Assign miner to slot ${num}`}
           onClick={() => onEmptySlotClick?.(row, col)}
@@ -50,6 +57,8 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
 
   return (
     <div
+      data-testid={slotTestId}
+      data-slot-state={state}
       className={clsx(
         "flex items-center justify-center rounded-lg font-medium tabular-nums",
         compact ? "flex-col" : "flex-row",
@@ -69,6 +78,7 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
       )}
       {!iconOnly && (
         <span
+          data-testid="rack-detail-slot-number"
           className={clsx("leading-none", state === "sleeping" ? "text-text-primary-30" : "text-text-primary-70")}
           style={{ fontSize: `clamp(10px, 2.5cqi, 14px)` }}
         >

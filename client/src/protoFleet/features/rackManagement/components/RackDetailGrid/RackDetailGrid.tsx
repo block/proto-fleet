@@ -46,6 +46,7 @@ export default function RackDetailGrid({
     <div ref={measureRef} className="flex w-full justify-center">
       {computedSlotSize > 0 && (
         <div
+          data-testid="rack-detail-grid"
           className="grid"
           style={{
             gridTemplateColumns: `repeat(${gridCols}, ${computedSlotSize}px)`,

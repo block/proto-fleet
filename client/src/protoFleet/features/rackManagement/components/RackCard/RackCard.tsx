@@ -40,6 +40,7 @@ const RackCard = ({
 
   return (
     <div
+      data-testid="rack-card"
       className={clsx(
         "flex cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80",
         {
@@ -64,8 +65,14 @@ const RackCard = ({
       <div className="flex flex-1 flex-col px-5 pt-5 pb-4">
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
-          <span className="text-300 text-emphasis-300">{label}</span>
-          {zone && <span className="text-300 text-text-primary-50">{zone}</span>}
+          <span data-testid="rack-card-label" className="text-300 text-emphasis-300">
+            {label}
+          </span>
+          {zone && (
+            <span data-testid="rack-card-zone" className="text-300 text-text-primary-50">
+              {zone}
+            </span>
+          )}
         </div>
 
         {/* Mini Rack Grid */}

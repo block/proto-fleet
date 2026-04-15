@@ -111,6 +111,7 @@ function MinerRow({
 
   return (
     <div
+      data-testid="rack-miner-row"
       className={clsx(
         "flex items-center px-3 py-3 transition-colors",
         isSelected && "bg-surface-5",
@@ -136,9 +137,13 @@ function MinerRow({
         </div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-300 text-text-primary">{name || deviceId}</div>
+        <div className="truncate text-300 text-text-primary" data-testid="rack-miner-name">
+          {name || deviceId}
+        </div>
         {subtitleParts.length > 0 && (
-          <div className="truncate text-300 text-text-primary-50">{subtitleParts.join(", ")}</div>
+          <div className="truncate text-300 text-text-primary-50" data-testid="rack-miner-subtitle">
+            {subtitleParts.join(", ")}
+          </div>
         )}
       </div>
 
@@ -151,7 +156,10 @@ function MinerRow({
       )}
 
       {!isSelected && isAssigned && (
-        <span className="shrink-0 text-300 font-medium text-text-primary tabular-nums">
+        <span
+          className="shrink-0 text-300 font-medium text-text-primary tabular-nums"
+          data-testid="rack-miner-position"
+        >
           Position {String(assignedSlotNumber).padStart(2, "0")}
         </span>
       )}
