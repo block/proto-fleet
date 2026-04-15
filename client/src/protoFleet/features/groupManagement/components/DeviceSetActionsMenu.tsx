@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
 
-import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -134,19 +134,11 @@ const DeviceSetActionsMenuInner = ({
           });
         }
 
-        // Fetch miner snapshots for firmware model checks
+        // Fetch miner snapshots with cursor pagination for firmware model checks
         const filter = deviceSetType === "rack" ? { rackIds: [deviceSetId] } : { groupIds: [deviceSetId] };
         setFetchingMiners(true);
-        fleetManagementClient
-          .listMinerStateSnapshots({
-            pageSize: 1000,
-            filter,
-          })
-          .then((response) => {
-            const map: Record<string, MinerStateSnapshot> = {};
-            response.miners.forEach((m) => {
-              map[m.deviceIdentifier] = m;
-            });
+        fetchAllMinerSnapshots(filter)
+          .then((map) => {
             setFetchedMiners(map);
           })
           .catch(() => {

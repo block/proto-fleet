@@ -5,7 +5,7 @@ import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
-import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
@@ -30,27 +30,13 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
  *  Applies the same filter the user had active in MinerSelectionList so "select all"
  *  respects model/type filters. Miners in other racks are excluded. */
 async function fetchAllSelectableMinerIds(rackLabel: string, listFilter?: MinerListFilter): Promise<string[]> {
-  const ids: string[] = [];
-  let cursor = "";
-  // Merge the list filter with PAIRED pairing status (matching MinerSelectionList's useFleet call)
   const filter = listFilter
     ? { ...listFilter, pairingStatuses: [PairingStatus.PAIRED] }
     : { pairingStatuses: [PairingStatus.PAIRED] };
-  do {
-    const response = await fleetManagementClient.listMinerStateSnapshots({
-      pageSize: 1000,
-      cursor,
-      filter,
-    });
-    for (const miner of response.miners) {
-      // Include miners not in any rack, or already in this rack
-      if (!miner.rackLabel || miner.rackLabel === rackLabel) {
-        ids.push(miner.deviceIdentifier);
-      }
-    }
-    cursor = response.cursor;
-  } while (cursor);
-  return ids;
+  const snapshots = await fetchAllMinerSnapshots(filter);
+  return Object.values(snapshots)
+    .filter((m) => !m.rackLabel || m.rackLabel === rackLabel)
+    .map((m) => m.deviceIdentifier);
 }
 
 /** Remove the first entry whose value matches `target` from a record, returning a shallow copy. */
