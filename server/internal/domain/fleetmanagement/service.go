@@ -51,6 +51,14 @@ const (
 	clearAuthKeyTimeout = 5 * time.Second
 )
 
+// bracketIPv6Host wraps bare IPv6 addresses in brackets for use in URLs.
+func bracketIPv6Host(host string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
 // constructWebViewURL builds a web view URL
 //
 // Note: The port is intentionally omitted from the URL for display purposes, as web browsers
@@ -60,7 +68,7 @@ func constructWebViewURL(scheme, ipAddress string) string {
 	if ipAddress == "" || scheme == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s://%s", scheme, ipAddress)
+	return fmt.Sprintf("%s://%s", scheme, bracketIPv6Host(ipAddress))
 }
 
 // CapabilitiesProvider provides miner capabilities from plugins.
@@ -377,7 +385,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		} else {
 			snapshot.IpAddress = row.IpAddress
 
-			url := row.UrlScheme + "://" + row.IpAddress
+			url := row.UrlScheme + "://" + bracketIPv6Host(row.IpAddress)
 			if row.Port != "" && row.Port != defaultHTTPPort && row.Port != defaultHTTPSPort {
 				url += ":" + row.Port
 			}

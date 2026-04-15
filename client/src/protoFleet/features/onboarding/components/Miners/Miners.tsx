@@ -19,7 +19,8 @@ interface MinersProps {
   scanDiscoveryPending: boolean;
   ipListDiscoveryPending: boolean;
   pairingPending: boolean;
-  networkInfoReady: boolean;
+  networkInfoPending: boolean;
+  scanAvailable: boolean;
   foundMiners: Device[];
   onCancelScan: () => void;
   onManualDiscover: (targets: ManualDiscoveryTargets) => void;
@@ -37,7 +38,8 @@ const Miners = ({
   scanDiscoveryPending,
   ipListDiscoveryPending,
   pairingPending,
-  networkInfoReady,
+  networkInfoPending,
+  scanAvailable,
   foundMiners,
   onCancelScan,
   onManualDiscover,
@@ -301,8 +303,8 @@ const Miners = ({
                         onRescan();
                       }}
                       size={sizes.base}
-                      loading={scanDiscoveryPending || !networkInfoReady}
-                      disabled={!networkInfoReady}
+                      loading={scanDiscoveryPending || networkInfoPending}
+                      disabled={!scanAvailable}
                     >
                       Find miners
                     </Button>

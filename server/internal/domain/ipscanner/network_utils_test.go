@@ -322,3 +322,83 @@ func TestIncrementIP(t *testing.T) {
 		})
 	}
 }
+
+func TestIPToSubnet_IPv6(t *testing.T) {
+	tests := []struct {
+		name     string
+		ip       string
+		maskBits int
+		want     string
+	}{
+		{
+			name:     "IPv6 /64 from host address",
+			ip:       "fd00::1",
+			maskBits: 64,
+			want:     "fd00::/64",
+		},
+		{
+			name:     "IPv6 /64 default when maskBits is 0",
+			ip:       "fd00::1",
+			maskBits: 0,
+			want:     "fd00::/64",
+		},
+		{
+			name:     "IPv6 /128 single host",
+			ip:       "2001:db8::1",
+			maskBits: 128,
+			want:     "2001:db8::1/128",
+		},
+		{
+			name:     "IPv6 /48 subnet",
+			ip:       "2001:db8:1::100",
+			maskBits: 48,
+			want:     "2001:db8:1::/48",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ipToSubnet(tt.ip, tt.maskBits)
+			if err != nil {
+				t.Fatalf("ipToSubnet(%s, %d) returned unexpected error: %v", tt.ip, tt.maskBits, err)
+			}
+			if got != tt.want {
+				t.Errorf("ipToSubnet(%s, %d) = %s, want %s", tt.ip, tt.maskBits, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetSubnetFromIPAndMask_IPv6(t *testing.T) {
+	tests := []struct {
+		name     string
+		ip       string
+		maskBits int
+		want     string
+	}{
+		{
+			name:     "IPv6 /64",
+			ip:       "fd00::abcd",
+			maskBits: 64,
+			want:     "fd00::/64",
+		},
+		{
+			name:     "IPv6 /120",
+			ip:       "fd00::1:ff",
+			maskBits: 120,
+			want:     "fd00::1:0/120",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getSubnetFromIPAndMask(tt.ip, tt.maskBits)
+			if err != nil {
+				t.Fatalf("getSubnetFromIPAndMask(%s, %d) returned unexpected error: %v", tt.ip, tt.maskBits, err)
+			}
+			if got != tt.want {
+				t.Errorf("getSubnetFromIPAndMask(%s, %d) = %s, want %s", tt.ip, tt.maskBits, got, tt.want)
+			}
+		})
+	}
+}

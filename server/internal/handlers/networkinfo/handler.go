@@ -28,9 +28,11 @@ func (h Handler) GetNetworkInfo(ctx context.Context, _ *connect.Request[pb.GetNe
 
 	return connect.NewResponse(&pb.GetNetworkInfoResponse{
 		NetworkInfo: &pb.NetworkInfo{
-			Gateway: info.Gateway,
-			LocalIp: info.LocalIP,
-			Subnet:  info.Subnet,
+			Gateway:    info.Gateway,
+			LocalIp:    info.LocalIP,
+			Subnet:     info.Subnet,
+			LocalIpv6:  info.LocalIPv6,
+			Ipv6Subnet: info.IPv6Subnet,
 		},
 	}), nil
 }

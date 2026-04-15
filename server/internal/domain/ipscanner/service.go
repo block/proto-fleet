@@ -3,6 +3,7 @@ package ipscanner
 import (
 	"context"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -182,8 +183,17 @@ func (s *Service) scanOfflineDevices(ctx context.Context) {
 			continue
 		}
 
+		// For IPv6 devices, probe only the last-known address (/128) instead of
+		// sweeping a subnet. IPv6 subnets are too large to enumerate, but
+		// re-probing the exact address handles the common case of a device
+		// that rebooted and kept its address.
+		maskBits := s.config.SubnetMaskBits
+		if parsedIP := net.ParseIP(device.LastKnownIP); parsedIP != nil && parsedIP.To4() == nil {
+			maskBits = 128
+		}
+
 		// Derive subnet from last known IP
-		subnet, err := ipToSubnet(device.LastKnownIP, s.config.SubnetMaskBits)
+		subnet, err := ipToSubnet(device.LastKnownIP, maskBits)
 		if err != nil {
 			s.logger.Warn("Failed to derive subnet from IP",
 				"device_identifier", device.DeviceIdentifier,

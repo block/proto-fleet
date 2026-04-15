@@ -29,7 +29,7 @@ type Device struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// unique identifier of the device
 	DeviceIdentifier string `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
-	// IPv4 address of the device
+	// IP address of the device (IPv4 or IPv6)
 	IpAddress string `protobuf:"bytes,2,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
 	// Port number where the device's service is running
 	Port string `protobuf:"bytes,3,opt,name=port,proto3" json:"port,omitempty"`
@@ -284,7 +284,8 @@ type NmapModeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Target specification for scan
 	// Can be: single IP (192.168.1.1), hostname (device.local),
-	// subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
+	// IPv4 subnet (192.168.1.0/24), or IP range (192.168.1.1-10).
+	// IPv6 subnet scanning is not supported; use mDNS or IP list for IPv6 devices.
 	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
 	// Optional ports to scan. When omitted, the server derives canonical scan ports
 	// from loaded plugin metadata. If provided, these ports fully override the
@@ -407,7 +408,7 @@ func (x *IPRangeModeRequest) GetPorts() []string {
 // Configuration for discovering devices from a specific list of IP addresses
 type IPListModeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// List of IP addresses to check
+	// List of IP addresses (IPv4, IPv6, or hostnames) to check
 	IpAddresses []string `protobuf:"bytes,1,rep,name=ip_addresses,json=ipAddresses,proto3" json:"ip_addresses,omitempty"`
 	// Optional ports to check on each IP address. When omitted, the server derives
 	// canonical scan ports from loaded plugin metadata. If provided, these ports

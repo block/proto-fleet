@@ -34,7 +34,7 @@ export type Device = Message<"pairing.v1.Device"> & {
   deviceIdentifier: string;
 
   /**
-   * IPv4 address of the device
+   * IP address of the device (IPv4 or IPv6)
    *
    * @generated from field: string ip_address = 2;
    */
@@ -178,7 +178,8 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
   /**
    * Target specification for scan
    * Can be: single IP (192.168.1.1), hostname (device.local),
-   * subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
+   * IPv4 subnet (192.168.1.0/24), or IP range (192.168.1.1-10).
+   * IPv6 subnet scanning is not supported; use mDNS or IP list for IPv6 devices.
    *
    * @generated from field: string target = 1;
    */
@@ -245,7 +246,7 @@ export const IPRangeModeRequestSchema: GenMessage<IPRangeModeRequest> =
  */
 export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
   /**
-   * List of IP addresses to check
+   * List of IP addresses (IPv4, IPv6, or hostnames) to check
    *
    * @generated from field: repeated string ip_addresses = 1;
    */

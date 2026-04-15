@@ -137,6 +137,8 @@ func TestGetKnownSubnets(t *testing.T) {
 		{discoveredID: 504, deviceID: 504, orgID: 1, identifier: "ignored-unpaired", ipAddress: "172.16.1.5", pairingStatus: "UNPAIRED"},
 		{discoveredID: 505, deviceID: 505, orgID: 2, identifier: "ignored-other-org", ipAddress: "192.168.99.5", pairingStatus: "PAIRED"},
 		{discoveredID: 506, deviceID: 506, orgID: 1, identifier: "ignored-deleted-device", ipAddress: "192.168.12.5", pairingStatus: "PAIRED", deleted: true},
+		{discoveredID: 507, deviceID: 507, orgID: 1, identifier: "known-ipv6-1", ipAddress: "fd00::1:100", pairingStatus: "PAIRED"},
+		{discoveredID: 508, deviceID: 508, orgID: 1, identifier: "known-ipv6-2", ipAddress: "fd01::2:200", pairingStatus: "PAIRED"},
 	} {
 		_, err = conn.Exec(`
 			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
@@ -164,13 +166,27 @@ func TestGetKnownSubnets(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	subnets24, err := store.GetKnownSubnets(ctx, 1, 24)
+	subnets24, err := store.GetKnownSubnets(ctx, 1, 24, true)
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.10.0/24", "192.168.11.0/24"}, subnets24)
 
-	subnets16, err := store.GetKnownSubnets(ctx, 1, 16)
+	subnets16, err := store.GetKnownSubnets(ctx, 1, 16, true)
 	require.NoError(t, err)
 	require.Equal(t, []string{"192.168.0.0/16"}, subnets16)
+
+	// IPv4 query excludes IPv6 rows
+	subnets24IPv4, err := store.GetKnownSubnets(ctx, 1, 24, true)
+	require.NoError(t, err)
+	require.NotContains(t, subnets24IPv4, "fd00::/24")
+	require.NotContains(t, subnets24IPv4, "fd01::/24")
+
+	// IPv6 query returns only IPv6 subnets
+	subnets64, err := store.GetKnownSubnets(ctx, 1, 64, false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"fd00::/64", "fd01::/64"}, subnets64)
+
+	// IPv6 query excludes IPv4 rows
+	require.NotContains(t, subnets64, "192.168.10.0/64")
 }
 
 // setupOfflineDeviceTestData creates test data in the database

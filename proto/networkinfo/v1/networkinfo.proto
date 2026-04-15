@@ -16,6 +16,12 @@ message NetworkInfo {
 
   // Subnet mask or CIDR notation for the network
   string subnet = 4;
+
+  // Local IPv6 address assigned to this device on the network (empty if unavailable)
+  string local_ipv6 = 5;
+
+  // IPv6 subnet in CIDR notation (empty if unavailable)
+  string ipv6_subnet = 6;
 }
 
 // Request to retrieve current network information

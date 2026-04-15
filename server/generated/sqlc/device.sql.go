@@ -862,16 +862,18 @@ WHERE d.org_id = $2
   AND dd.ip_address IS NOT NULL
   AND dd.ip_address != ''
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+  AND family(inet(dd.ip_address)) = CASE WHEN $3::boolean THEN 4 ELSE 6 END
 ORDER BY subnet
 `
 
 type GetKnownSubnetsParams struct {
 	MaskBits int32
 	OrgID    int64
+	IsIpv4   bool
 }
 
 func (q *Queries) GetKnownSubnets(ctx context.Context, arg GetKnownSubnetsParams) ([]string, error) {
-	rows, err := q.query(ctx, q.getKnownSubnetsStmt, getKnownSubnets, arg.MaskBits, arg.OrgID)
+	rows, err := q.query(ctx, q.getKnownSubnetsStmt, getKnownSubnets, arg.MaskBits, arg.OrgID, arg.IsIpv4)
 	if err != nil {
 		return nil, err
 	}

@@ -720,7 +720,11 @@ func (d *Device) TrySubscribe(ctx context.Context, _ []string) (<-chan sdk.Devic
 }
 
 func (d *Device) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
-	url := fmt.Sprintf("%s://%s", d.deviceInfo.URLScheme, d.deviceInfo.Host)
+	host := d.deviceInfo.Host
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	url := fmt.Sprintf("%s://%s", d.deviceInfo.URLScheme, host)
 	return url, true, nil
 }
 

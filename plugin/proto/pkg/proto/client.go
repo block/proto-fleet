@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"math"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -358,7 +359,7 @@ type authTokensResponse struct {
 
 // NewClient creates a new Proto miner REST client.
 func NewClient(host string, port int32, scheme string) (*Client, error) {
-	baseURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	baseURL := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 
 	var httpClient *http.Client
 	if scheme == "https" {

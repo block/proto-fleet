@@ -30,7 +30,8 @@ export const Miners = ({ minersCount }: MinersProps) => {
         onCancelScan={action("cancel scan")}
         onManualDiscover={() => null}
         onContinue={action("continue setup")}
-        networkInfoReady
+        networkInfoPending={false}
+        scanAvailable
         onRescan={action("rescan network")}
       />
     </div>

@@ -16,10 +16,12 @@ import (
 const externalIPForGatewayDetection = "8.8.8.8"
 
 type NetworkInfo struct {
-	Interface string
-	LocalIP   string
-	Gateway   string
-	Subnet    string
+	Interface  string
+	LocalIP    string
+	Gateway    string
+	Subnet     string
+	LocalIPv6  string
+	IPv6Subnet string
 }
 
 var emptyNetworkInfo = NetworkInfo{}
@@ -30,11 +32,17 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 		return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to get network interfaces: %v", err)
 	}
 
-	// Get gateway IP
-	gatewayIP, err := discoverGateway()
-	if err != nil {
-		return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to discover gateway: %v", err)
+	// IPv4 gateway discovery is best-effort; IPv6-only hosts won't have one.
+	gatewayIP, gatewayErr := discoverGateway()
+
+	type ifaceAddrs struct {
+		name    string
+		ipv4Net *net.IPNet
+		ipv6Net *net.IPNet
 	}
+
+	// Collect addresses from all usable interfaces, then pick the best one.
+	var candidates []ifaceAddrs
 
 	for _, iface := range interfaces {
 		// Skip loopback and down interfaces
@@ -48,27 +56,66 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 			continue
 		}
 
+		var candidate ifaceAddrs
+		candidate.name = iface.Name
+
 		for _, addr := range addrs {
 			ipNet, ok := addr.(*net.IPNet)
 			if !ok {
 				continue
 			}
 
-			// Skip IPv6
-			if ipNet.IP.To4() == nil {
-				continue
+			if ipNet.IP.To4() != nil {
+				if candidate.ipv4Net == nil {
+					candidate.ipv4Net = ipNet
+				}
+			} else if ipNet.IP.To16() != nil && !ipNet.IP.IsLinkLocalUnicast() {
+				// Accept global-scope IPv6 addresses, skip link-local (fe80::)
+				if candidate.ipv6Net == nil {
+					candidate.ipv6Net = ipNet
+				}
 			}
+		}
 
-			return NetworkInfo{
-				Interface: iface.Name,
-				LocalIP:   ipNet.IP.String(),
-				Gateway:   gatewayIP.String(),
-				Subnet:    subnetCIDR(ipNet),
-			}, nil
+		if candidate.ipv4Net != nil || candidate.ipv6Net != nil {
+			candidates = append(candidates, candidate)
 		}
 	}
 
-	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
+	// Prefer an interface that has IPv4 (needed for auto-discovery subnet
+	// expansion). Fall back to IPv6-only if no IPv4 interface exists.
+	var best *ifaceAddrs
+	for i := range candidates {
+		if candidates[i].ipv4Net != nil {
+			best = &candidates[i]
+			break
+		}
+	}
+	if best == nil && len(candidates) > 0 {
+		best = &candidates[0]
+	}
+	if best == nil {
+		return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
+	}
+
+	info := NetworkInfo{
+		Interface: best.name,
+	}
+
+	if best.ipv4Net != nil {
+		info.LocalIP = best.ipv4Net.IP.String()
+		info.Subnet = subnetCIDR(best.ipv4Net)
+		if gatewayErr == nil {
+			info.Gateway = gatewayIP.String()
+		}
+	}
+
+	if best.ipv6Net != nil {
+		info.LocalIPv6 = best.ipv6Net.IP.String()
+		info.IPv6Subnet = subnetCIDR(best.ipv6Net)
+	}
+
+	return info, nil
 }
 
 func subnetCIDR(ipNet *net.IPNet) string {

@@ -26,6 +26,23 @@ export const isValidIpv4 = (value: string) => {
   });
 };
 
+export const isValidIpv6 = (value: string): boolean => {
+  if (!value.includes(":")) return false;
+  // Reject scoped addresses (%zone) and the full link-local range (fe80::/10,
+  // i.e. fe80:-febf:) — the backend cannot use them without interface scope.
+  if (value.includes("%")) return false;
+  const lower = value.toLowerCase();
+  if (/^fe[89ab][0-9a-f]:/.test(lower)) return false;
+  try {
+    // URL constructor validates and normalizes IPv6 addresses.
+    // It will throw for invalid addresses.
+    new URL(`http://[${value}]`);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const isValidHostname = (value: string) => {
   const hostname = value.endsWith(".") ? value.slice(0, -1) : value;
   if (!hostname || hostname.length > 253) return false;
@@ -114,6 +131,24 @@ export const parseManualTargets = (input: string) => {
       const normalizedEntry = entry.endsWith(".") ? entry.slice(0, -1) : entry;
       if (isValidIpv4(normalizedEntry)) {
         targets.ipAddresses.push(normalizedEntry);
+      } else {
+        invalidEntries.push(entry);
+        categorizedInvalidEntries.ipAddresses.push(entry);
+      }
+      return;
+    }
+
+    // Check for IPv6 CIDR (contains colon and slash) — categorize as invalid subnet
+    if (entry.includes(":") && entry.includes("/")) {
+      invalidEntries.push(entry);
+      categorizedInvalidEntries.subnets.push(entry);
+      return;
+    }
+
+    // Check for bare IPv6 address (contains colon, no slash)
+    if (entry.includes(":")) {
+      if (isValidIpv6(entry)) {
+        targets.ipAddresses.push(entry);
       } else {
         invalidEntries.push(entry);
         categorizedInvalidEntries.ipAddresses.push(entry);

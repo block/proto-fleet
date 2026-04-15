@@ -22,6 +22,19 @@ func generateIPsFromCIDR(cidr string) ([]string, error) {
 		return nil, err
 	}
 
+	// Host routes (/32 for IPv4, /128 for IPv6) are single-address probes —
+	// return the address directly without network/gateway skip logic.
+	ones, bits := ipNet.Mask.Size()
+	if ones == bits {
+		return []string{ipNet.IP.String()}, nil
+	}
+
+	// Refuse to enumerate CIDRs with more than 16 host bits to prevent
+	// accidental OOM (e.g. a /64 IPv6 prefix would be 2^64 addresses).
+	if hostBits := bits - ones; hostBits > 16 {
+		return nil, fmt.Errorf("CIDR %s has %d host bits; refusing to enumerate (max 16)", cidr, hostBits)
+	}
+
 	var ips []string
 
 	// Get first and last IP in range

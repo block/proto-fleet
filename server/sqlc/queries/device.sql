@@ -373,6 +373,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND dd.ip_address IS NOT NULL
   AND dd.ip_address != ''
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+  AND family(inet(dd.ip_address)) = CASE WHEN sqlc.arg('is_ipv4')::boolean THEN 4 ELSE 6 END
 ORDER BY subnet;
 
 -- name: ListMinerStateSnapshots :many

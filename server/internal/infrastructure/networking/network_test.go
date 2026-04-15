@@ -99,6 +99,22 @@ func TestSubnetCIDR(t *testing.T) {
 			ipNet:    nil,
 			expected: "",
 		},
+		{
+			name: "ipv6 host address is normalized to network cidr",
+			ipNet: &net.IPNet{
+				IP:   net.ParseIP("fd00::1"),
+				Mask: net.CIDRMask(64, 128),
+			},
+			expected: "fd00::/64",
+		},
+		{
+			name: "ipv6 /128 single host",
+			ipNet: &net.IPNet{
+				IP:   net.ParseIP("2001:db8::1"),
+				Mask: net.CIDRMask(128, 128),
+			},
+			expected: "2001:db8::1/128",
+		},
 	}
 
 	for _, tt := range tests {

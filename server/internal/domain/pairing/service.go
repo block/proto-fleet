@@ -70,21 +70,22 @@ const (
 
 // shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
 // or gateway address (.1), except for localhost addresses (127.x.x.x).
+// For IPv6 addresses (16 bytes), this always returns false since IPv6 has no .0/.1 convention.
 // Network and gateway addresses should be skipped during discovery to avoid false positives
 // where all devices appear to respond at the gateway IP.
-func shouldSkipNetworkOrGatewayAddress(ipv4 net.IP) bool {
-	if ipv4 == nil || len(ipv4) != 4 {
+func shouldSkipNetworkOrGatewayAddress(ip net.IP) bool {
+	if ip == nil || len(ip) != 4 {
 		return false
 	}
 
 	// Check if this is localhost (127.x.x.x)
-	isLocalhost := ipv4[0] == localhostFirstOctet
+	isLocalhost := ip[0] == localhostFirstOctet
 	if isLocalhost {
 		return false // Don't skip localhost addresses
 	}
 
 	// Check last octet for network (.0) or gateway (.1) addresses
-	lastOctet := ipv4[3]
+	lastOctet := ip[3]
 	return lastOctet == networkAddressLastOctet || lastOctet == gatewayAddressLastOctet
 }
 
@@ -321,12 +322,14 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) ([]stri
 		return targets, nil
 	}
 
+	// Subnet expansion only runs for IPv4 targets matching the local subnet
+	// (the guard above ensures this). Pass isIPv4=true directly.
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	knownSubnets, err := s.deviceStore.GetKnownSubnets(ctx, info.OrganizationID, maskBits)
+	knownSubnets, err := s.deviceStore.GetKnownSubnets(ctx, info.OrganizationID, maskBits, true)
 	if err != nil {
 		slog.Debug("Skipping known-subnet expansion because subnet query failed",
 			"target", target,
@@ -343,6 +346,53 @@ func (s *Service) resolveNmapTargets(ctx context.Context, target string) ([]stri
 	}
 
 	return expandedTargets, nil
+}
+
+// validateNmapTargets validates targets and resolves hostnames to IP literals
+// so nmap receives concrete addresses. Hostnames are replaced with their
+// resolved IP, preferring IPv4 to avoid flipping a dual-stack host into
+// IPv6-only mode. The returned flag indicates whether -6 is needed.
+func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr func(context.Context, string) ([]net.IPAddr, error)) ([]string, bool, error) {
+	resolved := make([]string, 0, len(targets))
+	var useIPv6 bool
+	for _, t := range targets {
+		if _, ipNet, err := net.ParseCIDR(t); err == nil {
+			if _, bits := ipNet.Mask.Size(); bits == 128 {
+				return nil, false, fleeterror.NewInvalidArgumentError(
+					"IPv6 CIDR subnet scanning is not supported; use mDNS or IP list discovery for IPv6 devices")
+			}
+			resolved = append(resolved, t)
+		} else if ip := net.ParseIP(t); ip != nil {
+			if ip.To4() == nil {
+				useIPv6 = true
+			}
+			resolved = append(resolved, t)
+		} else {
+			// Hostname — resolve and substitute the IP, preferring IPv4 so
+			// dual-stack hosts don't lose their v4 scan.
+			addrs, err := lookupIPAddr(ctx, t)
+			if err != nil || len(addrs) == 0 {
+				// Keep the original hostname; let nmap resolve it.
+				resolved = append(resolved, t)
+				continue
+			}
+			var ipv4, ipv6 string
+			for _, addr := range addrs {
+				if addr.IP.To4() != nil && ipv4 == "" {
+					ipv4 = addr.IP.String()
+				} else if addr.IP.To4() == nil && ipv6 == "" {
+					ipv6 = addr.IP.String()
+				}
+			}
+			if ipv4 != "" {
+				resolved = append(resolved, ipv4)
+			} else {
+				resolved = append(resolved, ipv6)
+				useIPv6 = true
+			}
+		}
+	}
+	return resolved, useIPv6, nil
 }
 
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
@@ -362,13 +412,14 @@ func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []stri
 
 // DiscoverWithMDNS discovers devices using mDNS
 func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
-
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to initialize resolver: %v", err)
 	}
+
+	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	entries := make(chan *zeroconf.ServiceEntry)
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(r.TimeoutSeconds)*time.Second)
@@ -392,11 +443,32 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 					return
 				}
 
-				if len(entry.AddrIPv4) == 0 {
-					continue
+				// NOTE: mDNS records are unauthenticated — a malicious host on the
+				// LAN can advertise arbitrary addresses. This is the same trust model
+				// as the pre-existing IPv4 mDNS path. On-link verification would
+				// require plumbing interface scope through the entire discovery stack.
+				var ipAddress string
+				if len(entry.AddrIPv4) > 0 {
+					ipAddress = entry.AddrIPv4[0].String()
+				} else {
+					// Fall back to a non-link-local IPv6 address. Link-local (fe80::/10)
+					// addresses require an interface scope (%eth0) that net.IP.String()
+					// does not preserve, so they cannot be used for TCP connections.
+					for _, addr := range entry.AddrIPv6 {
+						if !addr.IsLinkLocalUnicast() {
+							ipAddress = addr.String()
+							break
+						}
+					}
+					if ipAddress == "" {
+						if len(entry.AddrIPv6) > 0 {
+							slog.Warn("mDNS device has only link-local IPv6 addresses which require interface scope; skipping",
+								"service", entry.ServiceInstanceName(),
+								"ipv6_addrs", entry.AddrIPv6)
+						}
+						continue
+					}
 				}
-
-				ipAddress := entry.AddrIPv4[0].String()
 				portStr := fmt.Sprintf("%d", entry.Port)
 
 				_, err := s.discoverDevice(ctx, ipAddress, portStr, rawResultChan)
@@ -415,8 +487,9 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 // DiscoverWithNmap discovers devices using Nmap
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
+	if r.Target == "" {
+		return nil, fleeterror.NewInvalidArgumentError("nmap discovery target is required")
+	}
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
 		return nil, err
@@ -426,8 +499,19 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		return nil, err
 	}
 
-	// Apply server-controlled timeout for the entire discovery operation
+	// Apply server-controlled timeout before any DNS work so hostname
+	// resolution cannot outlive the scan budget.
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
+
+	targets, useIPv6Scanning, err := validateNmapTargets(timeoutCtx, targets, net.DefaultResolver.LookupIPAddr)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
+	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	go func() {
 		defer cancel()
@@ -448,6 +532,10 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		}
 
 		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(ports, ",")))
+
+		if useIPv6Scanning {
+			nmapOpts = append(nmapOpts, nmap.WithIPv6Scanning())
+		}
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
 		if err != nil {
@@ -523,7 +611,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 			var ipAddress string
 			for _, addr := range host.Addresses {
-				if addr.AddrType == "ipv4" {
+				if addr.AddrType == "ipv4" || addr.AddrType == "ipv6" {
 					ipAddress = addr.Addr
 					break
 				}
@@ -587,10 +675,9 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 	return resultChan, nil
 }
 
-// DiscoverWithIPRange discovers devices using IP range
+// DiscoverWithIPRange discovers devices using an IPv4 IP range.
+// IPv6 is not supported for range-based discovery; use mDNS or IP list for IPv6 devices.
 func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
 	startIP, err := ipToUint32(r.StartIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
@@ -607,6 +694,10 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	if err != nil {
 		return nil, err
 	}
+
+	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
@@ -654,12 +745,14 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 
 // DiscoverWithIPList discovers devices from a list of IPs
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	rawResultChan := make(chan *pb.DiscoverResponse)
-	resultChan := dedupeDiscoverResponses(rawResultChan)
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
 		return nil, err
 	}
+
+	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
+	rawResultChan := make(chan *pb.DiscoverResponse)
+	resultChan := dedupeDiscoverResponses(rawResultChan)
 
 	// Apply server-controlled timeout for the entire discovery operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
@@ -684,22 +777,48 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					if net.ParseIP(ipAddr) == nil {
+					// Reject scoped IPv6 literals (%zone) — the connection
+					// stack does not propagate interface scope.
+					if strings.Contains(ipAddr, "%") {
+						slog.Debug("rejecting scoped IPv6 address", "input", ipAddr)
+						return
+					}
+					if parsedIP := net.ParseIP(ipAddr); parsedIP != nil {
+						// Reject link-local IPv6 — requires interface scope for
+						// TCP connections, consistent with mDNS and hostname paths.
+						if parsedIP.To4() == nil && parsedIP.IsLinkLocalUnicast() {
+							slog.Debug("rejecting link-local IPv6 address", "input", ipAddr)
+							return
+						}
+						// Normalize to canonical form so dedupe and storage
+						// treat equivalent spellings (e.g. 2001:0DB8::1 vs
+						// 2001:db8::1) as the same address.
+						ipAddr = parsedIP.String()
+					} else {
 						var resolver net.Resolver
 						addrs, err := resolver.LookupIPAddr(timeoutCtx, ipAddr)
 						if err != nil {
 							slog.Debug("hostname resolution failed, skipping entry", "input", ipAddr, "error", err)
 							return
 						}
-						var resolved string
+						var resolvedIPv4, resolvedIPv6 string
 						for _, addr := range addrs {
 							if addr.IP.To4() != nil {
-								resolved = addr.IP.String()
-								break
+								resolvedIPv4 = addr.IP.String()
+								break // IPv4 is preferred; no need to look further
+							} else if resolvedIPv6 == "" && !addr.IP.IsLinkLocalUnicast() {
+								// Skip link-local IPv6 (fe80::) because net.IP.String()
+								// does not preserve the interface scope (%eth0) required
+								// for TCP connections.
+								resolvedIPv6 = addr.IP.String()
 							}
 						}
+						resolved := resolvedIPv4
 						if resolved == "" {
-							slog.Debug("hostname resolved but no IPv4 address found, skipping entry", "input", ipAddr)
+							resolved = resolvedIPv6
+						}
+						if resolved == "" {
+							slog.Debug("hostname resolved but no address found, skipping entry", "input", ipAddr)
 							return
 						}
 						ipAddr = resolved

@@ -6,7 +6,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 )
 
@@ -59,7 +58,6 @@ var UnauthenticatedProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
-	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be

@@ -53,7 +53,7 @@ const MinersPage = ({
 }: MinersPageProps) => {
   const navigate = useNavigate();
 
-  const { data: networkInfo } = useNetworkInfo();
+  const { data: networkInfo, pending: networkInfoPending } = useNetworkInfo();
 
   const { discover, pairingPending, pair } = useMinerPairing();
   const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
@@ -132,7 +132,7 @@ const MinersPage = ({
   );
 
   const handleNmapDiscovery = useCallback(() => {
-    if (!networkInfo) return;
+    if (!networkInfo?.subnet) return;
 
     foremanCredsRef.current = null;
     setFoundMiners([]);
@@ -424,7 +424,8 @@ const MinersPage = ({
       scanDiscoveryPending={scanDiscoveryPending}
       ipListDiscoveryPending={ipListDiscoveryPending}
       pairingPending={pairingPending}
-      networkInfoReady={!!networkInfo}
+      networkInfoPending={networkInfoPending}
+      scanAvailable={!!networkInfo?.subnet}
       onCancelScan={cancelNetworkScan}
       onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}

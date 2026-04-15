@@ -41,15 +41,17 @@ validate_base64_key() {
     return 0  # Valid
 }
 
-# Get local network IP addresses (excludes loopback 127.x.x.x)
+# Get local network IP addresses (excludes loopback, includes IPv4 and global IPv6)
 get_local_ips() {
     if [ "$(uname)" == "Darwin" ]; then
-        # macOS - get IPs from all active interfaces, exclude loopback
+        # macOS - get IPv4 and global IPv6 from all active interfaces, exclude loopback
         ifconfig | grep "inet " | grep -v "127\." | awk '{print $2}' | tr '\n' ' '
+        ifconfig | grep "inet6 " | grep -vE "fe[89ab][0-9a-f]:" | grep -v "::1" | awk '{print $2}' | tr '\n' ' '
     else
-        # Linux - get IPs from all active interfaces, exclude loopback
+        # Linux - get IPv4 and global IPv6 from all active interfaces, exclude loopback
         hostname -I 2>/dev/null | tr ' ' '\n' | grep -v "^127\." | tr '\n' ' ' || \
         ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "^127\." | tr '\n' ' '
+        ip -6 addr show scope global 2>/dev/null | grep -oP '(?<=inet6\s)[0-9a-f:]+' | tr '\n' ' '
     fi
 }
 
@@ -133,7 +135,8 @@ fix_wsl_networking() {
         if ! grep -qF "precedence ::ffff:0:0/96 100" /etc/gai.conf 2>/dev/null; then
             sudo bash -c 'echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf'
         fi
-        # Fix 2: Disable IPv6 routing at kernel level
+        # Fix 2: Disable IPv6 routing at kernel level (WSL-specific workaround for connectivity issues).
+        # When IPv6 is disabled, the discovery pipeline gracefully falls back to IPv4-only operation.
         echo "  - Disabling IPv6 routing..."
         sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
         sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1

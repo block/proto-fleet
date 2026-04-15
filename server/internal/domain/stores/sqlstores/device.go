@@ -719,14 +719,20 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 }
 
 // GetKnownSubnets retrieves unique subnets inferred from paired devices' last known IP addresses.
-func (s *SQLDeviceStore) GetKnownSubnets(ctx context.Context, orgID int64, maskBits int) ([]string, error) {
-	if maskBits < 0 || maskBits > 128 {
-		return nil, fmt.Errorf("maskBits must be between 0 and 128, got %d", maskBits)
+func (s *SQLDeviceStore) GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error) {
+	maxBits := 128
+	if isIPv4 {
+		maxBits = 32
+	}
+	if maskBits < 0 || maskBits > maxBits {
+		return nil, fmt.Errorf("maskBits must be between 0 and %d for %s, got %d",
+			maxBits, map[bool]string{true: "IPv4", false: "IPv6"}[isIPv4], maskBits)
 	}
 
 	rows, err := s.getQueries(ctx).GetKnownSubnets(ctx, sqlc.GetKnownSubnetsParams{
 		OrgID:    orgID,
 		MaskBits: int32(maskBits), // #nosec G115 -- validated above to fit within int32 range
+		IsIpv4:   isIPv4,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get known subnets: %w", err)
