@@ -1335,3 +1335,245 @@ func TestHandleHashboardASIC_ID_Format(t *testing.T) {
 		}
 	}
 }
+
+// --- /api/v1/system tests ---
+
+// Unmarshals the /api/v1/system response into a generic map so we assert against
+// the wire JSON field names (e.g. "new_version") rather than Go struct names.
+func getSystemInfo(t *testing.T, h *RESTApiHandler) map[string]any {
+	t.Helper()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system", nil)
+	h.handleSystem(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	info, ok := envelope["system-info"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected system-info object in response, got: %s", rr.Body.String())
+	}
+	return info
+}
+
+func TestHandleSystem_IncludesManufacturerAndModel(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	info := getSystemInfo(t, h)
+
+	// ProtoOS identifies a Proto Rig by product_name === "Proto Rig"
+	// (see client/src/protoOS/store/hooks/useSystemInfo.ts). The simulator
+	// must match that exact string or the UI treats it as an unknown device.
+	if got := info["product_name"]; got != "Proto Rig" {
+		t.Fatalf("expected product_name %q, got %v", "Proto Rig", got)
+	}
+	if got := info["manufacturer"]; got != "Proto" {
+		t.Fatalf("expected manufacturer %q, got %v", "Proto", got)
+	}
+	if got := info["model"]; got != "Rig" {
+		t.Fatalf("expected model %q, got %v", "Rig", got)
+	}
+}
+
+func TestHandleSystem_OsVariantIsReleasePerSpec(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	info := getSystemInfo(t, h)
+
+	osInfo, ok := info["os"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected os object, got: %v", info["os"])
+	}
+
+	// The OpenAPI OsInfo.variant enum is {"release","mfg","dev","unknown"}.
+	// Keep the simulator on a spec-valid value so contract tests pass.
+	switch osInfo["variant"] {
+	case "release", "mfg", "dev", "unknown":
+	default:
+		t.Fatalf("expected os.variant to be one of release/mfg/dev/unknown, got %v", osInfo["variant"])
+	}
+}
+
+func TestHandleSystem_SwUpdateStatusUsesSpecFieldNames(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	info := getSystemInfo(t, h)
+
+	swUpdate, ok := info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+
+	if got := swUpdate["status"]; got != "current" {
+		t.Fatalf("expected status %q on fresh start, got %v", "current", got)
+	}
+	if got := swUpdate["current_version"]; got != defaultFirmwareVersion {
+		t.Fatalf("expected current_version %q, got %v", defaultFirmwareVersion, got)
+	}
+
+	// Previous version is only populated after an install+reboot cycle; verify it's
+	// absent on fresh start so clients don't mistake "" for a real prior version.
+	if _, present := swUpdate["previous_version"]; present {
+		t.Fatalf("expected previous_version to be omitted on fresh start, got %v", swUpdate["previous_version"])
+	}
+
+	// Ensure the old (pre-spec) field name isn't serialized anymore.
+	if _, present := swUpdate["available_version"]; present {
+		t.Fatal("response must not include legacy available_version field; OpenAPI spec uses new_version")
+	}
+}
+
+func TestHandleSystem_PreviousVersionSetAfterInstallReboot(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	// Simulate the post-install, pre-reboot state: a firmware bundle with a new
+	// version has been uploaded and installed; the reboot should promote it to
+	// current and move the old current into previous.
+	state.mu.Lock()
+	state.FWUpdateStatus = "installed"
+	state.FWNewVersion = defaultNextFirmwareVersion
+	state.mu.Unlock()
+
+	rebootRR := httptest.NewRecorder()
+	rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
+	h.handleReboot(rebootRR, rebootReq)
+
+	if rebootRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d from reboot, got %d; body=%s", http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
+	}
+
+	// handleReboot starts a background goroutine that clears Rebooting after 10s; for
+	// the test we just clear the flag directly so the system endpoint responds.
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	info := getSystemInfo(t, h)
+	swUpdate, ok := info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+
+	if got := swUpdate["current_version"]; got != defaultNextFirmwareVersion {
+		t.Fatalf("expected current_version %q after install+reboot, got %v", defaultNextFirmwareVersion, got)
+	}
+	if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
+		t.Fatalf("expected previous_version %q after install+reboot, got %v", defaultFirmwareVersion, got)
+	}
+	if swUpdate["current_version"] == swUpdate["previous_version"] {
+		t.Fatalf("current_version and previous_version must differ after an upgrade, both are %v", swUpdate["current_version"])
+	}
+	if got := swUpdate["status"]; got != "current" {
+		t.Fatalf("expected status to reset to %q after reboot, got %v", "current", got)
+	}
+
+	// OS.version should also reflect the promoted firmware version -- real
+	// firmware bundles upgrade OS + services together.
+	osInfo, ok := info["os"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected os object, got: %v", info["os"])
+	}
+	if got := osInfo["version"]; got != defaultNextFirmwareVersion {
+		t.Fatalf("expected os.version to be promoted to %q, got %v", defaultNextFirmwareVersion, got)
+	}
+}
+
+func TestHandleSystem_RebootWithoutInstall_DoesNotSetPreviousVersion(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rebootRR := httptest.NewRecorder()
+	rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
+	h.handleReboot(rebootRR, rebootReq)
+
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	info := getSystemInfo(t, h)
+	swUpdate, ok := info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+
+	if _, present := swUpdate["previous_version"]; present {
+		t.Fatalf("expected previous_version to be absent after reboot without prior install, got %v", swUpdate["previous_version"])
+	}
+}
+
+// Regression: a PUT /api/v1/system/update that arrives while an install is
+// already "installed" and awaiting reboot must not clobber FWUpdateStatus /
+// FWNewVersion. Before the fix, any PUT (malformed or not) in this state
+// silently reset both fields and caused handleReboot to skip version promotion.
+func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	// Simulate a completed install awaiting reboot. Driving the full 60s async
+	// lifecycle through handleUpdate would be too slow for a unit test, so we
+	// seed the state directly; the paths under test (handleUpdate's guard and
+	// handleReboot's promotion) are unaffected by how we got here.
+	state.mu.Lock()
+	state.FWUpdateStatus = "installed"
+	state.FWNewVersion = defaultNextFirmwareVersion
+	state.mu.Unlock()
+
+	// A second PUT with malformed multipart body must return 409 BEFORE any
+	// state mutation, not fall through and wipe the staged version.
+	malformedReq := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", strings.NewReader(""))
+	malformedReq.Header.Set("Content-Type", "multipart/form-data; boundary=notused")
+	malformedRR := httptest.NewRecorder()
+	h.handleUpdate(malformedRR, malformedReq)
+
+	if malformedRR.Code != http.StatusConflict {
+		t.Fatalf("expected %d for PUT while installed, got %d; body=%s",
+			http.StatusConflict, malformedRR.Code, malformedRR.Body.String())
+	}
+
+	state.mu.RLock()
+	gotStatus := state.FWUpdateStatus
+	gotNewVersion := state.FWNewVersion
+	state.mu.RUnlock()
+
+	if gotStatus != "installed" {
+		t.Fatalf("expected FWUpdateStatus to remain %q after rejected re-upload, got %q", "installed", gotStatus)
+	}
+	if gotNewVersion != defaultNextFirmwareVersion {
+		t.Fatalf("expected FWNewVersion to remain %q after rejected re-upload, got %q", defaultNextFirmwareVersion, gotNewVersion)
+	}
+
+	// Confirm the subsequent reboot still promotes the staged version.
+	rebootRR := httptest.NewRecorder()
+	rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
+	h.handleReboot(rebootRR, rebootReq)
+
+	if rebootRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d from reboot, got %d", http.StatusAccepted, rebootRR.Code)
+	}
+
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	info := getSystemInfo(t, h)
+	swUpdate, ok := info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+	if got := swUpdate["current_version"]; got != defaultNextFirmwareVersion {
+		t.Fatalf("expected current_version %q after promotion, got %v", defaultNextFirmwareVersion, got)
+	}
+	if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
+		t.Fatalf("expected previous_version %q after promotion, got %v", defaultFirmwareVersion, got)
+	}
+}

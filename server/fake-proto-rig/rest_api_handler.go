@@ -94,6 +94,8 @@ type SystemInfo struct {
 // SystemInfoInner contains the inner system info
 type SystemInfoInner struct {
 	ProductName       string       `json:"product_name"`
+	Manufacturer      string       `json:"manufacturer,omitempty"`
+	Model             string       `json:"model,omitempty"`
 	Board             string       `json:"board"`
 	CBSN              string       `json:"cb_sn"`
 	SOC               string       `json:"soc"`
@@ -124,10 +126,14 @@ type OSInfo struct {
 
 // UpdateStatus contains software update status
 type UpdateStatus struct {
-	Status           string  `json:"status"`
-	AvailableVersion string  `json:"available_version,omitempty"`
-	CurrentVersion   string  `json:"current_version,omitempty"`
-	Error            *string `json:"error,omitempty"`
+	Status          string  `json:"status"`
+	PreviousVersion string  `json:"previous_version,omitempty"`
+	CurrentVersion  string  `json:"current_version,omitempty"`
+	NewVersion      string  `json:"new_version,omitempty"`
+	Message         *string `json:"message,omitempty"`
+	Progress        *int    `json:"progress,omitempty"`
+	Error           *string `json:"error,omitempty"`
+	ReleaseNotes    *string `json:"release_notes,omitempty"`
 }
 
 // SystemStatuses contains system onboarding status
@@ -1155,48 +1161,56 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 
 	h.state.mu.RLock()
 	fwStatus := h.state.FWUpdateStatus
+	fwCurrentVersion := h.state.FWCurrentVersion
+	fwPreviousVersion := h.state.FWPreviousVersion
 	h.state.mu.RUnlock()
 	if fwStatus == "" {
 		fwStatus = "current"
 	}
+	if fwCurrentVersion == "" {
+		fwCurrentVersion = defaultFirmwareVersion
+	}
 
 	h.writeJSON(w, http.StatusOK, SystemInfo{
 		SystemInfo: SystemInfoInner{
-			ProductName:   h.state.Model,
+			ProductName:   "Proto Rig",
+			Manufacturer:  "Proto",
+			Model:         h.state.Model,
 			Board:         "C3",
 			CBSN:          h.state.SerialNumber,
 			SOC:           "STM32MP157F",
 			UptimeSeconds: uptime,
 			OS: OSInfo{
 				Name:     "ProtoOS",
-				Version:  defaultFirmwareVersion,
-				Variant:  "production",
+				Version:  fwCurrentVersion,
+				Variant:  "release",
 				GitHash:  "abc123def456",
 				Hostname: h.state.Hostname,
 			},
 			SWUpdateState: UpdateStatus{
-				Status:         fwStatus,
-				CurrentVersion: defaultFirmwareVersion,
+				Status:          fwStatus,
+				CurrentVersion:  fwCurrentVersion,
+				PreviousVersion: fwPreviousVersion,
 			},
 			MiningDriverSW: &SWInfo{
 				Name:    "mcdd",
-				Version: defaultFirmwareVersion,
+				Version: fwCurrentVersion,
 			},
 			WebServer: &SWInfo{
 				Name:    "miner-api-server",
-				Version: defaultFirmwareVersion,
+				Version: fwCurrentVersion,
 			},
 			WebDashboard: &SWInfo{
 				Name:    "miner-web",
-				Version: defaultFirmwareVersion,
+				Version: fwCurrentVersion,
 			},
 			PoolInterfaceSW: &SWInfo{
 				Name:    "stratum-client",
-				Version: defaultFirmwareVersion,
+				Version: fwCurrentVersion,
 			},
 			HashboardFirmware: &SWInfo{
 				Name:    "hashboard-fw",
-				Version: defaultFirmwareVersion,
+				Version: fwCurrentVersion,
 			},
 		},
 	})
@@ -1223,6 +1237,11 @@ func (h *RESTApiHandler) handleReboot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.state.mu.Lock()
+	if h.state.FWUpdateStatus == "installed" && h.state.FWNewVersion != "" {
+		h.state.FWPreviousVersion = h.state.FWCurrentVersion
+		h.state.FWCurrentVersion = h.state.FWNewVersion
+		h.state.FWNewVersion = ""
+	}
 	h.state.FWUpdateStatus = "current"
 	h.state.Rebooting = true
 	h.state.mu.Unlock()
@@ -1325,18 +1344,25 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.state.mu.Lock()
-		if h.state.FWUpdateStatus == "downloaded" || h.state.FWUpdateStatus == "installing" {
+		// Reject re-uploads whenever an update is pending (downloaded/installing)
+		// OR has already completed install and is awaiting reboot. Treating
+		// "installed" as in-progress prevents a second upload from clobbering
+		// FWUpdateStatus/FWNewVersion and causing handleReboot to skip promotion.
+		switch h.state.FWUpdateStatus {
+		case "downloaded", "installing", "installed":
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
 		h.state.FWUpdateStatus = "downloaded"
+		h.state.FWNewVersion = defaultNextFirmwareVersion
 		h.state.mu.Unlock()
 
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			h.state.mu.Lock()
 			h.state.FWUpdateStatus = ""
+			h.state.FWNewVersion = ""
 			h.state.mu.Unlock()
 			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
 			return
@@ -1383,9 +1409,17 @@ func (h *RESTApiHandler) handleUpdateCheck(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	h.state.mu.RLock()
+	currentVersion := h.state.FWCurrentVersion
+	h.state.mu.RUnlock()
+	if currentVersion == "" {
+		currentVersion = defaultFirmwareVersion
+	}
+
 	h.writeJSON(w, http.StatusOK, UpdateStatus{
 		Status:         "current",
-		CurrentVersion: defaultFirmwareVersion,
+		CurrentVersion: currentVersion,
 	})
 }
 

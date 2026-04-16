@@ -240,7 +240,7 @@ message FanControl {
 // =============================================================================
 
 message InjectHashboardError {
-    uint32 error_code = 1;
+    repeated uint32 error_codes = 1;
 }
 
 message HashboardSimControl {

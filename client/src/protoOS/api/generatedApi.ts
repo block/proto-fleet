@@ -1981,6 +1981,11 @@ export interface UpdateStatus {
    */
   new_version?: string;
   /**
+   * Previous software version
+   * @example "1.0.0"
+   */
+  previous_version?: string;
+  /**
    * Progress percentage for downloading or installing (0-100)
    * @example 75
    */

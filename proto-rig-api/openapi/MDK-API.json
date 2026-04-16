@@ -3479,6 +3479,11 @@
               "error"
             ]
           },
+          "previous_version": {
+            "type": "string",
+            "description": "Previous software version",
+            "example": "1.0.0"
+          },
           "current_version": {
             "type": "string",
             "description": "Current software version",

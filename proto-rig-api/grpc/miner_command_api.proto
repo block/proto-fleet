@@ -27,6 +27,7 @@ service MinerCommandApi {
     rpc StartMining(miner_common_api.EmptyRequest) returns (CommandResponse);
     rpc StopMining(miner_common_api.EmptyRequest) returns (CommandResponse);
     rpc SetPowerTarget(PowerTargetRequest) returns (miner_data_api.PowerTargetResponse);
+    rpc GetPerformanceTuningAlgorithm(miner_common_api.EmptyRequest) returns (PerformanceTuningAlgorithmResponse);
     rpc SetCoolingMode(CoolingModeRequest) returns (miner_data_api.CoolingModeResponse);
     rpc AddPools(PoolsRequest) returns (CommandResponse);
     rpc RemovePools(PoolsRequest) returns (CommandResponse);
@@ -66,4 +67,9 @@ enum TuningAlgorithm {
 
 message PerformanceTuningAlgorithmRequest {
     TuningAlgorithm tuning_algorithm = 1;
+}
+
+message PerformanceTuningAlgorithmResponse {
+    miner_common_api.ApiResult result = 1;
+    TuningAlgorithm tuning_algorithm = 2;
 }

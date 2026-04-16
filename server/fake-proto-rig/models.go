@@ -55,8 +55,9 @@ const (
 	defaultPoolDifficulty     = 1048576.0
 
 	// Software info
-	defaultFirmwareVersion = "1.8.0"
-	defaultSoftwareName    = "Proto Mining Firmware"
+	defaultFirmwareVersion     = "1.8.0"
+	defaultNextFirmwareVersion = "1.8.1" // staged on firmware upload, promoted to current after install+reboot
+	defaultSoftwareName        = "Proto Mining Firmware"
 
 	// Random variation percentage
 	telemetryVariation = 0.05 // 5% random variation
@@ -176,7 +177,10 @@ type MinerState struct {
 	LocateActive bool
 
 	// Firmware update simulation
-	FWUpdateStatus string // "current", "downloaded", "installing", "installed"
+	FWUpdateStatus    string // "current", "downloaded", "installing", "installed"
+	FWCurrentVersion  string // running firmware version; initialized to defaultFirmwareVersion
+	FWNewVersion      string // staged version after a successful upload; promoted to current on reboot
+	FWPreviousVersion string // set after reboot following a firmware update
 
 	// Reboot simulation
 	Rebooting bool
@@ -224,6 +228,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		BaseEfficiencyJTH:  defaultEfficiencyJTH,
 		Pools:              make([]*Pool, 0),
 		PoolNames:          make(map[uint32]string),
+		FWCurrentVersion:   defaultFirmwareVersion,
 		StartTime:          time.Now(),
 	}
 }

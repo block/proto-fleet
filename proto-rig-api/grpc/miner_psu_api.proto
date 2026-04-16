@@ -43,7 +43,8 @@ enum PsuErrorCode {
     PSU_ERROR_CODE_LLC_FAILURE = 26;           // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)    LLC circuit hardware failure (detected via Chicony vendor attributes)
 
     // State errors
-    PSU_ERROR_CODE_RECOVERY_EXHAUSTED = 27;   // Recovery attempts exhausted; reset recovery limits or reboot to clear
+    PSU_ERROR_CODE_RECOVERY_EXHAUSTED = 27;            // Recovery attempts exhausted; reset recovery limits or reboot to clear
+    PSU_ERROR_CODE_UNEXPECTED_BOOTLOADER_MODE = 28;    // PSU is stuck in bootloader mode; firmware update required to recover
 }
 
 message PsuError {

@@ -328,9 +328,7 @@ message HashboardInfo {
         string image_hash = 3;
         miner_common_api.Build build = 4;
     }
-    // DEPRECATED: Use GetAsicMetadata RPC instead for detailed ASIC metadata
     message AsicBinInfo {
-        option deprecated = true;
         uint32 id = 1;
         uint32 version = 2;
     }
@@ -347,8 +345,10 @@ message HashboardInfo {
     uint32 usb_port = 11;
     string ec_logs_path = 12;
     uint32 slot = 13;
-    // DEPRECATED: Use GetAsicMetadata RPC instead for detailed ASIC metadata
-    optional AsicBinInfo mining_asic_bin = 14 [deprecated = true];
+    // De-duplicated set of unique (id, version) ASIC bin combinations present on
+    // this hashboard. Each element is not a per-ASIC entry, and clients should
+    // treat the ordering of this repeated field as unspecified.
+    repeated AsicBinInfo mining_asic_bin = 14;
 }
 
 message HashboardsInfoResponse {
